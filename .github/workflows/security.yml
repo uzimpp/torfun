@@ -1,0 +1,108 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Catch newly-disclosed CVEs in unchanged dependencies.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - run: bun install --frozen-lockfile
+      # OWASP A06 (vulnerable & outdated components).
+      - name: bun audit
+        run: bun audit --audit-level=high
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # OWASP A02 (cryptographic failures / leaked credentials).
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sast:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v3
+
+  container-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      matrix:
+        app: [web, api]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.app }} image
+        run: docker build -f apps/${{ matrix.app }}/Dockerfile -t torfun-${{ matrix.app }}:ci .
+      # OWASP A06, plus OS-level CVEs in the base image.
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: torfun-${{ matrix.app }}:ci
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-${{ matrix.app }}.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.app }}.sarif
+          category: trivy-${{ matrix.app }}
+
+  dast-zap-baseline:
+    runs-on: ubuntu-latest
+    needs: [container-scan]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        run: docker compose up --build -d web api mongodb
+        env:
+          MONGODB_URI: mongodb://mongodb:27017/torfun
+          JWT_SECRET: zap-baseline-secret-zap-baseline-1234
+          GOOGLE_CLOUD_PROJECT: torfun-zap
+      - name: Wait for web to be ready
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3000 && exit 0
+            sleep 2
+          done
+          echo "web did not become ready in time" >&2
+          exit 1
+      # OWASP DAST pass against the running app (XSS, headers, injection probes).
+      - name: OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: 'http://localhost:3000'
+          cmd_options: '-a'
+          fail_action: true
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

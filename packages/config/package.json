@@ -1,0 +1,17 @@
+{
+  "name": "@torfun/config",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "files": [
+    "base.json",
+    "nextjs.json",
+    "node.json",
+    "eslint"
+  ],
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "typescript-eslint": "^8.20.0"
+  }
+}

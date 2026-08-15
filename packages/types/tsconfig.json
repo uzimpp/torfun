@@ -1,0 +1,4 @@
+{
+  "extends": "@torfun/config/node.json",
+  "include": ["src"]
+}

@@ -1,0 +1,57 @@
+name: torfun
+
+services:
+  mongodb:
+    # Mirrors Mongo Atlas locally (including Atlas Search), so behavior stays
+    # close to the production MONGODB_URI target.
+    image: mongodb/mongodb-atlas-local:8.0
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodb_data:/data/db
+      # Also persist /data/configdb: it holds the auto-generated keyfile this
+      # image uses for its replica-set identity. Without it, a recreated
+      # container can't find the keyfile the old one generated and refuses
+      # to start ("Unable to acquire security key[s]").
+      - mongodb_config:/data/configdb
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    env_file:
+      - .env
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/torfun
+      # Always production here regardless of the developer's local .env: the
+      # image has no node_modules (bundled dist/ only), so pino's dev-only
+      # pretty-print transport (a devDependency) isn't resolvable at runtime.
+      NODE_ENV: production
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    depends_on:
+      - api
+
+volumes:
+  mongodb_data:
+  mongodb_config:

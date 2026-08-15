@@ -1,0 +1,5 @@
+# Next.js's `output: standalone` dependency tracing doesn't follow Bun's
+# default "isolated" node_modules store correctly (it drops nested deps like
+# @swc/helpers). Hoisted linker gives a conventional npm/yarn-style layout.
+[install]
+linker = "hoisted"
