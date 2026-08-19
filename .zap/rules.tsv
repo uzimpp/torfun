@@ -1,0 +1,5 @@
+90005	IGNORE	(Sec-Fetch-Dest Header is Missing - known false positive: ZAP's automated crawler doesn't send browser-standard Fetch Metadata request headers, so this fires regardless of real app behavior.)
+10055	IGNORE	(CSP: script-src unsafe-inline - deliberate, documented tradeoff in apps/web/next.config.ts to avoid forcing fully dynamic rendering for a nonce-based CSP; revisit if inline script usage grows.)
+10094	IGNORE	(Base64 Disclosure - well-known high false-positive rule; fires on any base64-looking substring in minified JS/CSS or data URIs, not an actual leak.)
+10109	IGNORE	(Modern Web Application - informational classification only, always fires for SPA/React/Next.js apps, not a vulnerability.)
+10049	IGNORE	(Non-Storable Content - expected for dynamically-rendered pages and 404 responses; not a security issue.)

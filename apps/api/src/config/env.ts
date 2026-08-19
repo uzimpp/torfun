@@ -20,8 +20,8 @@ const EnvSchema = z.object({
 
   // Google Cloud / Vertex AI
   GOOGLE_CLOUD_PROJECT: z.string().min(1, 'GOOGLE_CLOUD_PROJECT is required'),
-  GOOGLE_CLOUD_LOCATION: z.string().default('asia-southeast1'),
-  VERTEX_AI_MODEL: z.string().default('gemini-2.0-flash'),
+  GOOGLE_CLOUD_LOCATION: z.string().default('asia-southeast3'),
+  VERTEX_AI_MODEL: z.string().default('gemini-3.5-flash'),
   // Path to a service-account JSON key. Prefer Workload Identity Federation
   // in deployed environments; this is for local development only.
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
