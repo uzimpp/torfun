@@ -21,6 +21,8 @@ const cspHeader = `
 const nextConfig: NextConfig = {
   // Standalone build for the Docker image (apps/web/Dockerfile).
   output: 'standalone',
+  // Don't leak framework/version info via the X-Powered-By response header.
+  poweredByHeader: false,
   async headers() {
     return [
       {
@@ -31,6 +33,9 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
           {
             key: 'Strict-Transport-Security',
             value: 'max-age=63072000; includeSubDomains; preload',

@@ -1,13 +1,26 @@
-name: Docker Build & Push
+name: Docker Build, Push & Deploy
 
 on:
   push:
     branches: [main]
     tags: ['v*']
 
+# Required repo Variables (Settings > Secrets and variables > Actions > Variables):
+#   GCP_PROJECT_ID                 e.g. torfun-prod
+#   GCP_REGION                     e.g. asia-southeast3
+#   GCP_ARTIFACT_REGISTRY_REPO     e.g. torfun
+#   GCP_WIF_PROVIDER               full resource name of the WIF provider
+#   GCP_DEPLOY_SERVICE_ACCOUNT     email of the deploy-time service account
+#   GCP_API_RUNTIME_SERVICE_ACCOUNT email of the api service's runtime identity (needs roles/aiplatform.user, roles/secretmanager.secretAccessor)
+#   GCP_WEB_RUNTIME_SERVICE_ACCOUNT email of the web service's runtime identity (no extra roles needed)
+#   WEB_URL                        public URL of the web Cloud Run service, for api's CORS_ORIGINS
+# Required GCP Secret Manager secrets (referenced by name, not value, below):
+#   MONGODB_URI, JWT_SECRET
+# See scripts/gcp-bootstrap.sh for the one-time setup that creates all of the above.
+
 permissions:
   contents: read
-  packages: write
+  id-token: write
 
 jobs:
   build-and-push:
@@ -20,16 +33,25 @@ jobs:
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
+      - id: auth
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ vars.GCP_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
 
       - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.app }}
+          images: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REGISTRY_REPO }}/${{ matrix.app }}
+          tags: |
+            type=sha,format=long,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
 
       # Build and load locally first (no push) so it can be scanned before
       # anything reaches the registry. The push step below reuses this
@@ -61,3 +83,47 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  deploy-api:
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/deploy-cloudrun@251330ba9a8a34bfbc1622895f42e1d53fd14522 # v2
+        with:
+          service: torfun-api
+          region: ${{ vars.GCP_REGION }}
+          image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REGISTRY_REPO }}/api:${{ github.sha }}
+          service_account: ${{ vars.GCP_API_RUNTIME_SERVICE_ACCOUNT }}
+          # GOOGLE_CLOUD_LOCATION intentionally omitted: it's Vertex AI's
+          # region, unrelated to where Cloud Run itself runs (GCP_REGION) —
+          # Vertex AI/Gemini isn't available in every Cloud Run region.
+          # Falls back to env.ts's default (asia-southeast3) unless overridden.
+          env_vars: |
+            CORS_ORIGINS=${{ vars.WEB_URL }}
+            GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+          secrets: |
+            MONGODB_URI=MONGODB_URI:latest
+            JWT_SECRET=JWT_SECRET:latest
+
+  deploy-web:
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/deploy-cloudrun@251330ba9a8a34bfbc1622895f42e1d53fd14522 # v2
+        with:
+          service: torfun-web
+          region: ${{ vars.GCP_REGION }}
+          image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REGISTRY_REPO }}/web:${{ github.sha }}
+          service_account: ${{ vars.GCP_WEB_RUNTIME_SERVICE_ACCOUNT }}

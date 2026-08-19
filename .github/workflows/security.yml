@@ -98,11 +98,13 @@ jobs:
           exit 1
       # OWASP DAST pass against the running app (XSS, headers, injection probes).
       - name: OWASP ZAP baseline scan
-        uses: zaproxy/action-baseline@7c4deb10e6261301961c86d65d54a516394f9aed # v0.14.0
+        uses: zaproxy/action-baseline@6c5a007541891231cd9e0ddec25d4f25c59c9874 # v0.15.0
         with:
           target: 'http://localhost:3000'
           cmd_options: '-a'
+          rules_file_name: '.zap/rules.tsv'
           fail_action: true
+          allow_issue_writing: false
       - name: Stop stack
         if: always()
         run: docker compose down -v

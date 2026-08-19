@@ -27,8 +27,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-asia-southeast1}
-      VERTEX_AI_MODEL: ${VERTEX_AI_MODEL:-gemini-2.0-flash}
+      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-asia-southeast3}
+      VERTEX_AI_MODEL: ${VERTEX_AI_MODEL:-gemini-3.5-flash}
     depends_on:
       mongodb:
         condition: service_healthy
