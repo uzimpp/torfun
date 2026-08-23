@@ -16,7 +16,7 @@ export const TorSourceSchema = z.object({
 });
 export type TorSource = z.infer<typeof TorSourceSchema>;
 
-export const TorStatus = z.enum(['new', 'processing', 'matched', 'rejected', 'archived']);
+export const TorStatus = z.enum(['draft', 'published']);
 export type TorStatus = z.infer<typeof TorStatus>;
 
 export const TorSchema = z.object({
@@ -36,7 +36,7 @@ export const TorSchema = z.object({
   source: TorSourceSchema,
   /** SHA-256 of normalized source content, used to de-duplicate per functional requirements. */
   contentHash: z.string(),
-  status: TorStatus.default('new'),
+  status: TorStatus.default('draft'),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });

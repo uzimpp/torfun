@@ -1,10 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, test } from 'vitest';
-import Home from './page';
+import { HomePage } from '@/features/tors/pages/home-page';
 
 describe('Home', () => {
-  test('renders the TOR finder heading in Thai', () => {
-    render(<Home />);
-    expect(screen.getByText('ระบบค้นหาประกาศ TOR')).toBeInTheDocument();
+  test('renders the recommended TOR section', async () => {
+    render(await HomePage());
+    expect(screen.getByRole('heading', { name: 'หน้าหลัก' })).toBeInTheDocument();
+    expect(screen.getByText('TOR แนะนำ')).toBeInTheDocument();
   });
 });
