@@ -100,7 +100,7 @@ jobs:
           service: torfun-api
           region: ${{ vars.GCP_REGION }}
           image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REGISTRY_REPO }}/api:${{ github.sha }}
-          service_account: ${{ vars.GCP_API_RUNTIME_SERVICE_ACCOUNT }}
+          flags: '--service-account=${{ vars.GCP_API_RUNTIME_SERVICE_ACCOUNT }}'
           # GOOGLE_CLOUD_LOCATION intentionally omitted: it's Vertex AI's
           # region, unrelated to where Cloud Run itself runs (GCP_REGION) —
           # Vertex AI/Gemini isn't available in every Cloud Run region.
@@ -127,4 +127,4 @@ jobs:
           service: torfun-web
           region: ${{ vars.GCP_REGION }}
           image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REGISTRY_REPO }}/web:${{ github.sha }}
-          service_account: ${{ vars.GCP_WEB_RUNTIME_SERVICE_ACCOUNT }}
+          flags: '--service-account=${{ vars.GCP_WEB_RUNTIME_SERVICE_ACCOUNT }}'
