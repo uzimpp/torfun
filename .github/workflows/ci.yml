@@ -40,6 +40,9 @@ jobs:
           # injected at deploy/runtime, never baked into the CI build.
           MONGODB_URI: mongodb://localhost:27017/torfun-ci
           JWT_SECRET: ci-build-secret-ci-build-secret-1234
+          GOOGLE_CLIENT_ID: test-client-id
+          GOOGLE_CLIENT_SECRET: test-client-secret
+          GOOGLE_OAUTH_CALLBACK_URL: http://localhost:8080/api/auth/callback/google
           GOOGLE_CLOUD_PROJECT: torfun-ci
 
   e2e:
@@ -64,6 +67,9 @@ jobs:
         env:
           MONGODB_URI: mongodb://localhost:27017/torfun-ci
           JWT_SECRET: ci-build-secret-ci-build-secret-1234
+          GOOGLE_CLIENT_ID: test-client-id
+          GOOGLE_CLIENT_SECRET: test-client-secret
+          GOOGLE_OAUTH_CALLBACK_URL: http://localhost:8080/api/auth/callback/google
           GOOGLE_CLOUD_PROJECT: torfun-ci
 
       - name: Run Playwright e2e tests
