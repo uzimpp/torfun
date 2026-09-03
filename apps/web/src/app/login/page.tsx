@@ -112,7 +112,7 @@ export default function LoginPage() {
         <button
           type="button"
           onClick={() => {
-            window.location.href = `${api_url}/api/auth/google`;
+            window.location.assign(new URL('/api/auth/google', api_url).toString());
           }}
           className="w-full rounded-lg border border-gray-300 px-4 py-3 font-medium text-gray-700 transition hover:bg-gray-50"
         >
