@@ -1,8 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { healthRoutes } from './health';
+import { authRoutes } from './auth';
+import { adminRoutes } from './admin';
+import { dashboardRoutes } from './dashboard';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes, { prefix: '/api' });
+  await app.register(authRoutes, { prefix: '/api/auth' });
+  await app.register(adminRoutes, { prefix: '/api' });
+  await app.register(dashboardRoutes, { prefix: '/api' });
 
   // Future route groups (per feature analysis in the project brief):
   // - /api/tors            (list/filter/search, USR-01..03/06/08)
