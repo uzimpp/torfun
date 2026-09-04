@@ -30,6 +30,11 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# The base image ships whatever OpenSSL was current when it was published, so
+# pick up distro fixes released since (mirrors `apt-get upgrade` in the API
+# image). Without this, Trivy's HIGH/CRITICAL gate fails on libssl/libcrypto.
+RUN apk upgrade --no-cache
+
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 

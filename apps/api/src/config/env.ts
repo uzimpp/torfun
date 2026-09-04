@@ -29,9 +29,12 @@ const EnvSchema = z.object({
   // in deployed environments; this is for local development only.
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
 
-  // Notifications (USR-04/USR-05: email-only)
-  SMTP_URL: z.string().optional(),
-  NOTIFICATION_FROM_EMAIL: z.string().email().optional(),
+  // --- e-GP ingestion (Thai government procurement) ---
+  // Open-data API key. Register at https://opend.data.go.th/register_api/
+  EGP_API_KEY: z.string().min(1, 'EGP_API_KEY is required'),
+  // Per-run cap on TOR retrievals. gprocurement.go.th's robots.txt is
+  // Disallow: / and the owner's authorisation is for low-volume research.
+  EGP_MAX_DOWNLOADS_PER_RUN: z.coerce.number().int().positive().max(200).default(15),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
