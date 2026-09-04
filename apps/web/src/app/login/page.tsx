@@ -52,7 +52,7 @@ export default function LoginPage() {
 
                     <span className="font-[Sarabun] text-sm text-[#1B2338] mt-4">
                         Don't have an account?
-                        <a href="#" className="underline font-[Sarabun] text-sm text-[#2B4C9B]"> Sign up here</a>
+                        <a href="/signup" className="underline font-[Sarabun] text-sm text-[#2B4C9B]"> Sign up here</a>
                     </span>
                 </div>
             </main>
