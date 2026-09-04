@@ -33,6 +33,7 @@
     "bcryptjs": "^3.0.3",
     "mongodb": "^7.6.0"
   },
+  "//overrides": "fast-uri: GHSA-5jgf-p345-68v8 / f65p-4m7j-42xc / fph4-wmhf-6fwf / jqff-g426-hqxp (SSRF + host confusion) affect >=4.0.1 <4.1.3. Nothing depends on a patched range directly, so pin it here until fastify/eslint/vertexai/shadcn bump their own.",
   "overrides": {
     "fast-uri": "^4.1.4",
     "qs": "^6.15.4",
