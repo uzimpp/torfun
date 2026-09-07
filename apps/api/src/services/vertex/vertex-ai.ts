@@ -1,5 +1,5 @@
 import { VertexAI } from '@google-cloud/vertexai';
-import type { Env } from '../config/env';
+import type { Env } from '../../config/env';
 
 /**
  * Thin Vertex AI wrapper. Deliberately minimal: the actual TOR-reading

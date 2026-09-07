@@ -9,6 +9,8 @@ export default function RegisterPage() {
   const router = useRouter();
 
   const [username, set_username] = useState('');
+  const [first_name, set_first_name] = useState('');
+  const [last_name, set_last_name] = useState('');
   const [password, set_password] = useState('');
   const [confirm_password, set_confirm_password] = useState('');
   const [company_name, set_company_name] = useState('');
@@ -39,6 +41,8 @@ export default function RegisterPage() {
           username,
           password,
           confirm_password,
+          first_name,
+          last_name,
           company_name,
         }),
       });
@@ -71,6 +75,42 @@ export default function RegisterPage() {
         </div>
 
         <form onSubmit={handle_submit} className="space-y-5">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="first_name" className="mb-2 block text-sm font-medium text-gray-700">
+                First Name
+              </label>
+
+              <input
+                id="first_name"
+                type="text"
+                value={first_name}
+                onChange={(event) => set_first_name(event.target.value)}
+                required
+                maxLength={100}
+                className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+                placeholder="First name"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="last_name" className="mb-2 block text-sm font-medium text-gray-700">
+                Last Name
+              </label>
+
+              <input
+                id="last_name"
+                type="text"
+                value={last_name}
+                onChange={(event) => set_last_name(event.target.value)}
+                required
+                maxLength={100}
+                className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+                placeholder="Last name"
+              />
+            </div>
+          </div>
+
           <div>
             <label htmlFor="username" className="mb-2 block text-sm font-medium text-gray-700">
               Username

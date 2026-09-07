@@ -15,6 +15,9 @@ const EnvSchema = z.object({
     .default('http://localhost:3000')
     .transform((value) => value.split(',').map((origin) => origin.trim())),
 
+  // Where the browser is sent after a successful OAuth callback.
+  WEB_APP_URL: z.string().url().default('http://localhost:3000'),
+
   // Auth
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
@@ -28,6 +31,13 @@ const EnvSchema = z.object({
   // Path to a service-account JSON key. Prefer Workload Identity Federation
   // in deployed environments; this is for local development only.
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+
+  // --- e-GP ingestion (Thai government procurement) ---
+  // Open-data API key. Register at https://opend.data.go.th/register_api/
+  EGP_API_KEY: z.string().min(1, 'EGP_API_KEY is required'),
+  // Per-run cap on TOR retrievals. gprocurement.go.th's robots.txt is
+  // Disallow: / and the owner's authorisation is for low-volume research.
+  EGP_MAX_DOWNLOADS_PER_RUN: z.coerce.number().int().positive().max(200).default(15),
 
   // Notifications (USR-04/USR-05: email-only)
   SMTP_URL: z.string().optional(),
