@@ -1,10 +1,8 @@
 import fastifyOauth2 from '@fastify/oauth2';
 import type { FastifyInstance } from 'fastify';
-import { loadEnv } from '../config/env';
+import type { Env } from '../config/env';
 
-export async function registerGoogleOAuth(app: FastifyInstance) {
-  const env = loadEnv();
-
+export async function registerGoogleOAuth(app: FastifyInstance, env: Env) {
   await app.register(fastifyOauth2, {
     name: 'googleOAuth2',
     scope: ['openid', 'email', 'profile'],

@@ -24,11 +24,22 @@ services:
       - '8080:8080'
     environment:
       MONGODB_URI: mongodb://mongodb:27017/torfun
-      JWT_SECRET: ${JWT_SECRET}
-      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:3000}
+      # Required by config/env.ts. Set these in the repo-root .env — the api
+      # container exits on startup otherwise, naming the missing field.
+      # Deliberately not `${VAR:?...}`: that form aborts interpolation for the
+      # whole file, which would break `docker compose up mongodb` on its own.
+      JWT_SECRET: ${JWT_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_OAUTH_CALLBACK_URL: ${GOOGLE_OAUTH_CALLBACK_URL:-http://localhost:8080/api/auth/google/callback}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+      EGP_API_KEY: ${EGP_API_KEY}
+      # Optional, schema-defaulted.
       GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-asia-southeast3}
       VERTEX_AI_MODEL: ${VERTEX_AI_MODEL:-gemini-3.5-flash}
+      EGP_MAX_DOWNLOADS_PER_RUN: ${EGP_MAX_DOWNLOADS_PER_RUN:-15}
     depends_on:
       mongodb:
         condition: service_healthy

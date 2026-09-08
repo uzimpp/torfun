@@ -1,16 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { require_auth } from '../auth/require-auth';
+import { requireAuth } from '../hooks/require-auth';
 
 export async function dashboardRoutes(app: FastifyInstance) {
-  app.get(
-    '/dashboard',
-    {
-      onRequest: [require_auth],
-    },
-    async (request) => {
-      return {
-        message: `Welcome ${request.user.username}`,
-      };
-    },
-  );
+  app.get('/dashboard', { onRequest: [requireAuth] }, async (request) => ({
+    message: `Welcome ${request.user.username}`,
+  }));
 }

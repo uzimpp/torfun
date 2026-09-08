@@ -1,15 +1,28 @@
-import bcrypt from 'bcryptjs';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { get_users_collection } from '../database/mongodb';
-import { ObjectId } from 'mongodb';
-import { loadEnv } from '../config/env';
+import { ACCESS_COOKIE, fullName, REFRESH_COOKIE } from '@torfun/types';
+import { AppError, BadRequestError, UnauthorizedError } from '../core/errors';
+import { ACCESS_TTL_SECONDS, REFRESH_COOKIE_PATH } from '../plugins/jwt';
+import { REFRESH_TTL_SECONDS, type AuthResult } from '../services/auth.service';
+import type { User } from '@torfun/types';
+import { fetchGoogleProfile } from '../services/google-identity';
+import { requireAuth } from '../hooks/require-auth';
+import { authIpRateLimit } from '../plugins/security';
+import { createCredentialThrottle } from '../hooks/throttle-credentials';
 
-const register_schema = z
+/**
+ * HTTP surface for authentication. Every handler here does the same three
+ * things and nothing else: validate input, call `app.authService`, and shape
+ * the response. Account rules live in the service; storage in the repository.
+ */
+
+const registerSchema = z
   .object({
     username: z.string().min(3).max(50),
     password: z.string().min(8).max(128),
     confirm_password: z.string(),
+    first_name: z.string().min(1).max(100),
+    last_name: z.string().min(1).max(100),
     company_name: z.string().min(1).max(200),
   })
   .refine((data) => data.password === data.confirm_password, {
@@ -17,264 +30,151 @@ const register_schema = z
     path: ['confirm_password'],
   });
 
+const loginSchema = z.object({
+  username: z.string(),
+  password: z.string(),
+});
+
+/** snake_case on the wire: the shape `apps/web` already consumes. */
+function toUserResponse(user: User) {
+  return {
+    id: user.id,
+    username: user.username,
+    first_name: user.firstName,
+    last_name: user.lastName,
+    full_name: fullName(user),
+    company_name: user.companyName,
+    role: user.role,
+  };
+}
+
+/**
+ * Writes both halves of a session.
+ *
+ * The access cookie expires with the token inside it, so once it lapses the
+ * browser simply stops sending one — which is the signal the web app uses to
+ * call `/refresh`, where the still-valid refresh cookie lives.
+ */
+function setAuthCookies(
+  reply: FastifyReply,
+  { accessToken, refreshToken }: AuthResult,
+  secure: boolean,
+) {
+  const shared = {
+    httpOnly: true,
+    secure,
+    sameSite: 'lax',
+    path: '/',
+  } as const;
+
+  reply.setCookie(ACCESS_COOKIE, accessToken, { ...shared, maxAge: ACCESS_TTL_SECONDS });
+  reply.setCookie(REFRESH_COOKIE, refreshToken, {
+    ...shared,
+    path: REFRESH_COOKIE_PATH,
+    maxAge: REFRESH_TTL_SECONDS,
+  });
+}
+
+function clearAuthCookies(reply: FastifyReply) {
+  reply.clearCookie(ACCESS_COOKIE, { path: '/' });
+  reply.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
+}
+
 export async function authRoutes(app: FastifyInstance) {
+  const { NODE_ENV, WEB_APP_URL } = app.env;
+  // Cookies go out `secure` everywhere but local development, where there is
+  // no TLS to carry them.
+  const secureCookies = NODE_ENV === 'production';
+
+  /**
+   * Brute-force guards for the two endpoints that accept a password. Declared
+   * once so `/login` and `/register` cannot drift apart: registration is
+   * equally worth throttling, since it reveals which usernames are taken.
+   */
+  const credentialLimits = {
+    config: { rateLimit: authIpRateLimit },
+    preHandler: [createCredentialThrottle(app)],
+  };
+
   app.get('/google/callback', async (request, reply) => {
+    let session: AuthResult;
     try {
-      const { token } = await app.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
-
-      const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo`, {
-        headers: {
-          Authorization: `Bearer ${token.access_token}`,
-        },
-      });
-
-      if (!response.ok) {
-        return reply.code(401).send({
-          message: 'Unable to retrieve Google user information',
-        });
-      }
-
-      const google_user = (await response.json()) as {
-        sub: string;
-        email: string;
-        name?: string;
-        picture?: string;
-      };
-
-      const users = await get_users_collection();
-
-      let user = await users.findOne({
-        google_id: google_user.sub,
-      });
-
-      if (!user) {
-        user = await users.findOne({
-          email: google_user.email,
-        });
-      }
-
-      if (!user) {
-        const now = new Date();
-
-        const new_user = {
-          username: google_user.name,
-          company_name: '',
-          google_id: google_user.sub,
-          email: google_user.email,
-          role: 'USER' as const,
-          created_at: now,
-          updated_at: now,
-        };
-
-        const result = await users.insertOne(new_user);
-
-        user = {
-          ...new_user,
-          _id: result.insertedId,
-        };
-      } else if (!user.google_id) {
-        await users.updateOne(
-          { _id: user._id },
-          {
-            $set: {
-              google_id: google_user.sub,
-              updated_at: new Date(),
-            },
-          },
-        );
-      }
-
-      const jwt_token = await app.jwt.sign({
-        user_id: user._id!.toString(),
-        username: user.username,
-        role: user.role,
-      });
-
-      const env = loadEnv();
-
-      reply.setCookie('torfun_token', jwt_token, {
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60,
-      });
-
-      return reply.redirect('http://localhost:3000/dashboard');
+      const { token: oauthToken } =
+        await app.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
+      const profile = await fetchGoogleProfile(oauthToken.access_token);
+      session = await app.authService.loginWithGoogle(profile);
     } catch (error) {
-      app.log.error(error);
-
-      return reply.code(500).send({
-        message: 'Google authentication failed',
-      });
+      if (error instanceof AppError) throw error;
+      app.log.error({ err: error }, 'auth: google sign-in failed');
+      throw new AppError('Google authentication failed', 500);
     }
+
+    setAuthCookies(reply, session, secureCookies);
+    return reply.redirect(`${WEB_APP_URL}/dashboard`);
   });
 
-  // Registration route
-  app.post('/register', async (request, reply) => {
-    const result = register_schema.safeParse(request.body);
-
-    if (!result.success) {
-      return reply.code(400).send({
-        message: 'Invalid registration data',
-        errors: result.error.flatten(),
-      });
+  app.post('/register', credentialLimits, async (request, reply) => {
+    const parsed = registerSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Invalid registration data', parsed.error.flatten());
     }
 
-    const { username, password, company_name } = result.data;
-
-    const users = await get_users_collection();
-
-    const existing_user = await users.findOne({
-      username,
+    const session = await app.authService.register({
+      username: parsed.data.username,
+      password: parsed.data.password,
+      firstName: parsed.data.first_name,
+      lastName: parsed.data.last_name,
+      companyName: parsed.data.company_name,
     });
 
-    if (existing_user) {
-      return reply.code(409).send({
-        message: 'Username already exists',
-      });
-    }
-
-    const password_hash = await bcrypt.hash(password, 12);
-
-    const now = new Date();
-
-    const user = {
-      username,
-      password_hash,
-      company_name,
-      role: 'USER' as const,
-      created_at: now,
-      updated_at: now,
-    };
-
-    const result_insert = await users.insertOne(user);
-
-    const token = await app.jwt.sign({
-      user_id: result_insert.insertedId.toString(),
-      username,
-      role: user.role,
-    });
-
-    reply.setCookie('torfun_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60,
-    });
-
+    setAuthCookies(reply, session, secureCookies);
     return reply.code(201).send({
       message: 'Registration successful',
-      user: {
-        id: result_insert.insertedId.toString(),
-        username,
-        company_name,
-        role: user.role,
-      },
+      user: toUserResponse(session.user),
     });
   });
 
-  // Login route
-  const login_schema = z.object({
-    username: z.string(),
-    password: z.string(),
-  });
-
-  app.post('/login', async (request, reply) => {
-    const result = login_schema.safeParse(request.body);
-
-    if (!result.success) {
-      return reply.code(400).send({
-        message: 'Invalid login data',
-      });
+  app.post('/login', credentialLimits, async (request, reply) => {
+    const parsed = loginSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Invalid login data');
     }
 
-    const { username, password } = result.data;
+    const session = await app.authService.login(parsed.data.username, parsed.data.password);
 
-    const users = await get_users_collection();
-
-    const user = await users.findOne({
-      username,
-    });
-
-    if (!user || !user.password_hash) {
-      return reply.code(401).send({
-        message: 'Invalid username or password',
-      });
-    }
-
-    const password_valid = await bcrypt.compare(password, user.password_hash);
-
-    if (!password_valid) {
-      return reply.code(401).send({
-        message: 'Invalid username or password',
-      });
-    }
-
-    const token = await app.jwt.sign({
-      user_id: user._id!.toString(),
-      username: user.username,
-      role: user.role,
-    });
-
-    reply.setCookie('torfun_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60,
-    });
-
-    return reply.send({
-      message: 'Login successful',
-      user: {
-        id: user._id!.toString(),
-        username: user.username,
-        company_name: user.company_name,
-        role: user.role,
-      },
-    });
+    setAuthCookies(reply, session, secureCookies);
+    return reply.send({ message: 'Login successful', user: toUserResponse(session.user) });
   });
 
-  // Logout route
-  app.post('/logout', async (_request, reply) => {
-    reply.clearCookie('torfun_token', {
-      path: '/',
-    });
+  /**
+   * Renews a session. The only endpoint that reads the refresh cookie, and the
+   * only one where a role change or a deactivation is picked up.
+   */
+  app.post('/refresh', async (request, reply) => {
+    const presented = request.cookies[REFRESH_COOKIE];
+    if (!presented) throw new UnauthorizedError('No session to refresh');
 
-    return reply.send({
-      message: 'Logout successful',
-    });
-  });
-
-  // Get current user route
-  app.get('/me', async (request, reply) => {
     try {
-      await request.jwtVerify();
-
-      const users = await get_users_collection();
-
-      const user = await users.findOne({
-        _id: new ObjectId(request.user.user_id),
-      });
-
-      if (!user) {
-        return reply.code(404).send({
-          message: 'User not found',
-        });
-      }
-
-      return {
-        id: user._id!.toString(),
-        username: user.username,
-        company_name: user.company_name,
-        role: user.role,
-      };
-    } catch {
-      return reply.code(401).send({
-        message: 'Unauthorized',
-      });
+      const session = await app.authService.refresh(presented);
+      setAuthCookies(reply, session, secureCookies);
+      return reply.send({ message: 'Session refreshed', user: toUserResponse(session.user) });
+    } catch (error) {
+      // A refresh that fails is a session that is over — revoked, expired, or
+      // deactivated. Drop both cookies so the browser stops re-presenting them
+      // on every navigation and the user is sent to the login page once.
+      clearAuthCookies(reply);
+      throw error;
     }
+  });
+
+  app.post('/logout', async (request, reply) => {
+    await app.authService.logout(request.cookies[REFRESH_COOKIE]);
+    clearAuthCookies(reply);
+    return reply.send({ message: 'Logout successful' });
+  });
+
+  app.get('/me', { onRequest: [requireAuth] }, async (request) => {
+    const user = await app.authService.getById(request.user.user_id);
+    return toUserResponse(user);
   });
 }

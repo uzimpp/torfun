@@ -6,7 +6,20 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": [
+        "CORS_ORIGINS",
+        "EGP_*",
+        "GOOGLE_*",
+        "HOST",
+        "JWT_SECRET",
+        "LOG_LEVEL",
+        "MONGODB_URI",
+        "NEXT_PUBLIC_*",
+        "PORT",
+        "VERTEX_AI_MODEL",
+        "WEB_APP_URL"
+      ]
     },
     "dev": {
       "cache": false,
@@ -21,11 +34,37 @@
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "env": [
+        "CORS_ORIGINS",
+        "EGP_*",
+        "GOOGLE_*",
+        "HOST",
+        "JWT_SECRET",
+        "LOG_LEVEL",
+        "MONGODB_URI",
+        "NEXT_PUBLIC_*",
+        "PORT",
+        "VERTEX_AI_MODEL",
+        "WEB_APP_URL"
+      ]
     },
     "test:e2e": {
       "dependsOn": ["build"],
-      "outputs": ["playwright-report/**"]
+      "outputs": ["playwright-report/**"],
+      "env": [
+        "CORS_ORIGINS",
+        "EGP_*",
+        "GOOGLE_*",
+        "HOST",
+        "JWT_SECRET",
+        "LOG_LEVEL",
+        "MONGODB_URI",
+        "NEXT_PUBLIC_*",
+        "PORT",
+        "VERTEX_AI_MODEL",
+        "WEB_APP_URL"
+      ]
     },
     "clean": {
       "cache": false

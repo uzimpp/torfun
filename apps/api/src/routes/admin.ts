@@ -1,18 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-
-import { require_admin } from '../auth/require-admin';
+import { requireAdmin } from '../hooks/require-admin';
 
 export async function adminRoutes(app: FastifyInstance) {
-  app.get(
-    '/admin/test',
-    {
-      onRequest: [require_admin],
-    },
-    async (request) => {
-      return {
-        message: `Welcome Admin ${request.user.username}`,
-        role: request.user.role,
-      };
-    },
-  );
+  app.get('/admin/test', { onRequest: [requireAdmin] }, async (request) => ({
+    message: `Welcome Admin ${request.user.username}`,
+    role: request.user.role,
+  }));
 }
