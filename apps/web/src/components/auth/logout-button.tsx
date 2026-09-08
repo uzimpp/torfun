@@ -1,40 +1,55 @@
 'use client';
-
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { api_url as apiUrl } from '@/lib/config';
 
-import { api_url } from '@/lib/config';
-
-export function LogoutButton() {
+export function LogoutButton({ menuItem = false }: { menuItem?: boolean }) {
   const router = useRouter();
-  const [loading, set_loading] = useState(false);
-
-  async function handle_logout() {
-    set_loading(true);
-
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  async function handleLogout() {
+    setLoading(true);
+    setError('');
     try {
-      const response = await fetch(`${api_url}/api/auth/logout`, {
+      const response = await fetch(`${apiUrl}/api/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
-
-      if (response.ok) {
-        router.push('/login');
-        router.refresh();
+      if (!response.ok) {
+        setError('ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง');
+        return;
       }
+      router.push('/login');
+      router.refresh();
+    } catch {
+      setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองอีกครั้ง');
     } finally {
-      set_loading(false);
+      setLoading(false);
     }
   }
-
   return (
-    <button
-      type="button"
-      onClick={handle_logout}
-      disabled={loading}
-      className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {loading ? 'Signing out...' : 'Logout'}
-    </button>
+    <div>
+      {menuItem ? (
+        <DropdownMenuItem
+          closeOnClick={false}
+          className="min-h-11"
+          onClick={handleLogout}
+          disabled={loading}
+        >
+          {loading ? 'กำลังออกจากระบบ…' : 'ออกจากระบบ'}
+        </DropdownMenuItem>
+      ) : (
+        <Button variant="outline" className="min-h-11" onClick={handleLogout} disabled={loading}>
+          {loading ? 'กำลังออกจากระบบ…' : 'ออกจากระบบ'}
+        </Button>
+      )}
+      {error && (
+        <p role="alert" className="text-destructive mt-2 max-w-48 text-sm">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

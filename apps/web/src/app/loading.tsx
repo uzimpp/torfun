@@ -1,6 +1,6 @@
 export default function Loading() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
+    <div className="flex flex-1 items-center justify-center bg-gray-50 py-12">
       <div
         role="status"
         aria-label="กำลังโหลด"

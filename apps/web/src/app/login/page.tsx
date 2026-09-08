@@ -1,26 +1,30 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
-import { api_url } from '@/lib/config';
+import { api_url as apiUrl } from '@/lib/config';
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [username, set_username] = useState('');
-  const [password, set_password] = useState('');
-  const [error, set_error] = useState('');
-  const [loading, set_loading] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  async function handle_submit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    set_error('');
-    set_loading(true);
+    setError('');
+    setLoading(true);
 
     try {
-      const response = await fetch(`${api_url}/api/auth/login`, {
+      const response = await fetch(`${apiUrl}/api/auth/login`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -35,95 +39,97 @@ export default function LoginPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        set_error(data.message ?? 'Login failed');
+        setError(data.message ?? 'เข้าสู่ระบบไม่สำเร็จ');
         return;
       }
 
       router.push('/dashboard');
       router.refresh();
     } catch {
-      set_error('Unable to connect to the server');
+      setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
     } finally {
-      set_loading(false);
+      setLoading(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-6">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-sm">
+    <main className="bg-background flex flex-1 items-center justify-center px-6 py-10">
+      <div className="bg-card w-full max-w-md rounded-2xl p-8 shadow-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Torfun</h1>
+          <h1 className="text-foreground text-3xl font-bold tracking-tight">Torfun</h1>
 
-          <p className="mt-2 text-sm text-gray-500">Procurement Intelligence Platform</p>
+          <p className="text-muted-foreground mt-2 text-sm">ระบบค้นหาและคัดกรองประกาศ TOR</p>
         </div>
 
-        <form onSubmit={handle_submit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="username" className="mb-2 block text-sm font-medium text-gray-700">
-              Username
-            </label>
+            <Label htmlFor="username" className="text-foreground mb-2 block text-sm font-medium">
+              ชื่อผู้ใช้
+            </Label>
 
-            <input
+            <Input
               id="username"
               type="text"
               value={username}
-              onChange={(event) => set_username(event.target.value)}
+              onChange={(event) => setUsername(event.target.value)}
               required
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
-              placeholder="Enter your username"
+              className="border-border min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+              placeholder="กรอกชื่อผู้ใช้"
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-700">
-              Password
-            </label>
+            <Label htmlFor="password" className="text-foreground mb-2 block text-sm font-medium">
+              รหัสผ่าน
+            </Label>
 
-            <input
+            <Input
               id="password"
               type="password"
               value={password}
-              onChange={(event) => set_password(event.target.value)}
+              onChange={(event) => setPassword(event.target.value)}
               required
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
-              placeholder="Enter your password"
+              className="border-border min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+              placeholder="กรอกรหัสผ่าน"
             />
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
+            <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-gray-900 px-4 py-3 font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-12 w-full rounded-lg px-4 py-3 font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
+            {loading ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
+          </Button>
         </form>
 
         <div className="my-6 flex items-center gap-4">
-          <div className="h-px flex-1 bg-gray-200" />
-          <span className="text-sm text-gray-400">or</span>
-          <div className="h-px flex-1 bg-gray-200" />
+          <div className="bg-border h-px flex-1" />
+          <span className="text-muted-foreground text-sm">หรือ</span>
+          <div className="bg-border h-px flex-1" />
         </div>
 
-        <button
+        <Button
           type="button"
           onClick={() => {
-            window.location.assign(new URL('/api/auth/google', api_url).toString());
+            window.location.assign(new URL('/api/auth/google', apiUrl).toString());
           }}
-          className="w-full rounded-lg border border-gray-300 px-4 py-3 font-medium text-gray-700 transition hover:bg-gray-50"
+          className="border-border text-foreground hover:bg-background min-h-12 w-full rounded-lg border px-4 py-3 font-medium transition"
         >
-          Continue with Google
-        </button>
+          เข้าสู่ระบบด้วย Google
+        </Button>
 
-        <p className="mt-6 text-center text-sm text-gray-500">
-          Don&apos;t have an account?{' '}
-          <a href="/register" className="font-medium text-gray-900 hover:underline">
-            Create an account
-          </a>
+        <p className="text-muted-foreground mt-6 text-center text-sm">
+          ยังไม่มีบัญชีผู้ใช้?{' '}
+          <Link href="/register" className="text-foreground font-medium hover:underline">
+            สร้างบัญชีผู้ใช้
+          </Link>
         </p>
       </div>
     </main>
