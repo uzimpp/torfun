@@ -1,15 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import type { buildApp } from '../app';
+import { buildApp } from '../app';
+import { testEnv } from '../testing/env';
 import { ACCESS_COOKIE } from '@torfun/types';
-
-process.env.MONGODB_URI ??= 'mongodb://localhost:27017/torfun-test';
-process.env.JWT_SECRET ??= 'test-secret-test-secret-test-secret-1234';
-process.env.GOOGLE_CLIENT_ID ??= 'test-google-client-id';
-process.env.GOOGLE_CLIENT_SECRET ??= 'test-google-client-secret';
-process.env.GOOGLE_OAUTH_CALLBACK_URL ??= 'http://localhost:8080/api/auth/google/callback';
-process.env.GOOGLE_CLOUD_PROJECT ??= 'torfun-test';
-process.env.EGP_API_KEY ??= 'test-egp-key';
-if (process.env.NOTIFICATION_FROM_EMAIL === '') delete process.env.NOTIFICATION_FROM_EMAIL;
 
 /**
  * `/ingestion/run` spends the project's rate-limited allowance against an
@@ -20,8 +12,7 @@ describe('ingestion routes are admin-only', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
 
   beforeAll(async () => {
-    const { buildApp } = await import('../app');
-    app = await buildApp();
+    app = await buildApp(testEnv());
   });
 
   afterAll(async () => {

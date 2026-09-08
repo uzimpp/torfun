@@ -111,7 +111,8 @@ Registry.
 New env vars go in three places or they silently break something:
 `apps/api/src/config/env.ts` (zod), `apps/api/.env.example`, and the `env` array in
 `turbo.json` (undeclared vars poison Turbo's cache). Add it to `docker-compose.yml`
-too if the container needs it.
+too if the container needs it. A var with no schema default needs a fourth:
+`apps/api/src/testing/env.ts`, or every test that builds an app fails.
 
 Runtime dependencies belong to the workspace that imports them. The root
 `package.json` holds only repo-wide devDependencies.

@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { ACCESS_COOKIE, fullName, REFRESH_COOKIE } from '@torfun/types';
-import { loadEnv } from '../config/env';
 import { AppError, BadRequestError, UnauthorizedError } from '../core/errors';
 import { ACCESS_TTL_SECONDS, REFRESH_COOKIE_PATH } from '../plugins/jwt';
 import { REFRESH_TTL_SECONDS, type AuthResult } from '../services/auth.service';
@@ -56,10 +55,14 @@ function toUserResponse(user: User) {
  * browser simply stops sending one — which is the signal the web app uses to
  * call `/refresh`, where the still-valid refresh cookie lives.
  */
-function setAuthCookies(reply: FastifyReply, { accessToken, refreshToken }: AuthResult) {
+function setAuthCookies(
+  reply: FastifyReply,
+  { accessToken, refreshToken }: AuthResult,
+  secure: boolean,
+) {
   const shared = {
     httpOnly: true,
-    secure: loadEnv().NODE_ENV === 'production',
+    secure,
     sameSite: 'lax',
     path: '/',
   } as const;
@@ -78,6 +81,11 @@ function clearAuthCookies(reply: FastifyReply) {
 }
 
 export async function authRoutes(app: FastifyInstance) {
+  const { NODE_ENV, WEB_APP_URL } = app.env;
+  // Cookies go out `secure` everywhere but local development, where there is
+  // no TLS to carry them.
+  const secureCookies = NODE_ENV === 'production';
+
   /**
    * Brute-force guards for the two endpoints that accept a password. Declared
    * once so `/login` and `/register` cannot drift apart: registration is
@@ -101,8 +109,8 @@ export async function authRoutes(app: FastifyInstance) {
       throw new AppError('Google authentication failed', 500);
     }
 
-    setAuthCookies(reply, session);
-    return reply.redirect(`${loadEnv().WEB_APP_URL}/dashboard`);
+    setAuthCookies(reply, session, secureCookies);
+    return reply.redirect(`${WEB_APP_URL}/dashboard`);
   });
 
   app.post('/register', credentialLimits, async (request, reply) => {
@@ -119,7 +127,7 @@ export async function authRoutes(app: FastifyInstance) {
       companyName: parsed.data.company_name,
     });
 
-    setAuthCookies(reply, session);
+    setAuthCookies(reply, session, secureCookies);
     return reply.code(201).send({
       message: 'Registration successful',
       user: toUserResponse(session.user),
@@ -134,7 +142,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     const session = await app.authService.login(parsed.data.username, parsed.data.password);
 
-    setAuthCookies(reply, session);
+    setAuthCookies(reply, session, secureCookies);
     return reply.send({ message: 'Login successful', user: toUserResponse(session.user) });
   });
 
@@ -148,7 +156,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     try {
       const session = await app.authService.refresh(presented);
-      setAuthCookies(reply, session);
+      setAuthCookies(reply, session, secureCookies);
       return reply.send({ message: 'Session refreshed', user: toUserResponse(session.user) });
     } catch (error) {
       // A refresh that fails is a session that is over — revoked, expired, or

@@ -14,8 +14,14 @@ on:
 #   GCP_API_RUNTIME_SERVICE_ACCOUNT email of the api service's runtime identity (needs roles/aiplatform.user, roles/secretmanager.secretAccessor)
 #   GCP_WEB_RUNTIME_SERVICE_ACCOUNT email of the web service's runtime identity (no extra roles needed)
 #   WEB_URL                        public URL of the web Cloud Run service, for api's CORS_ORIGINS
+#   API_URL                        public URL of the api Cloud Run service, for the OAuth
+#                                  callback and the web bundle's NEXT_PUBLIC_API_URL
 # Required GCP Secret Manager secrets (referenced by name, not value, below):
-#   MONGODB_URI, JWT_SECRET
+#   MONGODB_URI, JWT_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, EGP_API_KEY
+#
+# Every var the api requires must appear below: `loadEnv()` validates the whole
+# schema at startup and throws, so a missing one is a container that never
+# listens, not a feature that quietly degrades.
 # See scripts/gcp-bootstrap.sh for the one-time setup that creates all of the above.
 
 permissions:
@@ -54,9 +60,6 @@ jobs:
             type=sha,format=long,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # Build and load locally first (no push) so it can be scanned before
-      # anything reaches the registry. The push step below reuses this
-      # build's cache, so it's not doing the work twice.
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -64,6 +67,8 @@ jobs:
           push: false
           load: true
           tags: torfun-${{ matrix.app }}:scan
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.API_URL }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
@@ -82,6 +87,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.API_URL }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
@@ -101,16 +108,16 @@ jobs:
           region: ${{ vars.GCP_REGION }}
           image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REGISTRY_REPO }}/api:${{ github.sha }}
           flags: '--service-account=${{ vars.GCP_API_RUNTIME_SERVICE_ACCOUNT }}'
-          # GOOGLE_CLOUD_LOCATION intentionally omitted: it's Vertex AI's
-          # region, unrelated to where Cloud Run itself runs (GCP_REGION) —
-          # Vertex AI/Gemini isn't available in every Cloud Run region.
-          # Falls back to env.ts's default (asia-southeast3) unless overridden.
           env_vars: |
             CORS_ORIGINS=${{ vars.WEB_URL }}
             GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+            GOOGLE_OAUTH_CALLBACK_URL=${{ vars.API_URL }}/api/auth/google/callback
           secrets: |
             MONGODB_URI=MONGODB_URI:latest
             JWT_SECRET=JWT_SECRET:latest
+            GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
+            GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+            EGP_API_KEY=EGP_API_KEY:latest
 
   deploy-web:
     if: github.ref == 'refs/heads/main'

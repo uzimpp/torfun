@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
-import { loadEnv } from './config/env';
+import { loadEnv, type Env } from './config/env';
 import { registerErrorHandler } from './core/errors';
 import { registerMongo } from './core/mongo';
 import { registerSecurityPlugins } from './plugins/security';
@@ -22,10 +22,13 @@ import { registerRoutes } from './routes';
  * matters — cookies before JWT, JWT before anything that signs a token), then
  * repositories, then the services built on them, decorated onto the instance
  * so route files can stay free of construction logic.
+ *
+ * `env` is a parameter, not something this function reaches out for. Production
+ * gets the default and never passes one; a test passes `testEnv({ ... })` and
+ * can therefore vary configuration per case, which a module-level cache in
+ * `config/env.ts` would otherwise make impossible.
  */
-export async function buildApp() {
-  const env = loadEnv();
-
+export async function buildApp(env: Env = loadEnv()) {
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
@@ -42,6 +45,10 @@ export async function buildApp() {
   await registerJwt(app, env);
   await registerGoogleOAuth(app, env);
   registerMongo(app, env);
+
+  // Routes read configuration from here rather than importing `loadEnv`, for
+  // the same reason they read services from here rather than constructing one.
+  app.decorate('env', env);
 
   const userRepository = new UserRepository(app.mongo.getDb);
   const refreshTokenRepository = new RefreshTokenRepository(app.mongo.getDb);

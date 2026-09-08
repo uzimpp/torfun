@@ -1,5 +1,6 @@
 import '@fastify/jwt';
 import type { OAuth2Namespace } from '@fastify/oauth2';
+import type { Env } from '../config/env';
 import type { MongoContext } from '../core/mongo';
 import type { AuthService } from '../services/auth.service';
 import type { IngestionService } from '../services/ingestion.service';
@@ -22,6 +23,7 @@ declare module '@fastify/jwt' {
 declare module 'fastify' {
   /** Decorations wired up by the composition root in `app.ts`. */
   interface FastifyInstance {
+    env: Env;
     googleOAuth2: OAuth2Namespace;
     mongo: MongoContext;
     authService: AuthService;

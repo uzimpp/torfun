@@ -46,6 +46,14 @@ a constructor.
 Adding a service: build it in `app.ts`, decorate it, declare it in
 `src/types/fastify.d.ts`.
 
+**Configuration is a parameter, not a global.** `buildApp(env)` accepts an `Env`;
+only `server.ts` passes the real one, via the default. Nothing below `app.ts` may
+import `loadEnv` — routes read `app.env`, plugins and services take `env` as an
+argument. That is what lets a test build an instance with configuration of its
+own (`buildApp(testEnv({ CORS_ORIGINS: '...' }))`), which the module-level cache
+in `config/env.ts` would otherwise prevent. Tests never touch `process.env`, so
+the suite does not depend on the shell, CI, or a developer's `.env`.
+
 ## Errors
 
 Services throw from `core/errors.ts` (`NotFoundError`, `ConflictError`,
