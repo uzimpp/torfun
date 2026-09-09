@@ -1,37 +1,41 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
-import { api_url } from '@/lib/config';
+import { api_url as apiUrl } from '@/lib/config';
 
 export default function RegisterPage() {
   const router = useRouter();
 
-  const [username, set_username] = useState('');
-  const [first_name, set_first_name] = useState('');
-  const [last_name, set_last_name] = useState('');
-  const [password, set_password] = useState('');
-  const [confirm_password, set_confirm_password] = useState('');
-  const [company_name, set_company_name] = useState('');
+  const [username, setUsername] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [companyName, setCompanyName] = useState('');
 
-  const [error, set_error] = useState('');
-  const [loading, set_loading] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  async function handle_submit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    set_error('');
+    setError('');
 
-    if (password !== confirm_password) {
-      set_error('Passwords do not match');
+    if (password !== confirmPassword) {
+      setError('รหัสผ่านไม่ตรงกัน');
       return;
     }
 
-    set_loading(true);
+    setLoading(true);
 
     try {
-      const response = await fetch(`${api_url}/api/auth/register`, {
+      const response = await fetch(`${apiUrl}/api/auth/register`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -40,171 +44,176 @@ export default function RegisterPage() {
         body: JSON.stringify({
           username,
           password,
-          confirm_password,
-          first_name,
-          last_name,
-          company_name,
+          confirm_password: confirmPassword,
+          first_name: firstName,
+          last_name: lastName,
+          company_name: companyName,
         }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        set_error(data.message ?? 'Registration failed');
+        setError(data.message ?? 'สร้างบัญชีไม่สำเร็จ');
         return;
       }
 
       router.push('/dashboard');
       router.refresh();
     } catch {
-      set_error('Unable to connect to the server');
+      setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
     } finally {
-      set_loading(false);
+      setLoading(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-6 py-10">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-sm">
+    <main className="bg-background flex flex-1 items-center justify-center px-6 py-10">
+      <div className="bg-card w-full max-w-md rounded-2xl p-8 shadow-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Create your account</h1>
+          <h1 className="text-foreground text-3xl font-bold tracking-tight">สร้างบัญชีผู้ใช้</h1>
 
-          <p className="mt-2 text-sm text-gray-500">
-            Join Torfun to discover relevant procurement opportunities
+          <p className="text-muted-foreground mt-2 text-sm">
+            เริ่มต้นค้นหาโอกาสงานจัดซื้อจัดจ้างกับ Torfun
           </p>
         </div>
 
-        <form onSubmit={handle_submit} className="space-y-5">
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="first_name" className="mb-2 block text-sm font-medium text-gray-700">
-                First Name
-              </label>
+              <Label htmlFor="firstName" className="text-foreground mb-2 block text-sm font-medium">
+                ชื่อ
+              </Label>
 
-              <input
-                id="first_name"
+              <Input
+                id="firstName"
                 type="text"
-                value={first_name}
-                onChange={(event) => set_first_name(event.target.value)}
+                value={firstName}
+                onChange={(event) => setFirstName(event.target.value)}
                 required
                 maxLength={100}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
-                placeholder="First name"
+                className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
+                placeholder="ชื่อ"
               />
             </div>
 
             <div>
-              <label htmlFor="last_name" className="mb-2 block text-sm font-medium text-gray-700">
-                Last Name
-              </label>
+              <Label htmlFor="lastName" className="text-foreground mb-2 block text-sm font-medium">
+                นามสกุล
+              </Label>
 
-              <input
-                id="last_name"
+              <Input
+                id="lastName"
                 type="text"
-                value={last_name}
-                onChange={(event) => set_last_name(event.target.value)}
+                value={lastName}
+                onChange={(event) => setLastName(event.target.value)}
                 required
                 maxLength={100}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
-                placeholder="Last name"
+                className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
+                placeholder="นามสกุล"
               />
             </div>
           </div>
 
           <div>
-            <label htmlFor="username" className="mb-2 block text-sm font-medium text-gray-700">
-              Username
-            </label>
+            <Label htmlFor="username" className="text-foreground mb-2 block text-sm font-medium">
+              ชื่อผู้ใช้
+            </Label>
 
-            <input
+            <Input
               id="username"
               type="text"
               value={username}
-              onChange={(event) => set_username(event.target.value)}
+              onChange={(event) => setUsername(event.target.value)}
               required
               minLength={3}
               maxLength={50}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
-              placeholder="Choose a username"
+              className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
+              placeholder="ตั้งชื่อผู้ใช้"
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-700">
-              Password
-            </label>
+            <Label htmlFor="password" className="text-foreground mb-2 block text-sm font-medium">
+              รหัสผ่าน
+            </Label>
 
-            <input
+            <Input
               id="password"
               type="password"
               value={password}
-              onChange={(event) => set_password(event.target.value)}
+              onChange={(event) => setPassword(event.target.value)}
               required
               minLength={8}
               maxLength={128}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
-              placeholder="Create a password"
+              className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
+              placeholder="ตั้งรหัสผ่าน"
             />
 
-            <p className="mt-1 text-xs text-gray-400">Must be at least 8 characters</p>
+            <p className="text-muted-foreground mt-1 text-xs">ต้องมีอย่างน้อย 8 ตัวอักษร</p>
           </div>
 
           <div>
-            <label
-              htmlFor="confirm_password"
-              className="mb-2 block text-sm font-medium text-gray-700"
+            <Label
+              htmlFor="confirmPassword"
+              className="text-foreground mb-2 block text-sm font-medium"
             >
-              Confirm Password
-            </label>
+              ยืนยันรหัสผ่าน
+            </Label>
 
-            <input
-              id="confirm_password"
+            <Input
+              id="confirmPassword"
               type="password"
-              value={confirm_password}
-              onChange={(event) => set_confirm_password(event.target.value)}
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
               required
               minLength={8}
               maxLength={128}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
-              placeholder="Confirm your password"
+              className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
+              placeholder="กรอกรหัสผ่านอีกครั้ง"
             />
           </div>
 
           <div>
-            <label htmlFor="company_name" className="mb-2 block text-sm font-medium text-gray-700">
-              Company / Business Name
-            </label>
+            <Label htmlFor="companyName" className="text-foreground mb-2 block text-sm font-medium">
+              ชื่อบริษัท / ธุรกิจ
+            </Label>
 
-            <input
-              id="company_name"
+            <Input
+              id="companyName"
               type="text"
-              value={company_name}
-              onChange={(event) => set_company_name(event.target.value)}
+              value={companyName}
+              onChange={(event) => setCompanyName(event.target.value)}
               required
               maxLength={200}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
-              placeholder="Enter your company name"
+              className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
+              placeholder="กรอกชื่อบริษัท"
             />
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
+            <div
+              role="alert"
+              className="bg-destructive/10 text-destructive rounded-lg px-4 py-3 text-sm"
+            >
+              {error}
+            </div>
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-gray-900 px-4 py-3 font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-12 w-full rounded-lg px-4 py-3 font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? 'Creating account...' : 'Create account'}
-          </button>
+            {loading ? 'กำลังสร้างบัญชี…' : 'สร้างบัญชีผู้ใช้'}
+          </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-gray-500">
-          Already have an account?{' '}
-          <a href="/login" className="font-medium text-gray-900 hover:underline">
-            Sign in
-          </a>
+        <p className="text-muted-foreground mt-6 text-center text-sm">
+          มีบัญชีผู้ใช้อยู่แล้ว?{' '}
+          <Link href="/login" className="text-foreground font-medium hover:underline">
+            เข้าสู่ระบบ
+          </Link>
         </p>
       </div>
     </main>

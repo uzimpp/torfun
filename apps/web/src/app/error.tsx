@@ -22,22 +22,22 @@ export default function Error({
   }, [error]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-6">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-sm">
-        <h1 className="text-xl font-semibold text-gray-900">เกิดข้อผิดพลาด</h1>
+    <main className="bg-background flex flex-1 items-center justify-center px-6 py-12">
+      <div className="bg-card w-full max-w-md rounded-2xl p-8 text-center shadow-sm">
+        <h1 className="text-foreground text-xl font-semibold">เกิดข้อผิดพลาด</h1>
 
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="text-muted-foreground mt-2 text-sm">
           ระบบไม่สามารถแสดงหน้านี้ได้ กรุณาลองใหม่อีกครั้ง
         </p>
 
         {error.digest ? (
-          <code className="mt-4 block text-xs text-gray-400">{error.digest}</code>
+          <code className="text-muted-foreground mt-4 block text-xs">{error.digest}</code>
         ) : null}
 
         <button
           type="button"
           onClick={reset}
-          className="mt-6 w-full rounded-lg bg-gray-900 px-4 py-3 font-medium text-white transition hover:bg-gray-800"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 mt-6 w-full rounded-lg px-4 py-3 font-medium transition"
         >
           ลองอีกครั้ง
         </button>
