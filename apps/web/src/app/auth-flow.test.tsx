@@ -2,8 +2,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import LoginPage from './login/page';
 import RegisterPage from './register/page';
+import SignupPage from './signup/page';
 const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
-vi.mock('next/navigation', () => ({ useRouter: () => router }));
+const redirect = vi.hoisted(() => vi.fn());
+vi.mock('next/navigation', () => ({ useRouter: () => router, redirect }));
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => {
   cleanup();
@@ -66,4 +68,9 @@ test('registration keeps snake_case wire fields and redirects to dashboard', asy
     last_name: 'User',
     company_name: 'Test company',
   });
+});
+
+test('the signup route hands people to the one registration page', () => {
+  SignupPage();
+  expect(redirect).toHaveBeenCalledWith('/register');
 });
