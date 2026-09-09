@@ -17,6 +17,7 @@ test('guest header contains brand and both ways in, without workspace links', ()
   );
   expect(screen.getByRole('link', { name: 'Torfun' })).toHaveAttribute('href', '/');
   expect(screen.queryByRole('link', { name: 'แดชบอร์ด' })).not.toBeInTheDocument();
+  // Notifications are not built; a permanently disabled bell was furniture.
   expect(screen.queryByRole('button', { name: /การแจ้งเตือน/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /เปลี่ยนภาษา/ })).not.toBeInTheDocument();
   // The light/dark control belongs to the footer now; the header keeps only
@@ -30,7 +31,6 @@ test.each(['admin', 'business_development_officer'] as const)(
     render(<SiteHeader user={{ username: 'tester', role }} />);
     expect(screen.getByRole('link', { name: 'Torfun' })).toHaveAttribute('href', '/');
     expect(screen.queryByRole('link', { name: 'เข้าสู่ระบบ' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /การแจ้งเตือน/ })).toBeDisabled();
     expect(screen.queryByRole('menuitem', { name: 'ออกจากระบบ' })).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: `บัญชี tester · ${role === 'admin' ? 'Admin' : 'BD'}` }),

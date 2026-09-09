@@ -1,8 +1,7 @@
 import Link from 'next/link';
-import { Bell } from 'lucide-react';
 
 import type { CurrentUser } from '@/lib/auth';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
 import { Brand } from './brand';
@@ -43,17 +42,6 @@ export function SiteHeader({
 
         <div className="ms-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
           <HeaderSearch enabled={withSearch} />
-          {user && (
-            <Button
-              disabled
-              variant="ghost"
-              className="hidden size-10 rounded-xl sm:inline-flex"
-              title="การแจ้งเตือน — เร็ว ๆ นี้"
-              aria-label="การแจ้งเตือน — เร็ว ๆ นี้"
-            >
-              <Bell aria-hidden="true" />
-            </Button>
-          )}
           {user ? (
             <UserMenu user={user} />
           ) : (

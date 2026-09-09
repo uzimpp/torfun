@@ -16,6 +16,14 @@ import {
 import { LogoutButton } from './logout-button';
 
 /**
+ * The shape of every row in the panel, logout included. One inset and one gap
+ * for all of them is what keeps the icons in one column and the labels in
+ * another; a row without an icon puts its text where the icons are, which is
+ * what made this menu look ragged.
+ */
+const ROW = 'min-h-11 gap-3 rounded-lg px-3';
+
+/**
  * The account menu, and the way to everything that belongs to the person
  * rather than to the announcements: their workspace, the company record their
  * matches are scored against, and the way out.
@@ -48,37 +56,41 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
         <ChevronDown aria-hidden="true" className="size-3" />
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-64 max-w-[90vw] p-2">
+      {/* One inset for everything inside: `p-2` on the popup, `px-3` on every
+          row, and a separator with no negative margin of its own. Left to the
+          defaults, rows sat 6px in while the separator sat 4px out, so nothing
+          in the panel lined up with anything else. */}
+      <DropdownMenuContent align="end" sideOffset={8} className="w-64 max-w-[90vw] p-2">
         <DropdownMenuGroup>
-          <DropdownMenuLabel className="px-2 py-3">
+          <DropdownMenuLabel className="px-3 py-2">
             <span className="text-foreground block text-sm break-all">{user.username}</span>
             <span>{role === 'Admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่พัฒนาธุรกิจ'}</span>
           </DropdownMenuLabel>
         </DropdownMenuGroup>
 
-        <DropdownMenuSeparator />
+        <DropdownMenuSeparator className="mx-0 my-2" />
 
-        <DropdownMenuGroup>
-          <DropdownMenuItem className="min-h-11" render={<Link href="/dashboard" />}>
+        <DropdownMenuGroup className="space-y-0.5">
+          <DropdownMenuItem className={ROW} render={<Link href="/dashboard" />}>
             <LayoutDashboard aria-hidden="true" className="size-4" />
             แดชบอร์ด
           </DropdownMenuItem>
-          <DropdownMenuItem className="min-h-11" render={<Link href="/company-experiences" />}>
+          <DropdownMenuItem className={ROW} render={<Link href="/company-experiences" />}>
             <Building2 aria-hidden="true" className="size-4" />
             บริษัทและผลงาน
           </DropdownMenuItem>
           {/* Listed and visibly not ready, rather than hidden: an officer who is
               told the page is coming stops hunting for it. */}
-          <DropdownMenuItem disabled className="min-h-11">
+          <DropdownMenuItem disabled className={ROW}>
             <Bookmark aria-hidden="true" className="size-4" />
             TOR ของฉัน
             <span className="text-muted-foreground ms-auto text-xs">เร็ว ๆ นี้</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
 
-        <DropdownMenuSeparator />
+        <DropdownMenuSeparator className="mx-0 my-2" />
 
-        <LogoutButton menuItem />
+        <LogoutButton menuItem className={ROW} />
       </DropdownMenuContent>
     </DropdownMenu>
   );

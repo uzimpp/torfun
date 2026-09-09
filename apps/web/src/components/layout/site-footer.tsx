@@ -108,7 +108,7 @@ export function SiteFooter({
           a heading for something that is not there. */}
       <p
         aria-hidden="true"
-        className="relative -mb-[0.14em] px-4 text-center leading-none font-semibold tracking-tighter text-current/12 select-none sm:px-6 lg:px-10"
+        className="relative -mb-[0.14em] px-4 text-center leading-none tracking-tighter text-current/12 select-none sm:px-6 lg:px-10"
         style={{ fontSize: 'clamp(3.5rem, 16vw, 12rem)' }}
       >
         Torfun
