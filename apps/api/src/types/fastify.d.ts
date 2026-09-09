@@ -3,6 +3,7 @@ import type { OAuth2Namespace } from '@fastify/oauth2';
 import type { Env } from '../config/env';
 import type { MongoContext } from '../core/mongo';
 import type { AuthService } from '../services/auth.service';
+import type { DiagnosticsService } from '../services/diagnostics.service';
 import type { IngestionService } from '../services/ingestion.service';
 import type { UserRole } from '@torfun/types';
 
@@ -28,5 +29,6 @@ declare module 'fastify' {
     mongo: MongoContext;
     authService: AuthService;
     ingestionService: IngestionService;
+    diagnosticsService: DiagnosticsService;
   }
 }

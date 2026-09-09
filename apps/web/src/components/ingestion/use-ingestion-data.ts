@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { IngestionFailure, IngestionRecord, IngestionState } from '@torfun/types';
+import type { IngestionFailure, Procurement, IngestionState } from '@torfun/types';
 import {
   ApiError,
   fetchFailures,
@@ -45,7 +45,7 @@ function toQuery(filters: FilterValues, page: number): ProjectFilters {
 
 export interface IngestionData {
   summary: IngestionSummaryResponse | null;
-  projects: IngestionRecord[];
+  projects: Procurement[];
   total: number;
   failures: IngestionFailure[];
   loading: boolean;
@@ -61,7 +61,7 @@ export interface IngestionData {
  */
 export function useIngestionData(filters: FilterValues, page: number): IngestionData {
   const [summary, setSummary] = useState<IngestionSummaryResponse | null>(null);
-  const [projects, setProjects] = useState<IngestionRecord[]>([]);
+  const [projects, setProjects] = useState<Procurement[]>([]);
   const [total, setTotal] = useState(0);
   const [failures, setFailures] = useState<IngestionFailure[]>([]);
   const [error, setError] = useState<string | null>(null);

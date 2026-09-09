@@ -1,7 +1,7 @@
 import type {
   IngestionFailure,
   IngestionOutcome,
-  IngestionRecord,
+  Procurement,
   IngestionState,
   IngestionSummary,
   SoftwareClass,
@@ -20,7 +20,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 export type IngestionSummaryResponse = IngestionSummary & { agencies: string[] };
 
 export interface ProjectListResponse {
-  items: IngestionRecord[];
+  items: Procurement[];
   total: number;
   limit: number;
   offset: number;

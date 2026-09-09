@@ -3,7 +3,7 @@ import { z } from 'zod';
 import {
   IngestionFailureSchema,
   IngestionOutcome,
-  IngestionRecordSchema,
+  ProcurementSchema,
   IngestionState,
   IngestionSummarySchema,
   SoftwareClass,
@@ -60,7 +60,7 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
         querystring: ListQuerySchema,
         response: {
           200: z.object({
-            items: z.array(IngestionRecordSchema),
+            items: z.array(ProcurementSchema),
             total: z.number().int(),
             limit: z.number().int(),
             offset: z.number().int(),
@@ -70,7 +70,7 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request) => {
       const { q, ...filters } = request.query;
-      const { items, total } = app.ingestionService.list({ ...filters, query: q });
+      const { items, total } = await app.ingestionService.list({ ...filters, query: q });
       return { items, total, limit: filters.limit, offset: filters.offset };
     },
   );
@@ -81,7 +81,7 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         params: z.object({ projectId: z.string() }),
         response: {
-          200: IngestionRecordSchema,
+          200: ProcurementSchema,
           404: z.object({ message: z.string() }),
         },
       },
@@ -96,7 +96,7 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
         response: { 200: z.object({ items: z.array(IngestionFailureSchema) }) },
       },
     },
-    async () => ({ items: app.ingestionService.failures() }),
+    async () => ({ items: await app.ingestionService.failures() }),
   );
 
   app.post(

@@ -22,24 +22,31 @@ services:
     restart: unless-stopped
     ports:
       - '8080:8080'
+    # Config lives in the workspace that owns it. `env_file` hands the file to
+    # the container at start, so there is no repo-root .env and no `${VAR}`
+    # interpolation — which Compose can only resolve from its own directory.
+    env_file:
+      - apps/api/.env
+    # What differs inside a container. `environment` beats `env_file`, so these
+    # win over apps/api/.env without that file needing to know about Docker.
     environment:
+      # `localhost` in a container is the container. Reach Mongo by service name.
       MONGODB_URI: mongodb://mongodb:27017/torfun
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:3000}
-      # Required by config/env.ts. Set these in the repo-root .env — the api
-      # container exits on startup otherwise, naming the missing field.
-      # Deliberately not `${VAR:?...}`: that form aborts interpolation for the
-      # whole file, which would break `docker compose up mongodb` on its own.
-      JWT_SECRET: ${JWT_SECRET}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      GOOGLE_OAUTH_CALLBACK_URL: ${GOOGLE_OAUTH_CALLBACK_URL:-http://localhost:8080/api/auth/google/callback}
-      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
-      EGP_API_KEY: ${EGP_API_KEY}
-      # Optional, schema-defaulted.
-      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-asia-southeast3}
-      VERTEX_AI_MODEL: ${VERTEX_AI_MODEL:-gemini-3.5-flash}
-      EGP_MAX_DOWNLOADS_PER_RUN: ${EGP_MAX_DOWNLOADS_PER_RUN:-15}
+      # The image is a production build; apps/api/.env says development.
+      # env_file also overrides the Dockerfile's own ENV, so state it here.
+      NODE_ENV: production
+      # ADC's path convention points at a host file the image cannot see. Blank
+      # it so google-auth-library ignores it, and supply the key as a value in
+      # GOOGLE_SERVICE_ACCOUNT_JSON instead.
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+    # The other way to authenticate to Google here: hand the container the
+    # `gcloud auth application-default login` you already have, read-only, at
+    # the HOME this image sets for its `fastify` user. Nothing long-lived is
+    # created, so prefer this over a service-account key where it works.
+    # On Linux the uid will not match and the file will be unreadable — set
+    # GOOGLE_SERVICE_ACCOUNT_JSON in apps/api/.env there instead.
+    # volumes:
+    #   - ~/.config/gcloud:/home/fastify/.config/gcloud:ro
     depends_on:
       mongodb:
         condition: service_healthy
@@ -48,11 +55,27 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        # Next inlines NEXT_PUBLIC_* into the browser bundle during `next
+        # build`, so this has to be a *build* arg — a runtime value arrives
+        # after the bundle is already baked. Docker resolves build args before
+        # any container exists, which is why this one cannot come from
+        # `env_file` the way the runtime value below does.
+        #
+        # `bun run docker:up` passes apps/web/.env as the interpolation source,
+        # keeping that file the single origin of this value. A bare
+        # `docker compose up` falls back to the default here.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     restart: unless-stopped
     ports:
       - '3000:3000'
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080
+    # Server-side rendering reads the same variable again at runtime, and here
+    # the workspace file can supply it directly — same arrangement as api.
+    # Optional because the browser bundle is already built and the app carries
+    # its own local-development default.
+    env_file:
+      - path: apps/web/.env
+        required: false
     depends_on:
       - api
 

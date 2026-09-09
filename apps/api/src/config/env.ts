@@ -26,11 +26,22 @@ export const EnvSchema = z.object({
 
   // Google Cloud / Vertex AI
   GOOGLE_CLOUD_PROJECT: z.string().min(1, 'GOOGLE_CLOUD_PROJECT is required'),
-  GOOGLE_CLOUD_LOCATION: z.string().default('asia-southeast3'),
+  GOOGLE_CLOUD_LOCATION: z.string().default('asia-southeast1'),
   VERTEX_AI_MODEL: z.string().default('gemini-3.5-flash'),
-  // Path to a service-account JSON key. Prefer Workload Identity Federation
-  // in deployed environments; this is for local development only.
+  // Path to a service-account JSON key. ADC's own convention, and a path
+  // rather than a value because the key contains a multi-line PEM.
+  //
+  // Leave this UNSET wherever you can. On Cloud Run the attached runtime
+  // service account is picked up automatically, and setting this overrides it.
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  // The service-account key as a *value* rather than a path: either the raw
+  // JSON or the same JSON base64-encoded.
+  //
+  // This exists for containers. A container has no ~/.config/gcloud, so
+  // `gcloud auth application-default login` does not reach it and a key file
+  // would have to be baked in or bind-mounted. Takes precedence over ADC when
+  // set; leave it unset on Cloud Run, which needs neither.
+  GOOGLE_SERVICE_ACCOUNT_JSON: z.string().optional(),
 
   // --- e-GP ingestion (Thai government procurement) ---
   // Open-data API key. Register at https://opend.data.go.th/register_api/
@@ -39,9 +50,6 @@ export const EnvSchema = z.object({
   // Disallow: / and the owner's authorisation is for low-volume research.
   EGP_MAX_DOWNLOADS_PER_RUN: z.coerce.number().int().positive().max(200).default(15),
 
-  // Notifications (USR-04/USR-05: email-only)
-  SMTP_URL: z.string().optional(),
-  NOTIFICATION_FROM_EMAIL: z.string().email().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

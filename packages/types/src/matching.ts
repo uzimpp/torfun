@@ -25,7 +25,7 @@ export const MatchScoreBreakdownSchema = z.object({
 export type MatchScoreBreakdown = z.infer<typeof MatchScoreBreakdownSchema>;
 
 export const MatchResultSchema = z.object({
-  torId: z.string(),
+  projectId: z.string(),
   overallScore: z.number().min(0).max(1),
   breakdown: MatchScoreBreakdownSchema,
   computedAt: z.coerce.date(),

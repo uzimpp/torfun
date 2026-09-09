@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useState } from 'react';
-import type { IngestionRecord } from '@torfun/types';
+import type { Procurement } from '@torfun/types';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -20,7 +20,29 @@ function formatThb(amount: number | null): string {
 }
 
 /** Status history and retrieved files for one expanded row. */
-function ProjectDetail({ record }: { record: IngestionRecord }) {
+/**
+ * How many documents in the archive actually turned out to be TORs.
+ *
+ * Not `documents.length`: a candidate that matched the filename pattern but
+ * read as a contractor certificate is listed, and must not be counted as a TOR.
+ */
+/**
+ * The reason for the newest status change, where there was one.
+ *
+ * Read from `statusHistory` rather than a separate `error` field: the history
+ * already records it, and two copies would need keeping in step.
+ */
+function latestDetail(record: Procurement): string | undefined {
+  return record.statusHistory.at(-1)?.detail;
+}
+
+function countTorDocuments(record: Procurement): number {
+  return record.documents.filter(
+    (document) => document.role === 'main_tor' || document.role === 'tor_variant',
+  ).length;
+}
+
+function ProjectDetail({ record }: { record: Procurement }) {
   return (
     <div className="flex flex-col gap-4 p-2">
       <div>
@@ -38,25 +60,46 @@ function ProjectDetail({ record }: { record: IngestionRecord }) {
         </ol>
       </div>
 
-      {record.torFiles.length > 0 ? (
+      {record.documents.length > 0 ? (
         <div>
-          <h3 className="text-muted-foreground text-xs font-medium">ไฟล์ TOR</h3>
+          <h3 className="text-muted-foreground text-xs font-medium">เอกสารในไฟล์บีบอัด</h3>
+          {record.torAmbiguous ? (
+            <p className="text-muted-foreground mt-1 text-[10px]">
+              พบเอกสารที่อ้างเป็น TOR มากกว่าหนึ่งฉบับ — ระบบเลือกให้ตามแบบแผนชื่อไฟล์ โปรดตรวจสอบ
+            </p>
+          ) : null}
           <ul className="mt-2 flex flex-col gap-1">
-            {record.torFiles.map((file) => (
+            {record.documents.map((file) => (
               <li key={file.filename} className="flex items-center gap-2 text-xs">
                 <span className="font-medium">{file.filename}</span>
                 <span className="text-muted-foreground">
                   {(file.bytes / 1024 / 1024).toFixed(1)} MB
                 </span>
+                {file.role === 'main_tor' ? (
+                  <Badge className="text-[10px]">TOR หลัก</Badge>
+                ) : null}
+                {file.role === 'tor_variant' ? (
+                  <Badge variant="secondary" className="text-[10px]">
+                    TOR ฉบับอื่น
+                  </Badge>
+                ) : null}
+                {file.role === 'not_tor' ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    ไม่ใช่ TOR
+                  </Badge>
+                ) : null}
+                {file.role === 'unreadable' ? (
+                  <Badge variant="destructive" className="text-[10px]">
+                    อ่านไม่ได้
+                  </Badge>
+                ) : null}
                 {file.namePattern === 'loose' ? (
                   <Badge variant="outline" className="text-[10px]">
                     ชื่อไฟล์ไม่ตรงแบบแผน
                   </Badge>
                 ) : null}
-                {!file.pdfMagicOk ? (
-                  <Badge variant="destructive" className="text-[10px]">
-                    ไม่ใช่ PDF
-                  </Badge>
+                {file.note ? (
+                  <span className="text-muted-foreground truncate">{file.note}</span>
                 ) : null}
               </li>
             ))}
@@ -64,7 +107,9 @@ function ProjectDetail({ record }: { record: IngestionRecord }) {
         </div>
       ) : null}
 
-      {record.error ? <p className="text-destructive text-xs">{record.error}</p> : null}
+      {latestDetail(record) ? (
+        <p className="text-destructive text-xs">{latestDetail(record)}</p>
+      ) : null}
     </div>
   );
 }
@@ -74,7 +119,7 @@ export function ProjectTable({
   total,
   loading,
 }: {
-  projects: IngestionRecord[];
+  projects: Procurement[];
   total: number;
   loading: boolean;
 }) {
@@ -150,7 +195,7 @@ export function ProjectTable({
                       {formatThb(record.projectMoney)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {record.torFiles.length > 0 ? record.torFiles.length : '—'}
+                      {countTorDocuments(record) > 0 ? countTorDocuments(record) : '—'}
                     </TableCell>
                   </TableRow>
 

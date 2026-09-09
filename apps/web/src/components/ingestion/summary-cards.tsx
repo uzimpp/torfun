@@ -29,7 +29,7 @@ export function SummaryCards({ summary }: { summary: IngestionSummaryResponse })
     {
       label: 'สำเร็จ',
       value: (summary.byState.Completed ?? 0).toLocaleString('th-TH'),
-      hint: `ได้ไฟล์ TOR ${summary.torFilesRetrieved} ไฟล์ · ${formatBytes(summary.totalTorBytes)}`,
+      hint: `ได้ไฟล์ TOR ${summary.torDocumentsRetrieved} ไฟล์ · ${formatBytes(summary.totalTorBytes)}`,
     },
     {
       label: 'ล้มเหลว',

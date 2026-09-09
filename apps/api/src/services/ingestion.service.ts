@@ -1,9 +1,9 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { IngestionFailure, IngestionRecord, IngestionSummary } from '@torfun/types';
+import type { IngestionFailure, Procurement, IngestionSummary } from '@torfun/types';
 import type { Env } from '../config/env';
 import { ConflictError, NotFoundError } from '../core/errors';
-import type { FindOptions, IngestionRepository } from '../repositories/ingestion.repository';
-import { runIngestion } from './egp/pipeline';
+import type { FindOptions, ProcurementRepository } from '../repositories/procurement.repository';
+import { createIngestionDeps, runIngestion, type IngestionDeps } from './egp/pipeline';
 
 /**
  * Application-level policy over the e-GP ingestion pipeline.
@@ -23,31 +23,40 @@ export type SummaryView = IngestionSummary & { agencies: string[] };
 export class IngestionService {
   private runInFlight = false;
 
+  /**
+   * The pipeline's side-effecting stages, built once from configuration.
+   * Overridable so a test can drive a run without the network or a credential.
+   */
+  private readonly deps: IngestionDeps;
+
   constructor(
-    private readonly repository: IngestionRepository,
+    private readonly repository: ProcurementRepository,
     private readonly env: Env,
     private readonly logger: FastifyBaseLogger,
-  ) {}
-
-  summary(): SummaryView {
-    return {
-      ...this.repository.summary(),
-      agencies: this.repository.agencies(),
-      runInProgress: this.runInFlight,
-    };
+    deps?: IngestionDeps,
+  ) {
+    this.deps = deps ?? createIngestionDeps(env);
   }
 
-  list(options: FindOptions): { items: IngestionRecord[]; total: number } {
+  async summary(): Promise<SummaryView> {
+    const [summary, agencies] = await Promise.all([
+      this.repository.summary(),
+      this.repository.agencies(),
+    ]);
+    return { ...summary, agencies, runInProgress: this.runInFlight };
+  }
+
+  list(options: FindOptions): Promise<{ items: Procurement[]; total: number }> {
     return this.repository.find(options);
   }
 
-  get(projectId: string): IngestionRecord {
-    const record = this.repository.get(projectId);
+  async get(projectId: string): Promise<Procurement> {
+    const record = await this.repository.get(projectId);
     if (!record) throw new NotFoundError(`No ingested project ${projectId}`);
     return record;
   }
 
-  failures(): IngestionFailure[] {
+  failures(): Promise<IngestionFailure[]> {
     return this.repository.listFailures();
   }
 
@@ -66,12 +75,16 @@ export class IngestionService {
 
     this.runInFlight = true;
 
-    void runIngestion(this.repository, {
-      apiKey: this.env.EGP_API_KEY,
-      maxDownloads: input.maxDownloads ?? this.env.EGP_MAX_DOWNLOADS_PER_RUN,
-      eBiddingOnly: input.eBiddingOnly,
-      logger: this.logger,
-    })
+    void runIngestion(
+      this.repository,
+      {
+        apiKey: this.env.EGP_API_KEY,
+        maxDownloads: input.maxDownloads ?? this.env.EGP_MAX_DOWNLOADS_PER_RUN,
+        eBiddingOnly: input.eBiddingOnly,
+        logger: this.logger,
+      },
+      this.deps,
+    )
       .catch((error: unknown) => {
         this.logger.error({ err: error }, 'egp: ingestion run failed');
       })

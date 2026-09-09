@@ -17,7 +17,8 @@
     "test:e2e": "turbo run test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && rm -rf node_modules",
+    "docker:up": "docker compose --env-file apps/web/.env up -d --build"
   },
   "devDependencies": {
     "prettier": "^3.9.6",

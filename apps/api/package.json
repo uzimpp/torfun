@@ -19,7 +19,7 @@
     "@fastify/jwt": "^10.2.2",
     "@fastify/oauth2": "^8.3.0",
     "@fastify/rate-limit": "^10.2.1",
-    "@google-cloud/vertexai": "^1.9.3",
+    "@google/genai": "^1.52.0",
     "@torfun/types": "workspace:*",
     "bcryptjs": "^3.0.3",
     "fastify": "^5.12.1",
