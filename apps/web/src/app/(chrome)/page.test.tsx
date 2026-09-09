@@ -10,7 +10,11 @@ const auth = vi.hoisted(() => ({
   }),
 }));
 vi.mock('@/lib/auth', () => ({ getCurrentUser: auth.getCurrentUser }));
-vi.mock('next/navigation', () => ({ redirect: auth.redirect }));
+vi.mock('next/navigation', () => ({
+  redirect: auth.redirect,
+  // The hero's search field is a client component and reaches for the router.
+  useRouter: () => ({ push: vi.fn() }),
+}));
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
@@ -21,11 +25,16 @@ describe('guest routes', () => {
     render(await Home());
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ค้นหาโอกาสจาก TOR');
     expect(screen.getAllByRole('region')).toHaveLength(4);
-    expect(screen.getByRole('link', { name: /เริ่มต้นใช้งาน/ })).toHaveAttribute(
+    expect(screen.getAllByRole('link', { name: /สร้างบัญชีผู้ใช้/ })[0]).toHaveAttribute(
       'href',
       '/register',
     );
     expect(screen.getByText(/ผลสรุปจาก AI เป็นข้อมูลช่วยอ่าน/)).toBeInTheDocument();
+    // Typing a query and pressing enter must reach the results page even
+    // before hydration, so the field has to be a real GET form.
+    const search = screen.getByRole('search', { name: 'ค้นหาประกาศ TOR' });
+    expect(search).toHaveAttribute('action', '/search');
+    expect(search).toHaveAttribute('method', 'get');
   });
   test.each(['admin', 'business_development_officer'])(
     'redirects %s away from the auth forms, but never from the landing page',
@@ -55,8 +64,10 @@ describe('guest routes', () => {
         'href',
         '/dashboard',
       );
-      expect(screen.queryByRole('link', { name: /เริ่มต้นใช้งาน/ })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: 'สร้างบัญชีผู้ใช้' })).not.toBeInTheDocument();
+      // Search is the one thing the hero offers to everyone: signing in does
+      // not take it away, it only changes what sits underneath it.
+      expect(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toBeInTheDocument();
     },
   );
   test('keeps guest forms reachable', async () => {

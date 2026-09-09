@@ -25,10 +25,24 @@ src/
   app/            routes; page.tsx is the route, colocated by URL
   components/
     ui/           shadcn primitives — generated, don't hand-edit
+    layout/       header, footer, sidebar, and the one nav-config they share
+    landing/      the landing page's sections, plus its GSAP scroll layer
+    search/       the search field and the results page's states
     auth/         login/session UI
     ingestion/    admin ingestion console
   lib/            api client, session helpers, config
 ```
+
+**Navigation has one source of truth.** `components/layout/nav-config.ts` holds
+the destinations; the sidebar, the header and the mobile sheet all read it. They
+each kept their own copy once and drifted, so a phone offered a smaller product
+than a laptop.
+
+**Motion is CSS unless it is tied to the scrollbar.** The hero's entrance is a
+keyframe cascade so it plays on first paint; GSAP appears only in
+`landing/landing-motion.tsx`, uses `gsap.from` so a failed bundle leaves the page
+readable rather than blank, and is registered under `prefers-reduced-motion:
+no-preference`.
 
 ## Data flow
 

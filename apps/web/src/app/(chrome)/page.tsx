@@ -1,11 +1,15 @@
-import { getCurrentUser } from '@/lib/auth';
 import type { Metadata } from 'next';
+
+import { getCurrentUser } from '@/lib/auth';
 import { HeroSection } from '@/components/landing/hero-section';
-import { FeaturesSection } from '@/components/landing/features-section';
+import { ValueSection } from '@/components/landing/value-section';
 import { WorkflowSection } from '@/components/landing/workflow-section';
-import { CtaSection } from '@/components/landing/cta-section';
-import { SiteFooter } from '@/components/landing/site-footer';
+import { LimitsSection } from '@/components/landing/limits-section';
+import { LandingMotion } from '@/components/landing/landing-motion';
+import { SiteFooter } from '@/components/layout/site-footer';
+
 export const metadata: Metadata = { title: 'Torfun | ค้นหาโอกาสจาก TOR ด้านซอฟต์แวร์' };
+
 export default async function Home() {
   // Deliberately not gated. This is the public page describing the product, and
   // a signed-in officer has every reason to come back to it — from the logo in
@@ -17,13 +21,17 @@ export default async function Home() {
   const signedIn = (await getCurrentUser()) !== null;
   return (
     <>
-      <main>
-        <HeroSection signedIn={signedIn} />
-        <FeaturesSection />
-        <WorkflowSection />
-        <CtaSection signedIn={signedIn} />
-      </main>
-      <SiteFooter />
+      {/* The sections stay server components; `LandingMotion` only wraps them
+          so its GSAP triggers have one scope to query within. */}
+      <LandingMotion>
+        <main>
+          <HeroSection signedIn={signedIn} />
+          <ValueSection />
+          <WorkflowSection />
+          <LimitsSection signedIn={signedIn} />
+        </main>
+      </LandingMotion>
+      <SiteFooter signedIn={signedIn} />
     </>
   );
 }

@@ -26,7 +26,8 @@ it for a deployment means a rebuild, not a restart.
 
 | Route                  | Access | What it does                                        |
 | ---------------------- | ------ | --------------------------------------------------- |
-| `/`                    | public | Landing page                                        |
+| `/`                    | public | Landing page, with the search field as its hero     |
+| `/search`              | public | Results for `?q=`; says what access the index needs |
 | `/login`               | public | Password sign-in, or the Google redirect            |
 | `/register`            | public | Self-registration, always as a BD Officer           |
 | `/dashboard`           | user   | Signed-in landing                                   |
@@ -38,8 +39,15 @@ Protected pages redirect from the server component; the session cookie is
 BD Officer with no Company to `/company-experiences`; administrators are exempt,
 and that page must never gate itself or it redirects to itself.
 
-Routes in the `(chrome)` group get the navbar and sidebar from
+Routes in the `(chrome)` group get the header and sidebar from
 `app/(chrome)/layout.tsx`. The rest — `/login`, `/register`, `/company-experiences`
 — deliberately get neither: they are steps in one sign-up flow rather than places
 to navigate from, and they show `OnboardingSteps` instead. The group changes no
 URL.
+
+`/search` is not gated. A guest who searches from the landing page arrives with
+their words intact and is told what the index needs, rather than being redirected
+into a form that loses them. The announcement index is served by
+`/api/ingestion/projects`, which is **admin-only**, so a BD Officer's search
+currently reports that rather than returning rows — opening the index to that
+role is an API change, not a UI one.

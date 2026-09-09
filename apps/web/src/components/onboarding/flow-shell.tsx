@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
-import Link from 'next/link';
-import { ScanLine } from 'lucide-react';
+import { Brand } from '@/components/layout/brand';
 
 import { cn } from '@/lib/utils';
 import { OnboardingSteps, type OnboardingStepId } from './steps';
@@ -36,14 +35,7 @@ export function FlowShell({
   return (
     <main className="landing-grid bg-background flex flex-1 flex-col items-center px-4 py-10 sm:px-6 sm:py-14">
       <div className={cn('w-full', width === 'narrow' ? 'max-w-md' : 'max-w-3xl')}>
-        <Link
-          href="/"
-          aria-label="Torfun หน้าแรก"
-          className="text-primary focus-visible:outline-ring mb-8 inline-flex items-center gap-2 text-xl font-semibold tracking-tight focus-visible:outline-2"
-        >
-          <ScanLine className="size-6" aria-hidden="true" />
-          Torfun
-        </Link>
+        <Brand size="sm" className="mb-8" />
 
         {step ? <OnboardingSteps current={step} className="mb-10" /> : null}
 
