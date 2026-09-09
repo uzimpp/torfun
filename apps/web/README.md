@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# @torfun/web
 
-## Getting Started
+The torfun front end: Next.js App Router, React 19, Tailwind v4, shadcn/ui.
 
-First, run the development server:
+App structure, data flow and conventions are in `AGENTS.md` beside this file.
+This page is how to run it and what the pages are.
+
+## Running
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun run dev          # http://localhost:3000
+bun run typecheck
+bun run lint
+bun run test         # vitest
+bun run test:e2e     # playwright, against a production build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The API must be running for anything past the login page. `bun run dev` from the
+repo root starts both.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`NEXT_PUBLIC_API_URL` is the only configuration; copy `.env.example` to `.env`.
+It defaults to `http://localhost:8080` and is inlined at build time, so changing
+it for a deployment means a rebuild, not a restart.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Pages
 
-## Learn More
+| Route              | Access | What it does                                        |
+| ------------------ | ------ | --------------------------------------------------- |
+| `/`                | public | Landing page                                        |
+| `/login`           | public | Password sign-in, or the Google redirect            |
+| `/register`        | public | Self-registration, always as a BD Officer           |
+| `/dashboard`       | user   | Signed-in landing                                   |
+| `/admin/ingestion` | admin  | Run ingestion, watch progress, read the failure log |
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Protected pages redirect from the server component; the session cookie is
+`httpOnly` and unreadable from the browser.

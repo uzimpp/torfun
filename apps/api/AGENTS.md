@@ -3,15 +3,8 @@
 Fastify 5 on Bun, MongoDB Atlas, Vertex AI. Read the root `AGENTS.md` first — the
 upstream-access guardrails there are why several rules below exist.
 
-## Commands
-
-```bash
-bun run dev          # watch mode, loads ../../.env
-bun run typecheck
-bun run lint         # enforces the layer boundaries below; a violation fails the build
-bun test                                 # all
-bun test src/routes/ingestion.test.ts    # one file
-```
+Commands and configuration are in `README.md` beside this file. `bun run lint`
+enforces the layer boundaries below; a violation fails the build.
 
 ## Layers
 
