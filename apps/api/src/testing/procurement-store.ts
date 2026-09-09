@@ -9,6 +9,7 @@ import type {
   FindResult,
   ProcurementStore,
 } from '../repositories/procurement.repository';
+import { mergeDiscovered } from '../repositories/merge-discovered';
 
 /**
  * An in-memory `ProcurementStore` for driving an ingestion run in a test.
@@ -33,11 +34,9 @@ export class InMemoryProcurementStore implements ProcurementStore {
       this.records.set(record.projectId, record);
       return record;
     }
-    const merged: Procurement = {
-      ...existing,
-      matchedKeywords: [...new Set([...existing.matchedKeywords, ...record.matchedKeywords])],
-      updatedAt: new Date().toISOString(),
-    };
+    // The same merge rule the real repository uses, so a pipeline test cannot
+    // pass against a fake that keeps different fields.
+    const merged = mergeDiscovered(existing, record);
     this.records.set(merged.projectId, merged);
     return merged;
   }

@@ -38,6 +38,12 @@ The slow, rate-limited, per-run-capped stage that fetches a Procurement's Archiv
 stores its documents, and has them read. Deliberately separate from Discovery.
 _Avoid_: download, fetch, ingest
 
+**Run**:
+One execution of Discovery followed by Retrieval, bounded by a per-run download
+cap and never overlapping another. What a Site Administrator starts and what the
+failure log is grouped by.
+_Avoid_: job, sweep, batch, ingestion
+
 **Source Registry**:
 The fixed list of Thai agency names the system collects under. Membership is a
 product decision, not a configuration value.
@@ -62,7 +68,8 @@ _Avoid_: status, progress
 **Outcome**:
 Why a Procurement reached its State, at a finer grain than State can express —
 distinguishing "no TOR was ever published" (a legitimate upstream answer) from a
-transport failure. Both are surfaced; only one is anyone's fault.
+transport failure. Both are surfaced; only one is anyone's fault, and only one
+is worth retrying.
 _Avoid_: reason, result, error code
 
 **Review Status**:

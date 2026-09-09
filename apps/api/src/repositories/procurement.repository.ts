@@ -12,6 +12,7 @@ import type {
   TorAnalysis,
   Winner,
 } from '@torfun/types';
+import { mergeDiscovered } from './merge-discovered';
 
 /**
  * Data access for ingested procurement records.
@@ -234,10 +235,11 @@ export class ProcurementRepository implements ProcurementStore {
   /**
    * Insert or merge a discovered record.
    *
-   * Deduplication is by projectId, per the functional requirements. An existing
-   * record keeps its processing state and history — rediscovering a project must
-   * not reset a completed retrieval back to Queued — and only gains any newly
-   * matched keywords.
+   * Deduplication is by projectId, per the functional requirements. What
+   * survives a rediscovery is `mergeDiscovered`'s decision, not this method's:
+   * upstream fields refresh, the pipeline's own findings are preserved. Writing
+   * through `toDocument` is what re-derives `biddability_rank` from a refreshed
+   * status, so the retrieval queue re-sorts itself.
    */
   async upsert(record: Procurement): Promise<Procurement> {
     const collection = await this.records();
@@ -249,11 +251,7 @@ export class ProcurementRepository implements ProcurementStore {
       return toDomain(document);
     }
 
-    const merged: ProcurementDocument = {
-      ...existing,
-      matched_keywords: [...new Set([...existing.matched_keywords, ...record.matchedKeywords])],
-      updated_at: new Date().toISOString(),
-    };
+    const merged = toDocument(mergeDiscovered(toDomain(existing), record));
     await collection.replaceOne({ _id: record.projectId }, merged);
     return toDomain(merged);
   }

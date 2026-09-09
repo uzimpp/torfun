@@ -143,6 +143,31 @@ describeMongo('ProcurementRepository', () => {
     expect(record?.matchedKeywords.sort()).toEqual(['จ้างพัฒนา', 'ซอฟต์แวร์'].sort());
   });
 
+  test('rediscovering a project refreshes what the agency published, and re-ranks it', async () => {
+    await seed([
+      procurement({ projectId: 'live', status: 'invitation', softwareScore: 1 }),
+      procurement({ projectId: 'moving', status: 'contracted', softwareScore: 9 }),
+    ]);
+    expect((await ids())[0]).toBe('live');
+
+    await repository.upsert(
+      procurement({
+        projectId: 'moving',
+        status: 'invitation',
+        softwareScore: 9,
+        projectName: 'จ้างพัฒนาระบบสารสนเทศ (แก้ไข)',
+        projectMoney: 2_500_000,
+      }),
+    );
+
+    const record = await repository.get('moving');
+    expect(record?.status).toBe('invitation');
+    expect(record?.projectName).toBe('จ้างพัฒนาระบบสารสนเทศ (แก้ไข)');
+    expect(record?.projectMoney).toBe(2_500_000);
+    // The stored rank is derived on write, so a refreshed stage has to re-sort.
+    expect((await ids())[0]).toBe('moving');
+  });
+
   test('a live tender outranks a settled contract, whatever its score', async () => {
     await seed([
       procurement({ projectId: 'settled', status: 'contracted', softwareScore: 9 }),
