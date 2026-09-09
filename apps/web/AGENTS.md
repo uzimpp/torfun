@@ -14,18 +14,9 @@ Next.js App Router, React 19, Tailwind v4, shadcn/ui. Read the root `AGENTS.md`
 first for what the product does and who uses it. The block above is not optional —
 consult `node_modules/next/dist/docs/` before writing components.
 
-## Commands
-
-```bash
-bun run dev
-bun run typecheck                     # runs `next typegen` first
-bun run lint
-bunx vitest run src/app/page.test.tsx # one unit test
-bun run test:e2e                      # playwright, builds first
-```
-
-The API must be running for anything past the login page; `bun run dev` from the
-repo root starts both.
+Commands, configuration and the page list are in `README.md` beside this file.
+Note that `bun run typecheck` runs `next typegen` first, and a single unit test is
+`bunx vitest run src/app/page.test.tsx`.
 
 ## Structure
 

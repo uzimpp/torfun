@@ -1,6 +1,8 @@
-import type { IngestionFailure, IngestionRecord } from '@torfun/types';
+import type { IngestionFailure, Procurement } from '@torfun/types';
 import { classifyProject, softwareScore } from './classify';
 import { openDataGet, sleep } from './client';
+import { toProcurementStatus } from './status';
+import { toWinner } from './winner';
 import {
   CONTRACT_URL,
   DEPT_URL,
@@ -35,6 +37,8 @@ interface ContractRow {
   project_type_name?: string;
   purchase_method_name?: string;
   project_money?: number;
+  price_build?: number;
+  contract?: unknown;
   project_status?: string;
 }
 
@@ -46,7 +50,7 @@ export interface DeptResolution {
 }
 
 export interface DiscoveryResult {
-  records: IngestionRecord[];
+  records: Procurement[];
   /**
    * Records fetched under a registry dept_code whose own dept_name did not
    * match. Kept rather than dropped so the over-collection is auditable.
@@ -136,7 +140,7 @@ function toRecord(
   deptCode: string,
   year: number,
   keyword: string,
-): IngestionRecord {
+): Procurement {
   const timestamp = now();
   const projectName = row.project_name ?? '';
 
@@ -152,7 +156,8 @@ function toRecord(
     projectTypeName: row.project_type_name ?? null,
     purchaseMethodName: row.purchase_method_name ?? null,
     projectMoney: row.project_money ?? null,
-    projectStatus: row.project_status ?? null,
+    priceBuild: row.price_build ?? null,
+    status: toProcurementStatus(row.project_status),
     matchedKeywords: [keyword],
 
     softwareClass: classifyProject(projectName),
@@ -166,8 +171,10 @@ function toRecord(
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
-    torFiles: [],
-    error: null,
+    documents: [],
+    analysis: null,
+    winner: toWinner(row.contract),
+    torAmbiguous: false,
 
     discoveredAt: timestamp,
     updatedAt: timestamp,
@@ -190,7 +197,7 @@ function toRecord(
 export async function discoverProjects(apiKey: string): Promise<DiscoveryResult> {
   const failures: IngestionFailure[] = [];
   const resolutions: DeptResolution[] = [];
-  const byProjectId = new Map<string, IngestionRecord>();
+  const byProjectId = new Map<string, Procurement>();
   const rejected = new Map<string, { projectId: string; projectName: string; deptName: string }>();
 
   for (const registryName of SOURCE_REGISTRY) {

@@ -8,7 +8,8 @@ import { registerMongo } from './core/mongo';
 import { registerSecurityPlugins } from './plugins/security';
 import { registerJwt } from './plugins/jwt';
 import { registerGoogleOAuth } from './plugins/google-oauth';
-import { IngestionRepository } from './repositories/ingestion.repository';
+import { ProcurementRepository } from './repositories/procurement.repository';
+import { createDependencyProbes, DiagnosticsService } from './services/diagnostics.service';
 import { RefreshTokenRepository } from './repositories/refresh-token.repository';
 import { UserRepository } from './repositories/user.repository';
 import { AuthService } from './services/auth.service';
@@ -52,13 +53,17 @@ export async function buildApp(env: Env = loadEnv()) {
 
   const userRepository = new UserRepository(app.mongo.getDb);
   const refreshTokenRepository = new RefreshTokenRepository(app.mongo.getDb);
-  const ingestionRepository = new IngestionRepository();
+  const procurementRepository = new ProcurementRepository(app.mongo.getDb);
 
   app.decorate(
     'authService',
     new AuthService(userRepository, refreshTokenRepository, (payload) => app.jwt.sign(payload)),
   );
-  app.decorate('ingestionService', new IngestionService(ingestionRepository, env, app.log));
+  app.decorate('ingestionService', new IngestionService(procurementRepository, env, app.log));
+  app.decorate(
+    'diagnosticsService',
+    new DiagnosticsService(createDependencyProbes(env, app.mongo.getDb)),
+  );
 
   await registerRoutes(app);
 

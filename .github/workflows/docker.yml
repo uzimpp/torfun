@@ -7,7 +7,7 @@ on:
 
 # Required repo Variables (Settings > Secrets and variables > Actions > Variables):
 #   GCP_PROJECT_ID                 e.g. torfun-prod
-#   GCP_REGION                     e.g. asia-southeast3
+#   GCP_REGION                     e.g. asia-southeast1
 #   GCP_ARTIFACT_REGISTRY_REPO     e.g. torfun
 #   GCP_WIF_PROVIDER               full resource name of the WIF provider
 #   GCP_DEPLOY_SERVICE_ACCOUNT     email of the deploy-time service account

@@ -54,9 +54,10 @@ Completed/Failed) and a finer `outcome`, because "no TOR was ever published" is 
 legitimate upstream answer rather than a failure, and an admin needs to tell them
 apart.
 
-`packages/types` holds the domain vocabulary — `Tor`, `User`, `MatchResult`, the
-ingestion records — as zod schemas, and both apps import it. It is the contract
-between them: change a schema and both sides fail to compile, which is the point.
+`packages/types` holds the domain vocabulary — `Procurement`, `User`,
+`MatchResult`, the ingestion records — as zod schemas, and both apps import it.
+It is the contract between them: change a schema and both sides fail to compile,
+which is the point.
 
 ## Guardrails
 
@@ -88,23 +89,9 @@ person's call.
 
 ## Commands
 
-Run from the repo root; Turbo fans out to every workspace.
-
-```bash
-bun run dev            # all apps
-bun run typecheck      # run before claiming work is done
-bun run lint           # also enforces API layer boundaries
-bun run test
-bun run format
-```
-
-Scoped: `bun run test --filter=@torfun/api`. Local Mongo alone:
-`docker compose up mongodb`. Full stack: `docker compose up` (needs the required
-vars from `apps/api/.env.example` in a repo-root `.env`).
-
-CI runs lint → typecheck → test → build on every push, plus Playwright e2e. Tagged
-`v*` releases build both Docker images, Trivy-scan them, and push to Artifact
-Registry.
+`README.md` at the repo root has them, along with setup and CI. Two matter here:
+`bun run typecheck` before claiming work is done, and `bun run lint`, which
+enforces the API's layer boundaries.
 
 ## Working in this repo
 
