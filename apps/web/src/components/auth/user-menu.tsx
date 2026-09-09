@@ -75,7 +75,7 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
             <LayoutDashboard aria-hidden="true" className="size-4" />
             แดชบอร์ด
           </DropdownMenuItem>
-          <DropdownMenuItem className={ROW} render={<Link href="/company-experiences" />}>
+          <DropdownMenuItem className={ROW} render={<Link href="/company" />}>
             <Building2 aria-hidden="true" className="size-4" />
             บริษัทและผลงาน
           </DropdownMenuItem>

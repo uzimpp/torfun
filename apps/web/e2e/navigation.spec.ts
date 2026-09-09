@@ -16,8 +16,10 @@ test('guest login navigation and skip link work without workspace links', async 
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('button', { name: 'เข้าสู่ระบบด้วย Google' })).toBeVisible();
   // The sign-in page sits in FlowShell, which has no navbar — its brand link is
-  // the only way back, and it names its destination.
-  await page.getByRole('link', { name: 'Torfun หน้าแรก', exact: true }).click();
+  // the only way back. It shares the `Brand` component with the header now, so
+  // it is named plainly rather than naming its destination: one wordmark, one
+  // announcement, wherever a reader meets it.
+  await page.getByRole('link', { name: 'Torfun', exact: true }).click();
   await expect(page).toHaveURL('/');
 });
 

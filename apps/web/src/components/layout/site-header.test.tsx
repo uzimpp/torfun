@@ -40,9 +40,11 @@ test.each(['admin', 'business_development_officer'] as const)(
       'href',
       '/dashboard',
     );
+    // `/company` is the page for changing the record later; the longer path
+    // stays reserved for the guided version inside registration.
     expect(screen.getByRole('menuitem', { name: 'บริษัทและผลงาน' })).toHaveAttribute(
       'href',
-      '/company-experiences',
+      '/company',
     );
     expect(screen.getByRole('menuitem', { name: /TOR ของฉัน/ })).toHaveAttribute(
       'data-disabled',
