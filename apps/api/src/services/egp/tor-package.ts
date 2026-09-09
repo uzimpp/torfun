@@ -1,4 +1,3 @@
-import type { TorFile } from '@torfun/types';
 import { egpGet, UpstreamError } from './client';
 import { BROWSER_HEADERS, TOR_DOWNLOAD_URL, TOR_INFO_URL, TOR_MEMBER_PATTERNS } from './constants';
 
@@ -77,14 +76,31 @@ export function isSafeMember(name: string): boolean {
   return !normalized.split('/').includes('..');
 }
 
+/**
+ * A candidate PDF pulled out of an archive, with its bytes.
+ *
+ * Internal to this stage rather than a shared domain type: the payload is
+ * carried only as far as classification and never persisted (ADR-0002). What
+ * survives on a Procurement is the `ArchiveDocument` manifest entry built from
+ * the classification result.
+ */
+export interface ExtractedPdf {
+  member: string;
+  filename: string;
+  bytes: number;
+  namePattern: 'canonical' | 'loose';
+  /** The PDF itself. Held in memory only for the length of one retrieval. */
+  payload: Uint8Array;
+}
+
 /** Which TOR naming convention a member matched, or null if it isn't a TOR. */
-export function matchTorMember(name: string): TorFile['namePattern'] | null {
+export function matchTorMember(name: string): ExtractedPdf['namePattern'] | null {
   const normalized = name.replace(/\\/g, '/');
   return TOR_MEMBER_PATTERNS.find((entry) => entry.pattern.test(normalized))?.label ?? null;
 }
 
 export interface ExtractionResult {
-  torFiles: TorFile[];
+  torFiles: ExtractedPdf[];
   /** Every member name in the archive, for provenance and admin inspection. */
   members: string[];
   /** Members that matched a TOR pattern but were rejected by the path guard. */
@@ -109,7 +125,7 @@ export function extractTorPdfs(
   const entries = unzipSync(archive);
   const members = Object.keys(entries);
 
-  const torFiles: TorFile[] = [];
+  const torFiles: ExtractedPdf[] = [];
   const unsafeSkipped: string[] = [];
 
   for (const member of members) {
@@ -129,10 +145,8 @@ export function extractTorPdfs(
       member,
       filename,
       bytes: payload.length,
-      // A PDF extension is not proof of a PDF; check the magic number.
-      pdfMagicOk:
-        payload[0] === 0x25 && payload[1] === 0x50 && payload[2] === 0x44 && payload[3] === 0x46,
       namePattern,
+      payload,
     });
   }
 

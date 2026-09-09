@@ -1,10 +1,14 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { unzipSync } from 'fflate';
-import type { IngestionFailure, IngestionRecord } from '@torfun/types';
-import type { IngestionRepository } from '../../repositories/ingestion.repository';
+import type { ArchiveDocument, IngestionFailure, Procurement, TorAnalysis } from '@torfun/types';
+import type { Env } from '../../config/env';
+import type { ProcurementStore } from '../../repositories/procurement.repository';
+import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
+import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
-import { discoverProjects } from './discovery';
-import { downloadArchive, extractTorPdfs, resolveZipId } from './tor-package';
+import { discoverProjects, type DiscoveryResult } from './discovery';
+import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
+import { downloadArchive, extractTorPdfs, resolveZipId, type ExtractionResult } from './tor-package';
 
 /**
  * Orchestrates the two ingestion stages against the repository.
@@ -13,6 +17,34 @@ import { downloadArchive, extractTorPdfs, resolveZipId } from './tor-package';
  * and this owns the policy: what to retrieve, in what order, how failures are
  * recorded, and when to stop.
  */
+
+/**
+ * Every side-effecting stage, taken as a parameter.
+ *
+ * Not for flexibility — there is exactly one real implementation — but so this
+ * policy can be tested without the network, a Google credential, or the
+ * politeness delays that make a real pass take minutes.
+ */
+export interface IngestionDeps {
+  discoverProjects: (apiKey: string) => Promise<DiscoveryResult>;
+  resolveZipId: (projectId: string) => Promise<string | null>;
+  downloadArchive: (zipId: string) => Promise<Uint8Array>;
+  extractTorPdfs: (archive: Uint8Array) => ExtractionResult;
+  classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
+  sleep: (ms: number) => Promise<void>;
+}
+
+export function createIngestionDeps(env: Env): IngestionDeps {
+  const callModel = createModelCall(env);
+  return {
+    discoverProjects,
+    resolveZipId,
+    downloadArchive,
+    extractTorPdfs: (archive) => extractTorPdfs(archive, unzipSync),
+    classifyDocument: (pdf) => classifyTorDocument(callModel, pdf),
+    sleep,
+  };
+}
 
 export interface RunOptions {
   apiKey: string;
@@ -36,7 +68,10 @@ export interface RunResult {
   newRecords: number;
   rejectedNonRegistry: number;
   attempted: number;
-  torDownloaded: number;
+  /** Announcement archives successfully retrieved, whatever was in them. */
+  archivesRetrieved: number;
+  /** Retrievals that ended with a TOR identified and read. */
+  torAnalysed: number;
   failed: number;
   aborted: boolean;
   failures: IngestionFailure[];
@@ -44,23 +79,71 @@ export interface RunResult {
 }
 
 /** Which records are worth spending an upstream request on, best first. */
-function selectForRetrieval(
-  repository: IngestionRepository,
+async function selectForRetrieval(
+  repository: ProcurementStore,
   options: Pick<RunOptions, 'maxDownloads' | 'eBiddingOnly'>,
-): IngestionRecord[] {
-  const { items } = repository.find({
+): Promise<Procurement[]> {
+  const { items } = await repository.find({
     state: 'Queued',
     ...(options.eBiddingOnly ? { eBidding: true } : {}),
     limit: options.maxDownloads,
     offset: 0,
   });
-  // `find` already orders by software-likeness then contract value.
+  // `find` already orders by biddable status, then software-likeness, then value.
   return items;
 }
 
+interface AnalysedArchive {
+  documents: ArchiveDocument[];
+  analysis: TorAnalysis | null;
+  torAmbiguous: boolean;
+  /** True where at least one candidate could not be read at all. */
+  anyUnreadable: boolean;
+}
+
 /**
- * Run one full ingestion pass: discover, then retrieve TOR packages for the
- * most promising queued projects.
+ * Classify every candidate PDF, then decide between them.
+ *
+ * One call per document (ADR-0003): with nothing stored, the bytes travel as
+ * base64 and several in one request would breach the size limit. Only members
+ * that matched a TOR filename pattern are sent — reading the rest of an archive
+ * would cost tokens to be told what we already knew.
+ */
+async function analyseArchive(
+  extraction: ExtractionResult,
+  classifyDocument: IngestionDeps['classifyDocument'],
+): Promise<AnalysedArchive> {
+  const byMember = new Map<string, DocumentClassification>();
+  const candidates: ClassifiedDocument[] = [];
+
+  for (const pdf of extraction.torFiles) {
+    const classification = await classifyDocument(Buffer.from(pdf.payload));
+    byMember.set(pdf.member, classification);
+    candidates.push({
+      member: pdf.member,
+      filename: pdf.filename,
+      bytes: pdf.bytes,
+      namePattern: pdf.namePattern,
+      isTor: classification.isTor,
+      torKind: classification.torKind,
+      whatThisIs: classification.whatThisIs,
+      unreadable: classification.unreadable,
+    });
+  }
+
+  const { documents, mainTor, ambiguous } = assignDocumentRoles(candidates);
+
+  return {
+    documents,
+    analysis: mainTor ? (byMember.get(mainTor.member)?.analysis ?? null) : null,
+    torAmbiguous: ambiguous,
+    anyUnreadable: candidates.some((candidate) => candidate.unreadable !== undefined),
+  };
+}
+
+/**
+ * Run one full ingestion pass: discover, then retrieve and read TOR packages
+ * for the most promising queued projects.
  *
  * Failures never abort the pass except a rate limit, which stops it entirely —
  * the correct response to a site signalling "stop" is to stop, not to retry
@@ -68,21 +151,22 @@ function selectForRetrieval(
  * pass continues.
  */
 export async function runIngestion(
-  repository: IngestionRepository,
+  repository: ProcurementStore,
   options: RunOptions,
+  deps: IngestionDeps,
 ): Promise<RunResult> {
   const { logger } = options;
 
   logger.info('egp: starting discovery sweep');
-  const discovery = await discoverProjects(options.apiKey);
+  const discovery = await deps.discoverProjects(options.apiKey);
 
   let newRecords = 0;
   for (const record of discovery.records) {
-    if (!repository.get(record.projectId)) newRecords += 1;
-    repository.upsert(record);
+    if (!(await repository.get(record.projectId))) newRecords += 1;
+    await repository.upsert(record);
   }
-  repository.recordFailures(discovery.failures);
-  repository.markRun(discovery.ranAt);
+  await repository.recordFailures(discovery.failures);
+  await repository.markRun(discovery.ranAt);
 
   logger.info(
     {
@@ -95,75 +179,98 @@ export async function runIngestion(
   );
 
   const failures: IngestionFailure[] = [...discovery.failures];
-  const candidates = selectForRetrieval(repository, options);
+  const candidates = await selectForRetrieval(repository, options);
 
-  let torDownloaded = 0;
+  let archivesRetrieved = 0;
+  let torAnalysed = 0;
   let failed = 0;
   let attempted = 0;
   let aborted = false;
 
+  const note = async (failure: IngestionFailure) => {
+    failures.push(failure);
+    await repository.recordFailures([failure]);
+  };
+
   for (const [index, record] of candidates.entries()) {
     attempted += 1;
-    repository.transition(record.projectId, 'Processing', 'processing');
+    await repository.transition(record.projectId, 'Processing', 'processing');
 
     try {
-      const zipId = await resolveZipId(record.projectId);
+      const zipId = await deps.resolveZipId(record.projectId);
 
       if (zipId === null) {
         // A real answer from upstream, not a transport error: this project
         // published no TOR package. Recorded as Failed because an admin is
         // left with nothing to read, but distinguished by its outcome.
-        const failure: IngestionFailure = {
+        const error = 'No zipId in the announcement response — no TOR package published.';
+        await note({
           projectId: record.projectId,
           projectName: record.projectName,
           stage: 'info',
-          error: 'No zipId in the announcement response — no TOR package published.',
+          error,
           at: new Date().toISOString(),
-        };
-        failures.push(failure);
-        repository.recordFailures([failure]);
-        repository.transition(record.projectId, 'Failed', 'no_tor_package', {}, failure.error);
+        });
+        await repository.transition(record.projectId, 'Failed', 'no_tor_package', {}, error);
         failed += 1;
       } else {
-        const archive = await downloadArchive(zipId);
-        const { torFiles, members, unsafeSkipped } = extractTorPdfs(archive, unzipSync);
+        const archive = await deps.downloadArchive(zipId);
+        const extraction = deps.extractTorPdfs(archive);
+        archivesRetrieved += 1;
 
-        if (unsafeSkipped.length > 0) {
+        if (extraction.unsafeSkipped.length > 0) {
           // Never silently dropped: a path-traversal attempt in a government
           // archive is exactly the thing an administrator should see.
-          const failure: IngestionFailure = {
+          await note({
             projectId: record.projectId,
             projectName: record.projectName,
             stage: 'extract',
-            error: `Archive members rejected by the path-traversal guard: ${unsafeSkipped.join(', ')}`,
+            error: `Archive members rejected by the path-traversal guard: ${extraction.unsafeSkipped.join(', ')}`,
             at: new Date().toISOString(),
-          };
-          failures.push(failure);
-          repository.recordFailures([failure]);
+          });
         }
 
-        const patch = {
+        const analysed = await analyseArchive(extraction, deps.classifyDocument);
+
+        // Note what is NOT here: extraction.torFiles carries the PDF payloads,
+        // and they stop at this line. Only the manifest is persisted (ADR-0002).
+        const patch: Partial<Procurement> = {
           zipId,
           zipBytes: archive.length,
-          archiveMemberCount: members.length,
-          torFiles,
-          error: null,
+          archiveMemberCount: extraction.members.length,
+          documents: analysed.documents,
+          analysis: analysed.analysis,
+          torAmbiguous: analysed.torAmbiguous,
         };
 
-        if (torFiles.length > 0) {
-          repository.transition(record.projectId, 'Completed', 'tor_downloaded', patch);
-          torDownloaded += 1;
+        if (analysed.analysis !== null) {
+          await repository.transition(record.projectId, 'Completed', 'tor_analysed', patch);
+          torAnalysed += 1;
+        } else if (analysed.anyUnreadable) {
+          // The archive was retrieved; only the reading failed. Kept Completed
+          // so a retry re-reads what is already here instead of re-downloading
+          // from a site that asked not to be crawled.
+          const error = `Archive retrieved but no candidate could be read: ${analysed.documents
+            .filter((document) => document.role === 'unreadable')
+            .map((document) => `${document.filename} (${document.note})`)
+            .join('; ')}`;
+          await note({
+            projectId: record.projectId,
+            projectName: record.projectName,
+            stage: 'analysis',
+            error,
+            at: new Date().toISOString(),
+          });
+          await repository.transition(record.projectId, 'Completed', 'analysis_failed', patch);
         } else {
-          const failure: IngestionFailure = {
+          await note({
             projectId: record.projectId,
             projectName: record.projectName,
             stage: 'extract',
-            error: `Archive downloaded (${members.length} members) but contains no TOR-named PDF.`,
+            error: `Archive downloaded (${extraction.members.length} members) but none of its documents is a TOR.`,
             at: new Date().toISOString(),
-          };
-          failures.push(failure);
-          repository.recordFailures([failure]);
-          repository.transition(record.projectId, 'Completed', 'no_tor_in_archive', patch);
+          });
+          await repository.transition(record.projectId, 'Completed', 'no_tor_in_archive', patch);
         }
       }
     } catch (error) {
@@ -172,47 +279,45 @@ export async function runIngestion(
       if (error instanceof RateLimitedError) {
         // The site is telling us to stop. Stop — leaving the rest Queued for a
         // later run rather than pushing through.
-        repository.transition(record.projectId, 'Failed', 'error', { error: message }, message);
-        failures.push({
+        await repository.transition(record.projectId, 'Failed', 'error', {}, message);
+        await note({
           projectId: record.projectId,
           projectName: record.projectName,
           stage: 'download',
           error: message,
           at: new Date().toISOString(),
         });
-        repository.recordFailures(failures.slice(-1));
         failed += 1;
         aborted = true;
         logger.warn({ projectId: record.projectId }, 'egp: rate limited, aborting run');
         break;
       }
 
-      const failure: IngestionFailure = {
+      await note({
         projectId: record.projectId,
         projectName: record.projectName,
         stage: 'download',
         error: message,
         at: new Date().toISOString(),
-      };
-      failures.push(failure);
-      repository.recordFailures([failure]);
-      repository.transition(record.projectId, 'Failed', 'error', { error: message }, message);
+      });
+      await repository.transition(record.projectId, 'Failed', 'error', {}, message);
       failed += 1;
     }
 
     if (index < candidates.length - 1) {
-      await sleep(politeTorDelayMs());
+      await deps.sleep(politeTorDelayMs());
     }
   }
 
-  logger.info({ attempted, torDownloaded, failed, aborted }, 'egp: run complete');
+  logger.info({ attempted, archivesRetrieved, torAnalysed, failed, aborted }, 'egp: run complete');
 
   return {
     discovered: discovery.records.length,
     newRecords,
     rejectedNonRegistry: discovery.rejected.length,
     attempted,
-    torDownloaded,
+    archivesRetrieved,
+    torAnalysed,
     failed,
     aborted,
     failures,

@@ -1,4 +1,4 @@
-import type { IngestionOutcome, IngestionState } from '@torfun/types';
+import { OUTCOME_LABELS, type IngestionOutcome, type IngestionState } from '@torfun/types';
 import { Badge } from '@/components/ui/badge';
 
 /**
@@ -16,14 +16,6 @@ const STATE_STYLES: Record<IngestionState, string> = {
   Failed: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
 };
 
-const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
-  queued: 'รอดำเนินการ',
-  processing: 'กำลังดึงข้อมูล',
-  tor_downloaded: 'ได้ไฟล์ TOR',
-  no_tor_in_archive: 'ไม่มี TOR ในไฟล์บีบอัด',
-  no_tor_package: 'ไม่มีชุดเอกสาร TOR',
-  error: 'ดึงข้อมูลผิดพลาด',
-};
 
 export function StateBadge({ state }: { state: IngestionState }) {
   return <Badge className={STATE_STYLES[state]}>{state}</Badge>;
