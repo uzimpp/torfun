@@ -40,7 +40,7 @@ export function IngestionDashboard() {
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-10">
+    <main className="page-fill mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-10">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">สถานะการดึงข้อมูลประกาศ TOR</h1>
@@ -101,6 +101,6 @@ export function IngestionDashboard() {
       <Separator />
 
       <FailureLog failures={failures} />
-    </div>
+    </main>
   );
 }

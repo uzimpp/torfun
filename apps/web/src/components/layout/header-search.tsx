@@ -16,16 +16,22 @@ export function useHeaderSearchVisible(): boolean {
   return !OWNS_ITS_OWN_SEARCH.has(usePathname());
 }
 
-/** The header's search field on screens wide enough for it; the narrow case lives in the sheet. */
-export function HeaderSearch() {
+/**
+ * The header's search field on screens wide enough for it; the narrow case
+ * lives in the sheet.
+ *
+ * `enabled` is for a page the route table cannot speak for — the 404, which is
+ * reached at every URL there is and builds its own search field into the page.
+ */
+export function HeaderSearch({ enabled = true }: { enabled?: boolean }) {
   const visible = useHeaderSearchVisible();
-  if (!visible) return null;
+  if (!enabled || !visible) return null;
 
   return (
     <TorSearchField
       size="compact"
       label="ค้นหาประกาศ TOR"
-      className="hidden min-w-0 flex-1 md:block md:max-w-sm lg:max-w-md"
+      className="hidden w-full max-w-xs min-w-0 md:block lg:max-w-sm"
     />
   );
 }

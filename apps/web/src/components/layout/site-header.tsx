@@ -3,48 +3,46 @@ import { Bell } from 'lucide-react';
 
 import type { CurrentUser } from '@/lib/auth';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
 import { Brand } from './brand';
 import { HeaderShell } from './header-shell';
 import { HeaderSearch } from './header-search';
-import { MarketingNav } from './marketing-nav';
+import { PrimaryNav } from './primary-nav';
 import { MobileMenu } from './mobile-menu';
 
 /**
- * One header for the whole site.
+ * One header for the whole site, and — with the sidebar gone — the only
+ * navigation there is.
  *
- * Its middle column changes with the route rather than with the visitor: the
- * landing page offers its own sections, every working page offers search. What
- * the visitor changes is the right-hand end — an account menu, or the two ways
- * to get one.
+ * The brand always points home. It used to send a signed-in officer to their
+ * dashboard, which quietly took away the way back to the page describing the
+ * product; the dashboard has its own entry in the nav beside it.
+ *
+ * The light/dark control is not here. It is a setting, chosen once and rarely
+ * changed, and it was taking a permanent slot in the row a person uses on every
+ * visit; it now lives in the footer, alongside the rest of the site's plumbing.
  */
 export function SiteHeader({
   user,
-  initialTheme = 'light',
+  withSearch = true,
 }: {
   user: Pick<CurrentUser, 'username' | 'role'> | null;
-  initialTheme?: 'light' | 'dark';
+  /** The 404 sets this false: it is reached at every URL, and carries its own field. */
+  withSearch?: boolean;
 }) {
   return (
     <HeaderShell>
       {/* Padding and gaps tighten below `sm` because the narrowest phone this
           has to serve is 320px, and at that width the brand, the menu button
           and the sign-in action together leave nothing spare. */}
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-3 sm:gap-5 sm:px-6 lg:h-18 lg:px-10">
-        <MobileMenu role={user?.role} />
-        <Brand href={user ? '/dashboard' : '/'} className="shrink-0" />
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:h-18 lg:px-10">
+        <MobileMenu role={user?.role} withSearch={withSearch} />
+        <Brand href="/" className="shrink-0" />
+        <PrimaryNav role={user?.role} />
 
-        {/* The flexible middle. Exactly one of these ever renders: the
-            marketing anchors belong to the landing page, the search field to
-            everywhere that is not the landing page or the results page. */}
-        <div className="flex min-w-0 flex-1 items-center justify-center">
-          <MarketingNav />
-          <HeaderSearch />
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+        <div className="ms-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
+          <HeaderSearch enabled={withSearch} />
           {user && (
             <Button
               disabled
@@ -56,8 +54,6 @@ export function SiteHeader({
               <Bell aria-hidden="true" />
             </Button>
           )}
-          <ThemeToggle initialTheme={initialTheme} />
-          <span className="bg-border mx-1 hidden h-6 w-px sm:block" aria-hidden="true" />
           {user ? (
             <UserMenu user={user} />
           ) : (

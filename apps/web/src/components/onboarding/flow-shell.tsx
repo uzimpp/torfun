@@ -33,7 +33,7 @@ export function FlowShell({
   footer?: ReactNode;
 }) {
   return (
-    <main className="landing-grid bg-background flex flex-1 flex-col items-center px-4 py-10 sm:px-6 sm:py-14">
+    <main className="landing-grid bg-background page-fill flex flex-1 flex-col items-center px-4 py-10 sm:px-6 sm:py-14">
       <div className={cn('w-full', width === 'narrow' ? 'max-w-md' : 'max-w-3xl')}>
         <Brand size="sm" className="mb-8" />
 

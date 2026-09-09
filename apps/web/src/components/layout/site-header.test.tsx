@@ -19,14 +19,16 @@ test('guest header contains brand and both ways in, without workspace links', ()
   expect(screen.queryByRole('link', { name: 'แดชบอร์ด' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /การแจ้งเตือน/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /เปลี่ยนภาษา/ })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /สลับโหมด/ })).toBeEnabled();
+  // The light/dark control belongs to the footer now; the header keeps only
+  // what a person reaches for on every visit.
+  expect(screen.queryByRole('button', { name: /สลับโหมด/ })).not.toBeInTheDocument();
 });
 
 test.each(['admin', 'business_development_officer'] as const)(
   '%s has a user popup with logout',
   async (role) => {
     render(<SiteHeader user={{ username: 'tester', role }} />);
-    expect(screen.getByRole('link', { name: 'Torfun' })).toHaveAttribute('href', '/dashboard');
+    expect(screen.getByRole('link', { name: 'Torfun' })).toHaveAttribute('href', '/');
     expect(screen.queryByRole('link', { name: 'เข้าสู่ระบบ' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /การแจ้งเตือน/ })).toBeDisabled();
     expect(screen.queryByRole('menuitem', { name: 'ออกจากระบบ' })).not.toBeInTheDocument();
@@ -34,6 +36,18 @@ test.each(['admin', 'business_development_officer'] as const)(
       screen.getByRole('button', { name: `บัญชี tester · ${role === 'admin' ? 'Admin' : 'BD'}` }),
     );
     expect(await screen.findByRole('menuitem', { name: 'ออกจากระบบ' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'แดชบอร์ด' })).toHaveAttribute(
+      'href',
+      '/dashboard',
+    );
+    expect(screen.getByRole('menuitem', { name: 'บริษัทและผลงาน' })).toHaveAttribute(
+      'href',
+      '/company-experiences',
+    );
+    expect(screen.getByRole('menuitem', { name: /TOR ของฉัน/ })).toHaveAttribute(
+      'data-disabled',
+      '',
+    );
   },
 );
 

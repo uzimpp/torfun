@@ -2,26 +2,37 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 
+import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { landingSections } from './nav-config';
 import { Brand } from './brand';
 
 /**
- * The site footer.
+ * The site footer, on every page in the chrome group.
  *
  * It carries the one thing the product must never let a reader lose sight of:
  * everything here is a shortcut to the original announcement, and the summary
  * an officer reads is not the document they bid against. That notice sits in
  * the footer so it follows them off the landing page, not only where the
  * marketing copy happens to mention it.
+ *
+ * It also holds the light/dark control, which is why it belongs on the working
+ * pages and not only the marketing one. Every page fills the window before this
+ * begins, so it is reached by scrolling rather than met on arrival.
  */
-export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
+export function SiteFooter({
+  signedIn = false,
+  initialTheme = 'light',
+}: {
+  signedIn?: boolean;
+  initialTheme?: 'light' | 'dark';
+}) {
   // Thai calendar year, which is what every date on an announcement uses.
   const year = new Date().getFullYear() + 543;
 
   return (
     <footer className="bg-card mt-auto border-t">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-10 lg:py-16">
-        <div className="grid gap-10 md:grid-cols-[1.6fr_1fr_1fr] md:gap-8 lg:gap-16">
+        <div className="grid gap-10 md:grid-cols-2 md:gap-8 lg:grid-cols-[1.5fr_1fr_1fr_1fr] lg:gap-12">
           <div className="max-w-sm">
             <Brand size="sm" />
             <p className="text-muted-foreground mt-4 text-sm">
@@ -31,7 +42,7 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
             <p className="text-muted-foreground mt-5 text-xs">
               ขอบเขตข้อมูล
               <span className="text-foreground ms-2 font-medium">
-                งานซอฟต์แวร์ · e-bidding · กรุงเทพมหานคร
+                งานซอฟต์แวร์ · e-bidding · หน่วยงานภาครัฐ
               </span>
             </p>
           </div>
@@ -66,6 +77,15 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
               </>
             )}
           </FooterColumn>
+
+          <div>
+            <h2 className="text-foreground text-xs font-semibold tracking-wider uppercase">
+              การแสดงผล
+            </h2>
+            <div className="mt-3">
+              <ThemeToggle initialTheme={initialTheme} withLabel />
+            </div>
+          </div>
         </div>
 
         <p className="text-muted-foreground mt-12 flex gap-3 border-t pt-6 text-xs">

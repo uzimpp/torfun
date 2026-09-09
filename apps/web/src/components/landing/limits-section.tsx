@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 const scope = [
   ['ประเภทงาน', 'ซอฟต์แวร์'],
   ['วิธีจัดซื้อ', 'e-bidding'],
-  ['พื้นที่', 'กรุงเทพมหานคร'],
+  ['แหล่งข้อมูล', 'ข้อมูลเปิด e-GP'],
 ];
 
 /**
@@ -46,6 +46,17 @@ export function LimitsSection({ signedIn = false }: { signedIn?: boolean }) {
           <p data-rise="3" className="text-muted-foreground mt-8 max-w-xl text-sm">
             การจัดกลุ่มประเภทงานอาศัยรูปแบบของชื่อโครงการ ใช้เพื่อจัดลำดับความสำคัญได้
             แต่ไม่ควรใช้แทนการอ่านประกาศ และเอกสารต้นฉบับยังเข้าถึงได้เสมอเพื่อให้ตรวจสอบได้เอง
+          </p>
+
+          {/* Stated on the page itself, not only in the footer. Someone reading
+              about what the product does should meet this while they are still
+              forming an expectation of it. */}
+          <p
+            data-rise="3"
+            className="border-primary/40 text-muted-foreground mt-6 max-w-xl border-s-2 ps-4 text-sm"
+          >
+            ผลสรุปจาก AI เป็นข้อมูลช่วยอ่าน ไม่ใช่การยืนยันข้อเท็จจริง โปรดตรวจสอบเอกสาร TOR
+            ต้นฉบับและเงื่อนไขของหน่วยงานเจ้าของประกาศทุกครั้งก่อนยื่นข้อเสนอ
           </p>
         </div>
 

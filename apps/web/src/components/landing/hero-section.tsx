@@ -1,16 +1,11 @@
 import Link from 'next/link';
-import { ArrowUpRight, BookOpenCheck, FileText, ListFilter } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 
 import { TorSearchField } from '@/components/search/tor-search-field';
 import { exampleQueries } from '@/components/layout/nav-config';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-
-const stages = [
-  { Icon: FileText, title: 'ประกาศจากหน่วยงาน', text: 'เริ่มจากข้อมูลเปิด e-GP' },
-  { Icon: ListFilter, title: 'คัดกรองงานที่เกี่ยวข้อง', text: 'มุ่งเน้นโครงการด้านซอฟต์แวร์' },
-  { Icon: BookOpenCheck, title: 'อ่าน TOR อย่างมีบริบท', text: 'ตรวจสอบต้นฉบับก่อนตัดสินใจ' },
-];
+import { PipelineScene } from './pipeline-scene';
 
 /**
  * The hero, built around the search field rather than around a button.
@@ -19,22 +14,30 @@ const stages = [
  * it and go, without reading the page first; the sign-up path sits underneath
  * for everyone else. `signedIn` swaps that secondary action, never the search.
  *
- * The entrance is CSS with a staggered `--enter` delay, so it plays on first
- * paint — nothing above the fold waits for hydration to become readable.
+ * The text entrance is CSS with a staggered `--enter` delay, so it plays on
+ * first paint — nothing anyone has to read waits for hydration. The two things
+ * that do need JavaScript, the colour drift and the scene, are decoration: the
+ * page is complete without either.
  */
 export function HeroSection({ signedIn = false }: { signedIn?: boolean }) {
   return (
-    <section aria-labelledby="hero-heading" className="landing-grid relative overflow-hidden">
-      <div className="mx-auto grid max-w-7xl gap-12 px-4 pt-12 pb-16 sm:px-6 sm:pt-16 lg:grid-cols-[1.15fr_0.85fr] lg:items-center lg:gap-16 lg:px-10 lg:pt-24 lg:pb-28">
+    <section
+      aria-labelledby="hero-heading"
+      className="landing-grid hero-aurora relative overflow-hidden"
+    >
+      <div className="mx-auto grid max-w-7xl gap-12 px-4 pt-12 pb-16 sm:px-6 sm:pt-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-16 lg:px-10 lg:pt-24 lg:pb-28">
         <div>
-          <p className="enter text-muted-foreground inline-flex items-center gap-2 text-xs tracking-wider uppercase [--enter:0]">
-            <span aria-hidden="true" className="bg-primary size-1.5 rounded-full" />
-            ข้อมูลเปิด e-GP · กรุงเทพมหานคร
+          <p className="enter border-primary/25 bg-card/70 text-primary inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium tracking-wide [--enter:0]">
+            <span aria-hidden="true" className="relative flex size-2">
+              <span className="bg-primary/50 absolute inline-flex size-full animate-ping rounded-full" />
+              <span className="bg-primary relative inline-flex size-2 rounded-full" />
+            </span>
+            ข้อมูลเปิด e-GP · จัดซื้อจัดจ้างภาครัฐ
           </p>
 
           <h1
             id="hero-heading"
-            className="enter mt-5 text-4xl font-semibold tracking-tight text-balance [--enter:0] sm:text-5xl lg:text-6xl"
+            className="enter mt-6 text-4xl font-semibold tracking-tight text-balance [--enter:0] sm:text-5xl lg:text-6xl"
           >
             ค้นหาโอกาสจาก TOR
             <br />
@@ -78,38 +81,7 @@ export function HeroSection({ signedIn = false }: { signedIn?: boolean }) {
             aria-hidden="true"
             className="border-border bg-muted/70 absolute inset-x-4 -top-3 bottom-5 -z-10 rotate-[2.5deg] rounded-[1.75rem] border"
           />
-          <div className="bg-card shadow-lifted rounded-[1.75rem] border p-6 sm:p-8">
-            <div className="flex items-center justify-between border-b pb-5">
-              <span className="text-sm font-semibold">จากประกาศ สู่ความเข้าใจ</span>
-              <FileText aria-hidden="true" className="text-primary size-5" />
-            </div>
-
-            <ol className="space-y-6 py-7">
-              {stages.map(({ Icon, title, text }, index) => (
-                <li key={title} className="flex items-start gap-4">
-                  <span
-                    aria-hidden="true"
-                    className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl"
-                  >
-                    <Icon className="size-5" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="flex items-baseline gap-2 font-medium">
-                      <span data-numeric className="text-muted-foreground font-mono text-xs">
-                        0{index + 1}
-                      </span>
-                      {title}
-                    </p>
-                    <p className="text-muted-foreground mt-0.5 text-sm">{text}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-
-            <p className="text-muted-foreground border-t pt-5 text-xs">
-              AI ช่วยอ่าน โดยมีทีมของคุณเป็นผู้ตัดสินใจ
-            </p>
-          </div>
+          <PipelineScene />
         </div>
       </div>
     </section>

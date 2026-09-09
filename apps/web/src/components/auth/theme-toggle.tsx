@@ -3,8 +3,22 @@
 import { useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
-export function ThemeToggle({ initialTheme }: { initialTheme: 'light' | 'dark' }) {
+/**
+ * The light/dark switch.
+ *
+ * `withLabel` is for the footer, where the control sits among links rather than
+ * icons and a bare glyph would read as decoration. The icon-only form is kept
+ * for the mobile sheet, where the row is already labelled.
+ */
+export function ThemeToggle({
+  initialTheme,
+  withLabel = false,
+}: {
+  initialTheme: 'light' | 'dark';
+  withLabel?: boolean;
+}) {
   const [theme, setTheme] = useState(initialTheme);
   const label = theme === 'dark' ? 'สลับโหมดกลางวัน' : 'สลับโหมดกลางคืน';
 
@@ -19,13 +33,19 @@ export function ThemeToggle({ initialTheme }: { initialTheme: 'light' | 'dark' }
   return (
     <Button
       type="button"
-      variant="ghost"
-      className="size-10"
+      variant="outline"
+      className={cn(
+        'rounded-xl',
+        withLabel ? 'min-h-11 gap-2 px-3 text-sm font-normal' : 'size-10',
+      )}
       title={label}
       aria-label={label}
       onClick={toggleTheme}
     >
       {theme === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+      {withLabel && (
+        <span aria-hidden="true">{theme === 'dark' ? 'โหมดกลางวัน' : 'โหมดกลางคืน'}</span>
+      )}
     </Button>
   );
 }

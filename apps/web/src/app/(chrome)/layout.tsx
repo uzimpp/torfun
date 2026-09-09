@@ -1,11 +1,15 @@
 import { cookies } from 'next/headers';
-import { WorkspaceSidebar } from '@/components/layout/workspace-sidebar';
 import { SiteHeader } from '@/components/layout/site-header';
+import { SiteFooter } from '@/components/layout/site-footer';
 import { getCurrentUser } from '@/lib/auth';
 
 /**
  * Everything a person navigates around: the landing page, search, the
  * dashboard, the ingestion console.
+ *
+ * There is no rail beside the content. Every destination lives in the header,
+ * which means one list of them rather than two to keep in step, and a page gets
+ * the full width on every screen instead of only on a phone.
  *
  * The sign-in, registration and company pages sit outside this group and get no
  * navigation at all — see the root layout for why.
@@ -21,16 +25,18 @@ export default async function ChromeLayout({ children }: LayoutProps<'/'>) {
       >
         ข้ามไปยังเนื้อหา
       </a>
-      <SiteHeader
-        initialTheme={theme}
-        user={user ? { username: user.username, role: user.role } : null}
-      />
-      <div className="flex flex-1">
-        {user && <WorkspaceSidebar role={user.role} />}
-        <div id="page-content" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
-          {children}
-        </div>
+      <SiteHeader user={user ? { username: user.username, role: user.role } : null} />
+      {/* The header is sticky, so it takes this much off the top of the window
+          for good. `page-fill` subtracts it, which is what lets a page end
+          exactly at the fold instead of a hair below it. */}
+      <div
+        id="page-content"
+        tabIndex={-1}
+        className="flex min-w-0 flex-1 flex-col [--header-h:calc(4rem_+_1px)] lg:[--header-h:calc(4.5rem_+_1px)]"
+      >
+        {children}
       </div>
+      <SiteFooter signedIn={user !== null} initialTheme={theme} />
     </>
   );
 }

@@ -5,11 +5,11 @@ through the one-line `CLAUDE.md` import beside it.
 
 ## What torfun is for
 
-A software house in Bangkok wins work by finding government procurement
-announcements it can credibly bid on. Doing that by hand means visiting dozens of
-agency sites, opening Thai-language PDFs, and judging one at a time whether a
-project is software at all, whether it matches what the company has built before,
-and whether the deadline is reachable. Most of that effort is spent discarding
+A software house wins work by finding government procurement announcements it can
+credibly bid on. Doing that by hand means visiting dozens of agency sites,
+opening Thai-language PDFs, and judging one at a time whether a project is
+software at all, whether it matches what the company has built before, and
+whether the deadline is reachable. Most of that effort is spent discarding
 things.
 
 torfun automates the discarding. It pulls procurement announcements, keeps the
@@ -83,9 +83,8 @@ confirmed fact.
 by pattern matching. It is good enough for triage and not good enough to quote as
 a statistic or to hard-filter on without a human path around it.
 
-**Scope changes are product decisions.** Bangkok-only, software-only, and
-e-bidding-only are encoded in schemas and pipeline policy. Widening them needs a
-person's call.
+**Scope changes are product decisions.** Software-only and e-bidding-only are
+encoded in schemas and pipeline policy. Widening them needs a person's call.
 
 ## Commands
 

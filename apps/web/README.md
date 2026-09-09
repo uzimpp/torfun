@@ -33,13 +33,14 @@ it for a deployment means a rebuild, not a restart.
 | `/dashboard`           | user   | Signed-in landing                                   |
 | `/company-experiences` | user   | The officer's own Company and the work it delivered |
 | `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log |
+| any unmatched URL      | public | `not-found.tsx`: a 404 with its own search field    |
 
 Protected pages redirect from the server component; the session cookie is
 `httpOnly` and unreadable from the browser. `requireCompany` additionally sends a
 BD Officer with no Company to `/company-experiences`; administrators are exempt,
 and that page must never gate itself or it redirects to itself.
 
-Routes in the `(chrome)` group get the header and sidebar from
+Routes in the `(chrome)` group get the header and footer from
 `app/(chrome)/layout.tsx`. The rest — `/login`, `/register`, `/company-experiences`
 — deliberately get neither: they are steps in one sign-up flow rather than places
 to navigate from, and they show `OnboardingSteps` instead. The group changes no

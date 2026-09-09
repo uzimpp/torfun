@@ -8,9 +8,10 @@ import { cn } from '@/lib/utils';
 import { plannedNav, workspaceNav } from './nav-config';
 
 /**
- * The workspace destinations, as a vertical list. Used by the desktop sidebar
- * and by the mobile sheet, which is why it takes `onNavigate` — the sheet has
- * to close itself once a link is followed.
+ * The workspace destinations, as a vertical list for the mobile sheet. The
+ * header renders the same list horizontally above `lg`; this one adds the
+ * planned routes, which need a line of explanation that a compact bar has no
+ * room for. `onNavigate` lets the sheet close itself once a link is followed.
  */
 export function WorkspaceNav({
   role,

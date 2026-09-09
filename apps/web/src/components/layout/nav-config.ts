@@ -2,10 +2,10 @@ import { Bookmark, Database, LayoutDashboard, Search, type LucideIcon } from 'lu
 import type { UserRole } from '@torfun/types';
 
 /**
- * One list of destinations, read by the sidebar, the header and the mobile
- * sheet alike. They drifted apart while each kept its own copy — the sidebar
- * offered a route the sheet did not — and a person navigating on a phone
- * should not be shown a smaller product than one on a laptop.
+ * One list of destinations, read by the header and by the mobile sheet alike.
+ * They drifted apart while each kept its own copy — one offered a route the
+ * other did not — and a person navigating on a phone should not be shown a
+ * smaller product than one on a laptop.
  */
 export interface NavItem {
   href: '/dashboard' | '/search' | '/admin/ingestion';

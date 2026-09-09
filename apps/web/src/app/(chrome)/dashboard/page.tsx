@@ -9,7 +9,7 @@ export default async function DashboardPage() {
   // a record they do not have yet. Administrators are exempt and stay null.
   const user = await requireCompany();
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-10">
+    <main className="page-fill mx-auto w-full max-w-6xl px-5 py-10 sm:px-10">
       <p className="text-primary text-sm font-medium">พื้นที่ทำงาน / แดชบอร์ด</p>
       <h1 className="mt-5 text-3xl font-semibold sm:text-4xl">ยินดีต้อนรับ, {user.full_name}</h1>
       {user.company_name && (

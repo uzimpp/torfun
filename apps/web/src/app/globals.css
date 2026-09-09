@@ -137,10 +137,18 @@
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
 
+  /* How much of the window the sticky header takes. Zero here because the
+     sign-in flow has no header; the chrome layout sets its own value. */
+  --header-h: 0px;
+
   --hairline: rgb(255 255 255 / 0.65);
   --shadow-tint: color-mix(in srgb, #1b2f68 26%, transparent);
   --shadow-tint-weak: color-mix(in srgb, #1b2f68 12%, transparent);
   --grid-line: color-mix(in srgb, #3729b7 8%, transparent);
+  /* The two washes of colour behind the hero. Held well below full strength:
+     the point is a tinted room, not a light show. */
+  --aurora-1: color-mix(in srgb, #3729b7 30%, transparent);
+  --aurora-2: color-mix(in srgb, #452884 26%, transparent);
 }
 
 .dark {
@@ -174,6 +182,8 @@
   --shadow-tint: rgb(0 0 0 / 0.6);
   --shadow-tint-weak: rgb(0 0 0 / 0.4);
   --grid-line: color-mix(in srgb, #a99cf3 10%, transparent);
+  --aurora-1: color-mix(in srgb, #5a4bd6 34%, transparent);
+  --aurora-2: color-mix(in srgb, #7c4bb8 26%, transparent);
 }
 
 @layer base {
@@ -212,6 +222,20 @@
 
 /* The faint plotting grid behind the hero and the sign-in flow. It fades out
    toward the edges so the lines never terminate in a hard seam. */
+/* Every page's own content fills the window before anything below it starts.
+ *
+ * Without this the footer rides up under whatever short page it follows and
+ * sits in the middle of an otherwise empty screen, which reads as the end of a
+ * page that has barely begun. Filling the window first puts the footer where a
+ * footer belongs: at the bottom, reached by scrolling, not met on arrival.
+ *
+ * `dvh` rather than `vh` because a mobile browser changes its visible height as
+ * the toolbars collapse, and `vh` measures the taller of the two — enough to
+ * put a scrollbar on every page on a phone. */
+.page-fill {
+  min-height: calc(100dvh - var(--header-h));
+}
+
 /* The faint plotting grid behind the hero and the sign-in flow.
  *
  * The fade is the first background layer, painted over the lines in the page's
@@ -255,4 +279,62 @@
 .enter {
   animation: rise-in 0.4s var(--ease-out-expo) both;
   animation-delay: calc(var(--enter, 0) * 50ms);
+}
+
+/* Two slow washes of brand colour behind the hero.
+ *
+ * They sit on a negative z-index inside the section's own stacking context, so
+ * they lie over the plotting grid and under every word. Only `transform` is
+ * animated, and slowly: the blur is rasterised once and the drift is composited,
+ * which is what keeps two very large blurred surfaces affordable on a phone. */
+.hero-aurora {
+  position: relative;
+  isolation: isolate;
+}
+
+.hero-aurora::before,
+.hero-aurora::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(70px);
+}
+
+.hero-aurora::before {
+  inset-inline-start: -14%;
+  top: -22%;
+  width: min(42rem, 90vw);
+  height: 28rem;
+  background: radial-gradient(closest-side, var(--aurora-1), transparent);
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+
+.hero-aurora::after {
+  inset-inline-end: -16%;
+  top: 6%;
+  width: min(38rem, 85vw);
+  height: 30rem;
+  background: radial-gradient(closest-side, var(--aurora-2), transparent);
+  animation: drift-b 34s ease-in-out infinite alternate;
+}
+
+@keyframes drift-a {
+  to {
+    transform: translate3d(6%, 8%, 0) scale(1.12);
+  }
+}
+
+@keyframes drift-b {
+  to {
+    transform: translate3d(-7%, 10%, 0) scale(0.9);
+  }
+}
+
+@media (min-width: 64rem) {
+  .hero-aurora::before,
+  .hero-aurora::after {
+    filter: blur(100px);
+  }
 }

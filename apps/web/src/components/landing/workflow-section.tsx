@@ -22,16 +22,31 @@ const steps = [
  * The rail down the left is drawn by `LandingMotion` against the scroll
  * position, so how far the line has come matches how far the reader has. With
  * motion disabled it is simply a line.
+ *
+ * The section is a dark band on purpose. It is the middle of a long page of
+ * pale surfaces, and inverting one chapter gives a reader a landmark to
+ * scroll between rather than one continuous sheet.
  */
 export function WorkflowSection() {
   return (
     <section
       aria-labelledby="workflow-heading"
       id="workflow"
-      className="bg-card scroll-mt-24 border-y"
+      className="bg-secondary text-secondary-foreground relative scroll-mt-24 overflow-hidden"
     >
-      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
-        <p data-rise="0" className="text-primary text-xs font-medium tracking-wider uppercase">
+      {/* A single wash of brand colour across the top edge, so the band reads
+          as lit rather than as a flat rectangle of navy. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-72 opacity-60"
+        style={{
+          background:
+            'radial-gradient(60% 100% at 25% 0%, color-mix(in srgb, #6f5ce0 55%, transparent), transparent)',
+        }}
+      />
+
+      <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-10 lg:py-28">
+        <p data-rise="0" className="text-xs font-medium tracking-wider text-white/60 uppercase">
           ขั้นตอนการทำงาน
         </p>
         <h2
@@ -45,11 +60,11 @@ export function WorkflowSection() {
         <ol className="relative mt-14 ps-9 sm:ps-12">
           {/* The track and the drawn line share a position; the track shows
               where the line is going before it gets there. */}
-          <span aria-hidden="true" className="bg-border absolute inset-y-2 start-1 w-px" />
+          <span aria-hidden="true" className="absolute inset-y-2 start-1 w-px bg-white/15" />
           <span
             aria-hidden="true"
             data-rail
-            className="bg-primary absolute inset-y-2 start-1 w-px origin-top"
+            className="absolute inset-y-2 start-1 w-px origin-top bg-white/70"
           />
 
           {steps.map(({ label, description, meta }, index) => (
@@ -60,19 +75,17 @@ export function WorkflowSection() {
             >
               <span
                 aria-hidden="true"
-                className="bg-primary absolute -start-9 top-2.5 size-2 rounded-full sm:-start-12"
+                className="absolute -start-9 top-2.5 size-2 rounded-full bg-white sm:-start-12"
               />
               <div>
-                <span data-numeric className="text-muted-foreground font-mono text-xs">
+                <span data-numeric className="font-mono text-xs text-white/55">
                   ขั้นตอนที่ {index + 1}
                 </span>
                 <h3 className="mt-1 text-xl font-medium">{label}</h3>
               </div>
               <div>
-                <p className="text-muted-foreground max-w-xl">{description}</p>
-                <p className="text-muted-foreground/80 mt-3 text-xs tracking-wide uppercase">
-                  {meta}
-                </p>
+                <p className="max-w-xl text-white/75">{description}</p>
+                <p className="mt-3 text-xs tracking-wide text-white/45 uppercase">{meta}</p>
               </div>
             </li>
           ))}

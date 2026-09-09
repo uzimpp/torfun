@@ -29,16 +29,19 @@ import { WorkspaceNav } from './workspace-nav';
  * for both, because a header whose only mobile control is a login button leaves
  * a signed-in officer with no navigation at all.
  */
-export function MobileMenu({ role }: { role?: UserRole }) {
+export function MobileMenu({ role, withSearch = true }: { role?: UserRole; withSearch?: boolean }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
-  const searchInHeader = useHeaderSearchVisible();
+  // Read unconditionally: `&&` in front of a hook call is a hook call the
+  // component sometimes skips, which is exactly what the rule forbids.
+  const routeWantsSearch = useHeaderSearchVisible();
+  const searchInHeader = withSearch && routeWantsSearch;
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
         render={
-          <Button variant="ghost" className="size-11 rounded-xl md:hidden" aria-label="เปิดเมนู" />
+          <Button variant="ghost" className="size-11 rounded-xl lg:hidden" aria-label="เปิดเมนู" />
         }
       >
         <Menu aria-hidden="true" className="size-5" />

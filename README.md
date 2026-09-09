@@ -1,7 +1,7 @@
 # torfun
 
-Finds Thai government software procurement a Bangkok software house can credibly
-bid on. It sweeps the e-GP open data, keeps the software-related announcements,
+Finds Thai government software procurement a software house can credibly bid
+on. It sweeps the e-GP open data, keeps the software-related announcements,
 has Gemini read the TOR (Terms of Reference) PDF, and scores each against the
 company's own past work — so a person reads the ten that matter instead of the
 four hundred that don't.

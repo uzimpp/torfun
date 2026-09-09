@@ -25,7 +25,7 @@ src/
   app/            routes; page.tsx is the route, colocated by URL
   components/
     ui/           shadcn primitives — generated, don't hand-edit
-    layout/       header, footer, sidebar, and the one nav-config they share
+    layout/       header, footer, and the one nav-config they share
     landing/      the landing page's sections, plus its GSAP scroll layer
     search/       the search field and the results page's states
     auth/         login/session UI
@@ -34,9 +34,14 @@ src/
 ```
 
 **Navigation has one source of truth.** `components/layout/nav-config.ts` holds
-the destinations; the sidebar, the header and the mobile sheet all read it. They
-each kept their own copy once and drifted, so a phone offered a smaller product
-than a laptop.
+the destinations; the header and the mobile sheet both read it. They each kept
+their own copy once and drifted, so a phone offered a smaller product than a
+laptop. There is no sidebar — every destination is in the header.
+
+**Pages fill the window.** Every `<main>` carries `page-fill`, which is
+`100dvh` minus `--header-h` (set by the chrome layout, zero elsewhere). The
+footer lives in the chrome layout and therefore begins below the fold rather
+than riding up under a short page.
 
 **Motion is CSS unless it is tied to the scrollbar.** The hero's entrance is a
 keyframe cascade so it plays on first paint; GSAP appears only in
