@@ -39,6 +39,9 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-footer: var(--footer);
+  --color-footer-foreground: var(--footer-foreground);
+  --color-footer-hairline: var(--footer-hairline);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -141,6 +144,13 @@
      sign-in flow has no header; the chrome layout sets its own value. */
   --header-h: 0px;
 
+  /* The footer is the one saturated surface on the site. It is deliberately
+     not `--primary` itself: in dark mode primary is a pale lavender, and a
+     lavender slab across the bottom of a dark page is a lamp, not a footer. */
+  --footer: #3729b7;
+  --footer-foreground: #f3f2fd;
+  --footer-hairline: rgb(255 255 255 / 0.16);
+
   --hairline: rgb(255 255 255 / 0.65);
   --shadow-tint: color-mix(in srgb, #1b2f68 26%, transparent);
   --shadow-tint-weak: color-mix(in srgb, #1b2f68 12%, transparent);
@@ -177,6 +187,10 @@
   --chart-4: color-mix(in srgb, #a99cf3 55%, #101016);
   --chart-5: color-mix(in srgb, #b49ade 55%, #101016);
   --sidebar: #14141b;
+
+  --footer: #1d1a4d;
+  --footer-foreground: #e7e5f8;
+  --footer-hairline: rgb(255 255 255 / 0.12);
 
   --hairline: rgb(255 255 255 / 0.06);
   --shadow-tint: rgb(0 0 0 / 0.6);
