@@ -6,7 +6,7 @@ const valid = {
   username: 'somchai',
   firstName: 'Somchai',
   lastName: 'Prasert',
-  companyName: 'Acme Co., Ltd.',
+  companyId: '68b1f0c2a1b2c3d4e5f60719',
   role: 'business_development_officer',
   createdAt: '2026-09-01T00:00:00.000Z',
   updatedAt: '2026-09-01T00:00:00.000Z',

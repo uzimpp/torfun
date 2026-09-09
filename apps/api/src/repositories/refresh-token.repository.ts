@@ -50,7 +50,15 @@ function toDomain(document: RefreshTokenDocument): StoredRefreshToken {
   };
 }
 
-export class RefreshTokenRepository {
+/** The slice of this repository `AuthService` needs. */
+export interface RefreshTokenStore {
+  create(input: NewRefreshToken): Promise<void>;
+  findByHash(tokenHash: string): Promise<StoredRefreshToken | null>;
+  revoke(id: string): Promise<void>;
+  revokeFamily(familyId: string): Promise<void>;
+}
+
+export class RefreshTokenRepository implements RefreshTokenStore {
   constructor(private readonly getDb: () => Promise<Db>) {}
 
   private async collection(): Promise<Collection<RefreshTokenDocument>> {

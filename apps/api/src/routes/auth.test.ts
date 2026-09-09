@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
+import { ACCESS_COOKIE } from '@torfun/types';
+import { InMemoryCompanyStore } from '../testing/company-store';
+import { InMemoryRefreshTokenStore } from '../testing/refresh-token-store';
+import { InMemoryUserStore } from '../testing/user-store';
 
 /**
  * These exercise the guards in front of the handlers, not the handlers
@@ -145,5 +149,72 @@ describe('CORS honours a deployment-shaped allowlist', () => {
     });
 
     expect(response.headers['access-control-allow-origin']).toBeUndefined();
+  });
+});
+
+/**
+ * Registration and `/me` after the Company became a record of its own.
+ *
+ * These run against in-memory stores through `buildApp`'s second parameter, so
+ * a real account is created and read back without a database.
+ */
+describe('registration and the current user', () => {
+  let app: Awaited<ReturnType<typeof buildApp>>;
+  let users: InMemoryUserStore;
+  let companies: InMemoryCompanyStore;
+
+  const register = (payload: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: '/api/auth/register', payload });
+
+  beforeAll(async () => {
+    users = new InMemoryUserStore();
+    companies = new InMemoryCompanyStore();
+    app = await buildApp(testEnv({ LOG_LEVEL: 'fatal' }), {
+      users,
+      companies,
+      refreshTokens: new InMemoryRefreshTokenStore(),
+    });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  test('registering asks for no company at all', async () => {
+    const response = await register({
+      username: 'somchai',
+      password: 'a-long-enough-password',
+      confirm_password: 'a-long-enough-password',
+      first_name: 'Somchai',
+      last_name: 'Prasert',
+    });
+
+    expect(response.statusCode).toBe(201);
+    // The question is asked once, on the company page — a new account simply
+    // has no company yet, which is what the web gate redirects on.
+    expect(response.json().user).toMatchObject({ company_id: null, company_name: null });
+  });
+
+  test('/me resolves the name from the Company once one is joined', async () => {
+    const company = await companies.create({ nameTh: 'บริษัท สยามซอฟต์ จำกัด', tin: null });
+    const user = users.seed({ username: 'malee', companyId: company.id });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      cookies: {
+        [ACCESS_COOKIE]: app.jwt.sign({
+          user_id: user.id,
+          username: user.username,
+          role: user.role,
+        }),
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      company_id: company.id,
+      company_name: 'บริษัท สยามซอฟต์ จำกัด',
+    });
   });
 });

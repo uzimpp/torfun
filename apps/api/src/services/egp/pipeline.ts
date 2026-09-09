@@ -8,7 +8,12 @@ import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
 import { discoverProjects, type DiscoveryResult } from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
-import { downloadArchive, extractTorPdfs, resolveZipId, type ExtractionResult } from './tor-package';
+import {
+  downloadArchive,
+  extractTorPdfs,
+  resolveZipId,
+  type ExtractionResult,
+} from './tor-package';
 
 /**
  * Orchestrates the two ingestion stages against the repository.

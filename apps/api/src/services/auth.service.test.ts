@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, test } from 'bun:test';
 import { AuthService, type TokenPayload } from './auth.service';
 import type {
   NewRefreshToken,
-  RefreshTokenRepository,
+  RefreshTokenStore,
   StoredRefreshToken,
 } from '../repositories/refresh-token.repository';
-import type { UserRepository } from '../repositories/user.repository';
+import type { UserStore } from '../repositories/user.repository';
 import type { User } from '@torfun/types';
 
 /**
@@ -51,7 +51,7 @@ function makeUser(): User {
     username: 'somchai',
     firstName: 'Somchai',
     lastName: 'Prasert',
-    companyName: 'Acme',
+    companyId: null,
     role: 'business_development_officer',
     isActive: true,
     createdAt: new Date(),
@@ -75,9 +75,9 @@ describe('AuthService session rotation', () => {
     const users = {
       findById: async (id: string) => (id === user.id ? user : null),
       findByGoogleId: async () => user,
-    } as unknown as UserRepository;
+    } as unknown as UserStore;
 
-    service = new AuthService(users, tokens as unknown as RefreshTokenRepository, (payload) => {
+    service = new AuthService(users, tokens as unknown as RefreshTokenStore, (payload) => {
       signed.push(payload);
       return `access-${signed.length}`;
     });

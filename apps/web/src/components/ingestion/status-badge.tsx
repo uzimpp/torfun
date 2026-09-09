@@ -16,7 +16,6 @@ const STATE_STYLES: Record<IngestionState, string> = {
   Failed: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
 };
 
-
 export function StateBadge({ state }: { state: IngestionState }) {
   return <Badge className={STATE_STYLES[state]}>{state}</Badge>;
 }

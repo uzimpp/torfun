@@ -20,7 +20,13 @@ interface UserDocument {
   password_hash?: string;
   first_name?: string;
   last_name?: string;
-  company_name: string;
+  /**
+   * The Company this account belongs to, stored as the string form of the
+   * Company's id — the same value the API hands out. Null before the officer
+   * has joined one, and null for administrators, who are exempt from the gate.
+   * Replaces the free-text `company_name`; see the 2026-09-10 migration.
+   */
+  company_id?: string | null;
   role: UserRole;
   is_active?: boolean;
   google_id?: string;
@@ -33,7 +39,6 @@ export interface NewUser {
   username: string;
   firstName: string;
   lastName: string;
-  companyName: string;
   role: UserRole;
   passwordHash?: string;
   googleId?: string;
@@ -51,7 +56,7 @@ function toDomain(document: UserDocument): User {
     username: document.username,
     firstName: document.first_name ?? '',
     lastName: document.last_name ?? '',
-    companyName: document.company_name,
+    companyId: document.company_id ?? null,
     role: document.role,
     email: document.email,
     isActive: document.is_active ?? true,
@@ -60,7 +65,25 @@ function toDomain(document: UserDocument): User {
   };
 }
 
-export class UserRepository {
+/**
+ * The slice of this repository the service layer needs.
+ *
+ * Services depend on this rather than the class, so an account can be created,
+ * read and repointed at a Company in a route test without a database — and so
+ * nothing above can quietly start issuing a query it has no business issuing.
+ */
+export interface UserStore {
+  findById(id: string): Promise<User | null>;
+  findByUsername(username: string): Promise<User | null>;
+  findByGoogleId(googleId: string): Promise<User | null>;
+  findByEmail(email: string): Promise<User | null>;
+  findCredentials(username: string): Promise<{ user: User; passwordHash: string | null } | null>;
+  create(input: NewUser): Promise<User>;
+  linkGoogleId(id: string, googleId: string): Promise<void>;
+  setCompanyId(id: string, companyId: string | null): Promise<void>;
+}
+
+export class UserRepository implements UserStore {
   constructor(private readonly getDb: () => Promise<Db>) {}
 
   private async collection(): Promise<Collection<UserDocument>> {
@@ -108,7 +131,7 @@ export class UserRepository {
       username: input.username,
       first_name: input.firstName,
       last_name: input.lastName,
-      company_name: input.companyName,
+      company_id: null,
       role: input.role,
       is_active: true,
       created_at: now,
@@ -128,6 +151,22 @@ export class UserRepository {
     ).updateOne(
       { _id: new ObjectId(id) },
       { $set: { google_id: googleId, updated_at: new Date() } },
+    );
+  }
+
+  /**
+   * Points an account at a Company, or at none.
+   *
+   * Switching is a plain repoint (ADR-0008): the Company keeps its Clients and
+   * Experiences, because they were never the person's to take with them.
+   */
+  async setCompanyId(id: string, companyId: string | null): Promise<void> {
+    if (!ObjectId.isValid(id)) return;
+    await (
+      await this.collection()
+    ).updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { company_id: companyId, updated_at: new Date() } },
     );
   }
 }

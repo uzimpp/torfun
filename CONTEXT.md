@@ -17,7 +17,7 @@ _Avoid_: Tor, IngestionRecord, Project, Announcement, Opportunity
 
 **TOR**:
 The Terms of Reference document — the PDF stating what an agency actually wants
-built. A TOR is a *document attached to* a Procurement, never the Procurement
+built. A TOR is a _document attached to_ a Procurement, never the Procurement
 itself.
 _Avoid_: spec, requirements doc
 
@@ -55,13 +55,13 @@ Four separate lifecycles live here, and the word "status" is claimed by two of
 them. They are never interchangeable.
 
 **Procurement Status**:
-Where a Procurement sits in the *agency's own* e-GP lifecycle — from
+Where a Procurement sits in the _agency's own_ e-GP lifecycle — from
 `drafting_tor` through `invitation` (the only window in which a bid is possible)
 to `contracted` or `cancelled`. Owned upstream; the system only reads it.
 _Avoid_: project status, stage, phase
 
 **State**:
-Where a Procurement sits in *this system's* retrieval lifecycle — Queued,
+Where a Procurement sits in _this system's_ retrieval lifecycle — Queued,
 Processing, Completed, Failed. Owned by the pipeline.
 _Avoid_: status, progress
 
@@ -74,7 +74,7 @@ _Avoid_: reason, result, error code
 
 **Review Status**:
 A Business Development Officer's own judgement of a Procurement. A property of
-the *pair* (officer, procurement), never of the Procurement — one officer's
+the _pair_ (officer, procurement), never of the Procurement — one officer's
 rejection must not hide a Procurement from their colleagues.
 _Avoid_: status, verdict, decision
 
@@ -103,6 +103,31 @@ What Gemini extracted from a Procurement's main TOR: a summary, scope, budget,
 deadline, tech stack, qualifications. A time-saving summary, never an authority —
 the Archive stays reachable upstream so a human can verify before bidding.
 _Avoid_: extraction, AI result, summary (as a noun for the whole block)
+
+### The vendor's own record
+
+**Company**:
+The software vendor a Business Development Officer works for, identified by its
+Thai registered name and, where given, its TIN. The side of a match that
+`Procurement` is scored against.
+_Avoid_: vendor, firm, organisation, account, tenant
+
+**TIN**:
+เลขประจำตัวผู้เสียภาษีอากร — the 13-digit number identifying a Thai juristic
+person, the same number the DBD registers the company under. Optional, and
+recorded rather than relied on.
+_Avoid_: tax ID, registration number, company number
+
+**Client**:
+An organisation a Company has delivered work for. Never the Company itself, and
+never a user of this system — a Client has no account and never signs in.
+_Avoid_: customer, buyer, agency, department
+
+**Experience**:
+One piece of work a Company delivered for a Client, described in the same
+vocabulary a TOR is read into — platforms, tech stack, duration — so that a past
+job and a tender can be compared at all.
+_Avoid_: Project, past project, portfolio item, engagement, case study
 
 ### People
 

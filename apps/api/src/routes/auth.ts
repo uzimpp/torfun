@@ -23,7 +23,6 @@ const registerSchema = z
     confirm_password: z.string(),
     first_name: z.string().min(1).max(100),
     last_name: z.string().min(1).max(100),
-    company_name: z.string().min(1).max(200),
   })
   .refine((data) => data.password === data.confirm_password, {
     message: 'Passwords do not match',
@@ -35,7 +34,13 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
-/** snake_case on the wire: the shape `apps/web` already consumes. */
+/**
+ * snake_case on the wire: the shape `apps/web` already consumes.
+ *
+ * `company_name` is not on the account. The Company owns its name (ADR-0007),
+ * so it is resolved through `companyService` in `withCompany` below and is
+ * `null` for anyone who has not joined one — which is what the web gate reads.
+ */
 function toUserResponse(user: User) {
   return {
     id: user.id,
@@ -43,7 +48,7 @@ function toUserResponse(user: User) {
     first_name: user.firstName,
     last_name: user.lastName,
     full_name: fullName(user),
-    company_name: user.companyName,
+    company_id: user.companyId,
     role: user.role,
   };
 }
@@ -91,6 +96,16 @@ export async function authRoutes(app: FastifyInstance) {
    * once so `/login` and `/register` cannot drift apart: registration is
    * equally worth throttling, since it reveals which usernames are taken.
    */
+  /**
+   * The user response, with the Company's own name filled in. The one place in
+   * this file that reaches past `authService`, because the account holds only
+   * the reference and the name lives with the Company.
+   */
+  const withCompany = async (user: User) => ({
+    ...toUserResponse(user),
+    company_name: await app.companyService.nameFor(user.companyId),
+  });
+
   const credentialLimits = {
     config: { rateLimit: authIpRateLimit },
     preHandler: [createCredentialThrottle(app)],
@@ -124,13 +139,12 @@ export async function authRoutes(app: FastifyInstance) {
       password: parsed.data.password,
       firstName: parsed.data.first_name,
       lastName: parsed.data.last_name,
-      companyName: parsed.data.company_name,
     });
 
     setAuthCookies(reply, session, secureCookies);
     return reply.code(201).send({
       message: 'Registration successful',
-      user: toUserResponse(session.user),
+      user: await withCompany(session.user),
     });
   });
 
@@ -143,7 +157,7 @@ export async function authRoutes(app: FastifyInstance) {
     const session = await app.authService.login(parsed.data.username, parsed.data.password);
 
     setAuthCookies(reply, session, secureCookies);
-    return reply.send({ message: 'Login successful', user: toUserResponse(session.user) });
+    return reply.send({ message: 'Login successful', user: await withCompany(session.user) });
   });
 
   /**
@@ -157,7 +171,10 @@ export async function authRoutes(app: FastifyInstance) {
     try {
       const session = await app.authService.refresh(presented);
       setAuthCookies(reply, session, secureCookies);
-      return reply.send({ message: 'Session refreshed', user: toUserResponse(session.user) });
+      return reply.send({
+        message: 'Session refreshed',
+        user: await withCompany(session.user),
+      });
     } catch (error) {
       // A refresh that fails is a session that is over — revoked, expired, or
       // deactivated. Drop both cookies so the browser stops re-presenting them
@@ -175,6 +192,6 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get('/me', { onRequest: [requireAuth] }, async (request) => {
     const user = await app.authService.getById(request.user.user_id);
-    return toUserResponse(user);
+    return withCompany(user);
   });
 }

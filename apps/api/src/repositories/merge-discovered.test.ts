@@ -67,7 +67,9 @@ describe('mergeDiscovered', () => {
     const existing = procurement({
       state: 'Completed',
       outcome: 'tor_analysed',
-      statusHistory: [{ state: 'Completed', outcome: 'tor_analysed', at: '2026-09-02T00:00:00.000Z' }],
+      statusHistory: [
+        { state: 'Completed', outcome: 'tor_analysed', at: '2026-09-02T00:00:00.000Z' },
+      ],
       zipId: 'ZIP-1',
       zipBytes: 30_000_000,
       archiveMemberCount: 12,

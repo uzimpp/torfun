@@ -75,9 +75,7 @@ function ProjectDetail({ record }: { record: Procurement }) {
                 <span className="text-muted-foreground">
                   {(file.bytes / 1024 / 1024).toFixed(1)} MB
                 </span>
-                {file.role === 'main_tor' ? (
-                  <Badge className="text-[10px]">TOR หลัก</Badge>
-                ) : null}
+                {file.role === 'main_tor' ? <Badge className="text-[10px]">TOR หลัก</Badge> : null}
                 {file.role === 'tor_variant' ? (
                   <Badge variant="secondary" className="text-[10px]">
                     TOR ฉบับอื่น

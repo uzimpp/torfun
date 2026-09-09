@@ -98,7 +98,6 @@ export const StatusChangeSchema = z.object({
 });
 export type StatusChange = z.infer<typeof StatusChangeSchema>;
 
-
 /**
  * What a document inside an announcement Archive turned out to be.
  *

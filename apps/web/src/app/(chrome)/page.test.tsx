@@ -1,8 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import Home from './page';
-import LoginLayout from './login/layout';
-import RegisterLayout from './register/layout';
+import LoginLayout from '../login/layout';
+import RegisterLayout from '../register/layout';
 const auth = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   redirect: vi.fn(() => {
@@ -28,17 +28,35 @@ describe('guest routes', () => {
     expect(screen.getByText(/ผลสรุปจาก AI เป็นข้อมูลช่วยอ่าน/)).toBeInTheDocument();
   });
   test.each(['admin', 'business_development_officer'])(
-    'redirects %s away from landing and auth forms',
+    'redirects %s away from the auth forms, but never from the landing page',
     async (role) => {
       auth.getCurrentUser.mockResolvedValue({ username: 'test-user', role });
       for (const renderPage of [
-        () => Home(),
         () => LoginLayout({ children: 'login' }),
         () => RegisterLayout({ children: 'register' }),
       ]) {
         await expect(renderPage()).rejects.toThrow('redirect');
         expect(auth.redirect).toHaveBeenLastCalledWith('/dashboard');
       }
+    },
+  );
+  test.each(['admin', 'business_development_officer'])(
+    'renders the landing page for a signed-in %s, pointing them at their workspace',
+    async (role) => {
+      auth.getCurrentUser.mockResolvedValue({ username: 'test-user', role });
+      render(await Home());
+
+      // The whole point: following a link to the marketing page must not bounce
+      // an officer into the sign-up flow, which is what the old redirect did by
+      // way of the dashboard's company gate.
+      expect(auth.redirect).not.toHaveBeenCalled();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ค้นหาโอกาสจาก TOR');
+      expect(screen.getAllByRole('link', { name: /ไปที่แดชบอร์ด/ })[0]).toHaveAttribute(
+        'href',
+        '/dashboard',
+      );
+      expect(screen.queryByRole('link', { name: /เริ่มต้นใช้งาน/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'สร้างบัญชีผู้ใช้' })).not.toBeInTheDocument();
     },
   );
   test('keeps guest forms reachable', async () => {

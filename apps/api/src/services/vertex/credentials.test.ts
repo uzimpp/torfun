@@ -34,7 +34,9 @@ describe('credentialsFromEnv', () => {
   });
 
   test('tolerates the line breaks base64 tools insert', () => {
-    const wrapped = Buffer.from(JSON.stringify(key)).toString('base64').replace(/(.{40})/g, '$1\n');
+    const wrapped = Buffer.from(JSON.stringify(key))
+      .toString('base64')
+      .replace(/(.{40})/g, '$1\n');
     expect(credentialsFromEnv(env(wrapped))?.credentials.client_email).toBe(key.client_email);
   });
 

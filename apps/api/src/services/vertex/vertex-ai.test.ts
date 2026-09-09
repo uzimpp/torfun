@@ -10,9 +10,9 @@ import { textFromResponse } from './vertex-ai';
  */
 describe('textFromResponse', () => {
   test('returns the answer when the model finished', () => {
-    expect(textFromResponse({ text: '{"isTor":true}', candidates: [{ finishReason: 'STOP' }] })).toBe(
-      '{"isTor":true}',
-    );
+    expect(
+      textFromResponse({ text: '{"isTor":true}', candidates: [{ finishReason: 'STOP' }] }),
+    ).toBe('{"isTor":true}');
   });
 
   test('a truncated answer names the budget, not the model', () => {
