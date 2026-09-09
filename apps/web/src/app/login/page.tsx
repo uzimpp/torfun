@@ -53,12 +53,14 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="bg-background flex flex-1 items-center justify-center px-6 py-10">
-      <div className="bg-card w-full max-w-md rounded-2xl p-8 shadow-sm">
-        <div className="mb-8 text-center">
-          <h1 className="text-foreground text-3xl font-bold tracking-tight">Torfun</h1>
+    <main className="landing-grid bg-background flex flex-1 items-center justify-center px-6 py-10">
+      <div className="bg-card border-border w-full max-w-md rounded-2xl border p-8 shadow-sm">
+        <div className="mb-8">
+          <h1 className="text-foreground text-3xl font-semibold tracking-tight">
+            ยินดีต้อนรับสู่ Torfun
+          </h1>
 
-          <p className="text-muted-foreground mt-2 text-sm">ระบบค้นหาและคัดกรองประกาศ TOR</p>
+          <p className="text-muted-foreground mt-2 text-sm">กรอกข้อมูลของคุณเพื่อเข้าสู่ระบบ</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -123,7 +125,8 @@ export default function LoginPage() {
           onClick={() => {
             window.location.assign(new URL('/api/auth/google', apiUrl).toString());
           }}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 min-h-12 w-full gap-3 rounded-lg px-4 py-3 font-medium transition dark:bg-[#3729b7] dark:text-[#fcfcfc] dark:hover:bg-[#3729b7]/90"
+          variant="outline"
+          className="border-border hover:bg-muted min-h-12 w-full gap-3 rounded-lg px-4 py-3 font-medium transition"
         >
           <svg
             aria-hidden="true"
@@ -139,7 +142,7 @@ export default function LoginPage() {
 
         <p className="text-muted-foreground mt-6 text-center text-sm">
           ยังไม่มีบัญชีผู้ใช้?{' '}
-          <Link href="/register" className="text-foreground font-medium hover:underline">
+          <Link href="/register" className="text-primary font-medium hover:underline">
             สร้างบัญชีผู้ใช้
           </Link>
         </p>
