@@ -12,8 +12,8 @@ test('guest header contains brand and login without workspace links', () => {
   expect(screen.getByRole('link', { name: 'Torfun' })).toHaveAttribute('href', '/');
   expect(screen.queryByRole('link', { name: 'แดชบอร์ด' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /การแจ้งเตือน/ })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /เปลี่ยนภาษา/ })).toBeDisabled();
-  expect(screen.getByRole('button', { name: /สลับโหมด/ })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: /เปลี่ยนภาษา/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /สลับโหมด/ })).toBeEnabled();
 });
 test.each(['admin', 'business_development_officer'] as const)(
   '%s has a user popup with logout',

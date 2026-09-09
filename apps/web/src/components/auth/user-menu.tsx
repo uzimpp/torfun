@@ -24,7 +24,7 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
           />
         }
       >
-        <span className="bg-secondary text-primary flex size-8 items-center justify-center rounded-lg">
+        <span className="bg-secondary text-secondary-foreground flex size-8 items-center justify-center rounded-lg">
           <UserRound aria-hidden="true" />
         </span>
         <span className="min-w-0 text-left">

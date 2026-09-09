@@ -22,8 +22,10 @@ export function NavLinks({ role, onNavigate }: { role?: UserRole; onNavigate?: (
           onClick={onNavigate}
           aria-current={pathname === href ? 'page' : undefined}
           className={cn(
-            'hover:bg-secondary focus-visible:outline-ring flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm transition-colors focus-visible:outline-2',
-            pathname === href ? 'bg-secondary text-primary font-semibold' : 'text-muted-foreground',
+            'hover:bg-secondary hover:text-secondary-foreground focus-visible:outline-ring flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm transition-colors focus-visible:outline-2',
+            pathname === href
+              ? 'bg-secondary text-secondary-foreground font-semibold'
+              : 'text-muted-foreground',
           )}
         >
           <Icon className="size-4" aria-hidden="true" />

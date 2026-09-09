@@ -1,11 +1,18 @@
 import Link from 'next/link';
-import { Bell, Languages, Moon, ScanLine } from 'lucide-react';
+import { Bell, ScanLine } from 'lucide-react';
 import type { CurrentUser } from '@/lib/auth';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { MobileNav } from './mobile-nav';
 import { UserMenu } from './user-menu';
-export function Navbar({ user }: { user: Pick<CurrentUser, 'username' | 'role'> | null }) {
+import { ThemeToggle } from './theme-toggle';
+export function Navbar({
+  user,
+  initialTheme = 'light',
+}: {
+  user: Pick<CurrentUser, 'username' | 'role'> | null;
+  initialTheme?: 'light' | 'dark';
+}) {
   return (
     <header className="bg-background/95 sticky top-0 z-30 border-b backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-10">
@@ -34,24 +41,7 @@ export function Navbar({ user }: { user: Pick<CurrentUser, 'username' | 'role'> 
               <Bell aria-hidden="true" />
             </Button>
           )}
-          <Button
-            disabled
-            variant="ghost"
-            className="size-10"
-            title="สลับโหมดกลางวัน / กลางคืน — เร็ว ๆ นี้"
-            aria-label="สลับโหมดกลางวัน / กลางคืน — เร็ว ๆ นี้"
-          >
-            <Moon aria-hidden="true" />
-          </Button>
-          <Button
-            disabled
-            variant="ghost"
-            className="size-10"
-            title="เปลี่ยนภาษา TH / EN — เร็ว ๆ นี้"
-            aria-label="เปลี่ยนภาษา TH / EN — เร็ว ๆ นี้"
-          >
-            <Languages aria-hidden="true" />
-          </Button>
+          <ThemeToggle initialTheme={initialTheme} />
           <span className="bg-border mx-1 h-6 w-px" aria-hidden="true" />
           {user ? (
             <UserMenu user={user} />

@@ -92,7 +92,7 @@ export default function RegisterPage() {
                 onChange={(event) => setFirstName(event.target.value)}
                 required
                 maxLength={100}
-                className="border-border min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+                className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
                 placeholder="ชื่อ"
               />
             </div>
@@ -109,7 +109,7 @@ export default function RegisterPage() {
                 onChange={(event) => setLastName(event.target.value)}
                 required
                 maxLength={100}
-                className="border-border min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+                className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
                 placeholder="นามสกุล"
               />
             </div>
@@ -128,7 +128,7 @@ export default function RegisterPage() {
               required
               minLength={3}
               maxLength={50}
-              className="border-border min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+              className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
               placeholder="ตั้งชื่อผู้ใช้"
             />
           </div>
@@ -146,7 +146,7 @@ export default function RegisterPage() {
               required
               minLength={8}
               maxLength={128}
-              className="border-border min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+              className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
               placeholder="ตั้งรหัสผ่าน"
             />
 
@@ -169,7 +169,7 @@ export default function RegisterPage() {
               required
               minLength={8}
               maxLength={128}
-              className="border-border min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+              className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
               placeholder="กรอกรหัสผ่านอีกครั้ง"
             />
           </div>
@@ -186,13 +186,16 @@ export default function RegisterPage() {
               onChange={(event) => setCompanyName(event.target.value)}
               required
               maxLength={200}
-              className="border-border min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:border-gray-900 focus:ring-2 focus:ring-gray-200"
+              className="border-border focus:border-ring focus:ring-ring/30 min-h-12 w-full rounded-lg border px-4 py-3 transition outline-none focus:ring-2"
               placeholder="กรอกชื่อบริษัท"
             />
           </div>
 
           {error && (
-            <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+            <div
+              role="alert"
+              className="bg-destructive/10 text-destructive rounded-lg px-4 py-3 text-sm"
+            >
               {error}
             </div>
           )}

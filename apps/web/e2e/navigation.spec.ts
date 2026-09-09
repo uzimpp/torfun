@@ -17,9 +17,23 @@ test('guest login navigation and skip link work without workspace links', async 
 test('mobile guest toolbar exposes clearly unavailable future controls', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 812 });
   await page.goto('/');
-  await expect(page.getByRole('button', { name: /เปลี่ยนภาษา/ })).toBeDisabled();
-  await expect(page.getByRole('button', { name: /สลับโหมด/ })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /เปลี่ยนภาษา/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /สลับโหมด/ })).toBeEnabled();
   await expect(page.getByRole('button', { name: /การแจ้งเตือน/ })).toHaveCount(0);
   await expect(page.getByRole('banner').getByRole('link', { name: 'เข้าสู่ระบบ' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('theme selection survives navigation and reload', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'สลับโหมดกลางคืน' }).click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.getByRole('banner').getByRole('link', { name: 'เข้าสู่ระบบ' }).click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.reload();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.getByRole('button', { name: 'สลับโหมดกลางวัน' }).click();
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
+  await page.reload();
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
 });
