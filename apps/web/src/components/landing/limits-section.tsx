@@ -48,15 +48,17 @@ export function LimitsSection({ signedIn = false }: { signedIn?: boolean }) {
             แต่ไม่ควรใช้แทนการอ่านประกาศ และเอกสารต้นฉบับยังเข้าถึงได้เสมอเพื่อให้ตรวจสอบได้เอง
           </p>
 
-          {/* Stated on the page itself, not only in the footer. Someone reading
+          {/* Stated on the page itself, not only in the footer — someone reading
               about what the product does should meet this while they are still
-              forming an expectation of it. */}
+              forming an expectation of it. Worded differently from the footer's
+              version on purpose: the two are visible in one scroll, and the
+              same sentence twice reads as a template rather than as a point. */}
           <p
             data-rise="3"
             className="border-primary/40 text-muted-foreground mt-6 max-w-xl border-s-2 ps-4 text-sm"
           >
-            ผลสรุปจาก AI เป็นข้อมูลช่วยอ่าน ไม่ใช่การยืนยันข้อเท็จจริง โปรดตรวจสอบเอกสาร TOR
-            ต้นฉบับและเงื่อนไขของหน่วยงานเจ้าของประกาศทุกครั้งก่อนยื่นข้อเสนอ
+            AI ช่วยสรุปข้อกำหนดเพื่อให้อ่านได้เร็วขึ้น แต่ไม่ใช่คำยืนยัน ทีมของคุณต้องอ่านเอกสาร TOR
+            ต้นฉบับก่อนตัดสินใจยื่นข้อเสนอเสมอ
           </p>
         </div>
 

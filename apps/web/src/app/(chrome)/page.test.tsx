@@ -29,7 +29,7 @@ describe('guest routes', () => {
       'href',
       '/register',
     );
-    expect(screen.getByText(/ผลสรุปจาก AI เป็นข้อมูลช่วยอ่าน/)).toBeInTheDocument();
+    expect(screen.getByText(/AI ช่วยสรุปข้อกำหนด/)).toBeInTheDocument();
     // Typing a query and pressing enter must reach the results page even
     // before hydration, so the field has to be a real GET form.
     const search = screen.getByRole('search', { name: 'ค้นหาประกาศ TOR' });
