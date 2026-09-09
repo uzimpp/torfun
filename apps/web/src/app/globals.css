@@ -46,37 +46,89 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Type scale.
+   *
+   * Thai stacks up to four marks over one base glyph, so every step carries a
+   * line height well above what a Latin-only scale would use — the stock
+   * values clip tone marks against the line above. Display sizes tighten
+   * gradually rather than dropping to 1.0, which would collide outright. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.7;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.75;
+  --text-base: 1rem;
+  --text-base--line-height: 1.8;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.78;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.65;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.55;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 1.45;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 1.38;
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 1.3;
+  --text-6xl: 3.75rem;
+  --text-6xl--line-height: 1.24;
+  --text-7xl: 4.5rem;
+  --text-7xl--line-height: 1.2;
+
+  /* Tracking, rescaled for Thai.
+   *
+   * Tailwind's stock -0.025em on `tracking-tight` pulls tone marks into the
+   * neighbouring consonant. These are gentle enough to tighten Latin headings
+   * without damaging Thai, so the utilities stay usable on mixed text. */
+  --tracking-tighter: -0.014em;
+  --tracking-tight: -0.006em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.015em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.14em;
+
+  /* Shadows are tinted with the ink colour rather than neutral black, so a
+   * lifted surface reads as the same material as the page under it. */
+  --shadow-soft: 0 1px 2px -1px var(--shadow-tint-weak), 0 8px 24px -14px var(--shadow-tint);
+  --shadow-lifted: 0 1px 2px -1px var(--shadow-tint-weak), 0 28px 56px -28px var(--shadow-tint);
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root {
   color-scheme: light;
   --font-app-sans: var(--font-anuphan), Tahoma, Arial, sans-serif;
-  --font-app-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  --background: #fcfcfc;
-  --foreground: #1a1a1a;
-  --card: #fcfcfc;
-  --card-foreground: #1a1a1a;
-  --popover: #fcfcfc;
-  --popover-foreground: #1a1a1a;
+  --font-app-mono: var(--font-plex-mono), 'SFMono-Regular', Consolas, monospace;
+
+  /* Cool near-neutral page, pure white cards. The two used to be the same
+   * colour, which left every panel on the site floating with nothing behind
+   * it — elevation now comes from the surface, not from a heavier border. */
+  --background: #f5f5f9;
+  --foreground: #17171f;
+  --card: #ffffff;
+  --card-foreground: #17171f;
+  --popover: #ffffff;
+  --popover-foreground: #17171f;
   --primary: #3729b7;
-  --primary-foreground: #fcfcfc;
+  --primary-foreground: #fcfcfd;
   --secondary: #1b2f68;
-  --secondary-foreground: #fcfcfc;
-  --muted: color-mix(in srgb, #1b2f68 5%, #fcfcfc);
-  --muted-foreground: color-mix(in srgb, #1a1a1a 72%, #fcfcfc);
+  --secondary-foreground: #fcfcfd;
+  --muted: #ececf3;
+  --muted-foreground: #56566b;
   --accent: #452884;
-  --accent-foreground: #fcfcfc;
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: color-mix(in srgb, #1b2f68 16%, #fcfcfc);
-  --input: color-mix(in srgb, #1b2f68 30%, #fcfcfc);
+  --accent-foreground: #fcfcfd;
+  --destructive: #b42318;
+  --border: #e2e2ec;
+  --input: #cfcfdd;
   --ring: #3729b7;
   --chart-1: #3729b7;
   --chart-2: #1b2f68;
   --chart-3: #452884;
-  --chart-4: color-mix(in srgb, #3729b7 60%, #fcfcfc);
-  --chart-5: color-mix(in srgb, #452884 60%, #fcfcfc);
-  --radius: 0.625rem;
-  --sidebar: color-mix(in srgb, #1b2f68 4%, #fcfcfc);
+  --chart-4: color-mix(in srgb, #3729b7 60%, #ffffff);
+  --chart-5: color-mix(in srgb, #452884 60%, #ffffff);
+  --radius: 0.75rem;
+  --sidebar: #ffffff;
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
@@ -84,28 +136,44 @@
   --sidebar-accent-foreground: var(--accent-foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
+
+  --hairline: rgb(255 255 255 / 0.65);
+  --shadow-tint: color-mix(in srgb, #1b2f68 26%, transparent);
+  --shadow-tint-weak: color-mix(in srgb, #1b2f68 12%, transparent);
+  --grid-line: color-mix(in srgb, #3729b7 8%, transparent);
 }
 
 .dark {
   color-scheme: dark;
+  --background: #101016;
+  --foreground: #f2f2f6;
+  --card: #17171f;
+  --card-foreground: #f2f2f6;
+  --popover: #1a1a23;
+  --popover-foreground: #f2f2f6;
   --primary: #a99cf3;
-  --primary-foreground: #1a1a1a;
+  --primary-foreground: #14141b;
+  --secondary: #23233a;
+  --secondary-foreground: #f2f2f6;
+  --muted: #1e1e28;
+  --muted-foreground: #a2a2b5;
+  --accent: #b49ade;
+  --accent-foreground: #14141b;
+  --destructive: #f0645a;
+  --border: #282833;
+  --input: #3a3a49;
+  --ring: #7c6ce0;
   --chart-1: #a99cf3;
   --chart-2: #8399d6;
   --chart-3: #b49ade;
-  --background: #1a1a1a;
-  --foreground: #fcfcfc;
-  --card: color-mix(in srgb, #1b2f68 15%, #1a1a1a);
-  --card-foreground: #fcfcfc;
-  --popover: color-mix(in srgb, #1b2f68 15%, #1a1a1a);
-  --popover-foreground: #fcfcfc;
-  --muted: color-mix(in srgb, #fcfcfc 8%, #1a1a1a);
-  --muted-foreground: color-mix(in srgb, #fcfcfc 72%, #1a1a1a);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: color-mix(in srgb, #fcfcfc 18%, #1a1a1a);
-  --input: color-mix(in srgb, #fcfcfc 30%, #1a1a1a);
-  --ring: color-mix(in srgb, #3729b7 50%, #fcfcfc);
-  --sidebar: color-mix(in srgb, #1b2f68 15%, #1a1a1a);
+  --chart-4: color-mix(in srgb, #a99cf3 55%, #101016);
+  --chart-5: color-mix(in srgb, #b49ade 55%, #101016);
+  --sidebar: #14141b;
+
+  --hairline: rgb(255 255 255 / 0.06);
+  --shadow-tint: rgb(0 0 0 / 0.6);
+  --shadow-tint-weak: rgb(0 0 0 / 0.4);
+  --grid-line: color-mix(in srgb, #a99cf3 10%, transparent);
 }
 
 @layer base {
@@ -114,21 +182,64 @@
   }
   body {
     @apply bg-background text-foreground font-light;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
+  }
+  /* Numerals read as data, not prose: tabular figures stop a column of counts
+     or dates from changing width as the values change. */
+  .font-mono,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-.landing-grid {
-  background-image:
-    linear-gradient(to right, #3729b70a 1px, transparent 1px),
-    linear-gradient(to bottom, #3729b70a 1px, transparent 1px);
-  background-size: 4rem 4rem;
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
-.dark .landing-grid {
+/* The faint plotting grid behind the hero and the sign-in flow. It fades out
+   toward the edges so the lines never terminate in a hard seam. */
+.landing-grid {
   background-image:
-    linear-gradient(to right, #a99cf30d 1px, transparent 1px),
-    linear-gradient(to bottom, #a99cf30d 1px, transparent 1px);
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 4.5rem 4.5rem;
+  background-position: center top;
+  mask-image: radial-gradient(120% 90% at 50% 0%, #000 35%, transparent 100%);
+}
+
+/* The hero's entrance.
+ *
+ * Deliberately CSS rather than JavaScript: it runs on first paint, so nothing
+ * above the fold depends on hydration finishing to become readable. `--enter`
+ * is the position in the cascade, set per element. GSAP is reserved for the
+ * scroll-linked work further down the page, where the element is already
+ * visible and the animation only adds to it. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1.25rem, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.enter {
+  animation: rise-in 0.75s var(--ease-out-expo) both;
+  animation-delay: calc(var(--enter, 0) * 80ms);
 }
