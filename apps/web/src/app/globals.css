@@ -212,13 +212,24 @@
 
 /* The faint plotting grid behind the hero and the sign-in flow. It fades out
    toward the edges so the lines never terminate in a hard seam. */
+/* The faint plotting grid behind the hero and the sign-in flow.
+ *
+ * The fade is the first background layer, painted over the lines in the page's
+ * own colour, rather than a `mask-image`. A mask applies to the element's
+ * whole subtree, so masking this washed out the form sitting on top of it —
+ * the sign-in card, its button and the link below it all went translucent
+ * toward the bottom of the page. Backgrounds only ever paint behind content. */
 .landing-grid {
   background-image:
+    radial-gradient(125% 95% at 50% 0%, transparent 32%, var(--background) 100%),
     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
     linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-  background-size: 4.5rem 4.5rem;
+  background-size:
+    100% 100%,
+    4.5rem 4.5rem,
+    4.5rem 4.5rem;
   background-position: center top;
-  mask-image: radial-gradient(120% 90% at 50% 0%, #000 35%, transparent 100%);
+  background-repeat: no-repeat, repeat, repeat;
 }
 
 /* The hero's entrance.
@@ -231,7 +242,7 @@
 @keyframes rise-in {
   from {
     opacity: 0;
-    transform: translate3d(0, 1.25rem, 0);
+    transform: translate3d(0, 0.5rem, 0);
   }
   to {
     opacity: 1;
@@ -239,7 +250,9 @@
   }
 }
 
+/* Short travel, short cascade. The hero should look settled almost at once —
+ * a long fade leaves the first thing a visitor reads looking unfinished. */
 .enter {
-  animation: rise-in 0.75s var(--ease-out-expo) both;
-  animation-delay: calc(var(--enter, 0) * 80ms);
+  animation: rise-in 0.4s var(--ease-out-expo) both;
+  animation-delay: calc(var(--enter, 0) * 50ms);
 }

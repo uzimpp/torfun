@@ -34,23 +34,23 @@ export function HeroSection({ signedIn = false }: { signedIn?: boolean }) {
 
           <h1
             id="hero-heading"
-            className="enter mt-5 text-4xl font-semibold tracking-tight text-balance [--enter:1] sm:text-5xl lg:text-6xl"
+            className="enter mt-5 text-4xl font-semibold tracking-tight text-balance [--enter:0] sm:text-5xl lg:text-6xl"
           >
             ค้นหาโอกาสจาก TOR
             <br />
             <span className="text-primary">ให้ตรงกับงานที่คุณถนัด</span>
           </h1>
 
-          <p className="enter text-muted-foreground mt-6 max-w-xl text-lg [--enter:2]">
+          <p className="enter text-muted-foreground mt-6 max-w-xl text-lg [--enter:1]">
             ลดเวลาค้นหาประกาศจัดซื้อจัดจ้าง
             ให้ทีมได้ใช้เวลากับการพิจารณางานซอฟต์แวร์ที่เหมาะกับประสบการณ์ของบริษัท
           </p>
 
-          <div className="enter mt-9 max-w-2xl [--enter:3]">
+          <div className="enter mt-9 max-w-2xl [--enter:1]">
             <TorSearchField size="hero" label="ค้นหาประกาศ TOR" suggestions={exampleQueries} />
           </div>
 
-          <div className="enter mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 [--enter:4]">
+          <div className="enter mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 [--enter:2]">
             <Link
               href={signedIn ? '/dashboard' : '/register'}
               className={cn(buttonVariants({ variant: 'outline' }), 'min-h-12 rounded-xl px-5')}
@@ -69,12 +69,14 @@ export function HeroSection({ signedIn = false }: { signedIn?: boolean }) {
           </div>
         </div>
 
-        <div data-parallax className="enter relative isolate [--enter:5] lg:ps-4">
-          {/* A single tilted plate behind the panel, standing in for the stack
-              of announcements the panel is reading from. */}
+        <div data-parallax className="enter relative isolate [--enter:2] lg:ps-4">
+          {/* One sheet showing from under the panel, standing in for the stack
+              of announcements it is reading from. Kept as a tinted surface
+              rather than a solid slab: at full opacity a filled plate reads as
+              a dark stripe down the side of the card rather than as depth. */}
           <div
             aria-hidden="true"
-            className="bg-secondary/90 absolute inset-x-3 inset-y-4 -z-10 rotate-3 rounded-[2rem]"
+            className="border-border bg-muted/70 absolute inset-x-4 -top-3 bottom-5 -z-10 rotate-[2.5deg] rounded-[1.75rem] border"
           />
           <div className="bg-card shadow-lifted rounded-[1.75rem] border p-6 sm:p-8">
             <div className="flex items-center justify-between border-b pb-5">
