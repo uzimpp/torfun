@@ -11,7 +11,9 @@ test('guest login navigation and skip link work without workspace links', async 
   await header.getByRole('link', { name: 'เข้าสู่ระบบ' }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole('button', { name: 'เข้าสู่ระบบด้วย Google' })).toBeVisible();
-  await page.getByRole('link', { name: 'Torfun', exact: true }).click();
+  // The sign-in page sits in FlowShell, which has no navbar — its brand link is
+  // the only way back, and it names its destination.
+  await page.getByRole('link', { name: 'Torfun หน้าแรก', exact: true }).click();
   await expect(page).toHaveURL('/');
 });
 test('mobile guest toolbar exposes clearly unavailable future controls', async ({ page }) => {
