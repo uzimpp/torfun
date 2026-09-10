@@ -21,6 +21,11 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 # next lives in the hoisted root node_modules, not apps/web/node_modules
 # (see bunfig.toml — hoisted linker, for standalone-output tracing to work).
+# Next inlines NEXT_PUBLIC_* into the bundle during `next build`, so this has
+# to be set here — supplying it as a Cloud Run env var would arrive after the
+# value was already baked in, leaving the deployed app calling localhost.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN cd apps/web && node /app/node_modules/next/dist/bin/next build
 
 # Bun runs the build for speed; Next.js standalone output is served on
