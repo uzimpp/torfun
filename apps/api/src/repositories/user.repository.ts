@@ -81,6 +81,12 @@ export interface UserStore {
   create(input: NewUser): Promise<User>;
   linkGoogleId(id: string, googleId: string): Promise<void>;
   setCompanyId(id: string, companyId: string | null): Promise<void>;
+  /** Every account, newest first — the account-management screen's one read. */
+  list(): Promise<User[]>;
+  /** How many `admin` accounts are still active, for the last-admin guard. */
+  countActiveAdmins(): Promise<number>;
+  setRole(id: string, role: UserRole): Promise<void>;
+  setActive(id: string, isActive: boolean): Promise<void>;
 }
 
 export class UserRepository implements UserStore {
@@ -167,6 +173,43 @@ export class UserRepository implements UserStore {
     ).updateOne(
       { _id: new ObjectId(id) },
       { $set: { company_id: companyId, updated_at: new Date() } },
+    );
+  }
+
+  async list(): Promise<User[]> {
+    const documents = await (await this.collection())
+      .find()
+      .sort({ created_at: -1 })
+      .toArray();
+    return documents.map(toDomain);
+  }
+
+  /**
+   * Active administrators only. `is_active` is absent on accounts that predate
+   * it and reads back as true (see `toDomain`), so the query counts "not
+   * explicitly deactivated" rather than `is_active: true`.
+   */
+  async countActiveAdmins(): Promise<number> {
+    return (await this.collection()).countDocuments({
+      role: 'admin',
+      is_active: { $ne: false },
+    });
+  }
+
+  async setRole(id: string, role: UserRole): Promise<void> {
+    if (!ObjectId.isValid(id)) return;
+    await (
+      await this.collection()
+    ).updateOne({ _id: new ObjectId(id) }, { $set: { role, updated_at: new Date() } });
+  }
+
+  async setActive(id: string, isActive: boolean): Promise<void> {
+    if (!ObjectId.isValid(id)) return;
+    await (
+      await this.collection()
+    ).updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { is_active: isActive, updated_at: new Date() } },
     );
   }
 }

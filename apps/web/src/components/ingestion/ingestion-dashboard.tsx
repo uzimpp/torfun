@@ -16,6 +16,30 @@ import {
 } from './use-ingestion-data';
 
 /**
+ * A quiet line under the heading that answers "is anything happening right
+ * now?" — a pulsing dot while a run is in flight, otherwise when the last one
+ * finished. The polling that keeps `running` current already lives in the hook.
+ */
+function RunStatus({ running, lastRunAt }: { running: boolean; lastRunAt: string | null }) {
+  if (running) {
+    return (
+      <span className="text-primary inline-flex items-center gap-2 text-sm font-medium">
+        <span className="bg-primary size-2 animate-pulse rounded-full" aria-hidden="true" />
+        กำลังดึงข้อมูลอยู่
+      </span>
+    );
+  }
+  return (
+    <span className="text-muted-foreground inline-flex items-center gap-2 text-sm">
+      <span className="bg-muted-foreground/40 size-2 rounded-full" aria-hidden="true" />
+      {lastRunAt
+        ? `รอบล่าสุด ${new Date(lastRunAt).toLocaleString('th-TH')}`
+        : 'ยังไม่เคยเริ่มรอบดึงข้อมูล'}
+    </span>
+  );
+}
+
+/**
  * Site Administrator view of the e-GP ingestion queue.
  *
  * Client-rendered because it is an interactive console — filters, polling and a
@@ -42,14 +66,12 @@ export function IngestionDashboard() {
   return (
     <main className="page-fill mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-10">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+        <div className="flex flex-col gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">สถานะการดึงข้อมูลประกาศ TOR</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
+          <p className="text-muted-foreground text-sm">
             ติดตามสถานะการประมวลผลของประกาศจัดซื้อจัดจ้างที่ดึงจากระบบ e-GP
-            {summary?.lastRunAt
-              ? ` · รอบล่าสุด ${new Date(summary.lastRunAt).toLocaleString('th-TH')}`
-              : null}
           </p>
+          <RunStatus running={running} lastRunAt={summary?.lastRunAt ?? null} />
         </div>
         <Button onClick={() => void startRun()} disabled={running}>
           {running ? 'กำลังดึงข้อมูล…' : 'เริ่มรอบดึงข้อมูล'}

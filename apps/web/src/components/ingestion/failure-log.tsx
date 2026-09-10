@@ -1,21 +1,40 @@
 import type { IngestionFailure } from '@torfun/types';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
+/**
+ * The retrieval failures an administrator reviews. `id="failures"` is the
+ * anchor the account menu's "บันทึกข้อผิดพลาด" row jumps to; `scroll-mt` keeps
+ * it clear of the sticky header when it does. When there is something to
+ * review the card takes a destructive edge so it reads as the thing to look at.
+ */
 export function FailureLog({ failures }: { failures: IngestionFailure[] }) {
+  const hasFailures = failures.length > 0;
+
   return (
-    <Card>
+    <Card
+      id="failures"
+      className={cn('scroll-mt-24', hasFailures && 'border-destructive/40')}
+    >
       <CardHeader>
-        <CardTitle className="text-base">บันทึกข้อผิดพลาด</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-base">
+          บันทึกข้อผิดพลาด
+          {hasFailures ? (
+            <Badge variant="destructive" className="tabular-nums">
+              {failures.length}
+            </Badge>
+          ) : null}
+        </CardTitle>
         <CardDescription>รายการที่ดึงเอกสารไม่สำเร็จ สำหรับผู้ดูแลระบบตรวจสอบ</CardDescription>
       </CardHeader>
       <CardContent>
-        {failures.length === 0 ? (
+        {!hasFailures ? (
           <p className="text-muted-foreground text-sm">ไม่มีข้อผิดพลาด</p>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="flex flex-col divide-y">
             {failures.map((failure, index) => (
-              <li key={`${failure.projectId}-${index}`} className="flex flex-col gap-1">
+              <li key={`${failure.projectId}-${index}`} className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="destructive" className="text-[10px]">
                     {failure.stage}

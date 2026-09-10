@@ -109,7 +109,8 @@ _Avoid_: extraction, AI result, summary (as a noun for the whole block)
 **Company**:
 The software vendor a Business Development Officer works for, identified by its
 Thai registered name and, where given, its TIN. The side of a match that
-`Procurement` is scored against.
+`Procurement` is scored against. Belongs to Business Development Officers only —
+a Site Administrator never holds one.
 _Avoid_: vendor, firm, organisation, account, tenant
 
 **TIN**:
@@ -137,6 +138,7 @@ self-registration creates one.
 _Avoid_: user, BD, salesperson
 
 **Site Administrator**:
-The person who runs and monitors Retrieval and reviews what failed. Granted,
-never self-claimed.
+The person who runs and monitors Retrieval, reviews what failed, and manages
+the other accounts — activating them, and granting or revoking this role.
+Granted, never self-claimed; holds no Company. The system keeps at least one.
 _Avoid_: admin user, superuser, operator

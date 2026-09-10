@@ -8,6 +8,7 @@ import type {
   IngestionSummary,
   SoftwareClass,
   TargetPlatform,
+  UserRole,
 } from '@torfun/types';
 
 /**
@@ -278,4 +279,51 @@ export function updateExperience(
 
 export function deleteExperience(id: string): Promise<void> {
   return requestNoContent(`/api/experiences/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/* ------------------------------------------------------------------------- *
+ * Accounts — the Site Administrator's view of everyone else (USR-10).
+ *
+ * Admin-only on the API, enforced for the whole `/api/admin` scope. `credentials`
+ * is already included on every call above, which is what carries the session
+ * cookie across the origin boundary.
+ * ------------------------------------------------------------------------- */
+
+export interface AdminUserResponse {
+  id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  email: string | null;
+  role: UserRole;
+  is_active: boolean;
+  company_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminUserPatch {
+  role?: UserRole;
+  is_active?: boolean;
+}
+
+export function fetchAdminUsers(): Promise<{ users: AdminUserResponse[] }> {
+  return request('/api/admin/users');
+}
+
+/**
+ * Grant or revoke the administrator role, or activate or deactivate an account.
+ * The API refuses a self-target (403) and the removal of the last active
+ * administrator (409); the message it returns is written for the person reading
+ * it, so surface it as-is.
+ */
+export function updateAdminUser(
+  id: string,
+  patch: AdminUserPatch,
+): Promise<AdminUserResponse> {
+  return request(`/api/admin/users/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
 }
