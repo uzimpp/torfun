@@ -2,7 +2,7 @@ import { ACCESS_COOKIE } from '@torfun/types';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
-import { api_url } from './config';
+import { internal_api_url } from './config';
 
 /** Where an officer without a Company is sent. Exported so the page it names
  *  can be checked against it rather than repeating the string. */
@@ -38,7 +38,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       return null;
     }
 
-    const response = await fetch(`${api_url}/api/auth/me`, {
+    const response = await fetch(`${internal_api_url}/api/auth/me`, {
       headers: {
         Cookie: `${ACCESS_COOKIE}=${token.value}`,
       },

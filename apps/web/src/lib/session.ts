@@ -1,6 +1,6 @@
 import { ACCESS_COOKIE, REFRESH_COOKIE } from '@torfun/types';
 
-import { api_url } from './config';
+import { internal_api_url } from './config';
 
 /**
  * Session renewal against the API.
@@ -25,7 +25,7 @@ export type Renewal =
 export async function renewSession(refreshToken: string): Promise<Renewal> {
   let response: Response;
   try {
-    response = await fetch(`${api_url}/api/auth/refresh`, {
+    response = await fetch(`${internal_api_url}/api/auth/refresh`, {
       method: 'POST',
       headers: { cookie: `${REFRESH_COOKIE}=${refreshToken}` },
     });
