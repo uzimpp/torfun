@@ -1,93 +1,87 @@
 import Link from 'next/link';
-import { ArrowUpRight, FileText, ListFilter, BookOpenCheck } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
+
+import { TorSearchField } from '@/components/search/tor-search-field';
+import { exampleQueries } from '@/components/layout/nav-config';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-/** `signedIn` swaps the call to action; the page itself renders either way. */
+import { PipelineScene } from './pipeline-scene';
+
+/**
+ * The hero, built around the search field rather than around a button.
+ *
+ * A visitor who already knows what they are looking for should be able to type
+ * it and go, without reading the page first; the sign-up path sits underneath
+ * for everyone else. `signedIn` swaps that secondary action, never the search.
+ *
+ * The text entrance is CSS with a staggered `--enter` delay, so it plays on
+ * first paint — nothing anyone has to read waits for hydration. The two things
+ * that do need JavaScript, the colour drift and the scene, are decoration: the
+ * page is complete without either.
+ */
 export function HeroSection({ signedIn = false }: { signedIn?: boolean }) {
   return (
     <section
       aria-labelledby="hero-heading"
-      className="landing-grid relative overflow-hidden border-b"
+      className="landing-grid hero-aurora relative overflow-hidden"
     >
-      <div className="relative mx-auto grid max-w-7xl gap-14 px-5 pt-14 pb-16 sm:px-8 sm:pt-20 sm:pb-24 lg:grid-cols-[1.2fr_1fr] lg:items-center lg:gap-16 lg:px-10">
+      <div className="mx-auto grid max-w-7xl gap-12 px-4 pt-12 pb-16 sm:px-6 sm:pt-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-16 lg:px-10 lg:pt-24 lg:pb-28">
         <div>
-          <p className="text-primary mb-6 text-sm font-medium">
-            โอกาสที่ใช่ เริ่มจากข้อมูลที่ชัดเจน
+          <p className="enter border-primary/25 bg-card/70 text-primary inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium tracking-wide [--enter:0]">
+            <span aria-hidden="true" className="relative flex size-2">
+              <span className="bg-primary/50 absolute inline-flex size-full animate-ping rounded-full" />
+              <span className="bg-primary relative inline-flex size-2 rounded-full" />
+            </span>
+            ข้อมูลเปิด e-GP · จัดซื้อจัดจ้างภาครัฐ
           </p>
+
           <h1
             id="hero-heading"
-            className="text-4xl leading-[1.4] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl"
+            className="enter mt-6 text-4xl font-semibold tracking-tight text-balance [--enter:0] sm:text-5xl lg:text-6xl"
           >
             ค้นหาโอกาสจาก TOR
             <br />
-            <span className="text-primary">
-              ให้ตรงกับงาน
-              <br className="hidden lg:block" />
-              ที่คุณถนัด
-            </span>
+            <span className="text-primary">ให้ตรงกับงานที่คุณถนัด</span>
           </h1>
-          <p className="text-muted-foreground mt-6 max-w-lg text-base leading-loose sm:text-lg">
-            ลดเวลาค้นหาประกาศ
+
+          <p className="enter text-muted-foreground mt-6 max-w-xl text-lg [--enter:1]">
+            ลดเวลาค้นหาประกาศจัดซื้อจัดจ้าง
             ให้ทีมได้ใช้เวลากับการพิจารณางานซอฟต์แวร์ที่เหมาะกับประสบการณ์ของบริษัท
           </p>
-          <div className="mt-8 flex flex-wrap items-center gap-5">
+
+          <div className="enter mt-9 max-w-2xl [--enter:1]">
+            <TorSearchField size="hero" label="ค้นหาประกาศ TOR" suggestions={exampleQueries} />
+          </div>
+
+          <div className="enter mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 [--enter:2]">
             <Link
               href={signedIn ? '/dashboard' : '/register'}
-              className={cn(buttonVariants(), 'min-h-12 rounded-xl px-6')}
+              className={cn(buttonVariants({ variant: 'outline' }), 'min-h-12 rounded-xl px-5')}
             >
-              {signedIn ? 'ไปที่แดชบอร์ด' : 'เริ่มต้นใช้งาน'} <ArrowUpRight aria-hidden="true" />
+              {signedIn ? 'ไปที่แดชบอร์ด' : 'สร้างบัญชีผู้ใช้'}
+              <ArrowUpRight aria-hidden="true" />
             </Link>
-            {signedIn ? null : (
+            {!signedIn && (
               <Link
                 href="/login"
-                className="text-primary py-3 text-sm font-medium underline-offset-4 hover:underline"
+                className="text-muted-foreground hover:text-foreground py-3 text-sm underline-offset-4 transition-colors hover:underline"
               >
                 มีบัญชีแล้ว? เข้าสู่ระบบ
               </Link>
             )}
           </div>
-          <p className="text-muted-foreground mt-8 text-xs leading-relaxed">
-            งานซอฟต์แวร์ · e-bidding · กรุงเทพมหานคร
-          </p>
         </div>
-        <div className="relative isolate py-5 sm:px-4">
-          <div className="bg-secondary absolute inset-0 -z-10 rotate-3 rounded-[2.5rem]" />
-          <div className="bg-card border-border rounded-[2rem] border px-6 py-8 shadow-[0_20px_70px_-35px_rgba(63,84,65,0.35)] sm:px-8">
-            <div className="text-primary flex items-center justify-between border-b pb-5">
-              <span className="text-sm font-semibold">จากประกาศ สู่ความเข้าใจ</span>
-              <FileText aria-hidden="true" className="size-5" />
-            </div>
-            <ol className="space-y-7 py-7">
-              {[
-                { Icon: FileText, title: 'ประกาศจากหน่วยงาน', text: 'เริ่มจากข้อมูลเปิด e-GP' },
-                {
-                  Icon: ListFilter,
-                  title: 'คัดกรองงานที่เกี่ยวข้อง',
-                  text: 'มุ่งเน้นโครงการด้านซอฟต์แวร์',
-                },
-                {
-                  Icon: BookOpenCheck,
-                  title: 'อ่าน TOR อย่างมีบริบท',
-                  text: 'ตรวจสอบต้นฉบับก่อนตัดสินใจ',
-                },
-              ].map(({ Icon, title, text }) => (
-                <li key={title} className="flex items-start gap-4">
-                  <span className="bg-background text-primary flex size-11 shrink-0 items-center justify-center rounded-xl">
-                    <Icon className="size-5" aria-hidden="true" />
-                  </span>
-                  <div>
-                    <h2 className="font-semibold">{title}</h2>
-                    <p className="text-muted-foreground mt-1 text-sm">{text}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <p className="text-muted-foreground border-t pt-5 text-xs leading-relaxed">
-              แนวทางการทำงานของ Torfun
-              <br />
-              AI ช่วยอ่าน โดยมีทีมของคุณเป็นผู้ตัดสินใจ
-            </p>
-          </div>
+
+        <div data-parallax className="enter relative isolate [--enter:2] lg:ps-4">
+          {/* One sheet showing from under the panel, standing in for the stack
+              of announcements it is reading from. Kept as a tinted surface
+              rather than a solid slab: at full opacity a filled plate reads as
+              a dark stripe down the side of the card rather than as depth. */}
+          <div
+            aria-hidden="true"
+            className="border-border bg-muted/70 absolute inset-x-4 -top-3 bottom-5 -z-10 rotate-[2.5deg] rounded-[1.75rem] border"
+          />
+          <PipelineScene />
         </div>
       </div>
     </section>

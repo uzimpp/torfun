@@ -1,11 +1,23 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { LogOut } from 'lucide-react';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { api_url as apiUrl } from '@/lib/config';
 
-export function LogoutButton({ menuItem = false }: { menuItem?: boolean }) {
+/**
+ * `className` carries the account menu's row shape in from the menu itself, so
+ * this row is inset and spaced exactly like the ones above it rather than
+ * keeping a second copy of those numbers here.
+ */
+export function LogoutButton({
+  menuItem = false,
+  className,
+}: {
+  menuItem?: boolean;
+  className?: string;
+}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -34,10 +46,11 @@ export function LogoutButton({ menuItem = false }: { menuItem?: boolean }) {
       {menuItem ? (
         <DropdownMenuItem
           closeOnClick={false}
-          className="min-h-11"
+          className={className}
           onClick={handleLogout}
           disabled={loading}
         >
+          <LogOut aria-hidden="true" className="size-4" />
           {loading ? 'กำลังออกจากระบบ…' : 'ออกจากระบบ'}
         </DropdownMenuItem>
       ) : (
@@ -46,7 +59,7 @@ export function LogoutButton({ menuItem = false }: { menuItem?: boolean }) {
         </Button>
       )}
       {error && (
-        <p role="alert" className="text-destructive mt-2 max-w-48 text-sm">
+        <p role="alert" className="text-destructive mt-2 px-3 text-sm">
           {error}
         </p>
       )}

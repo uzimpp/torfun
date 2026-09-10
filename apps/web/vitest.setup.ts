@@ -16,3 +16,23 @@ if (!('ResizeObserver' in globalThis)) {
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = function scrollIntoView() {};
 }
+
+/**
+ * jsdom has no media queries, and the landing page's motion layer asks for one
+ * before it animates anything. Reporting no match is the honest answer for a
+ * DOM that never paints: the assertions are about the markup a reader gets, and
+ * that markup is complete before GSAP touches it.
+ */
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+}

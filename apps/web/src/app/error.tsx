@@ -22,7 +22,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <main className="bg-background flex flex-1 items-center justify-center px-6 py-12">
+    <main className="page-fill bg-background flex flex-1 items-center justify-center px-6 py-12">
       <div className="bg-card w-full max-w-md rounded-2xl p-8 text-center shadow-sm">
         <h1 className="text-foreground text-xl font-semibold">เกิดข้อผิดพลาด</h1>
 
