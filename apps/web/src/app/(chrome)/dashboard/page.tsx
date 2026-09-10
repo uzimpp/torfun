@@ -1,15 +1,20 @@
 import { FileSearch, ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
-import { requireUser } from '@/lib/auth';
+import { requireCompany } from '@/lib/auth';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 export default async function DashboardPage() {
-  const user = await requireUser();
+  // `requireCompany`, not `requireUser`: an officer with no Company is sent to
+  // the page that records one, because everything here compares tenders against
+  // a record they do not have yet. Administrators are exempt and stay null.
+  const user = await requireCompany();
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-10">
       <p className="text-primary text-sm font-medium">พื้นที่ทำงาน / แดชบอร์ด</p>
       <h1 className="mt-5 text-3xl font-semibold sm:text-4xl">ยินดีต้อนรับ, {user.full_name}</h1>
-      <p className="text-muted-foreground mt-3 break-words">{user.company_name}</p>
+      {user.company_name && (
+        <p className="text-muted-foreground mt-3 break-words">{user.company_name}</p>
+      )}
       <section
         aria-labelledby="workspace-heading"
         className="bg-card mt-10 rounded-3xl border p-6 sm:p-10"

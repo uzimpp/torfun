@@ -2,8 +2,8 @@ import bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../core/errors';
 import type { User, UserRole } from '@torfun/types';
-import type { RefreshTokenRepository } from '../repositories/refresh-token.repository';
-import type { UserRepository } from '../repositories/user.repository';
+import type { RefreshTokenStore } from '../repositories/refresh-token.repository';
+import type { UserStore } from '../repositories/user.repository';
 import { splitGoogleName, type GoogleProfile } from './google-identity';
 
 /**
@@ -22,12 +22,17 @@ export interface TokenPayload {
 
 export type SignToken = (payload: TokenPayload) => Promise<string> | string;
 
+/**
+ * Registration no longer asks for a company. The question is asked once, on
+ * the company page, where there is room to explain that the record is shared
+ * with colleagues — and the Company owns its own name (ADR-0007), so an
+ * account has nowhere to keep a second copy of it.
+ */
 export interface RegisterInput {
   username: string;
   password: string;
   firstName: string;
   lastName: string;
-  companyName: string;
 }
 
 /** Everyone self-registers as a BD officer; admin is granted, never claimed. */
@@ -66,8 +71,8 @@ function hashToken(token: string): string {
 
 export class AuthService {
   constructor(
-    private readonly users: UserRepository,
-    private readonly refreshTokens: RefreshTokenRepository,
+    private readonly users: UserStore,
+    private readonly refreshTokens: RefreshTokenStore,
     private readonly signToken: SignToken,
   ) {}
 
@@ -161,7 +166,6 @@ export class AuthService {
       username: input.username,
       firstName: input.firstName,
       lastName: input.lastName,
-      companyName: input.companyName,
       role: DEFAULT_ROLE,
       passwordHash: await bcrypt.hash(input.password, BCRYPT_ROUNDS),
     });
@@ -208,7 +212,6 @@ export class AuthService {
     const created = await this.users.create({
       username: profile.email,
       ...splitGoogleName(profile),
-      companyName: '',
       role: DEFAULT_ROLE,
       googleId: profile.sub,
       email: profile.email,

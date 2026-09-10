@@ -9,7 +9,15 @@ export const UserSchema = z.object({
   username: z.string().min(3).max(50),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
-  companyName: z.string().max(200),
+  /**
+   * The Company this officer belongs to, or null before they have joined one.
+   * Null is what the web gate redirects on; administrators are exempt and are
+   * expected to stay null.
+   *
+   * This replaces the old free-text `companyName`. The Company owns its own name
+   * now (ADR-0007), so a user document no longer carries a second copy of it.
+   */
+  companyId: z.string().nullable(),
   role: UserRole,
   /** Absent on password-only accounts; Google sign-in always supplies one. */
   email: z.string().email().optional(),

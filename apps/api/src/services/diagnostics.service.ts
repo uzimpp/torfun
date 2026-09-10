@@ -56,12 +56,19 @@ export class DiagnosticsService {
           const detail = await Promise.race([
             check(),
             new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
+              timer = setTimeout(
+                () => reject(new Error(`timed out after ${timeoutMs}ms`)),
+                timeoutMs,
+              );
             }),
           ]);
           return { name, ok: true, detail };
         } catch (error) {
-          return { name, ok: false, detail: error instanceof Error ? error.message : String(error) };
+          return {
+            name,
+            ok: false,
+            detail: error instanceof Error ? error.message : String(error),
+          };
         } finally {
           if (timer) clearTimeout(timer);
         }
@@ -97,8 +104,14 @@ export function createDependencyProbes(env: Env, getDb: () => Promise<Db>): Depe
         } catch (error) {
           throw new Error(
             explain(error instanceof Error ? error.message : String(error), [
-              [/bad auth|Authentication failed/i, 'credentials rejected — check the database user and password in Atlas'],
-              [/ServerSelection|ETIMEDOUT|querySrv/i, 'unreachable — check the Atlas Network Access IP allowlist'],
+              [
+                /bad auth|Authentication failed/i,
+                'credentials rejected — check the database user and password in Atlas',
+              ],
+              [
+                /ServerSelection|ETIMEDOUT|querySrv/i,
+                'unreachable — check the Atlas Network Access IP allowlist',
+              ],
             ]),
           );
         }
@@ -120,11 +133,18 @@ export function createDependencyProbes(env: Env, getDb: () => Promise<Db>): Depe
         } catch (error) {
           throw new Error(
             explain(error instanceof Error ? error.message : String(error), [
-              [/Could not load the default credentials|Unable to authenticate|Unable to detect a Project/i,
-                'no usable credentials — run `gcloud auth application-default login`, or set GOOGLE_SERVICE_ACCOUNT_JSON in a container'],
-              [/NOT_FOUND|was not found|is not supported/i,
-                `"${env.VERTEX_AI_MODEL}" is not served in ${env.GOOGLE_CLOUD_LOCATION}`],
-              [/PERMISSION_DENIED/i, 'authenticated, but the identity lacks roles/aiplatform.user on this project'],
+              [
+                /Could not load the default credentials|Unable to authenticate|Unable to detect a Project/i,
+                'no usable credentials — run `gcloud auth application-default login`, or set GOOGLE_SERVICE_ACCOUNT_JSON in a container',
+              ],
+              [
+                /NOT_FOUND|was not found|is not supported/i,
+                `"${env.VERTEX_AI_MODEL}" is not served in ${env.GOOGLE_CLOUD_LOCATION}`,
+              ],
+              [
+                /PERMISSION_DENIED/i,
+                'authenticated, but the identity lacks roles/aiplatform.user on this project',
+              ],
             ]),
           );
         }

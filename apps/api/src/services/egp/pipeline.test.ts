@@ -117,9 +117,10 @@ describe('runIngestion', () => {
     expect(record?.outcome).toBe('tor_analysed');
     expect(record?.state).toBe('Completed');
     expect(record?.analysis?.budgetThb).toBe(4_500_000);
-    expect(record?.documents.find((d: { role: string; filename: string }) => d.role === 'main_tor')?.filename).toBe(
-      'Attach_TOR_1.pdf',
-    );
+    expect(
+      record?.documents.find((d: { role: string; filename: string }) => d.role === 'main_tor')
+        ?.filename,
+    ).toBe('Attach_TOR_1.pdf');
     expect(result.torAnalysed).toBe(1);
   });
 
@@ -222,7 +223,11 @@ describe('runIngestion', () => {
     expect(result.aborted).toBe(false);
     expect((await repository.get('66059313551'))?.outcome).toBe('error');
     expect((await repository.get('66059313552'))?.outcome).toBe('tor_analysed');
-    expect(repository.listFailures().some((f: { error: string }) => f.error.includes('connection reset'))).toBe(true);
+    expect(
+      repository
+        .listFailures()
+        .some((f: { error: string }) => f.error.includes('connection reset')),
+    ).toBe(true);
   });
 
   test('a path-traversal member is surfaced, never dropped', async () => {
@@ -236,7 +241,9 @@ describe('runIngestion', () => {
     });
 
     expect(
-      repository.listFailures().some((f: { error: string }) => f.error.includes('../../etc/Attach_TOR_evil.pdf')),
+      repository
+        .listFailures()
+        .some((f: { error: string }) => f.error.includes('../../etc/Attach_TOR_evil.pdf')),
     ).toBe(true);
   });
 

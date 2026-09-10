@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import LoginPage from './login/page';
 import RegisterPage from './register/page';
@@ -53,7 +53,6 @@ test('registration keeps snake_case wire fields and redirects to dashboard', asy
     ['ชื่อผู้ใช้', 'bd-user'],
     ['รหัสผ่าน', 'test-password'],
     ['ยืนยันรหัสผ่าน', 'test-password'],
-    ['ชื่อบริษัท / ธุรกิจ', 'Test company'],
   ] as const) {
     fireEvent.change(screen.getByLabelText(label, { exact: true }), { target: { value } });
   }
@@ -66,11 +65,35 @@ test('registration keeps snake_case wire fields and redirects to dashboard', asy
     confirm_password: 'test-password',
     first_name: 'Test',
     last_name: 'User',
-    company_name: 'Test company',
   });
+});
+
+test('registration presents itself as the first of three steps', () => {
+  render(<RegisterPage />);
+  const steps = screen.getByRole('navigation', { name: 'ขั้นตอนการตั้งค่าบัญชี' });
+  expect(within(steps).getByText(/^ขั้นตอนที่ 1: บัญชีผู้ใช้/)).toBeInTheDocument();
+  expect(steps.querySelector('[aria-current="step"]')).toHaveTextContent('บัญชีผู้ใช้');
 });
 
 test('the signup route hands people to the one registration page', () => {
   SignupPage();
   expect(redirect).toHaveBeenCalledWith('/register');
+});
+
+test('both credential pages offer the same Google route, worded for what it does', () => {
+  render(<RegisterPage />);
+  expect(screen.getByRole('button', { name: 'สมัครด้วยบัญชี Google' })).toBeInTheDocument();
+  cleanup();
+
+  render(<LoginPage />);
+  expect(screen.getByRole('button', { name: 'เข้าสู่ระบบด้วย Google' })).toBeInTheDocument();
+  // Signing in with Google creates the account on first use, so the page says so.
+  expect(screen.getByText('ใช้ Google ครั้งแรกจะสร้างบัญชีให้อัตโนมัติ')).toBeInTheDocument();
+});
+
+test('signing in is not presented as a step of registration', () => {
+  render(<LoginPage />);
+  expect(
+    screen.queryByRole('navigation', { name: 'ขั้นตอนการตั้งค่าบัญชี' }),
+  ).not.toBeInTheDocument();
 });

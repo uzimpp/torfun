@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { ArrowUpRight, FileText, ListFilter, BookOpenCheck } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-export function HeroSection() {
+/** `signedIn` swaps the call to action; the page itself renders either way. */
+export function HeroSection({ signedIn = false }: { signedIn?: boolean }) {
   return (
     <section
       aria-labelledby="hero-heading"
@@ -30,15 +31,20 @@ export function HeroSection() {
             ให้ทีมได้ใช้เวลากับการพิจารณางานซอฟต์แวร์ที่เหมาะกับประสบการณ์ของบริษัท
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-5">
-            <Link href="/register" className={cn(buttonVariants(), 'min-h-12 rounded-xl px-6')}>
-              เริ่มต้นใช้งาน <ArrowUpRight aria-hidden="true" />
-            </Link>
             <Link
-              href="/login"
-              className="text-primary py-3 text-sm font-medium underline-offset-4 hover:underline"
+              href={signedIn ? '/dashboard' : '/register'}
+              className={cn(buttonVariants(), 'min-h-12 rounded-xl px-6')}
             >
-              มีบัญชีแล้ว? เข้าสู่ระบบ
+              {signedIn ? 'ไปที่แดชบอร์ด' : 'เริ่มต้นใช้งาน'} <ArrowUpRight aria-hidden="true" />
             </Link>
+            {signedIn ? null : (
+              <Link
+                href="/login"
+                className="text-primary py-3 text-sm font-medium underline-offset-4 hover:underline"
+              >
+                มีบัญชีแล้ว? เข้าสู่ระบบ
+              </Link>
+            )}
           </div>
           <p className="text-muted-foreground mt-8 text-xs leading-relaxed">
             งานซอฟต์แวร์ · e-bidding · กรุงเทพมหานคร

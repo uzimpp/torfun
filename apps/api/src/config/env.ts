@@ -49,7 +49,6 @@ export const EnvSchema = z.object({
   // Per-run cap on TOR retrievals. gprocurement.go.th's robots.txt is
   // Disallow: / and the owner's authorisation is for low-volume research.
   EGP_MAX_DOWNLOADS_PER_RUN: z.coerce.number().int().positive().max(200).default(15),
-
 });
 
 export type Env = z.infer<typeof EnvSchema>;

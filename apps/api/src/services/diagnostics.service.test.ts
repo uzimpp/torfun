@@ -40,10 +40,9 @@ describe('DiagnosticsService', () => {
   });
 
   test('a probe that hangs is reported, not waited on forever', async () => {
-    const service = new DiagnosticsService(
-      [probe('slow', () => new Promise<string>(() => {}))],
-      { timeoutMs: 50 },
-    );
+    const service = new DiagnosticsService([probe('slow', () => new Promise<string>(() => {}))], {
+      timeoutMs: 50,
+    });
 
     const result = await service.run();
     expect(result.ok).toBe(false);

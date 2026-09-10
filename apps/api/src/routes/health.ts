@@ -34,9 +34,7 @@ export const healthRoutes: FastifyPluginAsyncZod = async (app) => {
         response: {
           200: z.object({
             ok: z.boolean(),
-            checks: z.array(
-              z.object({ name: z.string(), ok: z.boolean(), detail: z.string() }),
-            ),
+            checks: z.array(z.object({ name: z.string(), ok: z.boolean(), detail: z.string() })),
           }),
         },
       },

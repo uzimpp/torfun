@@ -24,13 +24,22 @@ it for a deployment means a rebuild, not a restart.
 
 ## Pages
 
-| Route              | Access | What it does                                        |
-| ------------------ | ------ | --------------------------------------------------- |
-| `/`                | public | Landing page                                        |
-| `/login`           | public | Password sign-in, or the Google redirect            |
-| `/register`        | public | Self-registration, always as a BD Officer           |
-| `/dashboard`       | user   | Signed-in landing                                   |
-| `/admin/ingestion` | admin  | Run ingestion, watch progress, read the failure log |
+| Route                  | Access | What it does                                        |
+| ---------------------- | ------ | --------------------------------------------------- |
+| `/`                    | public | Landing page                                        |
+| `/login`               | public | Password sign-in, or the Google redirect            |
+| `/register`            | public | Self-registration, always as a BD Officer           |
+| `/dashboard`           | user   | Signed-in landing                                   |
+| `/company-experiences` | user   | The officer's own Company and the work it delivered |
+| `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log |
 
 Protected pages redirect from the server component; the session cookie is
-`httpOnly` and unreadable from the browser.
+`httpOnly` and unreadable from the browser. `requireCompany` additionally sends a
+BD Officer with no Company to `/company-experiences`; administrators are exempt,
+and that page must never gate itself or it redirects to itself.
+
+Routes in the `(chrome)` group get the navbar and sidebar from
+`app/(chrome)/layout.tsx`. The rest — `/login`, `/register`, `/company-experiences`
+— deliberately get neither: they are steps in one sign-up flow rather than places
+to navigate from, and they show `OnboardingSteps` instead. The group changes no
+URL.

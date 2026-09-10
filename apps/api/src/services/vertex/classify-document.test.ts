@@ -73,7 +73,10 @@ describe('classifyTorDocument', () => {
   test('a malformed answer is recorded, never thrown', async () => {
     // The model is not an authority; it can return prose, truncated JSON, or a
     // refusal. None of those may take down a run.
-    const result = await classifyTorDocument(mock(async () => 'ขออภัย ไม่สามารถอ่านได้'), pdf());
+    const result = await classifyTorDocument(
+      mock(async () => 'ขออภัย ไม่สามารถอ่านได้'),
+      pdf(),
+    );
 
     expect(result.unreadable).toBeDefined();
     expect(result.isTor).toBe(false);

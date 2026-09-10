@@ -197,11 +197,20 @@ export interface ProcurementStore {
   markRun(at: string): Promise<void>;
 }
 
+/**
+ * The distinct agency names already ingested, read by the Client suggestion
+ * endpoint so a vendor's spelling of a government body matches what the
+ * tenders say. Upstream open data, so nothing here exposes another vendor.
+ */
+export interface AgencyNameSource {
+  agencies(): Promise<string[]>;
+}
+
 interface FailureDocument extends IngestionFailure {
   _id?: unknown;
 }
 
-export class ProcurementRepository implements ProcurementStore {
+export class ProcurementRepository implements ProcurementStore, AgencyNameSource {
   constructor(private readonly getDb: () => Promise<Db>) {}
 
   private async records(): Promise<Collection<ProcurementDocument>> {
@@ -321,7 +330,9 @@ export class ProcurementRepository implements ProcurementStore {
   }
 
   async listFailures(): Promise<IngestionFailure[]> {
-    const documents = await (await this.failuresCollection())
+    const documents = await (
+      await this.failuresCollection()
+    )
       .find({}, { projection: { _id: 0 } })
       .sort({ at: -1 })
       .toArray();
@@ -334,9 +345,7 @@ export class ProcurementRepository implements ProcurementStore {
   }
 
   async markRun(at: string): Promise<void> {
-    await (
-      await this.meta()
-    ).updateOne({ _id: 'last_run' }, { $set: { at } }, { upsert: true });
+    await (await this.meta()).updateOne({ _id: 'last_run' }, { $set: { at } }, { upsert: true });
   }
 
   async agencies(): Promise<string[]> {
@@ -347,34 +356,52 @@ export class ProcurementRepository implements ProcurementStore {
   async summary(): Promise<IngestionSummary> {
     const collection = await this.records();
 
-    const [total, byStateRows, byOutcomeRows, byAgencyRows, byYearRows, torRows, failureCount, lastRun] =
-      await Promise.all([
-        collection.countDocuments({}),
-        collection.aggregate<{ _id: IngestionState; count: number }>([
+    const [
+      total,
+      byStateRows,
+      byOutcomeRows,
+      byAgencyRows,
+      byYearRows,
+      torRows,
+      failureCount,
+      lastRun,
+    ] = await Promise.all([
+      collection.countDocuments({}),
+      collection
+        .aggregate<{ _id: IngestionState; count: number }>([
           { $group: { _id: '$state', count: { $sum: 1 } } },
-        ]).toArray(),
-        collection.aggregate<{ _id: IngestionOutcome; count: number }>([
+        ])
+        .toArray(),
+      collection
+        .aggregate<{ _id: IngestionOutcome; count: number }>([
           { $group: { _id: '$outcome', count: { $sum: 1 } } },
-        ]).toArray(),
-        collection.aggregate<{ _id: string; count: number }>([
+        ])
+        .toArray(),
+      collection
+        .aggregate<{ _id: string; count: number }>([
           { $group: { _id: '$dept_name', count: { $sum: 1 } } },
           { $sort: { count: -1 } },
-        ]).toArray(),
-        collection.aggregate<{ _id: number; count: number }>([
+        ])
+        .toArray(),
+      collection
+        .aggregate<{ _id: number; count: number }>([
           { $group: { _id: '$year', count: { $sum: 1 } } },
           { $sort: { _id: 1 } },
-        ]).toArray(),
-        // Only documents that turned out to be TORs count. A CONTRACTOR.pdf that
-        // matched the filename pattern is in `documents`, but it is not a TOR and
-        // must not inflate what an administrator reads as TORs retrieved.
-        collection.aggregate<{ _id: null; count: number; bytes: number }>([
+        ])
+        .toArray(),
+      // Only documents that turned out to be TORs count. A CONTRACTOR.pdf that
+      // matched the filename pattern is in `documents`, but it is not a TOR and
+      // must not inflate what an administrator reads as TORs retrieved.
+      collection
+        .aggregate<{ _id: null; count: number; bytes: number }>([
           { $unwind: '$documents' },
           { $match: { 'documents.role': { $in: ['main_tor', 'tor_variant'] } } },
           { $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: '$documents.bytes' } } },
-        ]).toArray(),
-        (await this.failuresCollection()).countDocuments({}),
-        (await this.meta()).findOne({ _id: 'last_run' }),
-      ]);
+        ])
+        .toArray(),
+      (await this.failuresCollection()).countDocuments({}),
+      (await this.meta()).findOne({ _id: 'last_run' }),
+    ]);
 
     const byState = {} as Record<IngestionState, number>;
     for (const row of byStateRows) byState[row._id] = row.count;
