@@ -1,4 +1,14 @@
-import { Bookmark, Database, LayoutDashboard, Search, type LucideIcon } from 'lucide-react';
+import {
+  Bookmark,
+  Building2,
+  Database,
+  LayoutDashboard,
+  ScrollText,
+  Search,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
+import type { Route } from 'next';
 import type { UserRole } from '@torfun/types';
 
 /**
@@ -50,6 +60,46 @@ export function workspaceNav(role: UserRole): NavItem[] {
 export const plannedNav: { label: string; Icon: LucideIcon }[] = [
   { label: 'TOR ของฉัน', Icon: Bookmark },
 ];
+
+/**
+ * The account menu's rows — everything that belongs to the person rather than
+ * to the announcements. Kept here, beside `workspaceNav`, so the header and the
+ * dropdown read from one list rather than drifting apart the way the mobile and
+ * desktop navs once did.
+ *
+ * The two roles get different menus because they own different things: a
+ * Business Development Officer has a Company and saved TORs; a Site
+ * Administrator has the ingestion console and the other accounts, and no
+ * Company at all (ADR-0011).
+ */
+export interface AccountNavItem {
+  href: Route;
+  /** A same-page anchor on `href`, for the failure log inside the console. */
+  hash?: string;
+  label: string;
+  Icon: LucideIcon;
+}
+
+export function accountNav(role: UserRole): AccountNavItem[] {
+  if (role === 'admin') {
+    return [
+      { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
+      { href: '/admin/ingestion', label: 'การดึงข้อมูล TOR', Icon: Database },
+      {
+        href: '/admin/ingestion',
+        hash: 'failures',
+        label: 'บันทึกข้อผิดพลาด',
+        Icon: ScrollText,
+      },
+      { href: '/admin/accounts', label: 'จัดการบัญชีผู้ใช้', Icon: Users },
+    ];
+  }
+
+  return [
+    { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
+    { href: '/company', label: 'บริษัทและผลงาน', Icon: Building2 },
+  ];
+}
 
 /** Sections of the landing page. Same-page anchors, so plain hrefs. */
 export const landingSections = [

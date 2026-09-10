@@ -79,4 +79,24 @@ export class InMemoryUserStore implements UserStore {
     const user = this.users.get(id);
     if (user) this.users.set(id, { ...user, companyId, updatedAt: new Date() });
   }
+
+  /** Newest first, the way the Mongo-backed repository sorts by `created_at`. */
+  async list(): Promise<User[]> {
+    return [...this.users.values()].reverse();
+  }
+
+  async countActiveAdmins(): Promise<number> {
+    return [...this.users.values()].filter((user) => user.role === 'admin' && user.isActive)
+      .length;
+  }
+
+  async setRole(id: string, role: User['role']): Promise<void> {
+    const user = this.users.get(id);
+    if (user) this.users.set(id, { ...user, role, updatedAt: new Date() });
+  }
+
+  async setActive(id: string, isActive: boolean): Promise<void> {
+    const user = this.users.get(id);
+    if (user) this.users.set(id, { ...user, isActive, updatedAt: new Date() });
+  }
 }
