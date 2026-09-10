@@ -69,13 +69,18 @@ services:
     restart: unless-stopped
     ports:
       - '3000:3000'
-    # Server-side rendering reads the same variable again at runtime, and here
-    # the workspace file can supply it directly — same arrangement as api.
-    # Optional because the browser bundle is already built and the app carries
-    # its own local-development default.
     env_file:
       - path: apps/web/.env
         required: false
+    environment:
+      # Server-side rendering runs *inside* this container, so it cannot use the
+      # address above: `localhost` here is the web container, not the host, and
+      # nothing listens on 8080. Reach the API by service name instead.
+      #
+      # It has to be a second variable rather than an override of
+      # NEXT_PUBLIC_API_URL, because Next inlines NEXT_PUBLIC_* into the server
+      # bundle at build time too — a runtime value for that name is ignored.
+      INTERNAL_API_URL: http://api:8080
     depends_on:
       - api
 

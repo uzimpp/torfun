@@ -4,6 +4,15 @@
 import { ACCESS_COOKIE, REFRESH_COOKIE } from '@torfun/types';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+/**
+ * The two origins held apart, so an assertion can tell which one was used.
+ * Renewal runs in the proxy, on the server — see `config.ts`.
+ */
+vi.mock('./config', () => ({
+  api_url: 'http://browser.test:8080',
+  internal_api_url: 'http://server.test:8080',
+}));
+
 import { renewSession } from './session';
 
 /** `fetch`'s call signature alone — `typeof fetch` carries extras a stub can't. */
@@ -36,6 +45,20 @@ describe('renewSession', () => {
       method: 'POST',
       headers: { cookie: `${REFRESH_COOKIE}=the-token` },
     });
+  });
+
+  /**
+   * Regression: renewal ran on the browser's origin, which inside the web
+   * container is the container itself. Every renewal came back 'unavailable',
+   * so a lapsed access cookie could never be exchanged for a fresh one.
+   */
+  test('addresses the API by its server-side origin, not the browser one', async () => {
+    const fetchMock = respondWith({ setCookies: [ACCESS, REFRESH] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await renewSession('the-token');
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://server.test:8080/api/auth/refresh');
   });
 
   test('forwards the renewed cookies and unpicks the access token', async () => {

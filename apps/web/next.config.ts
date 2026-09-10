@@ -1,22 +1,15 @@
 import type { NextConfig } from 'next';
 
+import { api_url } from './src/lib/config';
+import { contentSecurityPolicy } from './src/lib/csp';
+
 const isDev = process.env.NODE_ENV === 'development';
 
-// OWASP secure headers baseline. No nonces (would force fully dynamic
-// rendering); revisit with a proxy-based nonce CSP if inline scripts grow.
-const cspHeader = `
-  default-src 'self';
-  script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''};
-  style-src 'self' 'unsafe-inline';
-  img-src 'self' blob: data:;
-  font-src 'self';
-  connect-src 'self' http://localhost:8080;
-  object-src 'none';
-  base-uri 'self';
-  form-action 'self';
-  frame-ancestors 'none';
-  upgrade-insecure-requests;
-`;
+// `connect-src` must name whichever API origin the *browser* was built to call,
+// so this reads the same value the bundle is compiled against. It was once a
+// hardcoded localhost, which silently blocked every call in any deployment
+// pointing at a real API domain.
+const cspHeader = contentSecurityPolicy(api_url, { dev: isDev });
 
 const nextConfig: NextConfig = {
   // Standalone build for the Docker image (apps/web/Dockerfile).
@@ -28,7 +21,7 @@ const nextConfig: NextConfig = {
       {
         source: '/(.*)',
         headers: [
-          { key: 'Content-Security-Policy', value: cspHeader.replace(/\n/g, '') },
+          { key: 'Content-Security-Policy', value: cspHeader },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

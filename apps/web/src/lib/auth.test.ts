@@ -23,7 +23,17 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { COMPANY_PATH, requireCompany } = await import('./auth');
+/**
+ * The two origins held apart, so an assertion can tell which one was used.
+ * Reading the session happens on the server, and in a container the browser's
+ * origin resolves to the web container itself — see `config.ts`.
+ */
+vi.mock('./config', () => ({
+  api_url: 'http://browser.test:8080',
+  internal_api_url: 'http://server.test:8080',
+}));
+
+const { COMPANY_PATH, getCurrentUser, requireCompany } = await import('./auth');
 
 type MeResponse = {
   role: 'admin' | 'business_development_officer';
@@ -31,25 +41,28 @@ type MeResponse = {
   company_name: string | null;
 };
 
+/** `fetch`'s call signature alone — `typeof fetch` carries extras a stub can't. */
+type FetchFn = (url: string | URL, init?: RequestInit) => Promise<Response>;
+
+/** Returns the `fetch` stub, so a caller can inspect how the API was addressed. */
 function signedInAs(me: MeResponse) {
   cookieStore.get.mockReturnValue({ value: 'a-session' });
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            id: 'u1',
-            username: 'somchai',
-            first_name: 'Somchai',
-            last_name: 'Prasert',
-            full_name: 'Somchai Prasert',
-            ...me,
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        ),
-    ),
+  const fetchMock = vi.fn<FetchFn>(
+    async () =>
+      new Response(
+        JSON.stringify({
+          id: 'u1',
+          username: 'somchai',
+          first_name: 'Somchai',
+          last_name: 'Prasert',
+          full_name: 'Somchai Prasert',
+          ...me,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
   );
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 /** Runs the gate and reports where it sent the caller, or null if it let them through. */
@@ -108,5 +121,26 @@ describe('requireCompany', () => {
     cookieStore.get.mockReturnValue(undefined);
 
     expect(await destinationOf(requireCompany)).toBe('/login');
+  });
+});
+
+describe('getCurrentUser', () => {
+  /**
+   * Regression: this ran on the browser's origin, which inside the web
+   * container is the container itself. The fetch failed with ECONNREFUSED,
+   * the catch below turned that into `null`, and a valid session read as
+   * signed-out — so a newly registered officer arriving at /dashboard was
+   * bounced to /login instead of on to the company page.
+   */
+  test('addresses the API by its server-side origin, not the browser one', async () => {
+    const fetchMock = signedInAs({
+      role: 'business_development_officer',
+      company_id: null,
+      company_name: null,
+    });
+
+    await getCurrentUser();
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://server.test:8080/api/auth/me');
   });
 });
