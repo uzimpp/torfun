@@ -36,17 +36,30 @@ services:
       # env_file also overrides the Dockerfile's own ENV, so state it here.
       NODE_ENV: production
       # ADC's path convention points at a host file the image cannot see. Blank
-      # it so google-auth-library ignores it, and supply the key as a value in
-      # GOOGLE_SERVICE_ACCOUNT_JSON instead.
+      # it so google-auth-library falls through to the mounted ADC below
+      # instead of failing on a path that doesn't exist in the container.
       GOOGLE_APPLICATION_CREDENTIALS: ''
-    # The other way to authenticate to Google here: hand the container the
-    # `gcloud auth application-default login` you already have, read-only, at
-    # the HOME this image sets for its `fastify` user. Nothing long-lived is
-    # created, so prefer this over a service-account key where it works.
-    # On Linux the uid will not match and the file will be unreadable — set
-    # GOOGLE_SERVICE_ACCOUNT_JSON in apps/api/.env there instead.
-    # volumes:
-    #   - ~/.config/gcloud:/home/fastify/.config/gcloud:ro
+    # How this container authenticates to Google Cloud. The org enforces
+    # `iam.disableServiceAccountKeyCreation`, so a downloadable key for
+    # torfun-api-runtime (the GOOGLE_SERVICE_ACCOUNT_JSON path) is not
+    # obtainable here — this is the option that actually works, not merely
+    # the preferred one.
+    #
+    # One-time per developer, on the host (not in the container):
+    #   gcloud auth application-default login \
+    #     --impersonate-service-account=torfun-api-runtime@torfun-676767.iam.gserviceaccount.com
+    # (needs roles/iam.serviceAccountTokenCreator on that service account,
+    # granted once per developer or via a Google Group — ask an owner.)
+    #
+    # That writes ~/.config/gcloud/application_default_credentials.json on the
+    # host; mount it read-only at the HOME this image sets for its `fastify`
+    # user. Nothing long-lived is created, and revoking the IAM binding above
+    # kills it instantly, unlike a leaked key.
+    # On Linux the uid will not match and the file will be unreadable — that
+    # needs a per-host fix (matching --user, or ACLs on the mounted file); a
+    # service-account key is not an option here to fall back to.
+    volumes:
+      - ~/.config/gcloud:/home/fastify/.config/gcloud:ro
     depends_on:
       mongodb:
         condition: service_healthy
