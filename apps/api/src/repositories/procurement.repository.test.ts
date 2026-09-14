@@ -129,6 +129,19 @@ describeMongo('ProcurementRepository', () => {
     expect(found?.projectId).toBe('66059313551');
   });
 
+  test('a transition with no detail leaves the field absent, not null', async () => {
+    // The Mongo driver serialises an `undefined` object property as BSON
+    // null rather than dropping the key, and StatusChangeSchema.detail is an
+    // optional string that rejects null on the way back out through the API
+    // — so this failing to hold is a 500 on every list of procurements that
+    // includes the affected record, not just a shape mismatch in a test.
+    await repository.upsert(procurement());
+    const updated = await repository.transition('66059313551', 'Processing', 'processing');
+
+    const last = updated?.statusHistory.at(-1);
+    expect(last).not.toHaveProperty('detail');
+  });
+
   test('rediscovering a project does not reset a finished retrieval', async () => {
     await repository.upsert(procurement({ matchedKeywords: ['จ้างพัฒนา'] }));
     await repository.transition('66059313551', 'Completed', 'tor_analysed', {
