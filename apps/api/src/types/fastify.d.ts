@@ -3,6 +3,7 @@ import type { OAuth2Namespace } from '@fastify/oauth2';
 import type { Env } from '../config/env';
 import type { MongoContext } from '../core/mongo';
 import type { AuthService } from '../services/auth.service';
+import type { AdminUsersService } from '../services/admin-users.service';
 import type { ClientService } from '../services/client.service';
 import type { CompanyService } from '../services/company.service';
 import type { ExperienceService } from '../services/experience.service';
@@ -31,6 +32,7 @@ declare module 'fastify' {
     googleOAuth2: OAuth2Namespace;
     mongo: MongoContext;
     authService: AuthService;
+    adminUsersService: AdminUsersService;
     companyService: CompanyService;
     clientService: ClientService;
     experienceService: ExperienceService;

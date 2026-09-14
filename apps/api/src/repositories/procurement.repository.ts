@@ -277,11 +277,17 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     if (!existing) return undefined;
 
     const at = new Date().toISOString();
+    // `detail` is spread in only when present: the Mongo driver serialises an
+    // `undefined` object property as BSON null rather than omitting the key,
+    // so `{ ..., detail }` on the far more common no-detail transition would
+    // write a literal null on every call — which `StatusChangeSchema.detail`
+    // (an optional string) then rejects on the way back out.
+    const entry = { state, outcome, at, ...(detail !== undefined ? { detail } : {}) };
     const updated: ProcurementDocument = {
       ...toDocument({ ...toDomain(existing), ...patch }),
       state,
       outcome,
-      status_history: [...existing.status_history, { state, outcome, at, detail }],
+      status_history: [...existing.status_history, entry],
       updated_at: at,
     };
     await collection.replaceOne({ _id: projectId }, updated);

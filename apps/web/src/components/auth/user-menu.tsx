@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { Bookmark, Building2, ChevronDown, LayoutDashboard, UserRound } from 'lucide-react';
+import { Bookmark, ChevronDown, UserRound } from 'lucide-react';
 import type { CurrentUser } from '@/lib/auth';
+import { accountNav } from '@/components/layout/nav-config';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -25,15 +26,17 @@ const ROW = 'min-h-11 gap-3 rounded-lg px-3';
 
 /**
  * The account menu, and the way to everything that belongs to the person
- * rather than to the announcements: their workspace, the company record their
- * matches are scored against, and the way out.
+ * rather than to the announcements.
  *
- * The company record is here rather than in the main navigation because it is
- * written once and revisited rarely — it belongs with the account, not beside
- * the pages an officer works in daily.
+ * Its rows come from `accountNav`, which returns a different list per role: a
+ * Business Development Officer gets their workspace and their Company record; a
+ * Site Administrator gets the ingestion console, its failure log, and the other
+ * accounts — and no Company, because an administrator holds none (ADR-0011).
  */
 export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'> }) {
-  const role = user.role === 'admin' ? 'Admin' : 'BD';
+  const isAdmin = user.role === 'admin';
+  const role = isAdmin ? 'Admin' : 'BD';
+  const rows = accountNav(user.role);
 
   return (
     <DropdownMenu>
@@ -64,28 +67,33 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
         <DropdownMenuGroup>
           <DropdownMenuLabel className="px-3 py-2">
             <span className="text-foreground block text-sm break-all">{user.username}</span>
-            <span>{role === 'Admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่พัฒนาธุรกิจ'}</span>
+            <span>{isAdmin ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่พัฒนาธุรกิจ'}</span>
           </DropdownMenuLabel>
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator className="mx-0 my-2" />
 
         <DropdownMenuGroup className="space-y-0.5">
-          <DropdownMenuItem className={ROW} render={<Link href="/dashboard" />}>
-            <LayoutDashboard aria-hidden="true" className="size-4" />
-            แดชบอร์ด
-          </DropdownMenuItem>
-          <DropdownMenuItem className={ROW} render={<Link href="/company" />}>
-            <Building2 aria-hidden="true" className="size-4" />
-            บริษัทและผลงาน
-          </DropdownMenuItem>
+          {rows.map(({ href, hash, label, Icon }) => (
+            <DropdownMenuItem
+              key={label}
+              className={ROW}
+              render={<Link href={hash ? { pathname: href, hash } : href} />}
+            >
+              <Icon aria-hidden="true" className="size-4" />
+              {label}
+            </DropdownMenuItem>
+          ))}
           {/* Listed and visibly not ready, rather than hidden: an officer who is
-              told the page is coming stops hunting for it. */}
-          <DropdownMenuItem disabled className={ROW}>
-            <Bookmark aria-hidden="true" className="size-4" />
-            TOR ของฉัน
-            <span className="text-muted-foreground ms-auto text-xs">เร็ว ๆ นี้</span>
-          </DropdownMenuItem>
+              told the page is coming stops hunting for it. Admins never bid, so
+              they do not see it. */}
+          {!isAdmin && (
+            <DropdownMenuItem disabled className={ROW}>
+              <Bookmark aria-hidden="true" className="size-4" />
+              TOR ของฉัน
+              <span className="text-muted-foreground ms-auto text-xs">เร็ว ๆ นี้</span>
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator className="mx-0 my-2" />

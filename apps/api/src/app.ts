@@ -22,6 +22,7 @@ import { CompanyRepository, type CompanyStore } from './repositories/company.rep
 import { ClientRepository, type ClientStore } from './repositories/client.repository';
 import { ExperienceRepository, type ExperienceStore } from './repositories/experience.repository';
 import { AuthService } from './services/auth.service';
+import { AdminUsersService } from './services/admin-users.service';
 import { CompanyService } from './services/company.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
@@ -107,6 +108,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     'authService',
     new AuthService(userRepository, refreshTokenRepository, (payload) => app.jwt.sign(payload)),
   );
+  app.decorate('adminUsersService', new AdminUsersService(userRepository));
   app.decorate('companyService', new CompanyService(companyRepository, userRepository));
   app.decorate(
     'clientService',

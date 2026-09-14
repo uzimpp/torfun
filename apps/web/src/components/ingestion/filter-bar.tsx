@@ -1,7 +1,7 @@
 'use client';
 
 import type { IngestionState } from '@torfun/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { FilterValues } from './use-ingestion-data';
@@ -54,10 +54,7 @@ export function FilterBar({
 }) {
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">ตัวกรอง</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-wrap items-end gap-4">
+      <CardContent className="flex flex-wrap items-end gap-4 py-5">
         <div className="flex min-w-56 flex-1 flex-col gap-1.5">
           <Label htmlFor="search" className="text-muted-foreground text-xs">
             ค้นหาชื่อโครงการ / รหัส

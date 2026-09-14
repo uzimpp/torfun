@@ -187,6 +187,35 @@ describe('company routes', () => {
     expect(response.statusCode).toBe(404);
   });
 
+  test('a Site Administrator cannot create a company', async () => {
+    const admin = users.seed({ username: 'root', role: 'admin' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/companies',
+      cookies: session(admin),
+      payload: { name_th: TRUE_CORP },
+    });
+
+    expect(response.statusCode).toBe(403);
+    // The account stays companyless — an admin holds no Company (ADR-0011).
+    expect((await users.findById(admin.id))?.companyId).toBeNull();
+  });
+
+  test('a Site Administrator cannot join a company', async () => {
+    const existing = await companies.create({ nameTh: TRUE_CORP, tin: null });
+    const admin = users.seed({ username: 'root', role: 'admin' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/companies/${existing.id}/join`,
+      cookies: session(admin),
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect((await users.findById(admin.id))?.companyId).toBeNull();
+  });
+
   test('the caller can correct their own company, and only their own', async () => {
     const created = await app.inject({
       method: 'POST',

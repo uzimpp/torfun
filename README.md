@@ -35,9 +35,12 @@ ingestion console at `/admin/ingestion` needs the admin role, which is granted i
 the database and never self-claimed:
 
 ```bash
-mongosh mongodb://localhost:27017/torfun \
+docker compose exec mongodb mongosh mongodb://localhost:27017/torfun \
   --eval 'db.users.updateOne({ username: "you" }, { $set: { role: "admin" } })'
 ```
+
+Mongo runs in the `mongodb` container either way (`bun run dev` or `docker:up`), so this reaches
+it without needing `mongosh` installed on the host.
 
 To run the whole stack in containers instead, fill both `.env` files and use
 `bun run docker:up`.

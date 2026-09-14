@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils';
 import { Brand } from './brand';
 import { HeaderShell } from './header-shell';
 import { HeaderSearch } from './header-search';
-import { PrimaryNav } from './primary-nav';
 import { MobileMenu } from './mobile-menu';
 
 /**
@@ -16,7 +15,7 @@ import { MobileMenu } from './mobile-menu';
  *
  * The brand always points home. It used to send a signed-in officer to their
  * dashboard, which quietly took away the way back to the page describing the
- * product; the dashboard has its own entry in the nav beside it.
+ * product; the dashboard is reachable from the account menu instead.
  *
  * The light/dark control is not here. It is a setting, chosen once and rarely
  * changed, and it was taking a permanent slot in the row a person uses on every
@@ -38,7 +37,6 @@ export function SiteHeader({
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:h-18 lg:px-10">
         <MobileMenu role={user?.role} withSearch={withSearch} />
         <Brand href="/" className="shrink-0" />
-        <PrimaryNav role={user?.role} />
 
         <div className="ms-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
           <HeaderSearch enabled={withSearch} />

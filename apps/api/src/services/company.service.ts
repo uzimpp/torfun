@@ -1,5 +1,5 @@
 import type { Company } from '@torfun/types';
-import { NotFoundError } from '../core/errors';
+import { ForbiddenError, NotFoundError } from '../core/errors';
 import type { CompanyStore } from '../repositories/company.repository';
 import type { UserStore } from '../repositories/user.repository';
 
@@ -50,6 +50,7 @@ export class CompanyService {
 
   /** Creates a Company and joins the caller to it in one step. */
   async createAndJoin(userId: string, input: CompanyInput): Promise<Company> {
+    await this.refuseAdmin(userId);
     const company = await this.companies.create(input);
     await this.users.setCompanyId(userId, company.id);
     return company;
@@ -82,11 +83,28 @@ export class CompanyService {
    * Company, not to the person leaving it (ADR-0007).
    */
   async join(userId: string, companyId: string): Promise<Company> {
+    await this.refuseAdmin(userId);
+
     const company = await this.companies.findById(companyId);
     if (!company) throw new NotFoundError('No such company');
 
     await this.users.setCompanyId(userId, company.id);
     return company;
+  }
+
+  /**
+   * A Company belongs to Business Development Officers only (ADR-0011). A Site
+   * Administrator runs Retrieval and manages accounts and has nothing to score
+   * against; `requireCompany` on the web already exempts them, so an admin that
+   * held a `companyId` would be a state no screen was built to render. The
+   * check lives here rather than in the route because both entry points —
+   * create-and-join and join — must pass through it.
+   */
+  private async refuseAdmin(userId: string): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (user?.role === 'admin') {
+      throw new ForbiddenError('A Site Administrator does not belong to a company');
+    }
   }
 
   /**
