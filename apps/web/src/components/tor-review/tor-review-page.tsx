@@ -1,17 +1,11 @@
-import {
-  Banknote,
-  Bookmark,
-  CalendarDays,
-  Clock3,
-  MapPin,
-} from 'lucide-react';
+import { Banknote, CalendarDays, Clock3, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { TorDownloadButton } from './tor-download-button';
+import { TorFavoriteButton } from './tor-favorite-button';
 
 const bahtFormat = new Intl.NumberFormat('th-TH');
 
@@ -54,10 +48,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               {tor.budget === null ? 'ยังไม่มีข้อมูลงบประมาณ' : `${bahtFormat.format(tor.budget)} บาท`}
             </p>
             <div className="mt-6 grid grid-cols-2 gap-2">
-              <Button type="button" variant="outline" size="lg" className="w-full min-w-0" aria-label="บันทึก TOR นี้">
-                <Bookmark aria-hidden="true" />
-                บันทึก TOR
-              </Button>
+              <TorFavoriteButton projectId={tor.projectId} />
               <TorDownloadButton projectId={tor.projectId} />
             </div>
           </div>

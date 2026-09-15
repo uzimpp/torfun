@@ -59,6 +59,10 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | POST   | `/experiences`                   | user   | Records work; only client and name are required   |
 | PATCH  | `/experiences/:id`               | user   | Corrects one                                      |
 | DELETE | `/experiences/:id`               | user   | Removes one                                       |
+| GET    | `/favorites`                     | user   | The caller's favorited TORs, with each procurement |
+| GET    | `/favorites/:projectId`          | user   | `{ favorited }` for one project                   |
+| POST   | `/favorites`                     | user   | Favorites a project; `404` if never ingested       |
+| DELETE | `/favorites/:projectId`          | user   | Unfavorites one; `404` if it was not favorited     |
 
 Request and response shapes are zod schemas on each route, most of them imported
 from `@torfun/types`.
