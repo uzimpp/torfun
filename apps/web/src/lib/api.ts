@@ -104,6 +104,31 @@ export function fetchProjects(filters: ProjectFilters = {}): Promise<ProjectList
   return request<ProjectListResponse>(`/api/ingestion/projects${query ? `?${query}` : ''}`);
 }
 
+export function fetchTor(projectId: string): Promise<Procurement> {
+  return request<Procurement>(`/api/tors/${encodeURIComponent(projectId)}`);
+}
+
+export async function downloadTor(projectId: string): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/tors/${encodeURIComponent(projectId)}/source`, {
+      credentials: 'include',
+    });
+  } catch (error) {
+    throw new ApiError(
+      `Cannot reach the API at ${API_URL}. ${error instanceof Error ? error.message : ''}`.trim(),
+      0,
+    );
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { message?: string } | null;
+    throw new ApiError(body?.message ?? `Request failed: ${response.status}`, response.status);
+  }
+
+  return response.blob();
+}
+
 export function fetchFailures(): Promise<{ items: IngestionFailure[] }> {
   return request<{ items: IngestionFailure[] }>('/api/ingestion/failures');
 }
