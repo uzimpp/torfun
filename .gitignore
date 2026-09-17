@@ -50,3 +50,7 @@ yarn-error.log*
 # misc
 *.pem
 .vercel
+
+# Local authentication test cookies
+cookies.txt
+**/cookies.txt

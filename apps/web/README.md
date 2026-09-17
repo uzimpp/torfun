@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# @torfun/web
 
-## Getting Started
+The torfun front end: Next.js App Router, React 19, Tailwind v4, shadcn/ui.
 
-First, run the development server:
+App structure, data flow and conventions are in `AGENTS.md` beside this file.
+This page is how to run it and what the pages are.
+
+## Running
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun run dev          # http://localhost:3000
+bun run typecheck
+bun run lint
+bun run test         # vitest
+bun run test:e2e     # playwright, against a production build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The API must be running for anything past the login page. `bun run dev` from the
+repo root starts both.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`NEXT_PUBLIC_API_URL` is the only configuration; copy `.env.example` to `.env`.
+It defaults to `http://localhost:8080` and is inlined at build time, so changing
+it for a deployment means a rebuild, not a restart.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Pages
 
-## Learn More
+| Route                  | Access | What it does                                        |
+| ---------------------- | ------ | --------------------------------------------------- |
+| `/`                    | public | Landing page, with the search field as its hero     |
+| `/search`              | public | Results for `?q=`; says what access the index needs |
+| `/login`               | public | Password sign-in, or the Google redirect            |
+| `/register`            | public | Self-registration, always as a BD Officer           |
+| `/dashboard`           | user   | Signed-in landing                                   |
+| `/company`             | user   | The officer's own Company and the work it delivered |
+| `/company-experiences` | user   | The same record, guided, as step two of registration |
+| `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log |
+| any unmatched URL      | public | `not-found.tsx`: a 404 with its own search field    |
 
-To learn more about Next.js, take a look at the following resources:
+Protected pages redirect from the server component; the session cookie is
+`httpOnly` and unreadable from the browser. `requireCompany` additionally sends a
+BD Officer with no Company to `/company-experiences`; administrators are exempt,
+and that page must never gate itself or it redirects to itself.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Routes in the `(chrome)` group get the header and footer from
+`app/(chrome)/layout.tsx`. The rest — `/login`, `/register`, `/company-experiences`
+— deliberately get neither: they are steps in one sign-up flow rather than places
+to navigate from, and they show `OnboardingSteps` instead. The group changes no
+URL.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`/company` and `/company-experiences` render the same `CompanyRecord`; the only
+difference is the frame. Registration wraps it in the flow shell with the step
+indicator and a way on to the dashboard, `/company` puts it on an ordinary page
+with neither. `requireCompany` still sends an officer with no record to the
+guided one.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`/search` is not gated. A guest who searches from the landing page arrives with
+their words intact and is told what the index needs, rather than being redirected
+into a form that loses them. The announcement index is served by
+`/api/ingestion/projects`, which is **admin-only**, so a BD Officer's search
+currently reports that rather than returning rows — opening the index to that
+role is an API change, not a UI one.
