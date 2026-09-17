@@ -265,6 +265,96 @@ export const ProcurementSchema = z.object({
 });
 export type Procurement = z.infer<typeof ProcurementSchema>;
 
+/**
+ * Query contract for the existing Procurement listing endpoint.
+ *
+ * Dates are deliberately calendar dates rather than arbitrary timestamps: the
+ * search UI uses date inputs and both `announceDate` and the analysed deadline
+ * are compared as inclusive days. Multiple technology terms use ALL semantics
+ * so adding a term narrows a search; target platforms use ANY semantics because
+ * an officer looking for either mobile or web work should see both.
+ */
+const CalendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a date in YYYY-MM-DD format')
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+  }, 'Expected a valid calendar date');
+
+const QueryBoolean = z
+  .union([z.boolean(), z.enum(['true', 'false'])])
+  .transform((value) => (typeof value === 'boolean' ? value : value === 'true'));
+
+const QueryList = <T extends z.ZodTypeAny>(item: T) =>
+  z.preprocess(
+    (value) =>
+      typeof value === 'string'
+        ? value
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        : value,
+    z.array(item).min(1).max(20),
+  );
+
+export const ProcurementListQuerySchema = z
+  .object({
+    state: IngestionState.optional(),
+    outcome: IngestionOutcome.optional(),
+    deptName: z.string().trim().min(1).max(300).optional(),
+    year: z.coerce.number().int().optional(),
+    softwareClass: SoftwareClass.optional(),
+    status: ProcurementStatus.optional(),
+    eBidding: QueryBoolean.optional(),
+    q: z.string().trim().max(200).optional(),
+    minBudget: z.coerce.number().finite().nonnegative().optional(),
+    maxBudget: z.coerce.number().finite().nonnegative().optional(),
+    publishedFrom: CalendarDate.optional(),
+    publishedTo: CalendarDate.optional(),
+    deadlineFrom: CalendarDate.optional(),
+    deadlineTo: CalendarDate.optional(),
+    techStack: QueryList(z.string().trim().min(1).max(100)).optional(),
+    targetPlatforms: QueryList(TargetPlatform).optional(),
+    /** Keyword matched against existing project and agency names, not a classification. */
+    industry: z.string().trim().min(1).max(100).optional(),
+    /** Substring of the upstream procurement-method label. */
+    purchaseMethod: z.string().trim().min(1).max(200).optional(),
+    limit: z.coerce.number().int().positive().max(200).default(50),
+    offset: z.coerce.number().int().nonnegative().default(0),
+  })
+  .superRefine((query, context) => {
+    const ranges: Array<[number | string | undefined, number | string | undefined, string]> = [
+      [query.minBudget, query.maxBudget, 'maxBudget'],
+      [query.publishedFrom, query.publishedTo, 'publishedTo'],
+      [query.deadlineFrom, query.deadlineTo, 'deadlineTo'],
+    ];
+
+    for (const [minimum, maximum, path] of ranges) {
+      if (minimum !== undefined && maximum !== undefined && minimum > maximum) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [path],
+          message: 'Range maximum must be greater than or equal to its minimum',
+        });
+      }
+    }
+  });
+
+export type ProcurementListQuery = z.infer<typeof ProcurementListQuerySchema>;
+export type ProcurementFilters = Omit<ProcurementListQuery, 'limit' | 'offset'> & {
+  limit?: number;
+  offset?: number;
+};
+
+export const ProcurementListResponseSchema = z.object({
+  items: z.array(ProcurementSchema),
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+});
+export type ProcurementListResponse = z.infer<typeof ProcurementListResponseSchema>;
+
 /** A failed retrieval, logged for Site Administrator review. */
 export const IngestionFailureSchema = z.object({
   projectId: z.string(),

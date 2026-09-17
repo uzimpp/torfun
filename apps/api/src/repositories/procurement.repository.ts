@@ -9,6 +9,7 @@ import type {
   ProcurementStatus,
   SoftwareClass,
   StatusChange,
+  TargetPlatform,
   TorAnalysis,
   Winner,
 } from '@torfun/types';
@@ -166,6 +167,20 @@ export interface FindOptions {
   eBidding?: boolean;
   /** Case-insensitive substring over project name and id. */
   query?: string;
+  minBudget?: number;
+  maxBudget?: number;
+  publishedFrom?: string;
+  publishedTo?: string;
+  deadlineFrom?: string;
+  deadlineTo?: string;
+  /** Every term must occur in at least one entry of analysis.techStack. */
+  techStack?: string[];
+  /** At least one selected platform must occur in analysis.targetPlatforms. */
+  targetPlatforms?: TargetPlatform[];
+  /** Keyword over existing names only; this is not an authoritative classification. */
+  industry?: string;
+  /** Case-insensitive substring of the upstream procurement-method label. */
+  purchaseMethod?: string;
   limit: number;
   offset: number;
 }
@@ -204,6 +219,13 @@ export interface ProcurementStore {
  */
 export interface AgencyNameSource {
   agencies(): Promise<string[]>;
+}
+
+/** All Procurement reads used above the persistence layer. */
+export interface ProcurementDataSource extends ProcurementStore, AgencyNameSource {
+  ensureIndexes(): Promise<void>;
+  summary(): Promise<IngestionSummary>;
+  listFailures(): Promise<IngestionFailure[]>;
 }
 
 interface FailureDocument extends IngestionFailure {
@@ -303,6 +325,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
 
   async find(options: FindOptions): Promise<FindResult> {
     const filter: Record<string, unknown> = {};
+    const clauses: Record<string, unknown>[] = [];
     if (options.state) filter.state = options.state;
     if (options.outcome) filter.outcome = options.outcome;
     if (options.deptName) filter.dept_name = options.deptName;
@@ -310,13 +333,51 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     if (options.softwareClass) filter.software_class = options.softwareClass;
     if (options.status) filter.status = options.status;
     if (options.eBidding !== undefined) filter.e_bidding = options.eBidding;
-    if (options.query?.trim()) {
-      const escaped = options.query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      filter.$or = [
-        { project_name: { $regex: escaped, $options: 'i' } },
-        { _id: { $regex: escaped, $options: 'i' } },
-      ];
+    if (options.minBudget !== undefined || options.maxBudget !== undefined) {
+      filter.project_money = {
+        ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
+        ...(options.maxBudget !== undefined ? { $lte: options.maxBudget } : {}),
+      };
     }
+    if (options.query?.trim()) {
+      const escaped = escapeRegex(options.query);
+      clauses.push({
+        $or: [
+          { project_name: { $regex: escaped, $options: 'i' } },
+          { _id: { $regex: escaped, $options: 'i' } },
+          { dept_name: { $regex: escaped, $options: 'i' } },
+          { dept_sub_name: { $regex: escaped, $options: 'i' } },
+        ],
+      });
+    }
+    if (options.industry?.trim()) {
+      const escaped = escapeRegex(options.industry);
+      clauses.push({
+        $or: [
+          { project_name: { $regex: escaped, $options: 'i' } },
+          { dept_name: { $regex: escaped, $options: 'i' } },
+          { dept_sub_name: { $regex: escaped, $options: 'i' } },
+        ],
+      });
+    }
+    if (options.purchaseMethod?.trim()) {
+      filter.purchase_method_name = { $regex: escapeRegex(options.purchaseMethod), $options: 'i' };
+    }
+    if (options.techStack?.length) {
+      // ALL semantics: each requested term must match at least one array entry.
+      clauses.push(
+        ...options.techStack.map((term) => ({
+          'analysis.techStack': { $elemMatch: { $regex: escapeRegex(term), $options: 'i' } },
+        })),
+      );
+    }
+    if (options.targetPlatforms?.length) {
+      filter['analysis.targetPlatforms'] = { $in: options.targetPlatforms };
+    }
+
+    addDateRange(clauses, '$announce_date', options.publishedFrom, options.publishedTo);
+    addDateRange(clauses, '$analysis.deadlineAt', options.deadlineFrom, options.deadlineTo);
+    if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
     // Most relevant first: a queue an admin works top-down, and the order a
@@ -435,4 +496,34 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       runInProgress: false,
     };
   }
+}
+
+function escapeRegex(value: string): string {
+  return value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Stored dates are upstream/model strings, not BSON Dates. `$dateFromString`
+ * avoids unsafe lexical comparisons and makes an unparseable or missing value
+ * simply fail the range instead of aborting the whole query.
+ */
+function addDateRange(
+  clauses: Record<string, unknown>[],
+  field: string,
+  from?: string,
+  to?: string,
+): void {
+  if (!from && !to) return;
+
+  const parsed = {
+    $dateFromString: { dateString: field, onError: null, onNull: null },
+  };
+  const comparisons: Record<string, unknown>[] = [];
+  if (from) comparisons.push({ $gte: [parsed, new Date(`${from}T00:00:00.000Z`)] });
+  if (to) {
+    const exclusiveEnd = new Date(`${to}T00:00:00.000Z`);
+    exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+    comparisons.push({ $lt: [parsed, exclusiveEnd] });
+  }
+  clauses.push({ $expr: comparisons.length === 1 ? comparisons[0] : { $and: comparisons } });
 }

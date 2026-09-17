@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import type { ArchiveDocument, Procurement, ProcurementStatus } from '@torfun/types';
+import type { ArchiveDocument, Procurement, ProcurementStatus, TorAnalysis } from '@torfun/types';
 import { ProcurementRepository } from './procurement.repository';
 
 /**
@@ -74,6 +74,20 @@ const doc = (overrides: Partial<ArchiveDocument> = {}): ArchiveDocument => ({
   ...overrides,
 });
 
+const analysis = (overrides: Partial<TorAnalysis> = {}): TorAnalysis => ({
+  summary: 'จ้างพัฒนาระบบ',
+  scopeOfWork: ['พัฒนาเว็บ'],
+  budgetThb: 4_500_000,
+  deadlineAt: '2026-10-15',
+  durationDays: 180,
+  techStack: ['React', 'PostgreSQL'],
+  targetPlatforms: ['web_app'],
+  requiredQualifications: [],
+  isSoftwareProject: true,
+  confidence: 'high',
+  ...overrides,
+});
+
 const describeMongo = uri ? describe : describe.skip;
 
 describeMongo('ProcurementRepository', () => {
@@ -101,18 +115,7 @@ describeMongo('ProcurementRepository', () => {
   test('a record survives a round trip through Mongo unchanged', async () => {
     const record = procurement({
       documents: [doc()],
-      analysis: {
-        summary: 'จ้างพัฒนาระบบ',
-        scopeOfWork: ['พัฒนาเว็บ'],
-        budgetThb: 4_500_000,
-        deadlineAt: '2026-10-15',
-        durationDays: 180,
-        techStack: ['React'],
-        targetPlatforms: ['web_app'],
-        requiredQualifications: [],
-        isSoftwareProject: true,
-        confidence: 'high',
-      },
+      analysis: analysis({ techStack: ['React'] }),
     });
     await repository.upsert(record);
 
@@ -232,6 +235,168 @@ describeMongo('ProcurementRepository', () => {
 
     const result = await repository.find({ limit: 10, offset: 0, query: '(เฟส 2)' });
     expect(result.items).toHaveLength(1);
+  });
+
+  test('filters minimum, maximum and ranged announced budgets', async () => {
+    await seed([
+      procurement({ projectId: 'low', projectMoney: 100_000 }),
+      procurement({ projectId: 'middle', projectMoney: 500_000 }),
+      procurement({ projectId: 'high', projectMoney: 1_000_000 }),
+      procurement({ projectId: 'missing', projectMoney: null }),
+    ]);
+
+    expect(
+      (await repository.find({ limit: 20, offset: 0, minBudget: 500_000 })).items.map(
+        (record) => record.projectId,
+      ),
+    ).toEqual(['high', 'middle']);
+    expect(
+      (await repository.find({ limit: 20, offset: 0, maxBudget: 500_000 })).items.map(
+        (record) => record.projectId,
+      ),
+    ).toEqual(['middle', 'low']);
+    expect(
+      (
+        await repository.find({
+          limit: 20,
+          offset: 0,
+          minBudget: 200_000,
+          maxBudget: 800_000,
+        })
+      ).items.map((record) => record.projectId),
+    ).toEqual(['middle']);
+  });
+
+  test('filters inclusive published and analysed deadline date ranges safely', async () => {
+    await seed([
+      procurement({
+        projectId: 'inside',
+        announceDate: '2026-08-10',
+        analysis: analysis({ deadlineAt: '2026-10-15' }),
+      }),
+      procurement({
+        projectId: 'outside',
+        announceDate: '2026-07-31',
+        analysis: analysis({ deadlineAt: '2026-11-01' }),
+      }),
+      procurement({ projectId: 'missing', announceDate: null, analysis: null }),
+      procurement({
+        projectId: 'malformed',
+        announceDate: 'not-a-date',
+        analysis: analysis({ deadlineAt: 'unknown' }),
+      }),
+    ]);
+
+    const result = await repository.find({
+      limit: 20,
+      offset: 0,
+      publishedFrom: '2026-08-10',
+      publishedTo: '2026-08-10',
+      deadlineFrom: '2026-10-15',
+      deadlineTo: '2026-10-15',
+    });
+
+    expect(result.items.map((record) => record.projectId)).toEqual(['inside']);
+  });
+
+  test('requires every tech term, but any selected target platform', async () => {
+    await seed([
+      procurement({
+        projectId: 'web',
+        analysis: analysis({ techStack: ['React', 'PostgreSQL'], targetPlatforms: ['web_app'] }),
+      }),
+      procurement({
+        projectId: 'mobile',
+        analysis: analysis({ techStack: ['React Native'], targetPlatforms: ['mobile'] }),
+      }),
+      procurement({ projectId: 'missing', analysis: null }),
+    ]);
+
+    const tech = await repository.find({
+      limit: 20,
+      offset: 0,
+      techStack: ['react', 'postgre'],
+    });
+    expect(tech.items.map((record) => record.projectId)).toEqual(['web']);
+
+    const platforms = await repository.find({
+      limit: 20,
+      offset: 0,
+      targetPlatforms: ['web_app', 'mobile'],
+    });
+    expect(platforms.items.map((record) => record.projectId).sort()).toEqual(['mobile', 'web']);
+  });
+
+  test('filters procurement method and keyword-derived industry without regex injection', async () => {
+    await seed([
+      procurement({
+        projectId: 'hospital',
+        projectName: 'ระบบผู้ป่วย (ระยะ 2)',
+        deptName: 'โรงพยาบาลกลาง',
+        purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+      }),
+      procurement({
+        projectId: 'school',
+        deptName: 'โรงเรียนตัวอย่าง',
+        purchaseMethodName: 'วิธีเฉพาะเจาะจง',
+      }),
+    ]);
+
+    const result = await repository.find({
+      limit: 20,
+      offset: 0,
+      industry: 'โรงพยาบาล',
+      purchaseMethod: 'e-bidding',
+      query: '(ระยะ 2)',
+    });
+    expect(result.items.map((record) => record.projectId)).toEqual(['hospital']);
+  });
+
+  test('combines filters, reports zero matches, and paginates the filtered total', async () => {
+    await seed([
+      procurement({
+        projectId: 'one',
+        projectMoney: 700_000,
+        announceDate: '2026-08-10',
+        purchaseMethodName: 'e-bidding',
+        analysis: analysis({ targetPlatforms: ['web_app'] }),
+      }),
+      procurement({
+        projectId: 'two',
+        projectMoney: 800_000,
+        announceDate: '2026-08-11',
+        purchaseMethodName: 'e-bidding',
+        analysis: analysis({ targetPlatforms: ['web_app'] }),
+      }),
+      procurement({
+        projectId: 'wrong-platform',
+        projectMoney: 900_000,
+        announceDate: '2026-08-12',
+        purchaseMethodName: 'e-bidding',
+        analysis: analysis({ targetPlatforms: ['mobile'] }),
+      }),
+    ]);
+
+    const page = await repository.find({
+      limit: 1,
+      offset: 1,
+      minBudget: 500_000,
+      maxBudget: 850_000,
+      publishedFrom: '2026-08-01',
+      techStack: ['React', 'PostgreSQL'],
+      targetPlatforms: ['web_app'],
+      purchaseMethod: 'e-bidding',
+    });
+    expect(page.total).toBe(2);
+    expect(page.items).toHaveLength(1);
+
+    const none = await repository.find({
+      limit: 20,
+      offset: 0,
+      minBudget: 2_000_000,
+      targetPlatforms: ['macos'],
+    });
+    expect(none).toEqual({ items: [], total: 0 });
   });
 
   test('summary counts only documents that turned out to be TORs', async () => {
