@@ -78,7 +78,11 @@ function ResultRow({ item }: { item: Procurement }) {
         </span>
       </div>
 
-      <h3 className="mt-3 text-lg font-medium text-balance">{item.projectName}</h3>
+      <h3 className="mt-3 text-lg font-medium text-balance">
+        <Link href={`/tor/${encodeURIComponent(item.projectId)}`} className="hover:text-primary transition-colors">
+          {item.projectName}
+        </Link>
+      </h3>
 
       <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
         <span className="inline-flex items-start gap-2">

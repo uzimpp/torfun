@@ -9,6 +9,7 @@ import type { CompanyService } from '../services/company.service';
 import type { ExperienceService } from '../services/experience.service';
 import type { DiagnosticsService } from '../services/diagnostics.service';
 import type { IngestionService } from '../services/ingestion.service';
+import type { TorService } from '../services/tor.service';
 import type { UserRole } from '@torfun/types';
 
 /** The JWT payload. snake_case is the on-the-wire claim shape. */
@@ -37,6 +38,7 @@ declare module 'fastify' {
     clientService: ClientService;
     experienceService: ExperienceService;
     ingestionService: IngestionService;
+    torService: TorService;
     diagnosticsService: DiagnosticsService;
   }
 }
