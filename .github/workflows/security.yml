@@ -82,12 +82,22 @@ jobs:
     needs: [container-scan]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.3.11'
+      - run: bun install --frozen-lockfile
+      # apps/api/.env is gitignored and docker-compose.yml's `env_file` for the
+      # api service is required (unlike web's), so `docker compose up` fails
+      # fast with "env file ... not found" on a bare checkout. Render it from
+      # the same schema-valid fake config the test suite uses (testEnv() in
+      # src/testing/env.ts), so a future required field flows into this job
+      # automatically instead of needing a second, hand-maintained env block
+      # that quietly drifts from config/env.ts's zod schema.
+      - name: Create apps/api/.env for the ephemeral stack
+        run: bun run print-test-env > .env
+        working-directory: apps/api
       - name: Start stack
         run: docker compose up --build -d web api mongodb
-        env:
-          MONGODB_URI: mongodb://mongodb:27017/torfun
-          JWT_SECRET: zap-baseline-secret-zap-baseline-1234
-          GOOGLE_CLOUD_PROJECT: torfun-zap
       - name: Wait for web to be ready
         run: |
           for i in $(seq 1 30); do
