@@ -34,16 +34,19 @@ test('the hero search field carries the query to the results page', async ({ pag
   await expect(page.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveValue(
     'ระบบสารสนเทศ',
   );
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('ค้นหาประกาศ TOR');
+  await expect(page.getByRole('region', { name: 'ผลการค้นหา' })).toBeVisible();
 });
 
-test('an empty search says so rather than navigating', async ({ page }) => {
+test('an empty search navigates to the results page rather than being blocked', async ({
+  page,
+}) => {
   await page.goto('/');
   // Before hydration the field is a plain GET form and submitting it navigates,
   // which is the right fallback but not what this test is about.
   await page.waitForLoadState('networkidle');
   await page.getByRole('main').getByRole('button', { name: 'ค้นหา' }).click();
-  // Scoped past Next's own route announcer, which is also an alert.
-  await expect(page.getByRole('main').getByRole('alert')).toContainText('พิมพ์คำค้นหาก่อน');
-  await expect(page).toHaveURL('/');
+  // No `q` at all — an empty search lists everything the index holds rather
+  // than asking for a term first, so there is nothing to put in the URL.
+  await expect(page).toHaveURL(/\/search$/);
+  await expect(page.getByRole('region', { name: 'ผลการค้นหา' })).toBeVisible();
 });

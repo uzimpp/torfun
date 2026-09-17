@@ -2,12 +2,19 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { Building2, CircleAlert, FileText, Search, WifiOff } from 'lucide-react';
+import {
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  FileText,
+  Search,
+  WifiOff,
+} from 'lucide-react';
 import type { Procurement } from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { exampleQueries } from '@/components/layout/nav-config';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
 
 const CLASS_LABELS: Record<Procurement['softwareClass'], string> = {
@@ -22,48 +29,141 @@ const bahtFormat = new Intl.NumberFormat('th-TH', {
   maximumFractionDigits: 0,
 });
 
-export function SearchResults({ query }: { query: string }) {
-  const { items, total, loading, block, detail } = useTorSearch(query);
+export function SearchResults({
+  query,
+  page,
+  onPageChange,
+}: {
+  query: string;
+  /** 1-indexed, matching what shows in the URL and in "หน้า X จาก Y". */
+  page: number;
+  onPageChange: (page: number) => void;
+}) {
+  const { items, total, loading, block, detail } = useTorSearch(query, page);
 
-  if (!query) return <StartState />;
   if (loading) return <ResultSkeleton />;
   if (block) return <BlockedState block={block} detail={detail} />;
-  if (items.length === 0) return <NoMatchState query={query} />;
+  if (items.length === 0) return query ? <NoMatchState query={query} /> : <EmptyIndexState />;
+
+  const pageCount = Math.max(1, Math.ceil(total / RESULT_LIMIT));
 
   return (
     <div>
-      <p className="text-muted-foreground text-sm">
-        พบ{' '}
-        <span data-numeric className="text-foreground font-medium">
-          {total.toLocaleString('th-TH')}
-        </span>{' '}
-        ประกาศ
-        {total > items.length && (
-          <>
-            {' '}
-            · แสดง <span data-numeric>{items.length}</span> รายการแรก
-          </>
-        )}
-      </p>
-
-      <ul className="divide-border mt-5 divide-y border-t border-b">
+      <ul className="divide-border mt-0 divide-y border-t border-b">
         {items.map((item) => (
           <ResultRow key={item.projectId} item={item} />
         ))}
       </ul>
 
-      {total > RESULT_LIMIT && (
-        <p className="text-muted-foreground mt-6 text-sm">
-          ปรับคำค้นหาให้เฉพาะเจาะจงขึ้นเพื่อลดจำนวนผลลัพธ์ การแบ่งหน้าอยู่ระหว่างการพัฒนา
-        </p>
+      {pageCount > 1 && (
+        <div className="mt-8 flex justify-center">
+          <SearchPagination page={page} pageCount={pageCount} onPageChange={onPageChange} />
+        </div>
       )}
     </div>
   );
 }
 
+const PAGE_WINDOW = 5;
+
+type PaginationItem = number | 'ellipsis';
+
+/**
+ * Page 1, the last page, and up to `PAGE_WINDOW` pages around the current one
+ * — with an ellipsis standing in for whatever that leaves out. A gap of
+ * exactly one page is filled in rather than collapsed: an ellipsis hiding a
+ * single page reads as noise, not a shortcut.
+ */
+function paginationItems(page: number, pageCount: number): PaginationItem[] {
+  const size = Math.min(PAGE_WINDOW, pageCount);
+  const start = Math.max(1, Math.min(page - Math.floor(size / 2), pageCount - size + 1));
+  const end = start + size - 1;
+
+  const items: PaginationItem[] = [];
+  if (start > 1) {
+    items.push(1);
+    if (start > 2) items.push('ellipsis');
+  }
+  for (let p = start; p <= end; p++) items.push(p);
+  if (end < pageCount) {
+    if (end < pageCount - 1) items.push('ellipsis');
+    items.push(pageCount);
+  }
+  return items;
+}
+
+function SearchPagination({
+  page,
+  pageCount,
+  onPageChange,
+}: {
+  page: number;
+  pageCount: number;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <nav aria-label="หน้าผลการค้นหา">
+      <div className="bg-card border-border inline-flex items-center gap-1 rounded-full border p-1.5">
+        <button
+          type="button"
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground disabled:hover:bg-transparent flex h-9 items-center gap-1 rounded-full px-3 text-sm font-medium transition-colors disabled:opacity-40"
+        >
+          <ChevronLeft aria-hidden="true" className="size-4" />
+          <span className="hidden sm:inline">ก่อนหน้า</span>
+        </button>
+
+        {paginationItems(page, pageCount).map((item, index) =>
+          item === 'ellipsis' ? (
+            <span
+              key={`ellipsis-${index}`}
+              aria-hidden="true"
+              className="text-muted-foreground/70 grid size-9 place-items-center text-sm"
+            >
+              …
+            </span>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onPageChange(item)}
+              aria-current={item === page ? 'page' : undefined}
+              className={cn(
+                'grid size-9 place-items-center rounded-full text-sm font-medium transition-colors',
+                item === page
+                  ? 'bg-primary text-primary-foreground font-semibold'
+                  : 'text-foreground hover:bg-muted',
+              )}
+            >
+              {item}
+            </button>
+          ),
+        )}
+
+        <button
+          type="button"
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= pageCount}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground disabled:hover:bg-transparent flex h-9 items-center gap-1 rounded-full px-3 text-sm font-medium transition-colors disabled:opacity-40"
+        >
+          <span className="hidden sm:inline">ถัดไป</span>
+          <ChevronRight aria-hidden="true" className="size-4" />
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+/** Selector for the last-rendered row — what "scroll to bottom" jumps to, not the page's actual end. */
+export const RESULT_ROW_SELECTOR = '[data-result-row]';
+
 function ResultRow({ item }: { item: Procurement }) {
   return (
-    <li className="group hover:bg-card -mx-4 px-4 py-6 transition-colors sm:-mx-6 sm:px-6">
+    <li
+      data-result-row
+      className="group hover:bg-card -mx-4 px-4 py-6 transition-colors sm:-mx-6 sm:px-6"
+    >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
           {CLASS_LABELS[item.softwareClass]}
@@ -96,7 +196,7 @@ function ResultRow({ item }: { item: Procurement }) {
           announcement itself remains the thing an officer bids against. */}
       {item.analysis ? (
         <p className="text-muted-foreground border-primary/30 mt-4 border-s-2 ps-4 text-sm">
-          <span className="text-foreground font-medium">สรุปโดย AI · ต้องตรวจสอบต้นฉบับ</span>
+          <span className="text-foreground font-medium">สรุปโดย AI</span>
           <br />
           {item.analysis.summary}
         </p>
@@ -135,18 +235,10 @@ function StateFrame({
   );
 }
 
-function StartState() {
+function EmptyIndexState() {
   return (
-    <StateFrame icon={<Search aria-hidden="true" className="size-5" />} title="เริ่มค้นหาประกาศ">
-      <p>
-        พิมพ์ชื่อระบบ ชื่อหน่วยงาน หรือคำสำคัญจากประกาศ เช่น{' '}
-        {exampleQueries.map((example, index) => (
-          <span key={example}>
-            {index > 0 && ' · '}
-            <span className="text-foreground">{example}</span>
-          </span>
-        ))}
-      </p>
+    <StateFrame icon={<Search aria-hidden="true" className="size-5" />} title="ยังไม่มีประกาศในคลังข้อมูล">
+      <p>ระบบยังไม่ได้ดึงประกาศเข้ามา หรือคลังข้อมูลว่างเปล่าในขณะนี้</p>
     </StateFrame>
   );
 }

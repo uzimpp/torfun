@@ -35,6 +35,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+RUN apk update && apk upgrade --no-cache
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 

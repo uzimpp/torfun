@@ -17,6 +17,9 @@ import { cn } from '@/lib/utils';
 export function TorSearchField({
   size = 'compact',
   defaultValue = '',
+  value: controlledValue,
+  onValueChange,
+  onSubmit,
   label = 'ค้นหาประกาศ TOR',
   suggestions,
   autoFocus = false,
@@ -25,6 +28,15 @@ export function TorSearchField({
   /** `hero` is the landing page's centrepiece; `compact` rides in the header. */
   size?: 'hero' | 'compact';
   defaultValue?: string;
+  /**
+   * Controlled mode: pass `value` + `onValueChange` when a caller (the search
+   * page) needs to react to every keystroke, e.g. to debounce. Everywhere else
+   * the field just tracks its own text and only reports it on submit.
+   */
+  value?: string;
+  onValueChange?: (value: string) => void;
+  /** Overrides the default submit behaviour (navigate to `/search`). */
+  onSubmit?: (query: string) => void;
   label?: string;
   /** Example queries, offered as one-tap starting points below the field. */
   suggestions?: readonly string[];
@@ -34,25 +46,19 @@ export function TorSearchField({
   const router = useRouter();
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState(defaultValue);
-  const [emptyAttempt, setEmptyAttempt] = useState(false);
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
+  const value = controlledValue ?? uncontrolledValue;
+  const setValue = onValueChange ?? setUncontrolledValue;
   const hero = size === 'hero';
 
   function goTo(query: string) {
-    router.push(`/search?q=${encodeURIComponent(query)}`);
+    if (onSubmit) onSubmit(query);
+    else router.push(`/search?q=${encodeURIComponent(query)}`);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const query = value.trim();
-    if (!query) {
-      // Saying nothing and navigating to an empty result page reads as a bug.
-      setEmptyAttempt(true);
-      inputRef.current?.focus();
-      return;
-    }
-    setEmptyAttempt(false);
-    goTo(query);
+    goTo(value.trim());
   }
 
   return (
@@ -69,7 +75,6 @@ export function TorSearchField({
           hero
             ? 'shadow-soft has-[input:focus-visible]:shadow-lifted gap-2 rounded-2xl p-2 sm:gap-3'
             : 'gap-2 rounded-xl py-1 pr-1 pl-3',
-          emptyAttempt && 'border-destructive focus-within:border-destructive',
         )}
       >
         <label htmlFor={inputId} className="sr-only">
@@ -92,11 +97,7 @@ export function TorSearchField({
           autoComplete="off"
           autoFocus={autoFocus}
           value={value}
-          onChange={(event) => {
-            setValue(event.target.value);
-            if (emptyAttempt) setEmptyAttempt(false);
-          }}
-          aria-describedby={emptyAttempt ? `${inputId}-error` : undefined}
+          onChange={(event) => setValue(event.target.value)}
           placeholder={hero ? 'เช่น ระบบสารสนเทศ, พัฒนาเว็บไซต์, จัดจ้างซอฟต์แวร์' : 'ค้นหา TOR'}
           className={cn(
             'placeholder:text-muted-foreground/80 min-w-0 flex-1 bg-transparent outline-none',
@@ -121,12 +122,6 @@ export function TorSearchField({
           <ArrowRight aria-hidden="true" className="size-4" />
         </button>
       </form>
-
-      {emptyAttempt && (
-        <p id={`${inputId}-error`} role="alert" className="text-destructive mt-2 ps-1 text-sm">
-          พิมพ์คำค้นหาก่อน เช่น ชื่อระบบหรือชื่อหน่วยงาน
-        </p>
-      )}
 
       {suggestions && suggestions.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-2">

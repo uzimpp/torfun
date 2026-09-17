@@ -86,6 +86,13 @@ export function SiteFooter({
           </div>
         </div>
 
+        <p
+          aria-hidden="true"
+          className="relative -mb-[0.14em] px-4 text-center leading-none tracking-tighter text-current/12 select-none sm:px-6 lg:px-10"
+          style={{ fontSize: 'clamp(3.5rem, 16vw, 12rem)' }}
+        >
+          Torfun
+        </p>
         <p className="border-footer-hairline mt-10 flex gap-3 border-t pt-6 text-xs opacity-75">
           <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
           <span className="max-w-3xl">
@@ -102,17 +109,6 @@ export function SiteFooter({
           <p>ข้อมูลประกาศจากระบบจัดซื้อจัดจ้างภาครัฐ (e-GP)</p>
         </div>
       </div>
-
-      {/* Cropped by the bottom edge on purpose: a wordmark that runs off the
-          page reads as a mark, while one sitting neatly above a margin reads as
-          a heading for something that is not there. */}
-      <p
-        aria-hidden="true"
-        className="relative -mb-[0.14em] px-4 text-center leading-none tracking-tighter text-current/12 select-none sm:px-6 lg:px-10"
-        style={{ fontSize: 'clamp(3.5rem, 16vw, 12rem)' }}
-      >
-        Torfun
-      </p>
     </footer>
   );
 }
