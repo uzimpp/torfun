@@ -8,6 +8,7 @@ import { companyRoutes } from './companies';
 import { clientRoutes } from './clients';
 import { experienceRoutes } from './experiences';
 import { torRoutes } from './tors';
+import { favoriteRoutes } from './favorites';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes, { prefix: '/api' });
@@ -21,6 +22,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(clientRoutes, { prefix: '/api' });
   await app.register(experienceRoutes, { prefix: '/api' });
   await app.register(torRoutes, { prefix: '/api' });
+  await app.register(favoriteRoutes, { prefix: '/api' });
 
   // Future route groups (per feature analysis in the project brief):
   // - /api/tors            (list/filter/search, USR-01..03/06/08)
