@@ -25,16 +25,12 @@ export interface TorSearchResult {
   detail: string | null;
 }
 
-/** What came back, and which question it answers. */
-interface Answer {
-  query: string;
+interface Page {
   items: Procurement[];
   total: number;
   block: SearchBlock | null;
   detail: string | null;
 }
-
-const NOTHING_ASKED: Answer = { query: '', items: [], total: 0, block: null, detail: null };
 
 function classify(caught: unknown): { block: SearchBlock; detail: string | null } {
   if (!(caught instanceof ApiError)) {
@@ -47,54 +43,43 @@ function classify(caught: unknown): { block: SearchBlock; detail: string | null 
 }
 
 /**
- * Runs one query against the announcement index.
+ * Fetches one page of `RESULT_LIMIT` matches against the announcement index.
+ * An empty query lists everything the index holds, same as the admin ingestion
+ * console does. `page` is 1-indexed, matching what shows in the URL.
  *
- * The stored answer carries the query it belongs to, which is what makes
- * "loading" a derived fact rather than a flag to keep in step: while the answer
- * on hand is for a different question, the page is still waiting. It also means
- * an empty query needs no state of its own — there is nothing to ask, so the
- * hook reports the starting state without calling the API at all.
+ * The caller keys its instance on `(query, page)` (`SearchResults` does, via
+ * `key`) rather than asking this hook to re-target itself — a fresh instance
+ * per page means no bookkeeping here for "which fetch is this answer for", and
+ * the loading state is correct for free: it starts `null` on every new page.
  */
-export function useTorSearch(query: string): TorSearchResult {
-  const [answer, setAnswer] = useState<Answer>(NOTHING_ASKED);
+export function useTorSearch(query: string, page: number): TorSearchResult {
+  const [state, setState] = useState<Page | null>(null);
 
   useEffect(() => {
-    if (!query) return;
-
-    // Guards against out-of-order responses: two queries in quick succession
-    // must not let the slower, older one paint its results over the newer.
     let cancelled = false;
+    const offset = (page - 1) * RESULT_LIMIT;
 
-    fetchProjects({ q: query, limit: RESULT_LIMIT }).then(
+    fetchProjects({ q: query, limit: RESULT_LIMIT, offset }).then(
       (response) => {
         if (cancelled) return;
-        setAnswer({
-          query,
-          items: response.items,
-          total: response.total,
-          block: null,
-          detail: null,
-        });
+        setState({ items: response.items, total: response.total, block: null, detail: null });
       },
       (caught: unknown) => {
         if (cancelled) return;
-        setAnswer({ query, items: [], total: 0, ...classify(caught) });
+        setState({ items: [], total: 0, ...classify(caught) });
       },
     );
 
     return () => {
       cancelled = true;
     };
-  }, [query]);
-
-  const settled = answer.query === query;
-  const shown = settled ? answer : NOTHING_ASKED;
+  }, [query, page]);
 
   return {
-    items: shown.items,
-    total: shown.total,
-    block: shown.block,
-    detail: shown.detail,
-    loading: query !== '' && !settled,
+    items: state?.items ?? [],
+    total: state?.total ?? 0,
+    block: state?.block ?? null,
+    detail: state?.detail ?? null,
+    loading: state === null,
   };
 }

@@ -235,7 +235,9 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     await (
       await this.records()
     ).createIndexes([
-      { key: { state: 1, biddability_rank: 1, software_score: -1, project_money: -1 } },
+      {
+        key: { state: 1, biddability_rank: 1, software_score: -1, project_money: -1, _id: 1 },
+      },
       { key: { dept_name: 1 } },
       { key: { year: 1 } },
     ]);
@@ -322,10 +324,15 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     // cannot be bid on however promising it looks — then software-likeness, then
     // contract value. A priority, never a filter: nothing is excluded, because
     // the stage comes from upstream free text and `unknown` may well be live.
+    //
+    // `_id` breaks any remaining tie. Without it, two documents equal on all
+    // three priority fields have no defined order between them, and `skip`ing
+    // through pages could show one twice or skip it entirely depending on how
+    // the storage engine happens to return ties on a given call.
     const [items, total] = await Promise.all([
       collection
         .find(filter)
-        .sort({ biddability_rank: 1, software_score: -1, project_money: -1 })
+        .sort({ biddability_rank: 1, software_score: -1, project_money: -1, _id: 1 })
         .skip(options.offset)
         .limit(options.limit)
         .toArray(),

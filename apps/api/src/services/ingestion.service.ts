@@ -50,6 +50,11 @@ export class IngestionService {
     return this.repository.find(options);
   }
 
+  /** Passthrough so the composition root's caller (`server.ts`) never touches a repository directly. */
+  ensureIndexes(): Promise<void> {
+    return this.repository.ensureIndexes();
+  }
+
   async get(projectId: string): Promise<Procurement> {
     const record = await this.repository.get(projectId);
     if (!record) throw new NotFoundError(`No ingested project ${projectId}`);
