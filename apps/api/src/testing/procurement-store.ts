@@ -2,12 +2,13 @@ import type {
   IngestionFailure,
   IngestionOutcome,
   IngestionState,
+  IngestionSummary,
   Procurement,
 } from '@torfun/types';
 import type {
   FindOptions,
   FindResult,
-  ProcurementStore,
+  ProcurementDataSource,
 } from '../repositories/procurement.repository';
 import { mergeDiscovered } from '../repositories/merge-discovered';
 
@@ -19,10 +20,15 @@ import { mergeDiscovered } from '../repositories/merge-discovered';
  * it happened to call. Ordering is left to the real repository's integration
  * tests, which is where a Mongo sort can actually be verified.
  */
-export class InMemoryProcurementStore implements ProcurementStore {
+export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly records = new Map<string, Procurement>();
   private readonly failures: IngestionFailure[] = [];
   private lastRunAt: string | null = null;
+
+  async ensureIndexes(): Promise<void> {
+    // The in-memory store has no indexes; this preserves the production
+    // lifecycle contract without making tests depend on MongoDB.
+  }
 
   async get(projectId: string): Promise<Procurement | undefined> {
     return this.records.get(projectId);
@@ -84,7 +90,33 @@ export class InMemoryProcurementStore implements ProcurementStore {
     this.lastRunAt = at;
   }
 
-  listFailures(): IngestionFailure[] {
+  async listFailures(): Promise<IngestionFailure[]> {
     return this.failures;
+  }
+
+  async agencies(): Promise<string[]> {
+    return [...new Set([...this.records.values()].map((record) => record.deptName))].sort();
+  }
+
+  async summary(): Promise<IngestionSummary> {
+    const records = [...this.records.values()];
+    const byState = {} as IngestionSummary['byState'];
+    const byOutcome = {} as IngestionSummary['byOutcome'];
+    for (const record of records) {
+      byState[record.state] = (byState[record.state] ?? 0) + 1;
+      byOutcome[record.outcome] = (byOutcome[record.outcome] ?? 0) + 1;
+    }
+    return {
+      total: records.length,
+      byState,
+      byOutcome,
+      byAgency: [],
+      byYear: [],
+      torDocumentsRetrieved: 0,
+      totalTorBytes: 0,
+      failureCount: this.failures.length,
+      lastRunAt: this.lastRunAt,
+      runInProgress: false,
+    };
   }
 }

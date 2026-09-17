@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Search } from 'lucide-react';
 
@@ -22,6 +22,7 @@ export function TorSearchField({
   onSubmit,
   label = 'ค้นหาประกาศ TOR',
   suggestions,
+  preservedParams = [],
   autoFocus = false,
   className,
 }: {
@@ -40,20 +41,39 @@ export function TorSearchField({
   label?: string;
   /** Example queries, offered as one-tap starting points below the field. */
   suggestions?: readonly string[];
+  /** Existing URL filters that should survive when only the search words change. */
+  preservedParams?: ReadonlyArray<readonly [string, string]>;
   autoFocus?: boolean;
   className?: string;
 }) {
   const router = useRouter();
   const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
   const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
+  const [uncontrolledDefault, setUncontrolledDefault] = useState(defaultValue);
   const value = controlledValue ?? uncontrolledValue;
   const setValue = onValueChange ?? setUncontrolledValue;
   const hero = size === 'hero';
 
+  // This client component is intentionally kept mounted across query-string
+  // navigations. Sync the uncontrolled field from the URL for Back/Forward and
+  // suggestion navigation without keying/remounting the entire form; keyed
+  // client boundaries can be retained alongside their replacement by the App
+  // Router, leaving two search boxes in the document.
+  if (controlledValue === undefined && defaultValue !== uncontrolledDefault) {
+    setUncontrolledDefault(defaultValue);
+    setUncontrolledValue(defaultValue);
+  }
+
   function goTo(query: string) {
     if (onSubmit) onSubmit(query);
-    else router.push(`/search?q=${encodeURIComponent(query)}`);
+    else {
+      const params = new URLSearchParams(preservedParams.map(([name, entry]) => [name, entry]));
+      if (query) params.set('q', query);
+      else params.delete('q');
+      params.delete('page');
+      const queryString = params.toString();
+      router.push(`/search${queryString ? `?${queryString}` : ''}`);
+    }
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -77,6 +97,14 @@ export function TorSearchField({
             : 'gap-2 rounded-xl py-1 pr-1 pl-3',
         )}
       >
+        {preservedParams.map(([name, preservedValue]) => (
+          <input
+            key={`${name}-${preservedValue}`}
+            type="hidden"
+            name={name}
+            value={preservedValue}
+          />
+        ))}
         <label htmlFor={inputId} className="sr-only">
           {label}
         </label>
@@ -89,7 +117,6 @@ export function TorSearchField({
         />
         <input
           id={inputId}
-          ref={inputRef}
           name="q"
           type="search"
           inputMode="search"

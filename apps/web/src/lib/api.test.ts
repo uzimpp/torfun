@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { deleteClient, deleteExperience, fetchClients, joinCompany, createCompany } from './api';
+import {
+  createCompany,
+  deleteClient,
+  deleteExperience,
+  fetchClients,
+  fetchProjects,
+  joinCompany,
+} from './api';
 
 /**
  * These tests are about the shape of the request on the wire, not the answer.
@@ -48,4 +55,26 @@ test('an explicit content-type from the caller is still honoured', async () => {
     expect.stringContaining('/api/companies'),
     expect.objectContaining({ credentials: 'include', method: 'POST' }),
   );
+});
+
+test('procurement filters are encoded into the existing listing request', async () => {
+  await fetchProjects({
+    q: 'ระบบ',
+    minBudget: 500_000,
+    techStack: ['React', 'PostgreSQL'],
+    targetPlatforms: ['web_app', 'mobile'],
+    limit: 20,
+    offset: 20,
+  });
+
+  const url = new URL(fetchMock.mock.calls[0]![0] as string);
+  expect(url.pathname).toBe('/api/ingestion/projects');
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    q: 'ระบบ',
+    minBudget: '500000',
+    techStack: 'React,PostgreSQL',
+    targetPlatforms: 'web_app,mobile',
+    limit: '20',
+    offset: '20',
+  });
 });

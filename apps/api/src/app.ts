@@ -11,6 +11,7 @@ import { registerGoogleOAuth } from './plugins/google-oauth';
 import {
   ProcurementRepository,
   type AgencyNameSource,
+  type ProcurementDataSource,
 } from './repositories/procurement.repository';
 import { createDependencyProbes, DiagnosticsService } from './services/diagnostics.service';
 import {
@@ -21,7 +22,6 @@ import { UserRepository, type UserStore } from './repositories/user.repository';
 import { CompanyRepository, type CompanyStore } from './repositories/company.repository';
 import { ClientRepository, type ClientStore } from './repositories/client.repository';
 import { ExperienceRepository, type ExperienceStore } from './repositories/experience.repository';
-import type { ProcurementStore } from './repositories/procurement.repository';
 import { AuthService } from './services/auth.service';
 import { AdminUsersService } from './services/admin-users.service';
 import { CompanyService } from './services/company.service';
@@ -53,7 +53,7 @@ export interface RepositoryOverrides {
   companies?: CompanyStore;
   clients?: ClientStore;
   experiences?: ExperienceStore;
-  procurements?: ProcurementStore;
+  procurements?: ProcurementDataSource;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
 }
@@ -97,7 +97,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   // Constructing a repository is offline — Mongo connects lazily on the first
   // query — so building the real ones costs nothing even when a substitute
   // replaces them.
-  const procurementRepository = new ProcurementRepository(app.mongo.getDb);
+  const procurementRepository =
+    repositories.procurements ?? new ProcurementRepository(app.mongo.getDb);
   const userRepository = repositories.users ?? new UserRepository(app.mongo.getDb);
   const refreshTokenRepository =
     repositories.refreshTokens ?? new RefreshTokenRepository(app.mongo.getDb);

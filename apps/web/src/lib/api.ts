@@ -2,11 +2,10 @@ import type {
   ClientKind,
   DurationUnit,
   IngestionFailure,
-  IngestionOutcome,
-  Procurement,
-  IngestionState,
   IngestionSummary,
-  SoftwareClass,
+  Procurement,
+  ProcurementFilters,
+  ProcurementListResponse,
   TargetPlatform,
   UserRole,
 } from '@torfun/types';
@@ -23,24 +22,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 
 export type IngestionSummaryResponse = IngestionSummary & { agencies: string[] };
 
-export interface ProjectListResponse {
-  items: Procurement[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-export interface ProjectFilters {
-  state?: IngestionState;
-  outcome?: IngestionOutcome;
-  deptName?: string;
-  year?: number;
-  softwareClass?: SoftwareClass;
-  eBidding?: boolean;
-  q?: string;
-  limit?: number;
-  offset?: number;
-}
+export type ProjectListResponse = ProcurementListResponse;
+export type ProjectFilters = ProcurementFilters;
 
 export class ApiError extends Error {
   constructor(
@@ -69,8 +52,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...init,
-      // The ingestion API is admin-only and the session lives in an httpOnly
-      // cookie on a different origin, so every call must carry credentials.
+      // The session lives in an httpOnly cookie on a different origin, so every
+      // authenticated procurement or administration call must carry it.
       credentials: 'include',
       headers: headersFor(init),
     });
@@ -98,7 +81,9 @@ export function fetchSummary(): Promise<IngestionSummaryResponse> {
 export function fetchProjects(filters: ProjectFilters = {}): Promise<ProjectListResponse> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
-    if (value !== undefined && value !== '') params.set(key, String(value));
+    if (value !== undefined && value !== '') {
+      params.set(key, Array.isArray(value) ? value.join(',') : String(value));
+    }
   }
   const query = params.toString();
   return request<ProjectListResponse>(`/api/ingestion/projects${query ? `?${query}` : ''}`);
@@ -343,10 +328,7 @@ export function fetchAdminUsers(): Promise<{ users: AdminUserResponse[] }> {
  * administrator (409); the message it returns is written for the person reading
  * it, so surface it as-is.
  */
-export function updateAdminUser(
-  id: string,
-  patch: AdminUserPatch,
-): Promise<AdminUserResponse> {
+export function updateAdminUser(id: string, patch: AdminUserPatch): Promise<AdminUserResponse> {
   return request(`/api/admin/users/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),

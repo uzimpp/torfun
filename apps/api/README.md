@@ -41,8 +41,8 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/dashboard`                     | user   | Placeholder greeting                              |
 | GET    | `/admin/test`                    | admin  | Placeholder greeting                              |
 | GET    | `/ingestion/summary`             | admin  | Counts by state and outcome, plus agencies        |
-| GET    | `/ingestion/projects`            | admin  | Filter and paginate procurements                  |
-| GET    | `/ingestion/projects/:projectId` | admin  | One procurement by its 11-digit id                |
+| GET    | `/ingestion/projects`            | user   | Search, filter and paginate procurements          |
+| GET    | `/ingestion/projects/:projectId` | user   | One procurement by its 11-digit id                |
 | GET    | `/ingestion/failures`            | admin  | The failure log                                   |
 | POST   | `/ingestion/run`                 | admin  | Starts a run; `202`, or `409` if one is live      |
 | GET    | `/companies/search?q=`           | user   | Typeahead over Thai company names                 |
