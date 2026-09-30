@@ -335,6 +335,44 @@ describe('stages and the per-record deadline', () => {
   });
 });
 
+describe('which stage a failure is logged against', () => {
+  const failures = async (overrides: Partial<IngestionDeps>) => {
+    const repository = new InMemoryProcurementStore();
+    const result = await run(repository, overrides);
+    return result.failures.map((failure) => failure.stage);
+  };
+
+  test('a failed announcement lookup is an info failure', async () => {
+    expect(
+      await failures({
+        resolveZipId: async () => {
+          throw new Error('bad gateway');
+        },
+      }),
+    ).toEqual(['info']);
+  });
+
+  test('a failed download is a download failure', async () => {
+    expect(
+      await failures({
+        downloadArchive: async () => {
+          throw new Error('connection reset');
+        },
+      }),
+    ).toEqual(['download']);
+  });
+
+  test('an archive that cannot be opened is an extract failure, not a download one', async () => {
+    expect(
+      await failures({
+        extractTorPdfs: () => {
+          throw new Error('corrupt zip');
+        },
+      }),
+    ).toEqual(['extract']);
+  });
+});
+
 describe('a run that is told to stop', () => {
   test('stops before the next record and leaves the rest Queued', async () => {
     const repository = new InMemoryProcurementStore();
