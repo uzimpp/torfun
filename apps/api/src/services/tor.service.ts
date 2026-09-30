@@ -8,6 +8,7 @@ import type {
 } from '../repositories/procurement.repository';
 import { downloadArchive, extractTorPdfs } from './egp/tor-package';
 import { unzipSync } from 'fflate';
+import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience';
 
 export interface TorSource {
   filename: string;
@@ -21,19 +22,29 @@ export class TorService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  list(options: FindOptions): Promise<FindResult> {
-    const filters = resolveProcurementListOptions(options, this.now());
+  /**
+   * An officer's query is narrowed to analysed TORs here, after whatever they
+   * sent, so no `outcome` in the request can widen it back out.
+   */
+  list(options: FindOptions, audience: Audience): Promise<FindResult> {
+    const filters = resolveProcurementListOptions(
+      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME },
+      this.now(),
+    );
     return filters ? this.procurements.find(filters) : Promise.resolve({ items: [], total: 0 });
   }
 
-  async get(projectId: string): Promise<Procurement> {
+  /** A record the audience may not see is reported exactly as one that does not exist. */
+  async get(projectId: string, audience: Audience): Promise<Procurement> {
     const procurement = await this.procurements.get(projectId);
-    if (!procurement) throw new NotFoundError(`No ingested project ${projectId}`);
+    if (!procurement || !isVisibleTo(audience, procurement)) {
+      throw new NotFoundError(`No ingested project ${projectId}`);
+    }
     return procurement;
   }
 
-  async source(projectId: string): Promise<TorSource> {
-    const procurement = await this.get(projectId);
+  async source(projectId: string, audience: Audience): Promise<TorSource> {
+    const procurement = await this.get(projectId, audience);
     if (!procurement.zipId) throw new NotFoundError('No TOR source is available');
 
     const mainTor = procurement.documents.find((document) => document.role === 'main_tor');
