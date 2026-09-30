@@ -44,16 +44,34 @@ export const SOURCE_REGISTRY = [
 export const FISCAL_YEARS = [2567, 2568, 2569] as const;
 
 /**
- * Narrow, software-biased keyword set. Deliberately excludes broad terms like
- * "พัฒนาระบบ" and "ระบบบริหารจัดการ", which match road and drainage works as
- * often as software and would flood the queue with false positives.
+ * Discovery keywords, sent to egp-contract one at a time.
+ *
+ * The upstream `keyword` filter is a CASE-SENSITIVE substring match on the
+ * project name (measured 2026-09: "software" 2 hits, "Software" 8, "SOFTWARE" 0;
+ * "application" 0, "Application" 6), so each English term is listed in the
+ * capitalisations that actually occur in Thai titles.
+ *
+ * The broad Thai terms (พัฒนาระบบ, จัดทำระบบ) match road, drainage and hardware
+ * titles as often as software. That is accepted: discovery favours recall, and
+ * the Gemini verdict on the TOR later marks a non-software project
+ * `not_software` rather than this list guessing.
  */
 export const SOFTWARE_KEYWORDS = [
   'ซอฟต์แวร์', // software
   'แอปพลิเคชัน', // application
   'ระบบสารสนเทศ', // information system
   'เว็บไซต์', // website
+  'โปรแกรมคอมพิวเตอร์', // computer program
   'จ้างพัฒนา', // hire-to-develop
+  'จ้างเหมาพัฒนา', // contract-to-develop; "จ้างพัฒนา" is not a substring of it
+  'พัฒนาระบบ', // develop a system
+  'จัดทำระบบ', // build a system
+  'software',
+  'Software',
+  'application',
+  'Application',
+  'website',
+  'Website',
 ] as const;
 
 /**
