@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { FailureLog } from './failure-log';
 import { FilterBar } from './filter-bar';
 import { ProjectTable } from './project-table';
+import { ScheduleCard } from './schedule-card';
 import { runBanner } from './status-tracking';
 import { SummaryCards } from './summary-cards';
 import { useNow } from './use-now';
@@ -177,6 +178,8 @@ export function IngestionDashboard() {
       <Separator />
 
       <FailureLog failures={failures} />
+
+      <ScheduleCard />
     </main>
   );
 }
