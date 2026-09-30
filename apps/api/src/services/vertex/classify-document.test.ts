@@ -43,8 +43,12 @@ describe('classifyTorDocument', () => {
         pdf(),
       );
 
-    expect((await withDeadline('15 ต.ค. 69')).analysis?.deadlineAt).toBe('2026-10-15T00:00:00.000Z');
-    expect((await withDeadline('2569-10-15')).analysis?.deadlineAt).toBe('2026-10-15T00:00:00.000Z');
+    expect((await withDeadline('15 ต.ค. 69')).analysis?.deadlineAt).toBe(
+      '2026-10-15T00:00:00.000Z',
+    );
+    expect((await withDeadline('2569-10-15')).analysis?.deadlineAt).toBe(
+      '2026-10-15T00:00:00.000Z',
+    );
     expect((await withDeadline('ภายใน 30 วัน')).analysis?.deadlineAt).toBeNull();
     expect((await withDeadline(null)).analysis?.deadlineAt).toBeNull();
   });

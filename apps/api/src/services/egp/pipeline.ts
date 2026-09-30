@@ -6,6 +6,7 @@ import type { ProcurementStore } from '../../repositories/procurement.repository
 import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
 import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
+import { MAX_ATTEMPTS } from './constants';
 import { discoverProjects, type DiscoveryResult } from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
 import {
@@ -90,6 +91,9 @@ async function selectForRetrieval(
 ): Promise<Procurement[]> {
   const { items } = await repository.find({
     state: 'Queued',
+    // In the query, not filtered afterwards: an exhausted record must not use up
+    // one of the capped slots in a run.
+    attemptsBelow: MAX_ATTEMPTS,
     ...(options.eBiddingOnly ? { eBidding: true } : {}),
     limit: options.maxDownloads,
     offset: 0,
@@ -283,8 +287,9 @@ export async function runIngestion(
 
       if (error instanceof RateLimitedError) {
         // The site is telling us to stop. Stop — leaving the rest Queued for a
-        // later run rather than pushing through.
-        await repository.transition(record.projectId, 'error', {}, message);
+        // later run rather than pushing through. This record did nothing wrong,
+        // so it goes back to the queue without spending one of its attempts.
+        await repository.transition(record.projectId, 'queued', {}, message);
         await note({
           projectId: record.projectId,
           projectName: record.projectName,
@@ -305,7 +310,16 @@ export async function runIngestion(
         error: message,
         at: new Date().toISOString(),
       });
-      await repository.transition(record.projectId, 'error', {}, message);
+      // A transport failure leaves the record Queued for the next run and
+      // spends an attempt; the last attempt ends it (ADR-0006).
+      const attempts = record.attempts + 1;
+      const exhausted = attempts >= MAX_ATTEMPTS;
+      await repository.transition(
+        record.projectId,
+        exhausted ? 'abandoned' : 'error',
+        { attempts },
+        exhausted ? `${message} (attempt ${attempts} of ${MAX_ATTEMPTS}, giving up)` : message,
+      );
       failed += 1;
     }
 

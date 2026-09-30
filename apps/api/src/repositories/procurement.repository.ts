@@ -183,6 +183,11 @@ function toDocument(record: Procurement): ProcurementDocument {
 export interface FindOptions {
   state?: IngestionState;
   outcome?: IngestionOutcome;
+  /**
+   * Only records that have failed fewer than this many times. Retrieval uses it
+   * to leave exhausted records out of the query itself.
+   */
+  attemptsBelow?: number;
   deptName?: string;
   year?: number;
   softwareClass?: SoftwareClass;
@@ -360,6 +365,13 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const clauses: Record<string, unknown>[] = [];
     if (options.state) filter.state = options.state;
     if (options.outcome) filter.outcome = options.outcome;
+    if (options.attemptsBelow !== undefined) {
+      // A record written before attempts were counted has no field, which `$lt`
+      // alone would not match; it has failed zero times.
+      clauses.push({
+        $or: [{ attempts: { $exists: false } }, { attempts: { $lt: options.attemptsBelow } }],
+      });
+    }
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.year) filter.year = options.year;
     if (options.softwareClass) filter.software_class = options.softwareClass;

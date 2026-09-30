@@ -170,6 +170,31 @@ describeMongo('ProcurementRepository', () => {
     }
   });
 
+  test('attemptsBelow leaves exhausted records out of the query, and counts a missing field as zero', async () => {
+    await seed([
+      procurement({ projectId: 'fresh', attempts: 0 }),
+      procurement({ projectId: 'retrying', attempts: 2 }),
+      procurement({ projectId: 'exhausted', attempts: 3 }),
+      procurement({ projectId: 'legacy', attempts: 0 }),
+    ]);
+    // A record written before attempts were counted has no such field at all.
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne({ _id: 'legacy' as never }, { $unset: { attempts: '' } });
+
+    const { items, total } = await repository.find({
+      state: 'Queued',
+      attemptsBelow: 3,
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(items.map((r) => r.projectId).sort()).toEqual(['fresh', 'legacy', 'retrying']);
+    expect(total).toBe(3);
+  });
+
   test('rediscovering a project does not reset a finished retrieval', async () => {
     await repository.upsert(procurement({ matchedKeywords: ['จ้างพัฒนา'] }));
     await repository.transition('66059313551', 'tor_analysed', {
