@@ -6,7 +6,7 @@ import type { ProcurementStore } from '../../repositories/procurement.repository
 import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
 import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
-import { MAX_ATTEMPTS, RECORD_DEADLINE_MS } from './constants';
+import { MAX_ATTEMPTS, RECORD_DEADLINE_MS, STALE_PROCESSING_MS } from './constants';
 import { discoverProjects, type DiscoveryResult } from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
 import {
@@ -202,6 +202,13 @@ export async function runIngestion(
   deps: IngestionDeps,
 ): Promise<RunResult> {
   const { logger } = options;
+
+  // Runs never overlap, so anything still Processing and long silent belongs to
+  // a run that died. Done first, before discovery can take minutes or fail.
+  const requeued = await repository.requeueStale(
+    new Date(Date.now() - STALE_PROCESSING_MS).toISOString(),
+  );
+  if (requeued > 0) logger.warn({ requeued }, 'egp: requeued records stuck in Processing');
 
   logger.info('egp: starting discovery sweep');
   const discovery = await deps.discoverProjects(options.apiKey);

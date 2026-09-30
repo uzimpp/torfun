@@ -85,6 +85,24 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     };
   }
 
+  async requeueStale(cutoff: string): Promise<number> {
+    const stale = [...this.records.values()].filter(
+      (record) =>
+        record.state === 'Processing' &&
+        (record.statusHistory.at(-1)?.at ?? record.updatedAt) < cutoff,
+    );
+    for (const record of stale) {
+      const since = record.statusHistory.at(-1)?.at ?? record.updatedAt;
+      await this.transition(
+        record.projectId,
+        'queued',
+        {},
+        `Requeued: stuck in Processing since ${since} with no progress.`,
+      );
+    }
+    return stale.length;
+  }
+
   async recordFailures(failures: IngestionFailure[]): Promise<void> {
     this.failures.push(...failures);
   }

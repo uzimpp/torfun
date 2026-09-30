@@ -244,6 +244,15 @@ export interface ProcurementStore {
     detail?: string,
   ): Promise<Procurement | undefined>;
   find(options: FindOptions): Promise<FindResult>;
+  /**
+   * Return records stuck in Processing to the queue.
+   *
+   * A record is stuck when its last status change is older than `cutoff` (an ISO
+   * timestamp): the run that was working on it died or hung, and nothing else
+   * will ever pick it up, because retrieval selects only Queued. Not an
+   * attempt — the record did nothing wrong. Returns how many were requeued.
+   */
+  requeueStale(cutoff: string): Promise<number>;
   recordFailures(failures: IngestionFailure[]): Promise<void>;
   markRun(at: string): Promise<void>;
 }
@@ -353,6 +362,31 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     };
     await collection.replaceOne({ _id: projectId }, updated);
     return toDomain(updated);
+  }
+
+  async requeueStale(cutoff: string): Promise<number> {
+    const collection = await this.records();
+    // Timestamps are `toISOString()` output throughout, so string order is time
+    // order. A record with no history falls back to when it was last written.
+    const stale = await collection
+      .find({
+        state: 'Processing',
+        $expr: {
+          $lt: [{ $ifNull: [{ $arrayElemAt: ['$status_history.at', -1] }, '$updated_at'] }, cutoff],
+        },
+      })
+      .toArray();
+
+    for (const document of stale) {
+      const since = document.status_history.at(-1)?.at ?? document.updated_at;
+      await this.transition(
+        document._id,
+        'queued',
+        {},
+        `Requeued: stuck in Processing since ${since} with no progress.`,
+      );
+    }
+    return stale.length;
   }
 
   async get(projectId: string): Promise<Procurement | undefined> {

@@ -195,6 +195,40 @@ describeMongo('ProcurementRepository', () => {
     expect(total).toBe(3);
   });
 
+  test('requeueStale returns records stuck in Processing to the queue, and only those', async () => {
+    const processing = (projectId: string, at: string) =>
+      procurement({
+        projectId,
+        state: 'Processing',
+        outcome: 'downloading',
+        statusHistory: [{ state: 'Processing', outcome: 'downloading', at }],
+      });
+    await seed([
+      processing('stale', '2026-09-01T00:00:00.000Z'),
+      processing('fresh', '2026-09-30T12:00:00.000Z'),
+      procurement({ projectId: 'queued' }),
+      procurement({
+        projectId: 'done',
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        statusHistory: [
+          { state: 'Completed', outcome: 'tor_analysed', at: '2026-09-01T00:00:00.000Z' },
+        ],
+      }),
+    ]);
+
+    const count = await repository.requeueStale('2026-09-30T00:00:00.000Z');
+
+    expect(count).toBe(1);
+    const stale = await repository.get('stale');
+    expect(stale?.state).toBe('Queued');
+    expect(stale?.outcome).toBe('queued');
+    expect(stale?.attempts).toBe(0);
+    expect(stale?.statusHistory.at(-1)?.detail).toMatch(/stuck/i);
+    expect((await repository.get('fresh'))?.state).toBe('Processing');
+    expect((await repository.get('done'))?.state).toBe('Completed');
+  });
+
   test('rediscovering a project does not reset a finished retrieval', async () => {
     await repository.upsert(procurement({ matchedKeywords: ['จ้างพัฒนา'] }));
     await repository.transition('66059313551', 'tor_analysed', {

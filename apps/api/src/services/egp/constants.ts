@@ -117,6 +117,13 @@ export const MAX_ATTEMPTS = 3;
  */
 export const RECORD_DEADLINE_MS = 5 * 60_000;
 
+/**
+ * How long a record may sit in Processing with no status change before the next
+ * run treats its worker as dead. Twice the record deadline, so a live run is
+ * never mistaken for a dead one.
+ */
+export const STALE_PROCESSING_MS = 10 * 60_000;
+
 /** egp-contract accepts a limit of at least 500. */
 export const PAGE_LIMIT = 500;
 

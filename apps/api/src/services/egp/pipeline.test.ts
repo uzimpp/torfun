@@ -335,6 +335,57 @@ describe('stages and the per-record deadline', () => {
   });
 });
 
+describe('the reaper', () => {
+  const stuck = (projectId: string, at: string) =>
+    procurement({
+      projectId,
+      state: 'Processing',
+      outcome: 'downloading',
+      statusHistory: [{ state: 'Processing', outcome: 'downloading', at }],
+    });
+
+  test('a record left Processing by a dead run is requeued at the next run, without costing an attempt', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(stuck('66059313551', '2026-09-01T00:00:00.000Z'));
+
+    // Discovery finds nothing new, so what happens to the record is the reaper's doing.
+    await run(repository, {
+      discoverProjects: async () => ({
+        records: [],
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+      resolveZipId: async () => null,
+    });
+
+    const record = await repository.get('66059313551');
+    const requeued = record?.statusHistory.find((entry) => entry.outcome === 'queued');
+    expect(requeued?.detail).toMatch(/stuck/i);
+    expect(record?.attempts).toBe(0);
+  });
+
+  test('a record that is Processing right now is left alone', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(stuck('66059313551', new Date().toISOString()));
+
+    await run(repository, {
+      discoverProjects: async () => ({
+        records: [],
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Processing');
+    expect(record?.statusHistory).toHaveLength(1);
+  });
+});
+
 describe('retry policy (ADR-0006)', () => {
   const resetting = {
     resolveZipId: async () => {
