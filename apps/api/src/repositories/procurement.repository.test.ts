@@ -635,4 +635,56 @@ describeMongo('ProcurementRepository', () => {
     expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['new', 'mid']);
     expect(await repository.recent(10)).toHaveLength(3);
   });
+
+  describe('records written before the status and outcome vocabulary changed', () => {
+    // What the real database held until the migration ran: `processing` for the
+    // outcome and history, the old stage names for status, and none of the newer
+    // fields. Reading such a record must not fail a whole response.
+    const storeLegacy = async () => {
+      await repository.upsert(procurement({ projectId: 'legacy' }));
+      await repository.transition('legacy', 'downloading');
+      await (await getDb()).collection('procurements').updateOne(
+        { _id: 'legacy' as never },
+        {
+          $set: {
+            state: 'Processing',
+            outcome: 'processing',
+            'status_history.$[entry].outcome': 'processing',
+            status: 'invitation',
+          },
+          $unset: { attempts: '', status_source: '', upstream_status: '' },
+        },
+        { arrayFilters: [{ 'entry.outcome': 'downloading' }] },
+      );
+    };
+
+    test('are read in the new vocabulary', async () => {
+      await storeLegacy();
+
+      const record = await repository.get('legacy');
+
+      expect(record?.outcome).toBe('downloading');
+      expect(record?.status).toBe('open');
+      expect(record?.statusHistory.map((entry) => entry.outcome)).toEqual(['downloading']);
+      expect(record?.attempts).toBe(0);
+      expect(record?.statusSource).toBeNull();
+    });
+
+    test('are counted under the new outcome in the summary', async () => {
+      await storeLegacy();
+
+      const { byOutcome } = await repository.summary();
+
+      expect(byOutcome).toEqual({ downloading: 1 });
+    });
+
+    test('appear in a listing and in the recent list', async () => {
+      await storeLegacy();
+
+      expect((await repository.find({ limit: 10, offset: 0 })).items[0]?.outcome).toBe(
+        'downloading',
+      );
+      expect((await repository.recent(5))[0]?.outcome).toBe('downloading');
+    });
+  });
 });
