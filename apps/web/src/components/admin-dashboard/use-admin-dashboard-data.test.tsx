@@ -60,6 +60,16 @@ describe('useAdminDashboardData', () => {
     expect(result.current.sessionEnded).toBe(false);
   });
 
+  test('records when the data was fetched, so relative times are measured from then', async () => {
+    fetchSummary.mockResolvedValue(summary(false));
+    const { result } = renderHook(() => useAdminDashboardData());
+    expect(result.current.asOf).toBeNull();
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.asOf).toBeInstanceOf(Date);
+  });
+
   test('does not poll while no run is in flight', async () => {
     fetchSummary.mockResolvedValue(summary(false));
     const { result } = renderHook(() => useAdminDashboardData());

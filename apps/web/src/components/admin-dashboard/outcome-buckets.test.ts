@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { IngestionOutcome } from '@torfun/types';
-import { outcomeBuckets, shareOf } from './outcome-buckets';
+import { bucketOfOutcome, outcomeBuckets, shareOf } from './outcome-buckets';
 
 describe('outcomeBuckets', () => {
   test('groups the ten outcomes into six Thai buckets in a fixed order', () => {
@@ -61,5 +61,23 @@ describe('shareOf', () => {
     expect(shareOf(38, 288)).toBe(13);
     expect(shareOf(0, 288)).toBe(0);
     expect(shareOf(5, 0)).toBe(0);
+  });
+});
+
+describe('bucketOfOutcome', () => {
+  test('names the bucket an outcome is counted in', () => {
+    expect(bucketOfOutcome('tor_analysed')).toBe('analysed');
+    expect(bucketOfOutcome('not_software')).toBe('notSoftware');
+    expect(bucketOfOutcome('no_tor_in_archive')).toBe('noTor');
+    expect(bucketOfOutcome('abandoned')).toBe('failed');
+    expect(bucketOfOutcome('queued')).toBe('queued');
+    expect(bucketOfOutcome('analysing')).toBe('running');
+  });
+
+  test('agrees with outcomeBuckets for every outcome', () => {
+    for (const outcome of IngestionOutcome.options) {
+      const counted = outcomeBuckets({ [outcome]: 1 }).find((bucket) => bucket.count === 1);
+      expect(counted?.key).toBe(bucketOfOutcome(outcome));
+    }
   });
 });

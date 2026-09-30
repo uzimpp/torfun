@@ -42,6 +42,11 @@ export function outcomeBuckets(
   }));
 }
 
+/** The bucket an outcome is counted in, for labelling one procurement the way the chart does. */
+export function bucketOfOutcome(outcome: IngestionOutcome): BucketKey {
+  return BUCKETS.find((bucket) => bucket.outcomes.includes(outcome))!.key;
+}
+
 /** Whole-number percent of the total; 0 rather than NaN when there is nothing yet. */
 export function shareOf(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 100) : 0;
