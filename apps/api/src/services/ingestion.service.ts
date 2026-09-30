@@ -5,6 +5,7 @@ import type { Env } from '../config/env';
 import { ConflictError, NotFoundError } from '../core/errors';
 import type { FindOptions, ProcurementDataSource } from '../repositories/procurement.repository';
 import { createIngestionDeps, runIngestion, type IngestionDeps } from './egp/pipeline';
+import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience';
 
 /**
  * Application-level policy over the e-GP ingestion pipeline.
@@ -47,8 +48,14 @@ export class IngestionService {
     return { ...summary, agencies, runInProgress: this.runInFlight };
   }
 
-  list(options: FindOptions): Promise<{ items: Procurement[]; total: number }> {
-    const filters = resolveProcurementListOptions(options);
+  /**
+   * An officer's query is narrowed to analysed TORs here, after whatever they
+   * sent, so no `outcome` in the request can widen it back out.
+   */
+  list(options: FindOptions, audience: Audience): Promise<{ items: Procurement[]; total: number }> {
+    const filters = resolveProcurementListOptions(
+      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME },
+    );
     return filters ? this.repository.find(filters) : Promise.resolve({ items: [], total: 0 });
   }
 
@@ -57,9 +64,12 @@ export class IngestionService {
     return this.repository.ensureIndexes();
   }
 
-  async get(projectId: string): Promise<Procurement> {
+  /** A record the audience may not see is reported exactly as one that does not exist. */
+  async get(projectId: string, audience: Audience): Promise<Procurement> {
     const record = await this.repository.get(projectId);
-    if (!record) throw new NotFoundError(`No ingested project ${projectId}`);
+    if (!record || !isVisibleTo(audience, record)) {
+      throw new NotFoundError(`No ingested project ${projectId}`);
+    }
     return record;
   }
 
