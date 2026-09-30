@@ -109,6 +109,12 @@ export const POLITENESS = {
 export const MAX_ATTEMPTS = 3;
 
 /**
+ * PDFs of one archive read by Gemini at the same time. Only analysis is pooled;
+ * the site downloads stay one at a time (see POLITENESS).
+ */
+export const ANALYSIS_CONCURRENCY = 2;
+
+/**
  * Ceiling on one record's whole retrieval, download and analysis together. A
  * hung call otherwise freezes the serial run for good, and the record stays
  * Processing forever. Generous on purpose — archives run to ~30 MB and several
