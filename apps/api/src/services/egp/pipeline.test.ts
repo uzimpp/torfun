@@ -277,3 +277,73 @@ describe('runIngestion', () => {
     expect((await repository.get('66059313551'))?.torAmbiguous).toBe(true);
   });
 });
+
+describe('retry policy (ADR-0006)', () => {
+  const resetting = {
+    resolveZipId: async () => {
+      throw new Error('connection reset');
+    },
+  };
+
+  test('a transport error leaves the record Queued to be tried again, and counts one attempt', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, resetting);
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Queued');
+    expect(record?.outcome).toBe('error');
+    expect(record?.attempts).toBe(1);
+    expect(record?.statusHistory.at(-1)?.detail).toContain('connection reset');
+  });
+
+  test('the third failed attempt abandons the record', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, resetting);
+    await run(repository, resetting);
+    expect((await repository.get('66059313551'))?.outcome).toBe('error');
+
+    await run(repository, resetting);
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Failed');
+    expect(record?.outcome).toBe('abandoned');
+    expect(record?.attempts).toBe(3);
+  });
+
+  test('an abandoned record is not selected again', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolve = mock(async () => {
+      throw new Error('connection reset');
+    });
+    for (let i = 0; i < 3; i += 1) await run(repository, { resolveZipId: resolve });
+    expect(resolve).toHaveBeenCalledTimes(3);
+
+    await run(repository, { resolveZipId: resolve });
+
+    expect(resolve).toHaveBeenCalledTimes(3);
+  });
+
+  test('a rate limit is not an attempt: the record goes back to the queue untouched', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      resolveZipId: async () => {
+        throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
+      },
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Queued');
+    expect(record?.outcome).toBe('queued');
+    expect(record?.attempts).toBe(0);
+  });
+
+  test('a project with no published TOR package stays terminal', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, { resolveZipId: async () => null });
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Failed');
+    expect(record?.outcome).toBe('no_tor_package');
+    expect(record?.attempts).toBe(0);
+  });
+});

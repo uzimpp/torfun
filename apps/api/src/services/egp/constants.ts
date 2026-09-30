@@ -101,6 +101,13 @@ export const POLITENESS = {
   torTimeoutMs: 120_000,
 } as const;
 
+/**
+ * Transport failures a record may accumulate before it is abandoned (ADR-0006).
+ * A policy, not a finding: it bounds how much of a capped run a permanently
+ * broken project can consume.
+ */
+export const MAX_ATTEMPTS = 3;
+
 /** egp-contract accepts a limit of at least 500. */
 export const PAGE_LIMIT = 500;
 

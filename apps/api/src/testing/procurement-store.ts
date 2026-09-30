@@ -76,6 +76,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
         (!options.state || record.state === options.state) &&
         (!options.outcome || record.outcome === options.outcome) &&
         (!options.status || record.status === options.status) &&
+        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow) &&
         (options.eBidding === undefined || record.eBidding === options.eBidding),
     );
     return {

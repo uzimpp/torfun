@@ -34,11 +34,7 @@ export class AdminUsersService {
     return this.users.list();
   }
 
-  async update(
-    actingUserId: string,
-    targetId: string,
-    patch: AdminUserPatch,
-  ): Promise<User> {
+  async update(actingUserId: string, targetId: string, patch: AdminUserPatch): Promise<User> {
     const target = await this.users.findById(targetId);
     if (!target) throw new NotFoundError('No such account');
 
@@ -49,9 +45,7 @@ export class AdminUsersService {
     const demoted = patch.role !== undefined && patch.role !== 'admin' && target.role === 'admin';
     const deactivated = patch.isActive === false && target.role === 'admin' && target.isActive;
     if ((demoted || deactivated) && (await this.users.countActiveAdmins()) <= 1) {
-      throw new ConflictError(
-        'The last active administrator cannot be demoted or deactivated',
-      );
+      throw new ConflictError('The last active administrator cannot be demoted or deactivated');
     }
 
     if (patch.role !== undefined && patch.role !== target.role) {

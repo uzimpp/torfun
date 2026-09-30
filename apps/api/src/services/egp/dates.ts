@@ -63,9 +63,10 @@ export function convertDateToISO(value: string | null | undefined): string | nul
   const text = value?.trim();
   if (!text) return null;
 
-  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})?)?$/.exec(
-    text,
-  );
+  const iso =
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})?)?$/.exec(
+      text,
+    );
   if (iso) {
     const day = toDay(toGregorianYear(Number(iso[1]), 4), Number(iso[2]), Number(iso[3]));
     if (!day) return null;
