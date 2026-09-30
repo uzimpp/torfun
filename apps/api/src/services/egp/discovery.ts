@@ -2,7 +2,7 @@ import type { IngestionFailure, Procurement } from '@torfun/types';
 import { classifyProject, softwareScore } from './classify';
 import { openDataGet, sleep } from './client';
 import { convertDateToISO } from './dates';
-import { toProcurementStatus } from './status';
+import { readUpstreamStatus } from './status';
 import { toWinner } from './winner';
 import {
   CONTRACT_URL,
@@ -148,6 +148,7 @@ export function toRecord(
 ): Procurement {
   const timestamp = now();
   const projectName = row.project_name ?? '';
+  const reading = readUpstreamStatus(row.project_status);
 
   return {
     projectId: String(row.project_id),
@@ -165,7 +166,9 @@ export function toRecord(
     purchaseMethodName: row.purchase_method_name ?? null,
     projectMoney: row.project_money ?? null,
     priceBuild: row.price_build ?? null,
-    status: toProcurementStatus(row.project_status),
+    status: reading.status,
+    statusSource: reading.source,
+    upstreamStatus: row.project_status ?? null,
     matchedKeywords: [keyword],
 
     softwareClass: classifyProject(projectName),
@@ -174,6 +177,7 @@ export function toRecord(
 
     state: 'Queued',
     outcome: 'queued',
+    attempts: 0,
     statusHistory: [{ state: 'Queued', outcome: 'queued', at: timestamp }],
 
     zipId: null,

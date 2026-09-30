@@ -35,7 +35,7 @@ export function mergeDiscovered(
     purchaseMethodName: incoming.purchaseMethodName,
     projectMoney: incoming.projectMoney,
     priceBuild: incoming.priceBuild,
-    status: incoming.status,
+    upstreamStatus: incoming.upstreamStatus,
     winner: incoming.winner,
 
     // Where this sweep found it, which can move between fiscal years.
@@ -47,10 +47,18 @@ export function mergeDiscovered(
     softwareClass: incoming.softwareClass,
     softwareScore: incoming.softwareScore,
 
+    // The stage is read by two parties. The feed's reading wins when it names
+    // a stage; when it names none (its usual answer) the stored reading —
+    // Gemini's, from the documents — stands, so a sweep cannot erase it.
+    status: incoming.statusSource === 'upstream' ? incoming.status : existing.status,
+    statusSource:
+      incoming.statusSource === 'upstream' ? incoming.statusSource : existing.statusSource,
+
     // Owned by this system's pipeline. A rediscovery must never reset a
     // retrieval that already happened.
     state: existing.state,
     outcome: existing.outcome,
+    attempts: existing.attempts,
     statusHistory: existing.statusHistory,
     zipId: existing.zipId,
     zipBytes: existing.zipBytes,

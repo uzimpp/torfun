@@ -15,40 +15,53 @@ import { z } from 'zod';
 export const IngestionState = z.enum(['Queued', 'Processing', 'Completed', 'Failed']);
 export type IngestionState = z.infer<typeof IngestionState>;
 
+/** Thai display labels for `IngestionState` — the coarse pipeline lifecycle. */
+export const STATE_LABELS: Record<IngestionState, string> = {
+  Queued: 'รอคิว',
+  Processing: 'กำลังดำเนินการ',
+  Completed: 'เสร็จสิ้น',
+  Failed: 'ไม่สำเร็จ',
+};
+
 /**
  * Where a procurement sits in the *agency's own* e-GP lifecycle — as opposed to
- * `IngestionState`, which is where it sits in ours. Read from upstream's
- * `project_status`, never written by this system.
+ * `IngestionState`, which is where it sits in ours.
  *
- * `invitation` is the only stage open to a bid: before it the agency has not
- * asked for one, after it the work is awarded, contracted or dead. That is what
- * makes this worth typing rather than storing as the raw Thai string.
+ * A closed set, so what an officer filters on stays clean and consistent.
+ * `open` is the only stage in which a bid is possible; `drafting` is the one
+ * worth most to a Business Development Officer, because it is the chance to
+ * prepare before the invitation is published.
  *
- * `unknown` covers anything upstream sends that this list does not name — a
- * seventh stage, or a rewording. It is surfaced to an administrator rather than
- * folded into a neighbouring value.
+ * The agency owns the truth and this system holds a reading of it: first from
+ * the open-data feed, then refined by Gemini from the documents (see
+ * `statusSource`). `unknown` means no reading exists yet, not "something went
+ * wrong" — an unrecognised feed value is kept verbatim in `upstreamStatus`.
  */
 export const ProcurementStatus = z.enum([
-  'drafting_tor',
-  'requisition',
-  'invitation',
-  'award_announced',
+  'drafting',
+  'open',
+  'evaluating',
+  'awarded',
   'contracted',
   'cancelled',
   'unknown',
 ]);
 export type ProcurementStatus = z.infer<typeof ProcurementStatus>;
 
-/** Human-readable labels, colocated with the enum so the UI can't drift from it. */
+/** Thai display labels, colocated with the enum so the UI can't drift from it. */
 export const STATUS_LABELS: Record<ProcurementStatus, string> = {
-  drafting_tor: 'จัดทำ TOR',
-  requisition: 'รายงานขอซื้อขอจ้าง',
-  invitation: 'หนังสือเชิญชวน/ประกาศเชิญชวน',
-  award_announced: 'อนุมัติสั่งซื้อสั่งจ้างและประกาศผู้ชนะการเสนอราคา',
-  contracted: 'จัดทำสัญญา/บริหารสัญญา',
-  cancelled: 'ยกเลิกโครงการ',
-  unknown: 'สถานะไม่ทราบ',
+  drafting: 'ร่าง / เตรียมการ',
+  open: 'เปิดรับข้อเสนอ',
+  evaluating: 'อยู่ระหว่างพิจารณา',
+  awarded: 'ประกาศผู้ชนะแล้ว',
+  contracted: 'ทำสัญญาแล้ว',
+  cancelled: 'ยกเลิก',
+  unknown: 'ยังไม่ระบุ',
 };
+
+/** Who read a procurement's status: the open-data feed, or Gemini from the documents. */
+export const StatusSource = z.enum(['upstream', 'ai']);
+export type StatusSource = z.infer<typeof StatusSource>;
 
 /**
  * A finer-grained result than `state`, kept alongside it rather than folded in.
@@ -58,27 +71,57 @@ export const STATUS_LABELS: Record<ProcurementStatus, string> = {
  * transport failure — but it still leaves an admin with nothing to read, so it
  * is surfaced rather than hidden. `no_tor_in_archive` is the rarer case where a
  * package exists but ships no TOR-named member.
+ *
+ * `downloading` and `analysing` are the two halves of Processing, so an admin
+ * can tell a slow upstream from a slow model. `error` is a transport failure
+ * that will be retried (the record stays Queued); `abandoned` is what it becomes
+ * after the last attempt. `not_software` is Gemini's reading of the TOR, kept as
+ * an outcome so the record stays visible to an admin and can be overruled.
  */
 export const IngestionOutcome = z.enum([
   'queued',
-  'processing',
+  'downloading',
+  'analysing',
   'tor_analysed',
+  'not_software',
   'analysis_failed',
   'no_tor_in_archive',
   'no_tor_package',
   'error',
+  'abandoned',
 ]);
 export type IngestionOutcome = z.infer<typeof IngestionOutcome>;
 
-/** Human-readable labels, colocated with the enum so the UI can't drift from it. */
+/** Thai display labels, colocated with the enum so the UI can't drift from it. */
 export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
   queued: 'รอดำเนินการ',
-  processing: 'กำลังดึงข้อมูล',
+  downloading: 'กำลังดึงข้อมูล',
+  analysing: 'กำลังประมวลผล',
   tor_analysed: 'วิเคราะห์ TOR แล้ว',
+  not_software: 'AI: ไม่ใช่งานซอฟต์แวร์',
   analysis_failed: 'ได้ไฟล์ TOR แต่วิเคราะห์ไม่สำเร็จ',
   no_tor_in_archive: 'ไม่มี TOR ในไฟล์บีบอัด',
   no_tor_package: 'ไม่มีชุดเอกสาร TOR',
-  error: 'ดึงข้อมูลผิดพลาด',
+  error: 'ดึงข้อมูลผิดพลาด (จะลองใหม่)',
+  abandoned: 'ลองครบ 3 ครั้งแล้ว',
+};
+
+/**
+ * The one State each Outcome belongs to. Storing both is deliberate (State is
+ * what the queue is selected and counted on), so this is what keeps the two
+ * from disagreeing: a writer looks the State up here rather than choosing it.
+ */
+export const OUTCOME_STATE: Record<IngestionOutcome, IngestionState> = {
+  queued: 'Queued',
+  error: 'Queued',
+  downloading: 'Processing',
+  analysing: 'Processing',
+  tor_analysed: 'Completed',
+  not_software: 'Completed',
+  analysis_failed: 'Completed',
+  no_tor_in_archive: 'Completed',
+  no_tor_package: 'Failed',
+  abandoned: 'Failed',
 };
 
 /**
@@ -226,8 +269,16 @@ export const ProcurementSchema = z.object({
   /** ราคากลาง — the official reference price. Distinct from the budget, and
    *  from what the work eventually sold for. */
   priceBuild: z.number().nullable(),
-  /** Where the agency's own e-GP lifecycle has reached. `invitation` is biddable. */
+  /** Where the agency's own e-GP lifecycle has reached. `open` is biddable. */
   status: ProcurementStatus,
+  /** Who read `status`; null while it is still `unknown`. Never present an `ai` reading as confirmed. */
+  statusSource: StatusSource.nullable(),
+  /**
+   * The open-data feed's own `project_status`, verbatim. Kept because the feed
+   * currently sends one generic value, and an unfamiliar one is what tells an
+   * administrator that upstream changed.
+   */
+  upstreamStatus: z.string().nullable(),
   matchedKeywords: z.array(z.string()),
 
   softwareClass: SoftwareClass,
@@ -247,6 +298,11 @@ export const ProcurementSchema = z.object({
 
   state: IngestionState,
   outcome: IngestionOutcome,
+  /**
+   * Transport failures so far. Derived on write so retrieval can leave out
+   * exhausted records in the query itself (ADR-0006).
+   */
+  attempts: z.number().int().nonnegative(),
   statusHistory: z.array(StatusChangeSchema),
 
   /** Handle for the announcement archive; null until the info call resolves it. */

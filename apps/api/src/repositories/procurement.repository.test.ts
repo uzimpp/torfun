@@ -47,13 +47,16 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 1_000_000,
     priceBuild: null,
-    status: 'invitation',
+    status: 'open',
+    statusSource: 'upstream',
+    upstreamStatus: 'หนังสือเชิญชวน/ประกาศเชิญชวน',
     matchedKeywords: ['จ้างพัฒนา'],
     softwareClass: 'new_build',
     softwareScore: 5,
     eBidding: true,
     state: 'Queued',
     outcome: 'queued',
+    attempts: 0,
     statusHistory: [],
     zipId: null,
     zipBytes: null,
@@ -143,7 +146,7 @@ describeMongo('ProcurementRepository', () => {
     // — so this failing to hold is a 500 on every list of procurements that
     // includes the affected record, not just a shape mismatch in a test.
     await repository.upsert(procurement());
-    const updated = await repository.transition('66059313551', 'Processing', 'processing');
+    const updated = await repository.transition('66059313551', 'Processing', 'downloading');
 
     const last = updated?.statusHistory.at(-1);
     expect(last).not.toHaveProperty('detail');
@@ -165,7 +168,7 @@ describeMongo('ProcurementRepository', () => {
 
   test('rediscovering a project refreshes what the agency published, and re-ranks it', async () => {
     await seed([
-      procurement({ projectId: 'live', status: 'invitation', softwareScore: 1 }),
+      procurement({ projectId: 'live', status: 'open', softwareScore: 1 }),
       procurement({ projectId: 'moving', status: 'contracted', softwareScore: 9 }),
     ]);
     expect((await ids())[0]).toBe('live');
@@ -173,7 +176,7 @@ describeMongo('ProcurementRepository', () => {
     await repository.upsert(
       procurement({
         projectId: 'moving',
-        status: 'invitation',
+        status: 'open',
         softwareScore: 9,
         projectName: 'จ้างพัฒนาระบบสารสนเทศ (แก้ไข)',
         projectMoney: 2_500_000,
@@ -181,7 +184,7 @@ describeMongo('ProcurementRepository', () => {
     );
 
     const record = await repository.get('moving');
-    expect(record?.status).toBe('invitation');
+    expect(record?.status).toBe('open');
     expect(record?.projectName).toBe('จ้างพัฒนาระบบสารสนเทศ (แก้ไข)');
     expect(record?.projectMoney).toBe(2_500_000);
     // The stored rank is derived on write, so a refreshed stage has to re-sort.
@@ -191,7 +194,7 @@ describeMongo('ProcurementRepository', () => {
   test('a live tender outranks a settled contract, whatever its score', async () => {
     await seed([
       procurement({ projectId: 'settled', status: 'contracted', softwareScore: 9 }),
-      procurement({ projectId: 'live', status: 'invitation', softwareScore: 1 }),
+      procurement({ projectId: 'live', status: 'open', softwareScore: 1 }),
     ]);
 
     expect((await ids())[0]).toBe('live');
@@ -227,11 +230,11 @@ describeMongo('ProcurementRepository', () => {
 
   test('callers can filter to one stage when they want to', async () => {
     await seed([
-      procurement({ projectId: 'live', status: 'invitation' }),
+      procurement({ projectId: 'live', status: 'open' }),
       procurement({ projectId: 'settled', status: 'contracted' }),
     ]);
 
-    expect(await ids('invitation')).toEqual(['live']);
+    expect(await ids('open')).toEqual(['live']);
   });
 
   test('a search term with regex characters is matched literally', async () => {

@@ -1,4 +1,9 @@
-import { OUTCOME_LABELS, type IngestionOutcome, type IngestionState } from '@torfun/types';
+import {
+  OUTCOME_LABELS,
+  STATE_LABELS,
+  type IngestionOutcome,
+  type IngestionState,
+} from '@torfun/types';
 import { Badge } from '@/components/ui/badge';
 
 /**
@@ -17,7 +22,7 @@ const STATE_STYLES: Record<IngestionState, string> = {
 };
 
 export function StateBadge({ state }: { state: IngestionState }) {
-  return <Badge className={STATE_STYLES[state]}>{state}</Badge>;
+  return <Badge className={STATE_STYLES[state]}>{STATE_LABELS[state]}</Badge>;
 }
 
 export function OutcomeLabel({ outcome }: { outcome: IngestionOutcome }) {
