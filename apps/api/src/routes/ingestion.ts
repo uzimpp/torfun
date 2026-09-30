@@ -99,7 +99,7 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      app.ingestionService.startRun(request.body);
+      await app.ingestionService.startRun(request.body);
       return reply.code(202).send({
         started: true,
         message: 'Ingestion run started. Poll /api/ingestion/summary for progress.',

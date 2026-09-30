@@ -13,6 +13,10 @@ import {
   type AgencyNameSource,
   type ProcurementDataSource,
 } from './repositories/procurement.repository';
+import {
+  IngestionLeaseRepository,
+  type IngestionLeaseStore,
+} from './repositories/ingestion-lease.repository';
 import { createDependencyProbes, DiagnosticsService } from './services/diagnostics.service';
 import {
   RefreshTokenRepository,
@@ -54,6 +58,8 @@ export interface RepositoryOverrides {
   clients?: ClientStore;
   experiences?: ExperienceStore;
   procurements?: ProcurementDataSource;
+  /** The lock that keeps ingestion to one Run at a time, across processes. */
+  ingestionLease?: IngestionLeaseStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
 }
@@ -106,6 +112,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const clientRepository = repositories.clients ?? new ClientRepository(app.mongo.getDb);
   const experienceRepository =
     repositories.experiences ?? new ExperienceRepository(app.mongo.getDb);
+  const ingestionLease =
+    repositories.ingestionLease ?? new IngestionLeaseRepository(app.mongo.getDb);
   const torProcurementStore = repositories.procurements ?? procurementRepository;
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
@@ -123,7 +131,10 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     'experienceService',
     new ExperienceService(experienceRepository, clientRepository, userRepository),
   );
-  app.decorate('ingestionService', new IngestionService(procurementRepository, env, app.log));
+  app.decorate(
+    'ingestionService',
+    new IngestionService(procurementRepository, env, app.log, { lease: ingestionLease }),
+  );
   app.decorate('torService', new TorService(torProcurementStore));
   app.decorate(
     'diagnosticsService',
