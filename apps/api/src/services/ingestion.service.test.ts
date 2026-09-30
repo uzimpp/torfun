@@ -1,48 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import type { FastifyBaseLogger } from 'fastify';
 import { ConflictError } from '../core/errors';
 import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
+import { gatedDeps, silentLogger } from '../testing/gated-ingestion';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
 import { InMemoryScheduleStore } from '../testing/schedule-store';
 import type { RunLog } from '../repositories/schedule.repository';
-import type { IngestionDeps } from './egp/pipeline';
 import { IngestionService } from './ingestion.service';
-
-const logger = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  debug: () => {},
-} as unknown as FastifyBaseLogger;
-
-/** A run whose discovery waits on a gate, so a test decides when it finishes. */
-function gatedDeps(fail = false) {
-  let open: () => void = () => {};
-  const gate = new Promise<void>((resolve) => {
-    open = resolve;
-  });
-  const deps: IngestionDeps = {
-    discoverProjects: async () => {
-      await gate;
-      if (fail) throw new Error('upstream exploded');
-      return {
-        records: [],
-        rejected: [],
-        resolutions: [],
-        failures: [],
-        ranAt: new Date().toISOString(),
-      };
-    },
-    resolveZipId: async () => null,
-    downloadArchive: async () => new Uint8Array(),
-    extractTorPdfs: () => ({ torFiles: [], members: [], unsafeSkipped: [] }),
-    classifyDocument: async () => ({ isTor: false, torKind: null, whatThisIs: '', analysis: null }),
-    sleep: async () => {},
-    recordDeadlineMs: 60_000,
-  };
-  return { deps, open };
-}
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -60,7 +24,7 @@ function build(
   const service = new IngestionService(
     new InMemoryProcurementStore(),
     testEnv(),
-    logger,
+    silentLogger,
     {
       lease,
       runLog: options.runLog ?? schedule,

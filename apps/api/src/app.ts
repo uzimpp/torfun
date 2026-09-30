@@ -34,6 +34,7 @@ import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
 import { ScheduleService } from './services/schedule.service';
+import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
 import { registerRoutes } from './routes';
 
@@ -136,14 +137,23 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     'experienceService',
     new ExperienceService(experienceRepository, clientRepository, userRepository),
   );
-  app.decorate(
-    'ingestionService',
-    new IngestionService(procurementRepository, env, app.log, {
-      lease: ingestionLease,
-      runLog: scheduleStore,
-    }),
-  );
+  const ingestionService = new IngestionService(procurementRepository, env, app.log, {
+    lease: ingestionLease,
+    runLog: scheduleStore,
+  });
+  app.decorate('ingestionService', ingestionService);
   app.decorate('scheduleService', new ScheduleService(scheduleStore));
+
+  // Built here, started by `server.ts`: a timer running behind every
+  // `buildApp()` would leak into each test that builds an app. Stopping on close
+  // is safe either way.
+  const schedulerService = new SchedulerService(
+    scheduleStore,
+    (input) => ingestionService.startRun(input),
+    app.log,
+  );
+  app.decorate('schedulerService', schedulerService);
+  app.addHook('onClose', async () => schedulerService.stop());
   app.decorate('torService', new TorService(torProcurementStore));
   app.decorate(
     'diagnosticsService',
