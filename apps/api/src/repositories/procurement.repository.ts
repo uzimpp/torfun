@@ -5,6 +5,7 @@ import type {
   IngestionOutcome,
   IngestionState,
   IngestionSummary,
+  OpenDataQuota,
   Procurement,
   ProcurementStatus,
   SoftwareClass,
@@ -311,6 +312,9 @@ export interface ProcurementStore {
   requeueStale(cutoff: string): Promise<number>;
   recordFailures(failures: IngestionFailure[]): Promise<void>;
   markRun(at: string): Promise<void>;
+  /** The open-data API's daily allowance as last read, or null if never read. */
+  openDataQuota(): Promise<OpenDataQuota | null>;
+  recordOpenDataQuota(quota: OpenDataQuota): Promise<void>;
   /** When discovery last completed a sweep, or null if it never has. */
   lastDiscoveryAt(): Promise<string | null>;
 }
@@ -333,6 +337,15 @@ export interface ProcurementDataSource extends ProcurementStore, AgencyNameSourc
   listFailures(): Promise<IngestionFailure[]>;
 }
 
+const QUOTA_ID = 'open_data_quota';
+
+interface QuotaDocument {
+  _id: string;
+  remaining_day: number;
+  limit_day: number | null;
+  observed_at: string;
+}
+
 interface FailureDocument extends IngestionFailure {
   _id?: unknown;
 }
@@ -346,6 +359,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
 
   private async failuresCollection(): Promise<Collection<FailureDocument>> {
     return (await this.getDb()).collection<FailureDocument>('ingestion_failures');
+  }
+
+  private async quotaDocuments(): Promise<Collection<QuotaDocument>> {
+    return (await this.getDb()).collection<QuotaDocument>(INGESTION_META_COLLECTION);
   }
 
   private async meta(): Promise<Collection<{ _id: string; at: string }>> {
@@ -593,6 +610,33 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     await (await this.meta()).updateOne({ _id: 'last_run' }, { $set: { at } }, { upsert: true });
   }
 
+  async openDataQuota(): Promise<OpenDataQuota | null> {
+    const document = await (await this.quotaDocuments()).findOne({ _id: QUOTA_ID });
+    return document
+      ? {
+          remainingDay: document.remaining_day,
+          limitDay: document.limit_day,
+          observedAt: document.observed_at,
+        }
+      : null;
+  }
+
+  async recordOpenDataQuota(quota: OpenDataQuota): Promise<void> {
+    await (
+      await this.quotaDocuments()
+    ).updateOne(
+      { _id: QUOTA_ID },
+      {
+        $set: {
+          remaining_day: quota.remainingDay,
+          limit_day: quota.limitDay,
+          observed_at: quota.observedAt,
+        },
+      },
+      { upsert: true },
+    );
+  }
+
   async lastDiscoveryAt(): Promise<string | null> {
     return (await (await this.meta()).findOne({ _id: 'last_run' }))?.at ?? null;
   }
@@ -671,6 +715,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       totalTorBytes: torRows[0]?.bytes ?? 0,
       failureCount,
       lastRunAt: lastRun?.at ?? null,
+      openDataQuota: await this.openDataQuota(),
       // Owned by the service layer, which is what actually starts a run.
       runInProgress: false,
     };

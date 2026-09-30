@@ -81,3 +81,44 @@ describe('what an error says about the request that caused it', () => {
     expect((error as Error).message).not.toContain(SECRET);
   });
 });
+
+describe('the open-data API daily quota', () => {
+  const answering = (headers: Record<string, string>) =>
+    (async () =>
+      new Response(JSON.stringify({ success: true, total: 0, data: [] }), {
+        status: 200,
+        headers,
+      })) as unknown as typeof fetch;
+
+  test('is read from the rate-limit headers of a response', async () => {
+    globalThis.fetch = answering({
+      'x-ratelimit-limit-day': '1000',
+      'x-ratelimit-remaining-day': '640',
+    });
+
+    const page = await openDataGet('https://opend.test/x', {}, 'k');
+
+    expect(page.quota).toEqual({ limitDay: 1000, remainingDay: 640 });
+  });
+
+  test('is unknown when the headers are absent, rather than zero', async () => {
+    globalThis.fetch = answering({});
+
+    const page = await openDataGet('https://opend.test/x', {}, 'k');
+
+    expect(page.quota).toEqual({ limitDay: null, remainingDay: null });
+  });
+
+  test('a refusal carries the quota it was refused with', async () => {
+    globalThis.fetch = (async () =>
+      new Response('{"message":"API rate limit exceeded"}', {
+        status: 429,
+        headers: { 'x-ratelimit-limit-day': '1000', 'x-ratelimit-remaining-day': '0' },
+      })) as unknown as typeof fetch;
+
+    const error = await openDataGet('https://opend.test/x', {}, 'k').catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(RateLimitedError);
+    expect((error as RateLimitedError).quota).toEqual({ limitDay: 1000, remainingDay: 0 });
+  });
+});

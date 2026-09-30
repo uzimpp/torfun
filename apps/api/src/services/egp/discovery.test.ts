@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { OPEN_DATA_RESERVE } from './constants';
 import contractRow from './fixtures/contract-row.json';
 import { discoverProjects, toRecord, type ContractRow } from './discovery';
 
@@ -73,6 +74,73 @@ describe('discoverProjects when the open-data API says stop', () => {
 
     expect(result.rateLimited).toBe(false);
     expect(calls).toBeGreaterThan(1);
+  });
+});
+
+describe('discoverProjects and the daily quota', () => {
+  /** Answers every call with an empty page, reporting a falling allowance. */
+  const countingDown = (start: number) => {
+    let remaining = start;
+    const calls = { count: 0 };
+    globalThis.fetch = (async (url: string) => {
+      calls.count += 1;
+      remaining -= 1;
+      const isDept = new URL(String(url)).pathname.endsWith('/egp-dept');
+      const rows = isDept ? [{ dept_code: '0305', dept_name: 'กรมศุลกากร' }] : [];
+      return new Response(JSON.stringify({ success: true, total: rows.length, data: rows }), {
+        status: 200,
+        headers: {
+          'x-ratelimit-limit-day': '1000',
+          'x-ratelimit-remaining-day': String(remaining),
+        },
+      });
+    }) as unknown as typeof fetch;
+    return calls;
+  };
+
+  test('reports the last allowance it was told about', async () => {
+    // Close to the reserve, so the sweep ends after a few calls and the test is quick.
+    countingDown(OPEN_DATA_RESERVE + 4);
+
+    const result = await discoverProjects('k');
+
+    expect(result.quota?.limitDay).toBe(1000);
+    expect(result.quota?.remainingDay).toBeLessThanOrEqual(OPEN_DATA_RESERVE + 3);
+    expect(result.quota?.observedAt).toMatch(/^\d{4}-/);
+  });
+
+  test('stops before the allowance runs out, leaving a reserve, and is not a rate limit', async () => {
+    const calls = countingDown(OPEN_DATA_RESERVE + 8);
+
+    const result = await discoverProjects('k');
+
+    expect(result.budgetReached).toBe(true);
+    expect(result.rateLimited).toBe(false);
+    expect(result.quota?.remainingDay).toBeLessThanOrEqual(OPEN_DATA_RESERVE);
+    expect(result.quota?.remainingDay).toBeGreaterThanOrEqual(OPEN_DATA_RESERVE - 1);
+    expect(calls.count).toBeLessThan(15); // not the ~270 a full sweep makes
+  });
+
+  test('a refusal means nothing is left today', async () => {
+    globalThis.fetch = (async () =>
+      new Response('', {
+        status: 429,
+        headers: { 'x-ratelimit-limit-day': '1000', 'x-ratelimit-remaining-day': '0' },
+      })) as unknown as typeof fetch;
+
+    const result = await discoverProjects('k');
+
+    expect(result.rateLimited).toBe(true);
+    expect(result.quota?.remainingDay).toBe(0);
+  });
+
+  test('a response that says nothing about the allowance leaves it unknown', async () => {
+    globalThis.fetch = (async () => json([])) as unknown as typeof fetch;
+
+    const result = await discoverProjects('k');
+
+    expect(result.quota).toBeNull();
+    expect(result.budgetReached).toBe(false);
   });
 });
 

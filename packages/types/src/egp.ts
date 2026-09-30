@@ -498,6 +498,22 @@ export const IngestionFailureSchema = z.object({
 });
 export type IngestionFailure = z.infer<typeof IngestionFailureSchema>;
 
+/**
+ * What the open-data API last said about this key's daily allowance. It is a
+ * hard cap (1,000 requests a day, observed), shared by everything using the key,
+ * so the pipeline plans a sweep against it and an administrator can see it.
+ */
+/** What a full discovery sweep costs in open-data requests (~270 queries plus lookups). For planning and display. */
+export const OPEN_DATA_SWEEP_CALLS = 300;
+
+export const OpenDataQuotaSchema = z.object({
+  /** Requests left today as of `observedAt`; 0 means refused until the day turns over. */
+  remainingDay: z.number().int().nonnegative(),
+  limitDay: z.number().int().positive().nullable(),
+  observedAt: z.string(),
+});
+export type OpenDataQuota = z.infer<typeof OpenDataQuotaSchema>;
+
 export const IngestionSummarySchema = z.object({
   total: z.number().int(),
   byState: z.record(IngestionState, z.number().int()),
@@ -508,6 +524,8 @@ export const IngestionSummarySchema = z.object({
   totalTorBytes: z.number().int(),
   failureCount: z.number().int(),
   lastRunAt: z.string().nullable(),
+  /** The open-data API's daily allowance as last seen; null until a sweep has read it. */
+  openDataQuota: OpenDataQuotaSchema.nullable(),
   /**
    * Whether a retrieval run is executing right now. Authoritative, so the UI
    * never has to infer "still running" from the absence of Processing rows —
