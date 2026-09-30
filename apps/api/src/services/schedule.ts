@@ -4,11 +4,12 @@ import type { Schedule } from '@torfun/types';
  * When a Schedule next wants a Run — pure, so the rule can be tested without a
  * clock, a database or a timer.
  *
- * The next run is always measured from an anchor: when the last Run *started*,
- * or, if none ever has, when the schedule was last saved. That one choice gives
+ * The next run is always measured from an anchor: whichever is later of when the
+ * last Run *started* and when the schedule was last saved. That one choice gives
  * the behaviours that matter:
  *
- *  - Switching a schedule on starts nothing; the first run is the next slot.
+ *  - Switching a schedule on (or changing it) starts nothing, however long ago
+ *    the last Run was; the first run is the next slot after the save.
  *  - After downtime, exactly one catch-up run is due however many slots were
  *    missed, because that run's start becomes the new anchor. There is no burst.
  *  - A run that started on the slot does not make the same slot due again.
@@ -48,10 +49,12 @@ function nextDailySlot(anchorMs: number, timeOfDay: string): number {
 export function nextDueAt(schedule: Schedule, lastRunStartedAt: string | null): string | null {
   if (!schedule.enabled) return null;
 
-  const anchor = lastRunStartedAt ?? schedule.updatedAt;
-  if (anchor === null) return null;
-  const anchorMs = Date.parse(anchor);
-  if (Number.isNaN(anchorMs)) return null;
+  const anchors = [lastRunStartedAt, schedule.updatedAt]
+    .filter((at): at is string => at !== null)
+    .map((at) => Date.parse(at))
+    .filter((ms) => !Number.isNaN(ms));
+  if (anchors.length === 0) return null;
+  const anchorMs = Math.max(...anchors);
 
   const dueMs =
     schedule.mode === 'interval'
