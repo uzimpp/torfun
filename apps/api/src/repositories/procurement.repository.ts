@@ -14,6 +14,7 @@ import type {
   TorAnalysis,
   Winner,
 } from '@torfun/types';
+import { OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 
 /**
@@ -227,9 +228,12 @@ export interface FindResult {
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
   upsert(record: Procurement): Promise<Procurement>;
+  /**
+   * Move a record to an Outcome. The State is not an argument: it is looked up
+   * from `OUTCOME_STATE`, so the two fields cannot be written out of step.
+   */
   transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch?: Partial<Procurement>,
     detail?: string,
@@ -318,7 +322,6 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
 
   async transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch: Partial<Procurement> = {},
     detail?: string,
@@ -326,6 +329,8 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const collection = await this.records();
     const existing = await collection.findOne({ _id: projectId });
     if (!existing) return undefined;
+
+    const state = OUTCOME_STATE[outcome];
 
     const at = new Date().toISOString();
     // `detail` is spread in only when present: the Mongo driver serialises an
