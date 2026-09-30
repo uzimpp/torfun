@@ -33,6 +33,20 @@ export interface RunCoordination {
   now?: () => Date;
 }
 
+/**
+ * Whether a Run may still start another record. It may not once its lease was
+ * seen to be taken over, nor once a whole lease term has passed without the
+ * lease being confirmed — by then another Run may hold it, and a database that
+ * cannot be reached to say so is not a reason to carry on regardless.
+ */
+export function runMayContinue(
+  lease: { lost: boolean; confirmedAt: number },
+  nowMs: number,
+  ttlMs: number,
+): boolean {
+  return !lease.lost && nowMs - lease.confirmedAt < ttlMs;
+}
+
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_LEASE_TTL_MS = 2 * 60_000;
 
@@ -143,13 +157,22 @@ export class IngestionService {
     }
 
     // A live Run renews its lease so it outlives the ttl; a crashed one stops,
-    // and the lease lapses on its own. Renewal failing (Mongo briefly away, or
-    // the lease having been taken over) is logged, not fatal to the pass —
-    // aborting mid-download helps nobody.
+    // and the lease lapses on its own. The pass cannot be cancelled mid-record,
+    // so when renewal shows the lease was taken over — or cannot be confirmed
+    // for a whole term — the Run stops at its next record (`runMayContinue`),
+    // instead of overlapping whoever holds it now. A single failed renewal
+    // (Mongo briefly away) is only logged.
+    const held = { lost: false, confirmedAt: startedAt.getTime() };
     const heartbeat = setInterval(() => {
-      lease.heartbeat(holder, this.now(), leaseTtlMs).then(
+      const at = this.now();
+      lease.heartbeat(holder, at, leaseTtlMs).then(
         (kept) => {
-          if (!kept) this.logger.warn('egp: ingestion lease lost while a run was still going');
+          if (kept) {
+            held.confirmedAt = at.getTime();
+          } else {
+            held.lost = true;
+            this.logger.warn('egp: ingestion lease lost while a run was still going');
+          }
         },
         (error: unknown) =>
           this.logger.warn({ err: error }, 'egp: ingestion lease heartbeat failed'),
@@ -164,6 +187,7 @@ export class IngestionService {
         maxDownloads: input.maxDownloads ?? this.env.EGP_MAX_DOWNLOADS_PER_RUN,
         eBiddingOnly: input.eBiddingOnly,
         logger: this.logger,
+        shouldContinue: () => runMayContinue(held, this.now().getTime(), leaseTtlMs),
       },
       this.deps,
     )

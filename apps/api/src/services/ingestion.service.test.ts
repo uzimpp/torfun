@@ -6,7 +6,7 @@ import { gatedDeps, silentLogger } from '../testing/gated-ingestion';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
 import { InMemoryScheduleStore } from '../testing/schedule-store';
 import type { RunLog } from '../repositories/schedule.repository';
-import { IngestionService } from './ingestion.service';
+import { IngestionService, runMayContinue } from './ingestion.service';
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -145,5 +145,21 @@ describe('IngestionService.startRun', () => {
 
     expect((await service.summary()).runInProgress).toBe(false);
     await service.startRun({ eBiddingOnly: true });
+  });
+});
+
+describe('runMayContinue', () => {
+  const TTL = 120_000;
+
+  test('a run whose lease was confirmed recently may continue', () => {
+    expect(runMayContinue({ lost: false, confirmedAt: 1_000 }, 1_000 + TTL - 1, TTL)).toBe(true);
+  });
+
+  test('a run whose lease was taken over must stop', () => {
+    expect(runMayContinue({ lost: true, confirmedAt: 1_000 }, 1_001, TTL)).toBe(false);
+  });
+
+  test('a run that could not reach the lease for a whole ttl must stop, since another may hold it now', () => {
+    expect(runMayContinue({ lost: false, confirmedAt: 1_000 }, 1_000 + TTL, TTL)).toBe(false);
   });
 });
