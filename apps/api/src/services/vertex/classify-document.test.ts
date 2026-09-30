@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { classifyTorDocument, MAX_INLINE_PDF_BYTES, type ModelCall } from './classify-document';
+import { ModelTimeoutError } from './reliable-model-call';
 
 /** Bytes that pass the %PDF magic-number check, padded to a given length. */
 const pdf = (bytes = 1_000) =>
@@ -114,6 +115,19 @@ describe('classifyTorDocument', () => {
     );
 
     expect(result.unreadable).toContain('429');
+  });
+
+  test('a call that timed out is recorded as a timeout, not as a bad answer', async () => {
+    const result = await classifyTorDocument(
+      mock(async () => {
+        throw new ModelTimeoutError(120_000);
+      }),
+      pdf(),
+    );
+
+    expect(result.isTor).toBe(false);
+    expect(result.unreadable).toMatch(/timed out after 120s/i);
+    expect(result.unreadable).not.toMatch(/JSON|schema/i);
   });
 
   test('claims a TOR but supplies no analysis — treated as unusable', async () => {

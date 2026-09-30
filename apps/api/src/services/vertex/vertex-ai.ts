@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, type Schema } from '@google/genai';
 import type { Env } from '../../config/env';
 import type { ModelCall } from './classify-document';
+import { sendReliably } from './reliable-model-call';
 
 /**
  * Vertex AI adapter: the one place that knows about Google's client.
@@ -179,26 +180,31 @@ export function textFromResponse(response: ModelResponse): string {
 export function createModelCall(env: Env): ModelCall {
   const client = createVertexAiClient(env);
 
-  return async ({ pdfBase64, prompt }) => {
-    const response = await client.models.generateContent({
-      model: env.VERTEX_AI_MODEL,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
-            { text: prompt },
-          ],
+  // Each request carries a ceiling and is retried when the service says it is
+  // busy (see reliable-model-call.ts). Without one, a request that never
+  // answers freezes the whole serial run.
+  return ({ pdfBase64, prompt }) =>
+    sendReliably(async (signal) => {
+      const response = await client.models.generateContent({
+        model: env.VERTEX_AI_MODEL,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
+              { text: prompt },
+            ],
+          },
+        ],
+        config: {
+          temperature: 0,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          responseMimeType: 'application/json',
+          responseSchema: ANSWER_SCHEMA,
+          abortSignal: signal,
         },
-      ],
-      config: {
-        temperature: 0,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        responseMimeType: 'application/json',
-        responseSchema: ANSWER_SCHEMA,
-      },
-    });
+      });
 
-    return textFromResponse(response);
-  };
+      return textFromResponse(response);
+    });
 }
