@@ -1,17 +1,16 @@
-import { OUTCOME_LABELS, STATE_LABELS, type Procurement, type StatusChange } from '@torfun/types';
+import {
+  MAX_RETRIEVAL_ATTEMPTS,
+  OUTCOME_LABELS,
+  STATE_LABELS,
+  type Procurement,
+  type StatusChange,
+} from '@torfun/types';
 import type { IngestionSummaryResponse } from '@/lib/api';
 
 /**
  * What the ingestion console says about where a record is, as plain functions
  * so the wording and the thresholds can be tested without a DOM or a clock.
  */
-
-/**
- * How many times a transport failure is retried before a record is abandoned
- * (ADR-0006). The pipeline owns the rule; this is only what the console counts
- * against, so the two must agree.
- */
-export const MAX_ATTEMPTS = 3;
 
 /** A record that has sat in one Processing stage longer than this is worth a look. */
 const OVERDUE_AFTER_MS = 5 * 60_000;
@@ -50,7 +49,7 @@ export function stageDuration(
 
 /** "ลองแล้ว 2/3" once a retrieval has been tried at all; nothing before that. */
 export function attemptsLabel(attempts: number): string | null {
-  return attempts > 0 ? `ลองแล้ว ${attempts}/${MAX_ATTEMPTS}` : null;
+  return attempts > 0 ? `ลองแล้ว ${attempts}/${MAX_RETRIEVAL_ATTEMPTS}` : null;
 }
 
 export interface RunBanner {

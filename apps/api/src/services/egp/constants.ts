@@ -101,12 +101,8 @@ export const POLITENESS = {
   torTimeoutMs: 120_000,
 } as const;
 
-/**
- * Transport failures a record may accumulate before it is abandoned (ADR-0006).
- * A policy, not a finding: it bounds how much of a capped run a permanently
- * broken project can consume.
- */
-export const MAX_ATTEMPTS = 3;
+/** Transport failures before a record is abandoned (ADR-0006); the number lives in `@torfun/types`. */
+export { MAX_RETRIEVAL_ATTEMPTS as MAX_ATTEMPTS } from '@torfun/types';
 
 /**
  * PDFs of one archive read by Gemini at the same time. Only analysis is pooled;
