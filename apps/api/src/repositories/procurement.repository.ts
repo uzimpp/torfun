@@ -270,6 +270,8 @@ export interface AgencyNameSource {
 export interface ProcurementDataSource extends ProcurementStore, AgencyNameSource {
   ensureIndexes(): Promise<void>;
   summary(): Promise<IngestionSummary>;
+  /** The most recently updated procurements, newest first. */
+  recent(limit: number): Promise<Procurement[]>;
   listFailures(): Promise<IngestionFailure[]>;
 }
 
@@ -559,6 +561,15 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       // Owned by the service layer, which is what actually starts a run.
       runInProgress: false,
     };
+  }
+
+  async recent(limit: number): Promise<Procurement[]> {
+    const documents = await (await this.records())
+      .find({})
+      .sort({ updated_at: -1, _id: 1 })
+      .limit(limit)
+      .toArray();
+    return documents.map(toDomain);
   }
 }
 

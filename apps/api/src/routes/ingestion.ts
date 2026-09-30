@@ -106,4 +106,25 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
       });
     },
   );
+
+  app.get(
+    '/ingestion/recent',
+    {
+      onRequest: requireAdmin,
+      schema: {
+        querystring: z.object({
+          // Clamped, not rejected: a dashboard asking for more than it may have
+          // still gets the most it is allowed.
+          limit: z.coerce
+            .number()
+            .int()
+            .positive()
+            .default(5)
+            .transform((limit) => Math.min(limit, 20)),
+        }),
+        response: { 200: z.object({ items: z.array(ProcurementSchema) }) },
+      },
+    },
+    async (request) => ({ items: await app.ingestionService.recent(request.query.limit) }),
+  );
 };

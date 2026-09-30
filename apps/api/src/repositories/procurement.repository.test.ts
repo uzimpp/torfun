@@ -622,4 +622,17 @@ describeMongo('ProcurementRepository', () => {
     expect(await fresh.listFailures()).toHaveLength(1);
     expect((await fresh.summary()).lastRunAt).toBe('2026-09-09T01:00:00.000Z');
   });
+
+  test('recent returns the most recently updated procurements, newest first, up to the limit', async () => {
+    await seed([
+      procurement({ projectId: 'old', updatedAt: '2026-09-01T00:00:00.000Z' }),
+      procurement({ projectId: 'new', updatedAt: '2026-09-30T00:00:00.000Z' }),
+      procurement({ projectId: 'mid', updatedAt: '2026-09-15T00:00:00.000Z' }),
+    ]);
+
+    // `upsert` stamps updatedAt itself on a merge, but a first insert keeps the
+    // value it was given, which is what orders these three.
+    expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['new', 'mid']);
+    expect(await repository.recent(10)).toHaveLength(3);
+  });
 });
