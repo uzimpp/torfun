@@ -92,6 +92,22 @@ export const IngestionOutcome = z.enum([
 ]);
 export type IngestionOutcome = z.infer<typeof IngestionOutcome>;
 
+/**
+ * Transport failures a Procurement may accumulate before it is abandoned
+ * (ADR-0006). A policy, not a finding: it bounds how much of a capped Run a
+ * permanently broken project can consume. Shared so the console counts against
+ * the same number the pipeline enforces.
+ */
+export const MAX_RETRIEVAL_ATTEMPTS = 3;
+
+/**
+ * Longest one Procurement may take in a Run before it is treated as a transport
+ * failure and requeued. Generous on purpose — it exists to catch a hang, not to
+ * hurry a slow archive. Shared so the console flags a record as overdue at the
+ * same moment the pipeline gives up on it.
+ */
+export const RECORD_DEADLINE_MS = 5 * 60_000;
+
 /** Thai display labels, colocated with the enum so the UI can't drift from it. */
 export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
   queued: 'รอดำเนินการ',
@@ -103,16 +119,8 @@ export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
   no_tor_in_archive: 'ไม่มี TOR ในไฟล์บีบอัด',
   no_tor_package: 'ไม่มีชุดเอกสาร TOR',
   error: 'ดึงข้อมูลผิดพลาด (จะลองใหม่)',
-  abandoned: 'ลองครบ 3 ครั้งแล้ว',
+  abandoned: `ลองครบ ${MAX_RETRIEVAL_ATTEMPTS} ครั้งแล้ว`,
 };
-
-/**
- * Transport failures a Procurement may accumulate before it is abandoned
- * (ADR-0006). A policy, not a finding: it bounds how much of a capped Run a
- * permanently broken project can consume. Shared so the console counts against
- * the same number the pipeline enforces.
- */
-export const MAX_RETRIEVAL_ATTEMPTS = 3;
 
 /**
  * The one State each Outcome belongs to. Storing both is deliberate (State is

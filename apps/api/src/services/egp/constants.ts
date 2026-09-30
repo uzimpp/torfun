@@ -110,14 +110,8 @@ export { MAX_RETRIEVAL_ATTEMPTS as MAX_ATTEMPTS } from '@torfun/types';
  */
 export const ANALYSIS_CONCURRENCY = 2;
 
-/**
- * Ceiling on one record's whole retrieval, download and analysis together. A
- * hung call otherwise freezes the serial run for good, and the record stays
- * Processing forever. Generous on purpose — archives run to ~30 MB and several
- * PDFs are read one after another — because it exists to catch a hang, not to
- * hurry a slow one.
- */
-export const RECORD_DEADLINE_MS = 5 * 60_000;
+/** Longest one record may take before it is requeued; the number lives in `@torfun/types`. */
+export { RECORD_DEADLINE_MS } from '@torfun/types';
 
 /**
  * How long a record may sit in Processing with no status change before the next

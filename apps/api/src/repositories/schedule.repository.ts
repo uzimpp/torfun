@@ -1,5 +1,6 @@
 import type { Collection, Db } from 'mongodb';
 import { DEFAULT_SCHEDULE, type Schedule, type ScheduleUpdate } from '@torfun/types';
+import { INGESTION_META_COLLECTION } from './ingestion-meta';
 
 /**
  * Records that a Run started, so a Schedule can count from it. Split out
@@ -44,7 +45,7 @@ export class ScheduleRepository implements ScheduleStore {
   constructor(private readonly getDb: () => Promise<Db>) {}
 
   private async documents(): Promise<Collection<ScheduleDocument>> {
-    return (await this.getDb()).collection<ScheduleDocument>('ingestion_meta');
+    return (await this.getDb()).collection<ScheduleDocument>(INGESTION_META_COLLECTION);
   }
 
   async get(): Promise<StoredSchedule> {
