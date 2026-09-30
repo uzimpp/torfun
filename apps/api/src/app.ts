@@ -17,6 +17,7 @@ import {
   IngestionLeaseRepository,
   type IngestionLeaseStore,
 } from './repositories/ingestion-lease.repository';
+import { ScheduleRepository, type ScheduleStore } from './repositories/schedule.repository';
 import { createDependencyProbes, DiagnosticsService } from './services/diagnostics.service';
 import {
   RefreshTokenRepository,
@@ -32,6 +33,7 @@ import { CompanyService } from './services/company.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
+import { ScheduleService } from './services/schedule.service';
 import { TorService } from './services/tor.service';
 import { registerRoutes } from './routes';
 
@@ -60,6 +62,8 @@ export interface RepositoryOverrides {
   procurements?: ProcurementDataSource;
   /** The lock that keeps ingestion to one Run at a time, across processes. */
   ingestionLease?: IngestionLeaseStore;
+  /** The setting for when Runs start on their own, and when the last one began. */
+  schedule?: ScheduleStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
 }
@@ -114,6 +118,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     repositories.experiences ?? new ExperienceRepository(app.mongo.getDb);
   const ingestionLease =
     repositories.ingestionLease ?? new IngestionLeaseRepository(app.mongo.getDb);
+  const scheduleStore = repositories.schedule ?? new ScheduleRepository(app.mongo.getDb);
   const torProcurementStore = repositories.procurements ?? procurementRepository;
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
@@ -133,8 +138,12 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   );
   app.decorate(
     'ingestionService',
-    new IngestionService(procurementRepository, env, app.log, { lease: ingestionLease }),
+    new IngestionService(procurementRepository, env, app.log, {
+      lease: ingestionLease,
+      runLog: scheduleStore,
+    }),
   );
+  app.decorate('scheduleService', new ScheduleService(scheduleStore));
   app.decorate('torService', new TorService(torProcurementStore));
   app.decorate(
     'diagnosticsService',

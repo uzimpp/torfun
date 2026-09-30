@@ -5,6 +5,7 @@ import type { IngestionFailure, Procurement, IngestionSummary } from '@torfun/ty
 import type { Env } from '../config/env';
 import { ConflictError, NotFoundError } from '../core/errors';
 import type { IngestionLeaseStore } from '../repositories/ingestion-lease.repository';
+import type { RunLog } from '../repositories/schedule.repository';
 import type { FindOptions, ProcurementDataSource } from '../repositories/procurement.repository';
 import { createIngestionDeps, runIngestion, type IngestionDeps } from './egp/pipeline';
 import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience';
@@ -22,6 +23,8 @@ import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience'
 /** How the lease is kept alive. Defaults suit production; a test shrinks them. */
 export interface RunCoordination {
   lease: IngestionLeaseStore;
+  /** Told when a Run begins, so a Schedule counts from real starts. */
+  runLog: RunLog;
   /** How often a live Run renews its lease. */
   heartbeatMs?: number;
   /** How long a lease outlives its last heartbeat — how long a crashed holder blocks everyone. */
@@ -118,8 +121,19 @@ export class IngestionService {
     const heartbeatMs = this.coordination.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
     const holder = randomUUID();
 
-    if (!(await lease.acquire(holder, new Date(), leaseTtlMs))) {
+    const startedAt = new Date();
+    if (!(await lease.acquire(holder, startedAt, leaseTtlMs))) {
       throw new ConflictError('An ingestion run is already in progress.');
+    }
+
+    // Noted only once the lease is ours, so a refused start records nothing. If
+    // the note cannot be written the Run does not begin: an unrecorded start
+    // would leave a schedule to fire again the moment this one finished.
+    try {
+      await this.coordination.runLog.markRunStarted(startedAt.toISOString());
+    } catch (error) {
+      await lease.release(holder).catch(() => undefined);
+      throw error;
     }
 
     // A live Run renews its lease so it outlives the ttl; a crashed one stops,
