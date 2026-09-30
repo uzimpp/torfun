@@ -16,6 +16,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function SummaryCards({ summary }: { summary: IngestionSummaryResponse }) {
+  const outcome = (key: keyof IngestionSummaryResponse['byOutcome']) => summary.byOutcome[key] ?? 0;
   const failed = summary.byState.Failed ?? 0;
   const tiles = [
     {
@@ -28,6 +29,18 @@ export function SummaryCards({ summary }: { summary: IngestionSummaryResponse })
       label: 'รอดำเนินการ',
       value: (summary.byState.Queued ?? 0).toLocaleString('th-TH'),
       hint: 'ยังไม่ได้ดึงเอกสาร',
+      alert: false,
+    },
+    {
+      label: 'กำลังดึงข้อมูล',
+      value: outcome('downloading').toLocaleString('th-TH'),
+      hint: 'กำลังโหลดไฟล์จาก e-GP',
+      alert: false,
+    },
+    {
+      label: 'กำลังประมวลผล',
+      value: outcome('analysing').toLocaleString('th-TH'),
+      hint: 'AI กำลังอ่าน TOR',
       alert: false,
     },
     {
@@ -46,14 +59,17 @@ export function SummaryCards({ summary }: { summary: IngestionSummaryResponse })
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
       {tiles.map((tile) => (
-        <Card key={tile.label} className={cn(tile.alert && 'border-destructive/40')}>
+        <Card
+          key={tile.label}
+          role="group"
+          aria-label={tile.label}
+          className={cn(tile.alert && 'border-destructive/40')}
+        >
           <CardHeader className="pb-2">
             <CardDescription>{tile.label}</CardDescription>
-            <CardTitle
-              className={cn('text-3xl tabular-nums', tile.alert && 'text-destructive')}
-            >
+            <CardTitle className={cn('text-3xl tabular-nums', tile.alert && 'text-destructive')}>
               {tile.value}
             </CardTitle>
           </CardHeader>

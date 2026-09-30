@@ -26,5 +26,5 @@ export function StateBadge({ state }: { state: IngestionState }) {
 }
 
 export function OutcomeLabel({ outcome }: { outcome: IngestionOutcome }) {
-  return <span className="text-muted-foreground text-xs">{OUTCOME_LABELS[outcome]}</span>;
+  return <span className="text-sm">{OUTCOME_LABELS[outcome]}</span>;
 }
