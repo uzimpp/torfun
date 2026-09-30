@@ -15,6 +15,7 @@ import type { Procurement } from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { ProcurementStatusBadge } from './procurement-status-badge';
 import { hasSearchCriteria, type SearchFilterValues } from './search-filter-values';
 import { ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
@@ -198,6 +199,7 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
             {item.purchaseMethodName ?? 'วิธีอื่นที่ไม่ใช่ e-bidding'}
           </span>
         )}
+        <ProcurementStatusBadge status={item.status} source={item.statusSource} />
         <span data-numeric className="text-muted-foreground font-mono text-xs">
           ปีงบประมาณ {item.year}
         </span>

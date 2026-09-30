@@ -4,10 +4,13 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { ProcurementFilters } from './procurement-filters';
 import {
+  activeFilterCount,
   EMPTY_SEARCH_FILTERS,
+  hasSearchCriteria,
   parseSearchFilters,
   searchHref,
   toProjectFilters,
+  withoutSearchFilter,
 } from './search-filter-values';
 
 describe('ProcurementFilters', () => {
@@ -205,6 +208,65 @@ describe('ProcurementFilters', () => {
     expect(clearBudget).not.toHaveAttribute('href', expect.stringContaining('minBudget'));
     expect(clearBudget).toHaveAttribute('href', expect.stringContaining('techStack='));
     expect(screen.getByLabelText('เว็บแอปพลิเคชัน')).toBeChecked();
+  });
+});
+
+describe('procurement status filter', () => {
+  test('is read from the URL only when it names one of the known stages', () => {
+    expect(parseSearchFilters({ status: 'drafting' }).status).toBe('drafting');
+    expect(parseSearchFilters({ status: 'unknown' }).status).toBe('unknown');
+    // A stage that no longer exists, a Thai label, or nothing: no filter.
+    expect(parseSearchFilters({ status: 'invitation' }).status).toBe('');
+    expect(parseSearchFilters({ status: 'ร่าง / เตรียมการ' }).status).toBe('');
+    expect(parseSearchFilters({}).status).toBe('');
+  });
+
+  test('becomes part of the server request and the shareable URL, and only when set', () => {
+    const values = { ...EMPTY_SEARCH_FILTERS, status: 'drafting' as const };
+
+    expect(toProjectFilters(values, 20, 0)).toMatchObject({ status: 'drafting' });
+    expect(searchHref(values)).toBe('/search?status=drafting');
+    expect(toProjectFilters(EMPTY_SEARCH_FILTERS, 20, 0)).not.toHaveProperty('status');
+    expect(searchHref(EMPTY_SEARCH_FILTERS)).toBe('/search');
+  });
+
+  test('counts as an active filter and can be cleared on its own', () => {
+    const values = { ...EMPTY_SEARCH_FILTERS, query: 'ระบบ', status: 'open' as const };
+
+    expect(activeFilterCount(values)).toBe(1);
+    expect(hasSearchCriteria({ ...EMPTY_SEARCH_FILTERS, status: 'open' })).toBe(true);
+    expect(withoutSearchFilter(values, 'status')).toEqual({ ...values, status: '' });
+  });
+
+  test('is offered in Thai only, as a select named status, with the current choice kept', () => {
+    // An active filter opens the panel by itself, so there is no toggle to click.
+    render(<ProcurementFilters values={{ ...EMPTY_SEARCH_FILTERS, status: 'drafting' }} />);
+
+    const select = screen.getByLabelText('สถานะโครงการ');
+    expect(select).toHaveAttribute('name', 'status');
+    expect(select).toHaveValue('drafting');
+
+    const labels = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(labels).toEqual([
+      'ทุกสถานะ',
+      'ร่าง / เตรียมการ',
+      'เปิดรับข้อเสนอ',
+      'อยู่ระหว่างพิจารณา',
+      'ประกาศผู้ชนะแล้ว',
+      'ทำสัญญาแล้ว',
+      'ยกเลิก',
+      'ยังไม่ระบุ',
+    ]);
+    // No English enum name leaks into what an officer reads.
+    for (const label of labels) expect(label).not.toMatch(/[A-Za-z]/);
+  });
+
+  test('shows the chosen stage as a removable chip', () => {
+    render(<ProcurementFilters values={{ ...EMPTY_SEARCH_FILTERS, status: 'drafting' }} />);
+
+    expect(
+      screen.getByRole('link', { name: 'ล้างตัวกรอง สถานะ: ร่าง / เตรียมการ' }),
+    ).toHaveAttribute('href', '/search');
   });
 });
 
