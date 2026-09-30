@@ -17,6 +17,12 @@ export const RECENT_COUNT = 5;
 export interface AdminDashboardData {
   summary: IngestionSummaryResponse | null;
   recent: Procurement[];
+  /**
+   * When this data was fetched — the moment "5 minutes ago" is measured from.
+   * Null until the first load; held in state because reading the clock while
+   * rendering would make the page's output depend on when it happened to render.
+   */
+  asOf: Date | null;
   loading: boolean;
   error: string | null;
   /** The session cannot be renewed: sign in again, retrying only repeats the refusal. */
@@ -37,6 +43,7 @@ export interface AdminDashboardData {
 export function useAdminDashboardData(): AdminDashboardData {
   const [summary, setSummary] = useState<IngestionSummaryResponse | null>(null);
   const [recent, setRecent] = useState<Procurement[]>([]);
+  const [asOf, setAsOf] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
@@ -54,6 +61,7 @@ export function useAdminDashboardData(): AdminDashboardData {
         if (cancelled) return;
         setSummary(summaryData);
         setRecent(recentData.items);
+        setAsOf(new Date());
         setError(null);
         setSessionEnded(false);
         setLoading(false);
@@ -89,5 +97,5 @@ export function useAdminDashboardData(): AdminDashboardData {
     setRefreshKey((key) => key + 1);
   }, []);
 
-  return { summary, recent, loading, error, sessionEnded, retry };
+  return { summary, recent, asOf, loading, error, sessionEnded, retry };
 }
