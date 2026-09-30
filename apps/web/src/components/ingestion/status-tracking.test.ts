@@ -1,12 +1,7 @@
 import { describe, expect, test } from 'vitest';
+import { MAX_RETRIEVAL_ATTEMPTS } from '@torfun/types';
 import type { IngestionSummaryResponse } from '@/lib/api';
-import {
-  attemptsLabel,
-  describeChange,
-  MAX_ATTEMPTS,
-  runBanner,
-  stageDuration,
-} from './status-tracking';
+import { attemptsLabel, describeChange, runBanner, stageDuration } from './status-tracking';
 
 const NOW = new Date('2026-09-30T12:00:00.000Z');
 const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
@@ -63,7 +58,7 @@ describe('attemptsLabel', () => {
   });
 
   test('counts tries against the limit the pipeline enforces', () => {
-    expect(MAX_ATTEMPTS).toBe(3);
+    expect(MAX_RETRIEVAL_ATTEMPTS).toBe(3);
     expect(attemptsLabel(1)).toBe('ลองแล้ว 1/3');
     expect(attemptsLabel(3)).toBe('ลองแล้ว 3/3');
   });

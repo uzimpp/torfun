@@ -107,6 +107,14 @@ export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
 };
 
 /**
+ * Transport failures a Procurement may accumulate before it is abandoned
+ * (ADR-0006). A policy, not a finding: it bounds how much of a capped Run a
+ * permanently broken project can consume. Shared so the console counts against
+ * the same number the pipeline enforces.
+ */
+export const MAX_RETRIEVAL_ATTEMPTS = 3;
+
+/**
  * The one State each Outcome belongs to. Storing both is deliberate (State is
  * what the queue is selected and counted on), so this is what keeps the two
  * from disagreeing: a writer looks the State up here rather than choosing it.
