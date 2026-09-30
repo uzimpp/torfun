@@ -103,6 +103,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       analysis,
     }),
     sleep: async () => {},
+    recordDeadlineMs: 60_000,
     ...overrides,
   };
 }
@@ -275,6 +276,62 @@ describe('runIngestion', () => {
 
     expect(classify).toHaveBeenCalledTimes(2);
     expect((await repository.get('66059313551'))?.torAmbiguous).toBe(true);
+  });
+});
+
+describe('stages and the per-record deadline', () => {
+  test('a record is downloading, then analysing, then done', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository);
+
+    const outcomes = (await repository.get('66059313551'))?.statusHistory.map((s) => s.outcome);
+    expect(outcomes).toEqual(['downloading', 'analysing', 'tor_analysed']);
+  });
+
+  test('a record with nothing to read never reaches analysing', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      extractTorPdfs: () => ({ torFiles: [], members: ['annoudoc_1.pdf'], unsafeSkipped: [] }),
+    });
+
+    const outcomes = (await repository.get('66059313551'))?.statusHistory.map((s) => s.outcome);
+    expect(outcomes).toEqual(['downloading', 'no_tor_in_archive']);
+  });
+
+  test('a record that overruns its deadline is requeued as a transport failure, and the run moves on', async () => {
+    const repository = new InMemoryProcurementStore();
+    let release: () => void = () => {};
+    const hung = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const result = await run(repository, {
+      recordDeadlineMs: 20,
+      discoverProjects: async () => ({
+        records: [procurement(), procurement({ projectId: '66059313552' })],
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+      classifyDocument: async () => {
+        await hung;
+        return { isTor: true, torKind: 'final' as const, whatThisIs: 'ขอบเขตของงาน', analysis };
+      },
+    });
+
+    // Both records hang, neither takes the whole run down with it.
+    expect(result.aborted).toBe(false);
+    expect(result.attempted).toBe(2);
+    const first = await repository.get('66059313551');
+    expect(first?.state).toBe('Queued');
+    expect(first?.outcome).toBe('error');
+    expect(first?.attempts).toBe(1);
+    expect(first?.statusHistory.at(-1)?.detail).toMatch(/deadline/i);
+
+    // The stuck work finishing afterwards must not overwrite the requeue.
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect((await repository.get('66059313551'))?.outcome).toBe('error');
   });
 });
 
