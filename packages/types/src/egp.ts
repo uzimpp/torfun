@@ -177,8 +177,11 @@ export const ArchiveDocumentSchema = z.object({
   member: z.string(),
   filename: z.string(),
   bytes: z.number().int().nonnegative(),
-  /** What the filename heuristic thought. Provenance and tie-breaker only. */
-  namePattern: z.enum(['canonical', 'loose']),
+  /**
+   * What the filename heuristic thought. Provenance and tie-breaker only;
+   * `unlabelled` means nothing in the name said TOR and the model was asked anyway.
+   */
+  namePattern: z.enum(['canonical', 'loose', 'unlabelled']),
   role: DocumentRole,
   /** Why this document has that role, in the model's words. */
   note: z.string(),
@@ -325,6 +328,12 @@ export const ProcurementSchema = z.object({
   zipId: z.string().nullable(),
   zipBytes: z.number().int().nonnegative().nullable(),
   archiveMemberCount: z.number().int().nonnegative().nullable(),
+  /**
+   * Every member name in the archive, so an administrator can see what a
+   * no-TOR archive actually held and judge whether the filename gate missed
+   * something. Names only; the files themselves are never kept (ADR-0002).
+   */
+  archiveMembers: z.array(z.string()),
   /**
    * Every candidate document found in the archive and what it turned out to
    * be. A manifest, not files: the bytes are never persisted (ADR-0002).

@@ -33,6 +33,7 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
@@ -85,6 +86,7 @@ describe('mergeDiscovered', () => {
       zipId: 'ZIP-1',
       zipBytes: 30_000_000,
       archiveMemberCount: 12,
+      archiveMembers: [],
       documents: [
         {
           member: 'Attach_TOR_1.pdf',

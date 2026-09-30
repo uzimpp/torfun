@@ -46,6 +46,7 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,

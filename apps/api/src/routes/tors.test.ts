@@ -35,6 +35,7 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: 'zip-1',
     zipBytes: 100,
     archiveMemberCount: 1,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,

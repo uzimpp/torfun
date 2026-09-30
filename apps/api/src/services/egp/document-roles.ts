@@ -16,7 +16,7 @@ export interface ClassifiedDocument {
   filename: string;
   bytes: number;
   /** What the filename heuristic thought. Provenance and tie-breaker only. */
-  namePattern: 'canonical' | 'loose';
+  namePattern: 'canonical' | 'loose' | 'unlabelled';
   isTor: boolean;
   /** `final` where the document presents itself as the issued TOR, `draft` for a ร่าง. */
   torKind: 'final' | 'draft' | null;
