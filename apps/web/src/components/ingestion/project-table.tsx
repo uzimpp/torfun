@@ -47,6 +47,18 @@ function countTorDocuments(record: Procurement): number {
   ).length;
 }
 
+/**
+ * The facts whose columns drop away below a wide screen — year, budget, TOR
+ * count — as one line under the title, so a narrower window loses the column
+ * but not the information.
+ */
+function compactFacts(record: Procurement): string {
+  const budget =
+    record.projectMoney === null ? 'ไม่ระบุงบประมาณ' : `${formatThb(record.projectMoney)} บาท`;
+  const tors = countTorDocuments(record);
+  return [`ปี ${record.year}`, budget, ...(tors > 0 ? [`TOR ${tors} ไฟล์`] : [])].join(' · ');
+}
+
 /** Status history and retrieved files for one expanded row. */
 function ProjectDetail({ record }: { record: Procurement }) {
   return (
@@ -175,14 +187,14 @@ export function ProjectTable({
         <Table aria-busy={loading}>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-36">สถานะการประมวลผล</TableHead>
-              <TableHead className="w-56">ผลการประมวลผล</TableHead>
-              <TableHead className="w-44">สถานะโครงการ</TableHead>
-              <TableHead className="min-w-64">โครงการ</TableHead>
-              <TableHead className="w-48">หน่วยงาน</TableHead>
-              <TableHead className="w-20 text-right">ปี</TableHead>
-              <TableHead className="w-36 text-right">งบประมาณ (บาท)</TableHead>
-              <TableHead className="w-20 text-right">TOR</TableHead>
+              <TableHead className="w-32">สถานะการประมวลผล</TableHead>
+              <TableHead className="w-48">ผลการประมวลผล</TableHead>
+              <TableHead className="w-32">สถานะโครงการ</TableHead>
+              <TableHead className="min-w-56">โครงการ</TableHead>
+              <TableHead className="w-40">หน่วยงาน</TableHead>
+              <TableHead className="hidden w-20 text-right xl:table-cell">ปี</TableHead>
+              <TableHead className="hidden w-36 text-right xl:table-cell">งบประมาณ (บาท)</TableHead>
+              <TableHead className="hidden w-20 text-right xl:table-cell">TOR</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -256,6 +268,9 @@ export function ProjectTable({
                             )}
                           />
                         </button>
+                        <p className="text-muted-foreground mt-1 text-xs xl:hidden">
+                          {compactFacts(record)}
+                        </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <code className="text-muted-foreground text-xs">{record.projectId}</code>
                           {record.eBidding ? (
@@ -271,11 +286,13 @@ export function ProjectTable({
                         </div>
                       </TableCell>
                       <TableCell className="text-sm">{record.deptName}</TableCell>
-                      <TableCell className="text-right tabular-nums">{record.year}</TableCell>
-                      <TableCell className="text-right tabular-nums">
+                      <TableCell className="hidden text-right tabular-nums xl:table-cell">
+                        {record.year}
+                      </TableCell>
+                      <TableCell className="hidden text-right tabular-nums xl:table-cell">
                         {formatThb(record.projectMoney)}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
+                      <TableCell className="hidden text-right tabular-nums xl:table-cell">
                         {countTorDocuments(record) > 0 ? countTorDocuments(record) : '—'}
                       </TableCell>
                     </TableRow>

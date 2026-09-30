@@ -105,6 +105,37 @@ describe('ProjectTable columns', () => {
   });
 });
 
+describe('ProjectTable on a narrow screen', () => {
+  test('keeps the year, budget and TOR count beside the title, since their columns are hidden', () => {
+    renderTable([
+      record({
+        year: 2568,
+        projectMoney: 16773380,
+        documents: [
+          {
+            member: 'Attach_TOR_1.pdf',
+            filename: 'Attach_TOR_1.pdf',
+            bytes: 1000,
+            namePattern: 'canonical',
+            role: 'main_tor',
+            note: '',
+          },
+        ],
+      }),
+    ]);
+
+    const compact = screen.getByText(/^ปี 2568/);
+    expect(compact).toHaveTextContent('ปี 2568 · 16,773,380 บาท · TOR 1 ไฟล์');
+    // Shown only where the columns are not, so wide screens do not read it twice.
+    expect(compact.className).toContain('xl:hidden');
+  });
+
+  test('says there is no budget rather than printing a bare dash', () => {
+    renderTable([record({ projectMoney: null })]);
+    expect(screen.getByText(/^ปี 2568/)).toHaveTextContent('ไม่ระบุงบประมาณ');
+  });
+});
+
 describe('ProjectTable progress', () => {
   const inFlight = (minutes: number) =>
     record({
