@@ -147,6 +147,12 @@ export interface RunOptions {
    */
   eBiddingOnly: boolean;
   logger: FastifyBaseLogger;
+  /**
+   * Asked before each record. A Run cannot be cancelled mid-record, so this is
+   * where one that no longer holds the right to run — its lease was taken
+   * over — stops rather than overlap another Run's requests to the site.
+   */
+  shouldContinue?: () => boolean;
 }
 
 export interface RunResult {
@@ -298,6 +304,12 @@ export async function runIngestion(
   };
 
   for (const [index, record] of candidates.entries()) {
+    if (options.shouldContinue && !options.shouldContinue()) {
+      aborted = true;
+      logger.warn('egp: run stopped before its next record; the rest stay Queued');
+      break;
+    }
+
     attempted += 1;
     await repository.transition(record.projectId, 'downloading');
 

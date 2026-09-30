@@ -335,6 +335,47 @@ describe('stages and the per-record deadline', () => {
   });
 });
 
+describe('a run that is told to stop', () => {
+  test('stops before the next record and leaves the rest Queued', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolved: string[] = [];
+    let allowed = true;
+
+    const result = await runIngestion(
+      repository,
+      {
+        apiKey: 'k',
+        maxDownloads: 5,
+        eBiddingOnly: true,
+        logger,
+        shouldContinue: () => allowed,
+      },
+      deps({
+        discoverProjects: async () => ({
+          records: [procurement(), procurement({ projectId: '66059313552' })],
+          rejected: [],
+          resolutions: [],
+          failures: [],
+          ranAt: '2026-09-09T00:00:00.000Z',
+        }),
+        resolveZipId: async (projectId) => {
+          resolved.push(projectId);
+          allowed = false; // e.g. the lease was lost while the first record was working
+          return 'zip-1';
+        },
+      }),
+    );
+
+    expect(result.aborted).toBe(true);
+    expect(result.attempted).toBe(1);
+    expect(resolved).toEqual(['66059313551']);
+    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+    const second = await repository.get('66059313552');
+    expect(second?.state).toBe('Queued');
+    expect(second?.attempts).toBe(0);
+  });
+});
+
 describe('a deadline that fires while a site request is in flight', () => {
   const two = () => ({
     discoverProjects: async () => ({
