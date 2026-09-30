@@ -135,3 +135,26 @@ describe('starting a run', () => {
     expect(result.current.sessionEnded).toBe(true);
   });
 });
+
+describe('filters', () => {
+  test('sends the outcome and procurement-status filters to the queue query', async () => {
+    mocked.fetchSummary.mockResolvedValue(summary(false));
+    const filters = { ...EMPTY_FILTERS, outcome: 'analysing', status: 'drafting' };
+    const { result } = renderHook(() => useIngestionData(filters, 0));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(mocked.fetchProjects).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'analysing', status: 'drafting' }),
+    );
+  });
+
+  test('leaves them out of the query when they are not set', async () => {
+    mocked.fetchSummary.mockResolvedValue(summary(false));
+    const { result } = renderHook(() => useIngestionData(EMPTY_FILTERS, 0));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const query = mocked.fetchProjects.mock.calls[0]?.[0] ?? {};
+    expect(query).not.toHaveProperty('outcome');
+    expect(query).not.toHaveProperty('status');
+  });
+});

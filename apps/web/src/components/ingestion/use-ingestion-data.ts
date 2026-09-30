@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { IngestionFailure, Procurement, IngestionState } from '@torfun/types';
+import type {
+  IngestionFailure,
+  IngestionOutcome,
+  IngestionState,
+  Procurement,
+  ProcurementStatus,
+} from '@torfun/types';
 import {
   ApiError,
   SessionEndedError,
@@ -18,6 +24,8 @@ export const PAGE_SIZE = 25;
 /** Filter values as the form holds them: strings, empty meaning "no filter". */
 export interface FilterValues {
   state: string;
+  outcome: string;
+  status: string;
   agency: string;
   year: string;
   eBidding: string;
@@ -26,6 +34,8 @@ export interface FilterValues {
 
 export const EMPTY_FILTERS: FilterValues = {
   state: '',
+  outcome: '',
+  status: '',
   agency: '',
   year: '',
   eBidding: '',
@@ -37,6 +47,8 @@ function toQuery(filters: FilterValues, page: number): ProjectFilters {
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
     ...(filters.state ? { state: filters.state as IngestionState } : {}),
+    ...(filters.outcome ? { outcome: filters.outcome as IngestionOutcome } : {}),
+    ...(filters.status ? { status: filters.status as ProcurementStatus } : {}),
     ...(filters.agency ? { deptName: filters.agency } : {}),
     ...(filters.year ? { year: Number(filters.year) } : {}),
     ...(filters.eBidding ? { eBidding: filters.eBidding === 'true' } : {}),
@@ -86,14 +98,14 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
   /** Bumped to force a reload without changing any filter. */
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const { state, agency, year, eBidding, query } = filters;
+  const { state, outcome, status, agency, year, eBidding, query } = filters;
 
   // Pure fetch — deliberately free of setState so an effect can call it without
   // triggering the cascading renders the React compiler warns about.
   const loadData = useCallback(() => {
-    const params = toQuery({ state, agency, year, eBidding, query }, page);
+    const params = toQuery({ state, outcome, status, agency, year, eBidding, query }, page);
     return Promise.all([fetchSummary(), fetchProjects(params), fetchFailures()]);
-  }, [page, state, agency, year, eBidding, query]);
+  }, [page, state, outcome, status, agency, year, eBidding, query]);
 
   useEffect(() => {
     // `cancelled` guards against out-of-order responses: changing a filter

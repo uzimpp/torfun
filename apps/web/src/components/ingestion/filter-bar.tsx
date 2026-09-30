@@ -1,14 +1,26 @@
 'use client';
 
-import type { IngestionState } from '@torfun/types';
+import { useId } from 'react';
+import {
+  IngestionOutcome,
+  IngestionState,
+  OUTCOME_LABELS,
+  ProcurementStatus,
+  STATE_LABELS,
+  STATUS_LABELS,
+} from '@torfun/types';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { FilterValues } from './use-ingestion-data';
+import { EMPTY_FILTERS, type FilterValues } from './use-ingestion-data';
 
-const STATES: IngestionState[] = ['Queued', 'Processing', 'Completed', 'Failed'];
-
-/** Native select, styled to match the Input primitive. */
+/**
+ * Native select, styled to match the Input primitive.
+ *
+ * Its label is tied to it with an id, so a screen reader announces the name and
+ * a click on the label focuses the control.
+ */
 function Select({
   label,
   value,
@@ -20,13 +32,17 @@ function Select({
   onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
 }) {
+  const id = useId();
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label className="text-muted-foreground text-xs">{label}</Label>
+    <div className="flex min-w-40 flex-1 flex-col gap-1.5 sm:flex-none">
+      <Label htmlFor={id} className="text-muted-foreground text-xs">
+        {label}
+      </Label>
       <select
+        id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
+        className="border-input focus-visible:border-ring focus-visible:ring-ring/50 h-10 rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -52,6 +68,10 @@ export function FilterBar({
   agencies: string[];
   years: number[];
 }) {
+  const active = (Object.keys(EMPTY_FILTERS) as Array<keyof FilterValues>).some(
+    (key) => values[key] !== EMPTY_FILTERS[key],
+  );
+
   return (
     <Card>
       <CardContent className="flex flex-wrap items-end gap-4 py-5">
@@ -67,10 +87,31 @@ export function FilterBar({
           />
         </div>
         <Select
-          label="สถานะ"
+          label="สถานะการประมวลผล"
           value={values.state}
           onChange={(state) => onChange({ state })}
-          options={[ALL, ...STATES.map((s) => ({ value: s, label: s }))]}
+          options={[
+            ALL,
+            ...IngestionState.options.map((s) => ({ value: s, label: STATE_LABELS[s] })),
+          ]}
+        />
+        <Select
+          label="ผลการประมวลผล"
+          value={values.outcome}
+          onChange={(outcome) => onChange({ outcome })}
+          options={[
+            ALL,
+            ...IngestionOutcome.options.map((o) => ({ value: o, label: OUTCOME_LABELS[o] })),
+          ]}
+        />
+        <Select
+          label="สถานะโครงการ"
+          value={values.status}
+          onChange={(status) => onChange({ status })}
+          options={[
+            ALL,
+            ...ProcurementStatus.options.map((s) => ({ value: s, label: STATUS_LABELS[s] })),
+          ]}
         />
         <Select
           label="หน่วยงาน"
@@ -94,6 +135,11 @@ export function FilterBar({
             { value: 'false', label: 'ไม่ใช่ e-bidding' },
           ]}
         />
+        {active ? (
+          <Button variant="ghost" className="min-h-10" onClick={() => onChange(EMPTY_FILTERS)}>
+            ล้างตัวกรอง
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   );
