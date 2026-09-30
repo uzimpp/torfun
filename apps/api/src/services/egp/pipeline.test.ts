@@ -335,6 +335,82 @@ describe('stages and the per-record deadline', () => {
   });
 });
 
+describe('a deadline that fires while a site request is in flight', () => {
+  const two = () => ({
+    discoverProjects: async () => ({
+      records: [procurement(), procurement({ projectId: '66059313552' })],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+  });
+
+  test('cancels the request and lets it end before the next record starts, so downloads stay single-file', async () => {
+    const repository = new InMemoryProcurementStore();
+    const events: string[] = [];
+    let cancelled = 0;
+
+    await run(repository, {
+      ...two(),
+      recordDeadlineMs: 20,
+      resolveZipId: async (projectId) => {
+        events.push(`resolve ${projectId}`);
+        return 'zip-1';
+      },
+      downloadArchive: (_zipId, signal) =>
+        new Promise((_resolve, reject) => {
+          events.push('download start');
+          signal?.addEventListener('abort', () => {
+            cancelled += 1;
+            // A cancelled request takes a moment to wind down.
+            setTimeout(() => {
+              events.push('download ended');
+              reject(new Error('cancelled'));
+            }, 15);
+          });
+        }),
+    });
+
+    expect(cancelled).toBe(2);
+    expect(events).toEqual([
+      'resolve 66059313551',
+      'download start',
+      'download ended',
+      'resolve 66059313552',
+      'download start',
+      'download ended',
+    ]);
+  });
+
+  test('a rate limit that beats the cancellation still stops the run, and costs no attempt', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolved: string[] = [];
+
+    const result = await run(repository, {
+      ...two(),
+      recordDeadlineMs: 20,
+      resolveZipId: async (projectId) => {
+        resolved.push(projectId);
+        return 'zip-1';
+      },
+      downloadArchive: (_zipId, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            setTimeout(() => reject(new RateLimitedError('https://site.test/x', 429)), 5);
+          });
+        }),
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(resolved).toEqual(['66059313551']); // the second record was never started
+    const first = await repository.get('66059313551');
+    expect(first?.outcome).toBe('queued');
+    expect(first?.attempts).toBe(0);
+    expect((await repository.get('66059313552'))?.outcome).toBe('queued');
+  });
+});
+
 describe('what Gemini reads from the TOR', () => {
   const reading = (
     overrides: {

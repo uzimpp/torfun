@@ -29,8 +29,11 @@ interface InfoResponse {
  * Step 1. Returns null when the project simply has no published TOR package —
  * the common case for direct awards, which have no bidders to publish a spec for.
  */
-export async function resolveZipId(projectId: string): Promise<string | null> {
-  const response = await egpGet(TOR_INFO_URL, { projectId }, BROWSER_HEADERS);
+export async function resolveZipId(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const response = await egpGet(TOR_INFO_URL, { projectId }, BROWSER_HEADERS, signal);
 
   let body: InfoResponse;
   try {
@@ -49,8 +52,8 @@ export async function resolveZipId(projectId: string): Promise<string | null> {
  * type and the PK magic number are both checked — trusting the status code
  * alone would write an error message to disk as though it were an archive.
  */
-export async function downloadArchive(zipId: string): Promise<Uint8Array> {
-  const response = await egpGet(TOR_DOWNLOAD_URL, { fileId: zipId }, BROWSER_HEADERS);
+export async function downloadArchive(zipId: string, signal?: AbortSignal): Promise<Uint8Array> {
+  const response = await egpGet(TOR_DOWNLOAD_URL, { fileId: zipId }, BROWSER_HEADERS, signal);
   const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
   const bytes = new Uint8Array(await response.arrayBuffer());
 
