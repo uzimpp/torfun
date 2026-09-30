@@ -1,5 +1,6 @@
 import {
   MAX_RETRIEVAL_ATTEMPTS,
+  RECORD_DEADLINE_MS,
   OUTCOME_LABELS,
   STATE_LABELS,
   type Procurement,
@@ -12,8 +13,8 @@ import type { IngestionSummaryResponse } from '@/lib/api';
  * so the wording and the thresholds can be tested without a DOM or a clock.
  */
 
-/** A record that has sat in one Processing stage longer than this is worth a look. */
-const OVERDUE_AFTER_MS = 5 * 60_000;
+/** A record past the pipeline's own deadline is worth a look. */
+const OVERDUE_AFTER_MS = RECORD_DEADLINE_MS;
 
 export interface StageDuration {
   label: string;

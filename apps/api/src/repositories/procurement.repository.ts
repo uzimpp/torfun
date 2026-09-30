@@ -16,6 +16,7 @@ import type {
 } from '@torfun/types';
 import { OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
+import { INGESTION_META_COLLECTION } from './ingestion-meta';
 
 /**
  * Data access for ingested procurement records.
@@ -291,7 +292,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
   }
 
   private async meta(): Promise<Collection<{ _id: string; at: string }>> {
-    return (await this.getDb()).collection<{ _id: string; at: string }>('ingestion_meta');
+    return (await this.getDb()).collection<{ _id: string; at: string }>(INGESTION_META_COLLECTION);
   }
 
   /**

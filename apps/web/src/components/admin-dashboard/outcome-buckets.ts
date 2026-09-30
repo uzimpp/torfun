@@ -1,4 +1,4 @@
-import type { IngestionOutcome } from '@torfun/types';
+import { OUTCOME_LABELS, type IngestionOutcome } from '@torfun/types';
 
 /**
  * The ten pipeline outcomes are too fine to read as a chart, so the dashboard
@@ -22,7 +22,7 @@ export interface OutcomeBucket {
 /** Fixed order: it is also the order of the chart's segments and its legend. */
 const BUCKETS: Array<Omit<OutcomeBucket, 'count'>> = [
   { key: 'analysed', label: 'วิเคราะห์แล้ว', outcomes: ['tor_analysed'] },
-  { key: 'notSoftware', label: 'AI: ไม่ใช่ซอฟต์แวร์', outcomes: ['not_software'] },
+  { key: 'notSoftware', label: OUTCOME_LABELS.not_software, outcomes: ['not_software'] },
   { key: 'noTor', label: 'ไม่มี TOR', outcomes: ['no_tor_package', 'no_tor_in_archive'] },
   { key: 'failed', label: 'ล้มเหลว', outcomes: ['analysis_failed', 'error', 'abandoned'] },
   { key: 'queued', label: 'รอ', outcomes: ['queued'] },

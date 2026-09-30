@@ -1,4 +1,5 @@
 import type { Collection, Db } from 'mongodb';
+import { INGESTION_META_COLLECTION } from './ingestion-meta';
 
 /**
  * The lock that makes "one Run at a time" true across processes.
@@ -41,7 +42,7 @@ export class IngestionLeaseRepository implements IngestionLeaseStore {
   constructor(private readonly getDb: () => Promise<Db>) {}
 
   private async leases(): Promise<Collection<LeaseDocument>> {
-    return (await this.getDb()).collection<LeaseDocument>('ingestion_meta');
+    return (await this.getDb()).collection<LeaseDocument>(INGESTION_META_COLLECTION);
   }
 
   /**

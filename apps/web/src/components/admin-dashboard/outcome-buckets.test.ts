@@ -7,7 +7,7 @@ describe('outcomeBuckets', () => {
     const buckets = outcomeBuckets({});
     expect(buckets.map((bucket) => bucket.label)).toEqual([
       'วิเคราะห์แล้ว',
-      'AI: ไม่ใช่ซอฟต์แวร์',
+      'AI: ไม่ใช่งานซอฟต์แวร์',
       'ไม่มี TOR',
       'ล้มเหลว',
       'รอ',
