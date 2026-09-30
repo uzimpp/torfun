@@ -15,6 +15,7 @@ import type { Procurement } from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { hasSearchCriteria, type SearchFilterValues } from './search-filter-values';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
 
 const CLASS_LABELS: Record<Procurement['softwareClass'], string> = {
@@ -30,26 +31,43 @@ const bahtFormat = new Intl.NumberFormat('th-TH', {
 });
 
 export function SearchResults({
-  query,
+  filters,
   page,
   onPageChange,
 }: {
-  query: string;
+  filters: SearchFilterValues;
   /** 1-indexed, matching what shows in the URL and in "หน้า X จาก Y". */
   page: number;
   onPageChange: (page: number) => void;
 }) {
-  const { items, total, loading, block, detail } = useTorSearch(query, page);
+  const { items, total, loading, block, detail } = useTorSearch(filters, page);
 
   if (loading) return <ResultSkeleton />;
   if (block) return <BlockedState block={block} detail={detail} />;
-  if (items.length === 0) return query ? <NoMatchState query={query} /> : <EmptyIndexState />;
+  if (items.length === 0) {
+    return hasSearchCriteria(filters) ? (
+      <NoMatchState query={filters.query} />
+    ) : (
+      <EmptyIndexState />
+    );
+  }
 
+  const first = (page - 1) * RESULT_LIMIT + 1;
+  const last = first + items.length - 1;
   const pageCount = Math.max(1, Math.ceil(total / RESULT_LIMIT));
 
   return (
     <div>
-      <ul className="divide-border mt-0 divide-y border-t border-b">
+      <p className="text-muted-foreground text-sm">
+        พบทั้งหมด{' '}
+        <span data-numeric className="text-foreground font-medium">
+          {total.toLocaleString('th-TH')}
+        </span>{' '}
+        ประกาศ · แสดง <span data-numeric>{first.toLocaleString('th-TH')}</span>–
+        <span data-numeric>{last.toLocaleString('th-TH')}</span>
+      </p>
+
+      <ul className="divide-border mt-5 divide-y border-t border-b">
         {items.map((item) => (
           <ResultRow key={item.projectId} item={item} />
         ))}
@@ -108,7 +126,7 @@ function SearchPagination({
           type="button"
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
-          className="text-muted-foreground hover:bg-muted hover:text-foreground disabled:hover:bg-transparent flex h-9 items-center gap-1 rounded-full px-3 text-sm font-medium transition-colors disabled:opacity-40"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 items-center gap-1 rounded-full px-3 text-sm font-medium transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <ChevronLeft aria-hidden="true" className="size-4" />
           <span className="hidden sm:inline">ก่อนหน้า</span>
@@ -145,7 +163,7 @@ function SearchPagination({
           type="button"
           onClick={() => onPageChange(page + 1)}
           disabled={page >= pageCount}
-          className="text-muted-foreground hover:bg-muted hover:text-foreground disabled:hover:bg-transparent flex h-9 items-center gap-1 rounded-full px-3 text-sm font-medium transition-colors disabled:opacity-40"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 items-center gap-1 rounded-full px-3 text-sm font-medium transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <span className="hidden sm:inline">ถัดไป</span>
           <ChevronRight aria-hidden="true" className="size-4" />
@@ -179,7 +197,10 @@ function ResultRow({ item }: { item: Procurement }) {
       </div>
 
       <h3 className="mt-3 text-lg font-medium text-balance">
-        <Link href={`/tor/${encodeURIComponent(item.projectId)}`} className="hover:text-primary transition-colors">
+        <Link
+          href={`/tor/${encodeURIComponent(item.projectId)}`}
+          className="hover:text-primary transition-colors"
+        >
           {item.projectName}
         </Link>
       </h3>
@@ -241,7 +262,10 @@ function StateFrame({
 
 function EmptyIndexState() {
   return (
-    <StateFrame icon={<Search aria-hidden="true" className="size-5" />} title="ยังไม่มีประกาศในคลังข้อมูล">
+    <StateFrame
+      icon={<Search aria-hidden="true" className="size-5" />}
+      title="ยังไม่มีประกาศในคลังข้อมูล"
+    >
       <p>ระบบยังไม่ได้ดึงประกาศเข้ามา หรือคลังข้อมูลว่างเปล่าในขณะนี้</p>
     </StateFrame>
   );
@@ -254,8 +278,16 @@ function NoMatchState({ query }: { query: string }) {
       title="ไม่พบประกาศที่ตรงกับคำค้นหา"
     >
       <p>
-        ไม่มีประกาศที่ตรงกับ <span className="text-foreground">{query}</span> ในคลังข้อมูลขณะนี้
-        ลองใช้คำที่กว้างขึ้น หรือค้นด้วยชื่อหน่วยงานแทน
+        ไม่มีประกาศที่ตรงกับ
+        {query ? (
+          <>
+            {' '}
+            <span className="text-foreground">{query}</span>
+          </>
+        ) : (
+          ' ตัวกรองที่เลือก'
+        )}{' '}
+        ในคลังข้อมูลขณะนี้ ลองลดตัวกรองหรือใช้คำที่กว้างขึ้น
       </p>
       <p className="mt-3">
         คลังข้อมูลครอบคลุมงานซอฟต์แวร์แบบ e-bidding ของหน่วยงานภาครัฐ
@@ -294,10 +326,7 @@ function BlockedState({ block, detail }: { block: SearchBlock; detail: string | 
         icon={<CircleAlert aria-hidden="true" className="size-5" />}
         title="บัญชีนี้ยังเข้าถึงคลังประกาศไม่ได้"
       >
-        <p>
-          ขณะนี้คลังประกาศที่ระบบดึงมาเปิดให้เฉพาะผู้ดูแลระบบ
-          การเปิดให้เจ้าหน้าที่พัฒนาธุรกิจค้นหาได้เองอยู่ระหว่างการพัฒนา
-        </p>
+        <p>บัญชีที่เข้าสู่ระบบไม่มีสิทธิ์อ่านคลังประกาศ กรุณาติดต่อผู้ดูแลระบบเพื่อตรวจสอบบัญชี</p>
       </StateFrame>
     );
   }

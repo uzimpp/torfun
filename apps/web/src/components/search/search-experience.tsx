@@ -1,26 +1,26 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { exampleQueries } from '@/components/layout/nav-config';
+import { ProcurementFilters } from './procurement-filters';
 import { ScrollButtons } from './scroll-buttons';
+import {
+  parseSearchFilters,
+  parseSearchPage,
+  preservedSearchEntries,
+  searchHref,
+  type SearchFilterValues,
+} from './search-filter-values';
 import { RESULT_ROW_SELECTOR, SearchResults } from './search-results';
 import { TorSearchField } from './tor-search-field';
 
 const DEBOUNCE_MS = 350;
 
-function readSearchUrl(): { query: string; page: number } {
+function readSearchUrl(): { filters: SearchFilterValues; page: number } {
   const params = new URLSearchParams(window.location.search);
-  const page = Math.max(1, Math.trunc(Number(params.get('page'))) || 1);
-  return { query: (params.get('q') ?? '').trim(), page };
-}
-
-function buildSearchUrl(query: string, page: number): string {
-  const params = new URLSearchParams();
-  if (query) params.set('q', query);
-  if (page > 1) params.set('page', String(page));
-  const qs = params.toString();
-  return qs ? `/search?${qs}` : '/search';
+  const raw = Object.fromEntries(params.entries());
+  return { filters: parseSearchFilters(raw), page: parseSearchPage(raw) };
 }
 
 /**
@@ -41,25 +41,44 @@ function buildSearchUrl(query: string, page: number): string {
  * re-reads the URL and restores state itself.
  */
 export function SearchExperience({
-  initialQuery,
+  initialFilters,
   initialPage,
 }: {
-  initialQuery: string;
+  initialFilters: SearchFilterValues;
   initialPage: number;
 }) {
-  const [value, setValue] = useState(initialQuery);
-  const [query, setQuery] = useState(initialQuery);
+  const initialKey = searchHref(initialFilters, initialPage);
+  const [serverKey, setServerKey] = useState(initialKey);
+  const [baseFilters, setBaseFilters] = useState(initialFilters);
+  const [value, setValue] = useState(initialFilters.query);
+  const [query, setQuery] = useState(initialFilters.query);
   const [page, setPage] = useState(initialPage);
+  const [queryForPage, setQueryForPage] = useState(initialFilters.query);
   const resultsRef = useRef<HTMLElement>(null);
+
+  // Filter forms and clear links navigate through Next.js. The client boundary
+  // can survive that navigation, so sync its state when the server sends a new
+  // URL rather than keying/remounting the search field (which previously left
+  // a duplicate search box in the document).
+  if (initialKey !== serverKey) {
+    setServerKey(initialKey);
+    setBaseFilters(initialFilters);
+    setValue(initialFilters.query);
+    setQuery(initialFilters.query);
+    setQueryForPage(initialFilters.query);
+    setPage(initialPage);
+  }
 
   // A new search starts back at page 1. Adjusted here, during render, rather
   // than in an effect, so the reset lands in the same commit as the query
   // change instead of the old page briefly showing results for the new query.
-  const [queryForPage, setQueryForPage] = useState(query);
   if (query !== queryForPage) {
     setQueryForPage(query);
     setPage(1);
   }
+
+  const filters = useMemo(() => ({ ...baseFilters, query }), [baseFilters, query]);
+  const filterPanelKey = searchHref({ ...filters, query: '' });
 
   useEffect(() => {
     const trimmed = value.trim();
@@ -69,15 +88,16 @@ export function SearchExperience({
   }, [value, query]);
 
   useEffect(() => {
-    window.history.replaceState(null, '', buildSearchUrl(query, page));
-  }, [query, page]);
+    window.history.replaceState(null, '', searchHref(filters, page));
+  }, [filters, page]);
 
   useEffect(() => {
     function onPopState() {
       const restored = readSearchUrl();
-      setValue(restored.query);
-      setQuery(restored.query);
-      setQueryForPage(restored.query);
+      setBaseFilters(restored.filters);
+      setValue(restored.filters.query);
+      setQuery(restored.filters.query);
+      setQueryForPage(restored.filters.query);
       setPage(restored.page);
     }
     window.addEventListener('popstate', onPopState);
@@ -85,7 +105,7 @@ export function SearchExperience({
   }, []);
 
   function goToPage(nextPage: number) {
-    window.history.pushState(null, '', buildSearchUrl(query, nextPage));
+    window.history.pushState(null, '', searchHref(filters, nextPage));
     setPage(nextPage);
     // Pagination sits at both the top and bottom of a long list — clicking
     // the bottom control shouldn't leave the reader staring at whatever
@@ -100,17 +120,23 @@ export function SearchExperience({
         value={value}
         onValueChange={setValue}
         onSubmit={setQuery}
-        autoFocus={initialQuery === ''}
+        preservedParams={preservedSearchEntries(filters)}
+        autoFocus={initialFilters.query === ''}
         suggestions={value === '' ? exampleQueries : undefined}
-        className="mt-0"
+        className="mt-8"
       />
 
+      {/* The filter form uses native uncontrolled inputs. Remount it only when
+          filter criteria change so clear links reset the visible fields, while
+          live typing in the separate search box leaves an open panel alone. */}
+      <ProcurementFilters key={filterPanelKey} values={filters} />
+
       <section ref={resultsRef} aria-label="ผลการค้นหา" className="mt-10 scroll-mt-20">
-        {/* Keyed on query+page: each combination is a fresh instance of the
+        {/* Keyed on filters+page: each combination is a fresh instance of the
             results hook, not a retarget of the old one — see use-tor-search.ts. */}
         <SearchResults
-          key={`${query}::${page}`}
-          query={query}
+          key={`${searchHref(filters)}::${page}`}
+          filters={filters}
           page={page}
           onPageChange={goToPage}
         />

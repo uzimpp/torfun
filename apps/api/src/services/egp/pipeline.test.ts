@@ -18,6 +18,9 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
+    province: 'กรุงเทพมหานคร',
+    district: 'คลองเตย',
+    subdistrict: 'คลองเตย',
     registryName: 'กรุงเทพมหานคร',
     deptCode: '0100',
     year: 2568,
@@ -224,9 +227,9 @@ describe('runIngestion', () => {
     expect((await repository.get('66059313551'))?.outcome).toBe('error');
     expect((await repository.get('66059313552'))?.outcome).toBe('tor_analysed');
     expect(
-      repository
-        .listFailures()
-        .some((f: { error: string }) => f.error.includes('connection reset')),
+      (await repository.listFailures()).some((f: { error: string }) =>
+        f.error.includes('connection reset'),
+      ),
     ).toBe(true);
   });
 
@@ -241,9 +244,9 @@ describe('runIngestion', () => {
     });
 
     expect(
-      repository
-        .listFailures()
-        .some((f: { error: string }) => f.error.includes('../../etc/Attach_TOR_evil.pdf')),
+      (await repository.listFailures()).some((f: { error: string }) =>
+        f.error.includes('../../etc/Attach_TOR_evil.pdf'),
+      ),
     ).toBe(true);
   });
 

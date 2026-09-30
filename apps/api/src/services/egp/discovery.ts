@@ -1,6 +1,7 @@
 import type { IngestionFailure, Procurement } from '@torfun/types';
 import { classifyProject, softwareScore } from './classify';
 import { openDataGet, sleep } from './client';
+import { convertDateToISO } from './dates';
 import { toProcurementStatus } from './status';
 import { toWinner } from './winner';
 import {
@@ -27,11 +28,14 @@ interface DeptRow {
   dept_name?: string;
 }
 
-interface ContractRow {
+export interface ContractRow {
   project_id?: string;
   project_name?: string;
   dept_name?: string;
   dept_sub_name?: string;
+  province?: string;
+  district?: string;
+  subdistrict?: string;
   year?: number;
   announce_date?: string;
   project_type_name?: string;
@@ -134,7 +138,8 @@ async function fetchAllPages(
   return records;
 }
 
-function toRecord(
+/** Maps one raw e-GP contract row at the upstream boundary. Exported for fixture-based contract tests. */
+export function toRecord(
   row: ContractRow,
   registryName: string,
   deptCode: string,
@@ -149,10 +154,13 @@ function toRecord(
     projectName,
     deptName: (row.dept_name ?? '').trim(),
     deptSubName: row.dept_sub_name ?? null,
+    province: row.province?.trim() || null,
+    district: row.district?.trim() || null,
+    subdistrict: row.subdistrict?.trim() || null,
     registryName,
     deptCode,
     year: row.year ?? year,
-    announceDate: row.announce_date ?? null,
+    announceDate: convertDateToISO(row.announce_date),
     projectTypeName: row.project_type_name ?? null,
     purchaseMethodName: row.purchase_method_name ?? null,
     projectMoney: row.project_money ?? null,

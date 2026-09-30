@@ -45,6 +45,9 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/ingestion/projects/:projectId` | admin  | One procurement by its 11-digit id                |
 | GET    | `/ingestion/failures`            | admin  | The failure log                                   |
 | POST   | `/ingestion/run`                 | admin  | Starts a run; `202`, or `409` if one is live      |
+| GET    | `/tors`                          | user   | Search, filter and paginate procurements          |
+| GET    | `/tors/:projectId`               | user   | One procurement by its project id                 |
+| GET    | `/tors/:projectId/source`        | user   | Download the original TOR PDF                     |
 | GET    | `/companies/search?q=`           | user   | Typeahead over Thai company names                 |
 | POST   | `/companies`                     | user   | Creates a Company and joins the caller to it      |
 | GET    | `/companies/me`                  | user   | The caller's Company; `404` when they have none   |

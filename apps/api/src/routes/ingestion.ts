@@ -2,11 +2,10 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   IngestionFailureSchema,
-  IngestionOutcome,
+  ProcurementListQuerySchema,
+  ProcurementListResponseSchema,
   ProcurementSchema,
-  IngestionState,
   IngestionSummarySchema,
-  SoftwareClass,
 } from '@torfun/types';
 import { requireAdmin } from '../hooks/require-admin';
 
@@ -17,26 +16,10 @@ import { requireAdmin } from '../hooks/require-admin';
  * see every ingested announcement's processing status, filter the queue, read
  * the failure log, and trigger a retrieval run.
  *
- * Every route here is admin-only, enforced once for the whole plugin scope
- * rather than per route — `/ingestion/run` spends the project's rate-limited
- * upstream allowance, so an unguarded route added later would be a real
- * exposure, not just an information leak.
+ * Every route here is admin-only, enforced once for the whole plugin scope.
+ * Officer-facing procurement search lives under `/tors`, so a route added to
+ * this ingestion group cannot accidentally become available to non-admins.
  */
-
-const ListQuerySchema = z.object({
-  state: IngestionState.optional(),
-  outcome: IngestionOutcome.optional(),
-  deptName: z.string().optional(),
-  year: z.coerce.number().int().optional(),
-  softwareClass: SoftwareClass.optional(),
-  eBidding: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((value) => (value === undefined ? undefined : value === 'true')),
-  q: z.string().optional(),
-  limit: z.coerce.number().int().positive().max(200).default(50),
-  offset: z.coerce.number().int().nonnegative().default(0),
-});
 
 export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', requireAdmin);
@@ -57,14 +40,9 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
     '/ingestion/projects',
     {
       schema: {
-        querystring: ListQuerySchema,
+        querystring: ProcurementListQuerySchema,
         response: {
-          200: z.object({
-            items: z.array(ProcurementSchema),
-            total: z.number().int(),
-            limit: z.number().int(),
-            offset: z.number().int(),
-          }),
+          200: ProcurementListResponseSchema,
         },
       },
     },

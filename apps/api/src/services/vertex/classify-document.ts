@@ -1,4 +1,5 @@
 import { TorAnalysisSchema, type TorAnalysis } from '@torfun/types';
+import { convertDateToISO } from '../egp/dates';
 import { z } from 'zod';
 
 /**
@@ -104,5 +105,11 @@ export async function classifyTorDocument(
     return unusable('Model reported a TOR but returned no analysis.');
   }
 
-  return answer.data;
+  // Stored as ISO so a deadline range filter can compare it; a deadline the
+  // model wrote in prose ("within 30 days") has no calendar date and becomes null.
+  const { analysis } = answer.data;
+  return {
+    ...answer.data,
+    analysis: analysis && { ...analysis, deadlineAt: convertDateToISO(analysis.deadlineAt) },
+  };
 }
