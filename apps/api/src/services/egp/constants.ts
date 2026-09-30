@@ -108,6 +108,15 @@ export const POLITENESS = {
  */
 export const MAX_ATTEMPTS = 3;
 
+/**
+ * Ceiling on one record's whole retrieval, download and analysis together. A
+ * hung call otherwise freezes the serial run for good, and the record stays
+ * Processing forever. Generous on purpose — archives run to ~30 MB and several
+ * PDFs are read one after another — because it exists to catch a hang, not to
+ * hurry a slow one.
+ */
+export const RECORD_DEADLINE_MS = 5 * 60_000;
+
 /** egp-contract accepts a limit of at least 500. */
 export const PAGE_LIMIT = 500;
 

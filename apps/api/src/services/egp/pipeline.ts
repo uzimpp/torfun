@@ -6,7 +6,7 @@ import type { ProcurementStore } from '../../repositories/procurement.repository
 import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
 import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
-import { MAX_ATTEMPTS } from './constants';
+import { MAX_ATTEMPTS, RECORD_DEADLINE_MS } from './constants';
 import { discoverProjects, type DiscoveryResult } from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
 import {
@@ -38,6 +38,8 @@ export interface IngestionDeps {
   extractTorPdfs: (archive: Uint8Array) => ExtractionResult;
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   sleep: (ms: number) => Promise<void>;
+  /** Longest one record may take before it is treated as a transport failure. */
+  recordDeadlineMs: number;
 }
 
 export function createIngestionDeps(env: Env): IngestionDeps {
@@ -49,7 +51,42 @@ export function createIngestionDeps(env: Env): IngestionDeps {
     extractTorPdfs: (archive) => extractTorPdfs(archive, unzipSync),
     classifyDocument: (pdf) => classifyTorDocument(callModel, pdf),
     sleep,
+    recordDeadlineMs: RECORD_DEADLINE_MS,
   };
+}
+
+class DeadlineExceededError extends Error {
+  constructor(ms: number) {
+    super(`Record exceeded its ${Math.round(ms / 1000)}s deadline.`);
+    this.name = 'DeadlineExceededError';
+  }
+}
+
+/**
+ * Run one record's work against a deadline.
+ *
+ * The work cannot be cancelled, so when the deadline wins it keeps running in
+ * the background. `guard.expired` is how it finds out: the work checks it before
+ * every write, so a call that finally returns after the record was requeued
+ * cannot overwrite that requeue.
+ */
+async function withDeadline(
+  work: () => Promise<void>,
+  ms: number,
+  guard: { expired: boolean },
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      guard.expired = true;
+      reject(new DeadlineExceededError(ms));
+    }, ms);
+  });
+  try {
+    await Promise.race([work(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface RunOptions {
@@ -205,83 +242,99 @@ export async function runIngestion(
     attempted += 1;
     await repository.transition(record.projectId, 'downloading');
 
+    const guard = { expired: false };
+
     try {
-      const zipId = await deps.resolveZipId(record.projectId);
+      await withDeadline(
+        async () => {
+          const zipId = await deps.resolveZipId(record.projectId);
+          if (guard.expired) return;
 
-      if (zipId === null) {
-        // A real answer from upstream, not a transport error: this project
-        // published no TOR package. Recorded as Failed because an admin is
-        // left with nothing to read, but distinguished by its outcome.
-        const error = 'No zipId in the announcement response — no TOR package published.';
-        await note({
-          projectId: record.projectId,
-          projectName: record.projectName,
-          stage: 'info',
-          error,
-          at: new Date().toISOString(),
-        });
-        await repository.transition(record.projectId, 'no_tor_package', {}, error);
-        failed += 1;
-      } else {
-        const archive = await deps.downloadArchive(zipId);
-        const extraction = deps.extractTorPdfs(archive);
-        archivesRetrieved += 1;
+          if (zipId === null) {
+            // A real answer from upstream, not a transport error: this project
+            // published no TOR package. Recorded as Failed because an admin is
+            // left with nothing to read, but distinguished by its outcome.
+            const error = 'No zipId in the announcement response — no TOR package published.';
+            await note({
+              projectId: record.projectId,
+              projectName: record.projectName,
+              stage: 'info',
+              error,
+              at: new Date().toISOString(),
+            });
+            await repository.transition(record.projectId, 'no_tor_package', {}, error);
+            failed += 1;
+          } else {
+            const archive = await deps.downloadArchive(zipId);
+            if (guard.expired) return;
+            const extraction = deps.extractTorPdfs(archive);
+            archivesRetrieved += 1;
 
-        if (extraction.unsafeSkipped.length > 0) {
-          // Never silently dropped: a path-traversal attempt in a government
-          // archive is exactly the thing an administrator should see.
-          await note({
-            projectId: record.projectId,
-            projectName: record.projectName,
-            stage: 'extract',
-            error: `Archive members rejected by the path-traversal guard: ${extraction.unsafeSkipped.join(', ')}`,
-            at: new Date().toISOString(),
-          });
-        }
+            if (extraction.unsafeSkipped.length > 0) {
+              // Never silently dropped: a path-traversal attempt in a government
+              // archive is exactly the thing an administrator should see.
+              await note({
+                projectId: record.projectId,
+                projectName: record.projectName,
+                stage: 'extract',
+                error: `Archive members rejected by the path-traversal guard: ${extraction.unsafeSkipped.join(', ')}`,
+                at: new Date().toISOString(),
+              });
+            }
 
-        const analysed = await analyseArchive(extraction, deps.classifyDocument);
+            // The record only counts as being read once there is something to read.
+            if (extraction.torFiles.length > 0) {
+              await repository.transition(record.projectId, 'analysing');
+            }
 
-        // Note what is NOT here: extraction.torFiles carries the PDF payloads,
-        // and they stop at this line. Only the manifest is persisted (ADR-0002).
-        const patch: Partial<Procurement> = {
-          zipId,
-          zipBytes: archive.length,
-          archiveMemberCount: extraction.members.length,
-          documents: analysed.documents,
-          analysis: analysed.analysis,
-          torAmbiguous: analysed.torAmbiguous,
-        };
+            const analysed = await analyseArchive(extraction, deps.classifyDocument);
+            if (guard.expired) return;
 
-        if (analysed.analysis !== null) {
-          await repository.transition(record.projectId, 'tor_analysed', patch);
-          torAnalysed += 1;
-        } else if (analysed.anyUnreadable) {
-          // The archive was retrieved; only the reading failed. Kept Completed
-          // so a retry re-reads what is already here instead of re-downloading
-          // from a site that asked not to be crawled.
-          const error = `Archive retrieved but no candidate could be read: ${analysed.documents
-            .filter((document) => document.role === 'unreadable')
-            .map((document) => `${document.filename} (${document.note})`)
-            .join('; ')}`;
-          await note({
-            projectId: record.projectId,
-            projectName: record.projectName,
-            stage: 'analysis',
-            error,
-            at: new Date().toISOString(),
-          });
-          await repository.transition(record.projectId, 'analysis_failed', patch);
-        } else {
-          await note({
-            projectId: record.projectId,
-            projectName: record.projectName,
-            stage: 'extract',
-            error: `Archive downloaded (${extraction.members.length} members) but none of its documents is a TOR.`,
-            at: new Date().toISOString(),
-          });
-          await repository.transition(record.projectId, 'no_tor_in_archive', patch);
-        }
-      }
+            // Note what is NOT here: extraction.torFiles carries the PDF payloads,
+            // and they stop at this line. Only the manifest is persisted (ADR-0002).
+            const patch: Partial<Procurement> = {
+              zipId,
+              zipBytes: archive.length,
+              archiveMemberCount: extraction.members.length,
+              documents: analysed.documents,
+              analysis: analysed.analysis,
+              torAmbiguous: analysed.torAmbiguous,
+            };
+
+            if (analysed.analysis !== null) {
+              await repository.transition(record.projectId, 'tor_analysed', patch);
+              torAnalysed += 1;
+            } else if (analysed.anyUnreadable) {
+              // The archive was retrieved; only the reading failed. Kept Completed
+              // so a retry re-reads what is already here instead of re-downloading
+              // from a site that asked not to be crawled.
+              const error = `Archive retrieved but no candidate could be read: ${analysed.documents
+                .filter((document) => document.role === 'unreadable')
+                .map((document) => `${document.filename} (${document.note})`)
+                .join('; ')}`;
+              await note({
+                projectId: record.projectId,
+                projectName: record.projectName,
+                stage: 'analysis',
+                error,
+                at: new Date().toISOString(),
+              });
+              await repository.transition(record.projectId, 'analysis_failed', patch);
+            } else {
+              await note({
+                projectId: record.projectId,
+                projectName: record.projectName,
+                stage: 'extract',
+                error: `Archive downloaded (${extraction.members.length} members) but none of its documents is a TOR.`,
+                at: new Date().toISOString(),
+              });
+              await repository.transition(record.projectId, 'no_tor_in_archive', patch);
+            }
+          }
+        },
+        deps.recordDeadlineMs,
+        guard,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
