@@ -29,6 +29,8 @@ export interface RunCoordination {
   heartbeatMs?: number;
   /** How long a lease outlives its last heartbeat — how long a crashed holder blocks everyone. */
   leaseTtlMs?: number;
+  /** The clock the lease and the recorded start are read from; a test drives it. */
+  now?: () => Date;
 }
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
@@ -58,6 +60,10 @@ export class IngestionService {
     this.deps = deps ?? createIngestionDeps(env);
   }
 
+  private now(): Date {
+    return (this.coordination.now ?? (() => new Date()))();
+  }
+
   async summary(): Promise<SummaryView> {
     const [summary, agencies] = await Promise.all([
       this.repository.summary(),
@@ -65,7 +71,7 @@ export class IngestionService {
     ]);
     // Read from the lease, not a field on this instance, so a Run started by
     // anything else shows as running here too.
-    const runInProgress = await this.coordination.lease.isHeld(new Date());
+    const runInProgress = await this.coordination.lease.isHeld(this.now());
     return { ...summary, agencies, runInProgress };
   }
 
@@ -121,7 +127,7 @@ export class IngestionService {
     const heartbeatMs = this.coordination.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
     const holder = randomUUID();
 
-    const startedAt = new Date();
+    const startedAt = this.now();
     if (!(await lease.acquire(holder, startedAt, leaseTtlMs))) {
       throw new ConflictError('An ingestion run is already in progress.');
     }
@@ -141,7 +147,7 @@ export class IngestionService {
     // the lease having been taken over) is logged, not fatal to the pass —
     // aborting mid-download helps nobody.
     const heartbeat = setInterval(() => {
-      lease.heartbeat(holder, new Date(), leaseTtlMs).then(
+      lease.heartbeat(holder, this.now(), leaseTtlMs).then(
         (kept) => {
           if (!kept) this.logger.warn('egp: ingestion lease lost while a run was still going');
         },
