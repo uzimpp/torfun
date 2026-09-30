@@ -9,6 +9,7 @@ import type {
   ProcurementStatus,
   SoftwareClass,
   StatusChange,
+  StatusSource,
   TargetPlatform,
   TorAnalysis,
   Winner,
@@ -35,11 +36,11 @@ import { mergeDiscovered } from './merge-discovered';
  * tender. Guessing it dead would hide real work.
  */
 const BIDDABILITY_ORDER: ProcurementStatus[] = [
-  'invitation',
-  'drafting_tor',
-  'requisition',
+  'open',
+  'drafting',
+  'evaluating',
   'unknown',
-  'award_announced',
+  'awarded',
   'contracted',
   'cancelled',
 ];
@@ -70,6 +71,9 @@ interface ProcurementDocument {
   project_money: number | null;
   price_build: number | null;
   status: ProcurementStatus;
+  /** Absent on records written before the reading was attributed. */
+  status_source?: StatusSource | null;
+  upstream_status?: string | null;
   /** Derived from `status` on every write, purely so the queue's sort is indexable. */
   biddability_rank: number;
   matched_keywords: string[];
@@ -78,6 +82,8 @@ interface ProcurementDocument {
   e_bidding: boolean;
   state: IngestionState;
   outcome: IngestionOutcome;
+  /** Absent on records written before retries were counted. */
+  attempts?: number;
   status_history: StatusChange[];
   zip_id: string | null;
   zip_bytes: number | null;
@@ -110,12 +116,15 @@ function toDomain(document: ProcurementDocument): Procurement {
     projectMoney: document.project_money,
     priceBuild: document.price_build,
     status: document.status,
+    statusSource: document.status_source ?? null,
+    upstreamStatus: document.upstream_status ?? null,
     matchedKeywords: document.matched_keywords,
     softwareClass: document.software_class,
     softwareScore: document.software_score,
     eBidding: document.e_bidding,
     state: document.state,
     outcome: document.outcome,
+    attempts: document.attempts ?? 0,
     statusHistory: document.status_history,
     zipId: document.zip_id,
     zipBytes: document.zip_bytes,
@@ -147,6 +156,8 @@ function toDocument(record: Procurement): ProcurementDocument {
     project_money: record.projectMoney,
     price_build: record.priceBuild,
     status: record.status,
+    status_source: record.statusSource,
+    upstream_status: record.upstreamStatus,
     biddability_rank: biddabilityRank(record.status),
     matched_keywords: record.matchedKeywords,
     software_class: record.softwareClass,
@@ -154,6 +165,7 @@ function toDocument(record: Procurement): ProcurementDocument {
     e_bidding: record.eBidding,
     state: record.state,
     outcome: record.outcome,
+    attempts: record.attempts,
     status_history: record.statusHistory,
     zip_id: record.zipId,
     zip_bytes: record.zipBytes,

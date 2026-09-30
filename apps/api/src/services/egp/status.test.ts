@@ -1,33 +1,56 @@
 import { describe, expect, test } from 'bun:test';
-import { isBiddable, toProcurementStatus } from './status';
+import type { ProcurementStatus } from '@torfun/types';
+import { isBiddable, readUpstreamStatus } from './status';
 
-describe('toProcurementStatus', () => {
-  test('maps every stage of the e-GP lifecycle', () => {
-    expect(toProcurementStatus('จัดทำ TOR')).toBe('drafting_tor');
-    expect(toProcurementStatus('รายงานขอซื้อขอจ้าง')).toBe('requisition');
-    expect(toProcurementStatus('หนังสือเชิญชวน/ประกาศเชิญชวน')).toBe('invitation');
-    expect(toProcurementStatus('อนุมัติสั่งซื้อสั่งจ้างและประกาศผู้ชนะการเสนอราคา')).toBe(
-      'award_announced',
-    );
-    expect(toProcurementStatus('จัดทำสัญญา/บริหารสัญญา')).toBe('contracted');
-    expect(toProcurementStatus('ยกเลิกโครงการ')).toBe('cancelled');
+describe('readUpstreamStatus', () => {
+  test('folds the e-GP stage names into the six-stage set', () => {
+    const cases: Array<[string, ProcurementStatus]> = [
+      ['จัดทำ TOR', 'drafting'],
+      ['รายงานขอซื้อขอจ้าง', 'drafting'],
+      ['หนังสือเชิญชวน/ประกาศเชิญชวน', 'open'],
+      ['อนุมัติสั่งซื้อสั่งจ้างและประกาศผู้ชนะการเสนอราคา', 'awarded'],
+      ['จัดทำสัญญา/บริหารสัญญา', 'contracted'],
+      ['ยกเลิกโครงการ', 'cancelled'],
+    ];
+    for (const [raw, status] of cases) {
+      expect(readUpstreamStatus(raw)).toEqual({ status, source: 'upstream' });
+    }
   });
 
-  test('the invitation stage is the only one open to a bid', () => {
-    // The whole point of typing this field: it is what puts a live tender ahead
-    // of a settled contract in a run capped at EGP_MAX_DOWNLOADS_PER_RUN.
-    expect(isBiddable(toProcurementStatus('หนังสือเชิญชวน/ประกาศเชิญชวน'))).toBe(true);
-    expect(isBiddable(toProcurementStatus('จัดทำสัญญา/บริหารสัญญา'))).toBe(false);
-    expect(isBiddable(toProcurementStatus('ยกเลิกโครงการ'))).toBe(false);
+  test('the generic in-progress value the open-data feed sends is no reading at all', () => {
+    // Every sampled row carries this one string; it says nothing about the
+    // stage, so it must not be counted as an upstream reading.
+    expect(readUpstreamStatus('ระหว่างดำเนินการ')).toEqual({ status: 'unknown', source: null });
   });
 
   test('tolerates the whitespace upstream actually sends', () => {
-    expect(toProcurementStatus('  จัดทำ TOR  ')).toBe('drafting_tor');
+    expect(readUpstreamStatus('  จัดทำ TOR  ')).toEqual({ status: 'drafting', source: 'upstream' });
   });
 
-  test('an unrecognised stage is surfaced as unknown, never guessed at', () => {
-    expect(toProcurementStatus('ขั้นตอนที่ยังไม่เคยพบ')).toBe('unknown');
-    expect(toProcurementStatus(null)).toBe('unknown');
-    expect(toProcurementStatus('')).toBe('unknown');
+  test('an unrecognised value is unknown with no source, never guessed at', () => {
+    expect(readUpstreamStatus('ขั้นตอนที่ยังไม่เคยพบ')).toEqual({
+      status: 'unknown',
+      source: null,
+    });
+    expect(readUpstreamStatus(null)).toEqual({ status: 'unknown', source: null });
+    expect(readUpstreamStatus('')).toEqual({ status: 'unknown', source: null });
+  });
+});
+
+describe('isBiddable', () => {
+  test('open is the only stage a bid is possible in', () => {
+    // The whole point of typing this field: it is what puts a live tender ahead
+    // of a settled contract in a run capped at EGP_MAX_DOWNLOADS_PER_RUN.
+    expect(isBiddable('open')).toBe(true);
+    for (const status of [
+      'drafting',
+      'evaluating',
+      'awarded',
+      'contracted',
+      'cancelled',
+      'unknown',
+    ] as const) {
+      expect(isBiddable(status)).toBe(false);
+    }
   });
 });

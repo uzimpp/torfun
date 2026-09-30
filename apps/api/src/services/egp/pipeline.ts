@@ -199,7 +199,7 @@ export async function runIngestion(
 
   for (const [index, record] of candidates.entries()) {
     attempted += 1;
-    await repository.transition(record.projectId, 'Processing', 'processing');
+    await repository.transition(record.projectId, 'Processing', 'downloading');
 
     try {
       const zipId = await deps.resolveZipId(record.projectId);
