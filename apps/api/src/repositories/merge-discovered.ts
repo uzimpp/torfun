@@ -63,6 +63,7 @@ export function mergeDiscovered(
     zipId: existing.zipId,
     zipBytes: existing.zipBytes,
     archiveMemberCount: existing.archiveMemberCount,
+    archiveMembers: existing.archiveMembers,
     documents: existing.documents,
     analysis: existing.analysis,
     torAmbiguous: existing.torAmbiguous,

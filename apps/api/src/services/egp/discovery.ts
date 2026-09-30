@@ -189,6 +189,7 @@ export function toRecord(
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: toWinner(row.contract),

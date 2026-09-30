@@ -119,6 +119,7 @@ const record: Procurement = {
   zipId: null,
   zipBytes: null,
   archiveMemberCount: null,
+  archiveMembers: [],
   documents: [],
   analysis: null,
   winner: null,

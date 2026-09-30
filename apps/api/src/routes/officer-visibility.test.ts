@@ -43,6 +43,7 @@ function procurement(projectId: string, outcome: IngestionOutcome): Procurement 
     zipId: 'zip-1',
     zipBytes: 1,
     archiveMemberCount: 1,
+    archiveMembers: [],
     documents: [
       {
         member: 'Attach_TOR_1.pdf',

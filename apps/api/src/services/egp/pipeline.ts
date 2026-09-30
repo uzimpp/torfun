@@ -408,6 +408,7 @@ export async function runIngestion(
               zipId,
               zipBytes: archive.length,
               archiveMemberCount: extraction.members.length,
+              archiveMembers: extraction.members,
               documents: analysed.documents,
               analysis: analysed.analysis,
               torAmbiguous: analysed.torAmbiguous,

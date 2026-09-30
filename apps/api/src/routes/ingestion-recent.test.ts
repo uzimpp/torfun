@@ -41,6 +41,7 @@ function procurement(projectId: string, updatedAt: string): Procurement {
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,

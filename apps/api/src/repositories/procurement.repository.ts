@@ -116,6 +116,8 @@ interface ProcurementDocument {
   zip_id: string | null;
   zip_bytes: number | null;
   archive_member_count: number | null;
+  /** Absent on records written before member names were kept. */
+  archive_members?: string[];
   documents: ArchiveDocument[];
   analysis: TorAnalysis | null;
   winner: Winner | null;
@@ -160,6 +162,7 @@ function toDomain(document: ProcurementDocument): Procurement {
     zipId: document.zip_id,
     zipBytes: document.zip_bytes,
     archiveMemberCount: document.archive_member_count,
+    archiveMembers: document.archive_members ?? [],
     documents: document.documents,
     analysis: document.analysis,
     winner: document.winner,
@@ -201,6 +204,7 @@ function toDocument(record: Procurement): ProcurementDocument {
     zip_id: record.zipId,
     zip_bytes: record.zipBytes,
     archive_member_count: record.archiveMemberCount,
+    archive_members: record.archiveMembers,
     documents: record.documents,
     analysis: record.analysis,
     winner: record.winner,

@@ -43,6 +43,7 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
@@ -401,6 +402,40 @@ describe('which stage a failure is logged against', () => {
         },
       }),
     ).toEqual(['extract']);
+  });
+});
+
+describe('what a retrieval remembers about the archive', () => {
+  test('keeps every member name, so an administrator can see what a no-TOR archive held', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      extractTorPdfs: () => ({
+        torFiles: [],
+        members: ['quotation.pdf', 'sit.pdf', 'action_plan.xlsx'],
+        unsafeSkipped: [],
+      }),
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.outcome).toBe('no_tor_in_archive');
+    expect(record?.archiveMembers).toEqual(['quotation.pdf', 'sit.pdf', 'action_plan.xlsx']);
+  });
+
+  test('a file the model judges to be a TOR despite its name is analysed like any other', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      extractTorPdfs: () => ({
+        torFiles: [
+          { ...extracted(), filename: '20240823082250355.pdf', namePattern: 'unlabelled' },
+        ],
+        members: ['quotation.pdf', '20240823082250355.pdf'],
+        unsafeSkipped: [],
+      }),
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.documents[0]?.namePattern).toBe('unlabelled');
   });
 });
 
