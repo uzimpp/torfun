@@ -1,4 +1,4 @@
-import type { Collection, Db } from 'mongodb';
+import type { AnyBulkWriteOperation, Collection, Db } from 'mongodb';
 import type {
   ArchiveDocument,
   IngestionFailure,
@@ -16,6 +16,7 @@ import type {
 } from '@torfun/types';
 import { OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
+import { hashSource, hasUpstreamChange } from './source-hash';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
 
 /**
@@ -123,6 +124,10 @@ interface ProcurementDocument {
   winner: Winner | null;
   tor_ambiguous: boolean;
   discovered_at: string;
+  /** Absent on records written before sweeps were fingerprinted. */
+  source_hash?: string | null;
+  last_seen_at?: string | null;
+  changed_at?: string | null;
   updated_at: string;
 }
 
@@ -168,6 +173,9 @@ function toDomain(document: ProcurementDocument): Procurement {
     winner: document.winner,
     torAmbiguous: document.tor_ambiguous,
     discoveredAt: document.discovered_at,
+    sourceHash: document.source_hash ?? null,
+    lastSeenAt: document.last_seen_at ?? null,
+    changedAt: document.changed_at ?? null,
     updatedAt: document.updated_at,
   };
 }
@@ -210,6 +218,9 @@ function toDocument(record: Procurement): ProcurementDocument {
     winner: record.winner,
     tor_ambiguous: record.torAmbiguous,
     discovered_at: record.discoveredAt,
+    source_hash: record.sourceHash,
+    last_seen_at: record.lastSeenAt,
+    changed_at: record.changedAt,
     updated_at: record.updatedAt,
   };
 }
@@ -252,6 +263,15 @@ export interface FindOptions {
   offset: number;
 }
 
+/** What one sweep did to the store. */
+export interface UpsertSummary {
+  created: number;
+  /** Seen before, and the agency's data for it is different now. */
+  changed: number;
+  /** Seen before, and nothing the agency owns moved. */
+  unchanged: number;
+}
+
 export interface FindResult {
   items: Procurement[];
   total: number;
@@ -267,6 +287,8 @@ export interface FindResult {
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
   upsert(record: Procurement): Promise<Procurement>;
+  /** What a sweep writes: every discovered record at once, reporting what was new and what moved. */
+  upsertMany(records: Procurement[]): Promise<UpsertSummary>;
   /**
    * Move a record to an Outcome. The State is not an argument: it is looked up
    * from `OUTCOME_STATE`, so the two fields cannot be written out of step.
@@ -289,6 +311,8 @@ export interface ProcurementStore {
   requeueStale(cutoff: string): Promise<number>;
   recordFailures(failures: IngestionFailure[]): Promise<void>;
   markRun(at: string): Promise<void>;
+  /** When discovery last completed a sweep, or null if it never has. */
+  lastDiscoveryAt(): Promise<string | null>;
 }
 
 /**
@@ -360,7 +384,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const existing = await collection.findOne({ _id: record.projectId });
 
     if (!existing) {
-      const document = toDocument(record);
+      const document = toDocument({
+        ...record,
+        sourceHash: record.sourceHash ?? hashSource(record),
+      });
       await collection.insertOne(document);
       return toDomain(document);
     }
@@ -368,6 +395,50 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const merged = toDocument(mergeDiscovered(toDomain(existing), record));
     await collection.replaceOne({ _id: record.projectId }, merged);
     return toDomain(merged);
+  }
+
+  async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
+    const summary: UpsertSummary = { created: 0, changed: 0, unchanged: 0 };
+    if (records.length === 0) return summary;
+
+    const collection = await this.records();
+    // One read for the whole sweep, not one per record.
+    const stored = new Map(
+      (await collection.find({ _id: { $in: records.map((r) => r.projectId) } }).toArray()).map(
+        (document) => [document._id, document],
+      ),
+    );
+
+    const operations: AnyBulkWriteOperation<ProcurementDocument>[] = [];
+    for (const record of records) {
+      const existing = stored.get(record.projectId);
+      if (!existing) {
+        summary.created += 1;
+        operations.push({
+          insertOne: {
+            document: toDocument({
+              ...record,
+              sourceHash: record.sourceHash ?? hashSource(record),
+            }),
+          },
+        });
+        continue;
+      }
+
+      const current = toDomain(existing);
+      if (hasUpstreamChange(current, record)) summary.changed += 1;
+      else summary.unchanged += 1;
+      operations.push({
+        replaceOne: {
+          filter: { _id: record.projectId },
+          replacement: toDocument(mergeDiscovered(current, record)),
+        },
+      });
+    }
+
+    // Unordered: one bad document must not stop the rest of a sweep being stored.
+    await collection.bulkWrite(operations, { ordered: false });
+    return summary;
   }
 
   async transition(
@@ -520,6 +591,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
 
   async markRun(at: string): Promise<void> {
     await (await this.meta()).updateOne({ _id: 'last_run' }, { $set: { at } }, { upsert: true });
+  }
+
+  async lastDiscoveryAt(): Promise<string | null> {
+    return (await (await this.meta()).findOne({ _id: 'last_run' }))?.at ?? null;
   }
 
   async agencies(): Promise<string[]> {

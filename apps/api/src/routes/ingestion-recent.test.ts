@@ -47,6 +47,9 @@ function procurement(projectId: string, updatedAt: string): Procurement {
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
+    sourceHash: null,
+    lastSeenAt: null,
+    changedAt: null,
     updatedAt,
   };
 }

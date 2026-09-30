@@ -49,6 +49,9 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
+    sourceHash: null,
+    lastSeenAt: null,
+    changedAt: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -458,6 +461,102 @@ describe('a document that was only partly read', () => {
     expect(record?.documents[0]?.readMode).toBe('first_pages');
     expect(record?.documents[0]?.readNote).toMatch(/30/);
     expect(record?.analysis?.confidence).toBe('low');
+  });
+});
+
+describe('a sweep that only re-sees what it already has', () => {
+  const sweep = (overrides: Partial<Procurement> = {}) => ({
+    discoverProjects: async () => ({
+      records: [procurement(overrides)],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+  });
+
+  test('reports what was new, what moved and what did not', async () => {
+    const repository = new InMemoryProcurementStore();
+
+    const first = await run(repository, sweep());
+    const again = await run(repository, sweep());
+    const moved = await run(repository, sweep({ projectMoney: 9_999_999 }));
+
+    expect([first.newRecords, first.changedRecords, first.unchangedRecords]).toEqual([1, 0, 0]);
+    expect([again.newRecords, again.changedRecords, again.unchangedRecords]).toEqual([0, 0, 1]);
+    expect([moved.newRecords, moved.changedRecords, moved.unchangedRecords]).toEqual([0, 1, 0]);
+  });
+});
+
+describe('when discovery runs', () => {
+  const HOUR = 60 * 60 * 1000;
+  const hoursAgo = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString();
+
+  /** A run against a store that was last swept `lastSweepHoursAgo` ago, with one queued record. */
+  async function runWith(
+    lastSweepHoursAgo: number | null,
+    options: { discoveryMaxAgeMs?: number; forceDiscovery?: boolean },
+  ) {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement());
+    if (lastSweepHoursAgo !== null) await repository.markRun(hoursAgo(lastSweepHoursAgo));
+    const discover = mock(async () => ({
+      records: [],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      ranAt: new Date().toISOString(),
+    }));
+
+    const result = await runIngestion(
+      repository,
+      { apiKey: 'k', maxDownloads: 5, eBiddingOnly: true, logger, ...options },
+      deps({ discoverProjects: discover }),
+    );
+    return { result, discover, repository };
+  }
+
+  test('a recent sweep is not repeated, but queued records are still retrieved', async () => {
+    const { result, discover, repository } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR });
+
+    expect(discover).not.toHaveBeenCalled();
+    expect(result.discoverySkipped).toBe(true);
+    expect(result.attempted).toBe(1);
+    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+  });
+
+  test('skipping a sweep does not pretend one happened', async () => {
+    const { repository } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR });
+
+    const last = (await repository.summary()).lastRunAt;
+    expect(Date.now() - Date.parse(last!)).toBeGreaterThan(0.9 * HOUR);
+  });
+
+  test('a stale sweep is repeated', async () => {
+    const { result, discover } = await runWith(7, { discoveryMaxAgeMs: 6 * HOUR });
+
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(result.discoverySkipped).toBe(false);
+  });
+
+  test('a sweep that was never made is made', async () => {
+    const { discover } = await runWith(null, { discoveryMaxAgeMs: 6 * HOUR });
+
+    expect(discover).toHaveBeenCalledTimes(1);
+  });
+
+  test('an administrator can force a sweep however recent the last was', async () => {
+    const { discover } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR, forceDiscovery: true });
+
+    expect(discover).toHaveBeenCalledTimes(1);
+  });
+
+  test('with no age limit configured it always sweeps, as before', async () => {
+    const { discover } = await runWith(0.01, {});
+
+    expect(discover).toHaveBeenCalledTimes(1);
   });
 });
 

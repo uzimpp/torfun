@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { ACCESS_COOKIE } from '@torfun/types';
@@ -76,5 +76,39 @@ describe('ingestion route access and procurement query validation', () => {
     const response = await app.inject({ method: 'GET', url, cookies: adminCookie });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  describe('an administrator starting a run', () => {
+    const start = async (payload: unknown) => {
+      const startRun = mock(async () => {});
+      const original = app.ingestionService.startRun.bind(app.ingestionService);
+      app.ingestionService.startRun = startRun;
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/ingestion/run',
+          cookies: adminCookie,
+          payload: payload as Record<string, unknown>,
+        });
+        return { response, startRun };
+      } finally {
+        app.ingestionService.startRun = original;
+      }
+    };
+
+    test('can ask for a fresh discovery sweep, and the service is told', async () => {
+      const { response, startRun } = await start({ eBiddingOnly: true, forceDiscovery: true });
+
+      expect(response.statusCode).toBe(202);
+      expect(startRun).toHaveBeenCalledWith(
+        expect.objectContaining({ forceDiscovery: true, eBiddingOnly: true }),
+      );
+    });
+
+    test('does not force a sweep unless asked', async () => {
+      const { startRun } = await start({ eBiddingOnly: true });
+
+      expect(startRun).toHaveBeenCalledWith(expect.not.objectContaining({ forceDiscovery: true }));
+    });
   });
 });

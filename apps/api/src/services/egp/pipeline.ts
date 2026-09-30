@@ -155,11 +155,25 @@ export interface RunOptions {
    * over — stops rather than overlap another Run's requests to the site.
    */
   shouldContinue?: () => boolean;
+  /**
+   * A discovery sweep younger than this is not repeated: it is the same ~270
+   * queries for the same answer, and the open-data API rate limits them. Unset
+   * means always sweep.
+   */
+  discoveryMaxAgeMs?: number;
+  /** Sweep regardless of how recent the last one was. */
+  forceDiscovery?: boolean;
 }
 
 export interface RunResult {
   discovered: number;
   newRecords: number;
+  /** Seen before, and the agency's data for them is different now. */
+  changedRecords: number;
+  /** Seen again with nothing the agency owns moved. */
+  unchangedRecords: number;
+  /** The last sweep was recent enough that this Run retrieved from the queue without another. */
+  discoverySkipped: boolean;
   rejectedNonRegistry: number;
   attempted: number;
   /** Announcement archives successfully retrieved, whatever was in them. */
@@ -272,21 +286,43 @@ export async function runIngestion(
   );
   if (requeued > 0) logger.warn({ requeued }, 'egp: requeued records stuck in Processing');
 
-  logger.info('egp: starting discovery sweep');
-  const discovery = await deps.discoverProjects(options.apiKey);
+  const lastSweep = await repository.lastDiscoveryAt();
+  const sweepIsRecent =
+    options.discoveryMaxAgeMs !== undefined &&
+    !options.forceDiscovery &&
+    lastSweep !== null &&
+    Date.now() - Date.parse(lastSweep) < options.discoveryMaxAgeMs;
 
-  let newRecords = 0;
-  for (const record of discovery.records) {
-    if (!(await repository.get(record.projectId))) newRecords += 1;
-    await repository.upsert(record);
+  let discovery: DiscoveryResult;
+  let sync = { created: 0, changed: 0, unchanged: 0 };
+
+  if (sweepIsRecent) {
+    // Same queries, same answer, and the open-data API rate limits them. The
+    // queue already holds what the last sweep found, so go straight to it.
+    logger.info({ lastSweep }, 'egp: last discovery sweep is recent, skipping it');
+    discovery = {
+      records: [],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      ranAt: lastSweep ?? new Date().toISOString(),
+    };
+  } else {
+    logger.info('egp: starting discovery sweep');
+    discovery = await deps.discoverProjects(options.apiKey);
+    sync = await repository.upsertMany(discovery.records);
+    await repository.recordFailures(discovery.failures);
+    await repository.markRun(discovery.ranAt);
   }
-  await repository.recordFailures(discovery.failures);
-  await repository.markRun(discovery.ranAt);
+  const newRecords = sync.created;
 
   logger.info(
     {
       discovered: discovery.records.length,
       newRecords,
+      changed: sync.changed,
+      unchanged: sync.unchanged,
       rejected: discovery.rejected.length,
       failures: discovery.failures.length,
     },
@@ -295,13 +331,20 @@ export async function runIngestion(
 
   const failures: IngestionFailure[] = [...discovery.failures];
 
+  const syncCounts = {
+    newRecords,
+    changedRecords: sync.changed,
+    unchangedRecords: sync.unchanged,
+    discoverySkipped: sweepIsRecent,
+  };
+
   if (discovery.rateLimited) {
     // The open-data API said stop. Everything found so far is kept, and nothing
     // more is asked of any upstream this Run — the same rule as for the site.
     logger.warn('egp: open-data API rate limited discovery, stopping the run');
     return {
       discovered: discovery.records.length,
-      newRecords,
+      ...syncCounts,
       rejectedNonRegistry: discovery.rejected.length,
       attempted: 0,
       archivesRetrieved: 0,
@@ -513,7 +556,7 @@ export async function runIngestion(
 
   return {
     discovered: discovery.records.length,
-    newRecords,
+    ...syncCounts,
     rejectedNonRegistry: discovery.rejected.length,
     attempted,
     archivesRetrieved,

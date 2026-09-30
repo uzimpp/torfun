@@ -20,7 +20,7 @@ function build(
 ) {
   const lease = new InMemoryIngestionLease();
   const schedule = new InMemoryScheduleStore();
-  const { deps, open } = gatedDeps(options.fail);
+  const { deps, open, calls } = gatedDeps(options.fail);
   const service = new IngestionService(
     new InMemoryProcurementStore(),
     testEnv(),
@@ -33,7 +33,7 @@ function build(
     },
     deps,
   );
-  return { service, lease, schedule, open };
+  return { service, lease, schedule, open, calls };
 }
 
 describe('IngestionService.startRun', () => {
@@ -161,5 +161,31 @@ describe('runMayContinue', () => {
 
   test('a run that could not reach the lease for a whole ttl must stop, since another may hold it now', () => {
     expect(runMayContinue({ lost: false, confirmedAt: 1_000 }, 1_000 + TTL, TTL)).toBe(false);
+  });
+});
+
+describe('IngestionService and the discovery sweep', () => {
+  const finish = async (service: IngestionService, open: () => void, force = false) => {
+    await service.startRun({ eBiddingOnly: true, ...(force ? { forceDiscovery: true } : {}) });
+    open();
+    await settle();
+  };
+
+  test('a second run soon after the first does not sweep upstream again', async () => {
+    const { service, open, calls } = build();
+
+    await finish(service, open);
+    await finish(service, open);
+
+    expect(calls.discover).toBe(1);
+  });
+
+  test('an administrator can force the sweep', async () => {
+    const { service, open, calls } = build();
+
+    await finish(service, open);
+    await finish(service, open, true);
+
+    expect(calls.discover).toBe(2);
   });
 });

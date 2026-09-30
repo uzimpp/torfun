@@ -125,6 +125,9 @@ const record: Procurement = {
   winner: null,
   torAmbiguous: false,
   discoveredAt: '2026-09-30T00:00:00.000Z',
+  sourceHash: null,
+  lastSeenAt: null,
+  changedAt: null,
   updatedAt: '2026-09-30T00:00:00.000Z',
 };
 

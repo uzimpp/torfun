@@ -90,6 +90,7 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
           .object({
             eBiddingOnly: z.boolean().default(true),
             maxDownloads: z.number().int().positive().max(50).optional(),
+            forceDiscovery: z.boolean().optional(),
           })
           .default({ eBiddingOnly: true }),
         response: {

@@ -1,4 +1,5 @@
 import type { Procurement } from '@torfun/types';
+import { hashSource, hasUpstreamChange } from './source-hash';
 
 /**
  * Merge a freshly discovered record into the one already stored.
@@ -18,6 +19,11 @@ export function mergeDiscovered(
   incoming: Procurement,
   at: string = new Date().toISOString(),
 ): Procurement {
+  // A sweep returns every record every time, so seeing one again is not news.
+  // Only a difference in what the agency owns moves `updatedAt`; otherwise a
+  // "recently updated" list would just be whatever the last sweep touched.
+  const changed = hasUpstreamChange(existing, incoming);
+
   return {
     // Identity. Equal by construction — this is only ever called on a match.
     projectId: existing.projectId,
@@ -72,6 +78,9 @@ export function mergeDiscovered(
     // A project matching several keywords keeps all of them, across sweeps.
     matchedKeywords: [...new Set([...existing.matchedKeywords, ...incoming.matchedKeywords])],
 
-    updatedAt: at,
+    sourceHash: hashSource(incoming),
+    lastSeenAt: at,
+    changedAt: changed ? at : existing.changedAt,
+    updatedAt: changed ? at : existing.updatedAt,
   };
 }

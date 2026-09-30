@@ -196,6 +196,9 @@ export function toRecord(
     torAmbiguous: false,
 
     discoveredAt: timestamp,
+    sourceHash: null, // fingerprinted by the store as it writes
+    lastSeenAt: timestamp,
+    changedAt: null,
     updatedAt: timestamp,
   };
 }

@@ -359,6 +359,21 @@ export const ProcurementSchema = z.object({
   torAmbiguous: z.boolean(),
 
   discoveredAt: z.string(),
+  /**
+   * A fingerprint of everything the agency owns on this record (name, dates,
+   * money, stage, winner). A sweep compares it to tell a real change from a
+   * record that was merely seen again. Null on records from before it existed.
+   */
+  sourceHash: z.string().nullable(),
+  /** The last sweep that returned this record, changed or not. */
+  lastSeenAt: z.string().nullable(),
+  /** The last time a sweep found the agency's data changed; null if it never has. */
+  changedAt: z.string().nullable(),
+  /**
+   * When anything about this record last changed: upstream data, or this
+   * system's own work on it. Not bumped by a sweep that saw nothing new, so it
+   * is a true "recently updated", not "recently looked at".
+   */
   updatedAt: z.string(),
 });
 export type Procurement = z.infer<typeof ProcurementSchema>;
