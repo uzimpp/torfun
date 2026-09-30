@@ -43,8 +43,9 @@ import {
  */
 export interface IngestionDeps {
   discoverProjects: (apiKey: string) => Promise<DiscoveryResult>;
-  resolveZipId: (projectId: string) => Promise<string | null>;
-  downloadArchive: (zipId: string) => Promise<Uint8Array>;
+  /** `signal` is aborted at the record's deadline, which cancels the site request. */
+  resolveZipId: (projectId: string, signal?: AbortSignal) => Promise<string | null>;
+  downloadArchive: (zipId: string, signal?: AbortSignal) => Promise<Uint8Array>;
   extractTorPdfs: (archive: Uint8Array) => ExtractionResult;
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   sleep: (ms: number) => Promise<void>;
@@ -73,17 +74,35 @@ class DeadlineExceededError extends Error {
 }
 
 /**
+ * What a record's work can tell the deadline about itself.
+ *
+ * `expired` is how work that outlives its record finds out: it checks it before
+ * every write, so a call that finally returns after the record was requeued
+ * cannot overwrite that requeue. `siteRequest` is true only while a request to
+ * the upstream site is in flight, because that is the one thing that must never
+ * be left running.
+ */
+interface RecordGuard {
+  expired: boolean;
+  siteRequest: boolean;
+  readonly controller: AbortController;
+}
+
+/**
  * Run one record's work against a deadline.
  *
- * The work cannot be cancelled, so when the deadline wins it keeps running in
- * the background. `guard.expired` is how it finds out: the work checks it before
- * every write, so a call that finally returns after the record was requeued
- * cannot overwrite that requeue.
+ * The work cannot be cancelled in general, so when the deadline wins it keeps
+ * running in the background — except for a site request, which is aborted and
+ * then waited for. Upstream access is single-file (AGENTS.md), so an abandoned
+ * request must not linger into the next record's; and a rate-limit response that
+ * beat the abort is still the site saying stop, so it is raised, not swallowed.
+ * Waiting is bounded because an aborted request ends promptly. Work stuck
+ * anywhere else (the model, say) is not waited for: it touches no upstream site.
  */
 async function withDeadline(
   work: () => Promise<void>,
   ms: number,
-  guard: { expired: boolean },
+  guard: RecordGuard,
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
@@ -92,8 +111,22 @@ async function withDeadline(
       reject(new DeadlineExceededError(ms));
     }, ms);
   });
+  const running = work();
   try {
-    await Promise.race([work(), deadline]);
+    await Promise.race([running, deadline]);
+  } catch (error) {
+    if (!(error instanceof DeadlineExceededError)) throw error;
+
+    const requestInFlight = guard.siteRequest;
+    guard.controller.abort();
+    if (requestInFlight) {
+      let late: unknown;
+      await running.catch((caught: unknown) => {
+        late = caught;
+      });
+      if (late instanceof RateLimitedError) throw late;
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -268,12 +301,28 @@ export async function runIngestion(
     attempted += 1;
     await repository.transition(record.projectId, 'downloading');
 
-    const guard = { expired: false };
+    const guard: RecordGuard = {
+      expired: false,
+      siteRequest: false,
+      controller: new AbortController(),
+    };
+    // Marks the span of a call to the upstream site, so a deadline knows whether
+    // there is a request it must cancel and wait for.
+    const site = async <T>(call: () => Promise<T>): Promise<T> => {
+      guard.siteRequest = true;
+      try {
+        return await call();
+      } finally {
+        guard.siteRequest = false;
+      }
+    };
 
     try {
       await withDeadline(
         async () => {
-          const zipId = await deps.resolveZipId(record.projectId);
+          const zipId = await site(() =>
+            deps.resolveZipId(record.projectId, guard.controller.signal),
+          );
           if (guard.expired) return;
 
           if (zipId === null) {
@@ -291,7 +340,7 @@ export async function runIngestion(
             await repository.transition(record.projectId, 'no_tor_package', {}, error);
             failed += 1;
           } else {
-            const archive = await deps.downloadArchive(zipId);
+            const archive = await site(() => deps.downloadArchive(zipId, guard.controller.signal));
             if (guard.expired) return;
             const extraction = deps.extractTorPdfs(archive);
             archivesRetrieved += 1;

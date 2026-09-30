@@ -46,19 +46,27 @@ function buildUrl(base: string, params: Record<string, string | number>): string
  * 429/403 throws RateLimitedError immediately and is never retried: the whole
  * point is to back off the site rather than hammer it. 5xx is retried, since
  * that's the upstream having a bad moment rather than refusing us.
+ *
+ * `signal` lets the caller call the whole thing off — the pipeline does at a
+ * record's deadline, so an abandoned request cannot linger and overlap the next
+ * record's. An aborted request is final: it is neither retried nor backed off.
  */
 async function fetchWithRetry(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<Response> {
   let lastError = 'unknown failure';
 
   for (let attempt = 0; attempt <= POLITENESS.maxRetries; attempt += 1) {
+    if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${url}`);
+
     try {
+      const timeout = AbortSignal.timeout(timeoutMs);
       const response = await fetch(url, {
         ...init,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       });
 
       if (response.status === 429 || response.status === 403) {
@@ -73,6 +81,7 @@ async function fetchWithRetry(
       }
     } catch (error) {
       if (error instanceof RateLimitedError || error instanceof UpstreamError) throw error;
+      if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${url}`);
       lastError = `transport error: ${error instanceof Error ? error.message : String(error)}`;
     }
 
@@ -128,6 +137,7 @@ export async function egpGet(
   endpoint: string,
   params: Record<string, string | number>,
   headers: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<Response> {
-  return fetchWithRetry(buildUrl(endpoint, params), { headers }, POLITENESS.torTimeoutMs);
+  return fetchWithRetry(buildUrl(endpoint, params), { headers }, POLITENESS.torTimeoutMs, signal);
 }
