@@ -19,9 +19,30 @@ export function redactUrl(url: string): string {
   return url.replace(/([?&](?:api[-_]?key|apikey|token|key|secret)=)[^&\s]*/gi, '$1[redacted]');
 }
 
+/** The day's allowance as an open-data response reports it; null where it did not say. */
+export interface QuotaReading {
+  limitDay: number | null;
+  remainingDay: number | null;
+}
+
+function quotaFrom(headers: Headers): QuotaReading {
+  const read = (name: string): number | null => {
+    const value = Number(headers.get(name));
+    return headers.get(name) !== null && Number.isFinite(value) ? value : null;
+  };
+  return {
+    limitDay: read('x-ratelimit-limit-day'),
+    remainingDay: read('x-ratelimit-remaining-day'),
+  };
+}
+
 export class RateLimitedError extends Error {
-  constructor(url: string, status: number) {
+  /** What the refusal said about the allowance, where it said anything. */
+  readonly quota: QuotaReading | null;
+
+  constructor(url: string, status: number, quota: QuotaReading | null = null) {
     super(`HTTP ${status} from ${redactUrl(url)} — treating as rate limited`);
+    this.quota = quota;
     this.name = 'RateLimitedError';
   }
 }
@@ -81,7 +102,7 @@ async function fetchWithRetry(
       });
 
       if (response.status === 429 || response.status === 403) {
-        throw new RateLimitedError(url, response.status);
+        throw new RateLimitedError(url, response.status, quotaFrom(response.headers));
       }
       if (response.status >= 500) {
         lastError = `HTTP ${response.status}`;
@@ -123,7 +144,7 @@ export async function openDataGet<T>(
   endpoint: string,
   params: Record<string, string | number>,
   apiKey: string,
-): Promise<{ rows: T[]; total: number }> {
+): Promise<{ rows: T[]; total: number; quota: QuotaReading }> {
   const url = buildUrl(endpoint, { ...params, 'api-key': apiKey });
   const response = await fetchWithRetry(url, {}, POLITENESS.openDataTimeoutMs);
 
@@ -140,7 +161,7 @@ export async function openDataGet<T>(
     throw new UpstreamError(`API returned success=false: ${body.message ?? '(no message)'}`);
   }
 
-  return { rows: body.data ?? [], total: body.total ?? 0 };
+  return { rows: body.data ?? [], total: body.total ?? 0, quota: quotaFrom(response.headers) };
 }
 
 /** GET against the e-GP procurement app, which needs a browser-shaped UA. */

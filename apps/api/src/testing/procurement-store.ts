@@ -3,6 +3,7 @@ import {
   type IngestionFailure,
   type IngestionOutcome,
   type IngestionSummary,
+  type OpenDataQuota,
   type Procurement,
 } from '@torfun/types';
 import type {
@@ -26,6 +27,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly records = new Map<string, Procurement>();
   private readonly failures: IngestionFailure[] = [];
   private lastRunAt: string | null = null;
+  private quota: OpenDataQuota | null = null;
 
   async ensureIndexes(): Promise<void> {
     // The in-memory store has no indexes; this preserves the production
@@ -128,6 +130,14 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     this.lastRunAt = at;
   }
 
+  async openDataQuota(): Promise<OpenDataQuota | null> {
+    return this.quota;
+  }
+
+  async recordOpenDataQuota(quota: OpenDataQuota): Promise<void> {
+    this.quota = quota;
+  }
+
   async lastDiscoveryAt(): Promise<string | null> {
     return this.lastRunAt;
   }
@@ -158,6 +168,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       totalTorBytes: 0,
       failureCount: this.failures.length,
       lastRunAt: this.lastRunAt,
+      openDataQuota: this.quota,
       runInProgress: false,
     };
   }

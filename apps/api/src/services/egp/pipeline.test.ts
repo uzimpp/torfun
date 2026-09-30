@@ -92,6 +92,8 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       resolutions: [],
       failures: [],
       rateLimited: false,
+      budgetReached: false,
+      quota: null,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
     resolveZipId: async () => 'zip-1',
@@ -204,6 +206,8 @@ describe('runIngestion', () => {
         resolutions: [],
         failures: [],
         rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: async () => {
@@ -229,6 +233,8 @@ describe('runIngestion', () => {
         resolutions: [],
         failures: [],
         rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: failing,
@@ -319,6 +325,8 @@ describe('stages and the per-record deadline', () => {
         resolutions: [],
         failures: [],
         rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       classifyDocument: async () => {
@@ -343,30 +351,127 @@ describe('stages and the per-record deadline', () => {
   });
 });
 
-describe('a run whose discovery was rate limited', () => {
-  test('stops before retrieval, keeps what was found, and asks the site for nothing', async () => {
+describe('the open-data daily quota', () => {
+  const HOUR = 60 * 60 * 1000;
+  const quotaAt = (remainingDay: number, hoursAgo = 0) => ({
+    remainingDay,
+    limitDay: 1000,
+    observedAt: new Date(Date.now() - hoursAgo * HOUR).toISOString(),
+  });
+
+  const sweepResult = (overrides: Record<string, unknown> = {}) => ({
+    records: [],
+    rejected: [],
+    resolutions: [],
+    failures: [],
+    rateLimited: false,
+    budgetReached: false,
+    quota: null,
+    ranAt: new Date().toISOString(),
+    ...overrides,
+  });
+
+  /** A store with one queued record, and optionally a known allowance and a past sweep. */
+  async function setup(state: { quota?: ReturnType<typeof quotaAt>; lastSweepHoursAgo?: number }) {
     const repository = new InMemoryProcurementStore();
-    const resolved: string[] = [];
+    await repository.upsert(procurement());
+    if (state.quota) await repository.recordOpenDataQuota(state.quota);
+    if (state.lastSweepHoursAgo !== undefined) {
+      await repository.markRun(new Date(Date.now() - state.lastSweepHoursAgo * HOUR).toISOString());
+    }
+    return repository;
+  }
 
-    const result = await run(repository, {
-      discoverProjects: async () => ({
-        records: [procurement()],
-        rejected: [],
-        resolutions: [],
-        failures: [],
-        rateLimited: true,
-        ranAt: '2026-09-09T00:00:00.000Z',
-      }),
-      resolveZipId: async (projectId) => {
-        resolved.push(projectId);
-        return 'zip-1';
-      },
-    });
+  const runWith = (
+    repository: InMemoryProcurementStore,
+    discover: () => Promise<ReturnType<typeof sweepResult>>,
+    options: { forceDiscovery?: boolean } = {},
+  ) =>
+    runIngestion(
+      repository,
+      { apiKey: 'k', maxDownloads: 5, eBiddingOnly: true, logger, ...options },
+      deps({ discoverProjects: mock(discover) as unknown as IngestionDeps['discoverProjects'] }),
+    );
 
-    expect(result.aborted).toBe(true);
-    expect(result.attempted).toBe(0);
-    expect(resolved).toEqual([]);
-    expect((await repository.get('66059313551'))?.state).toBe('Queued'); // found, not lost
+  test('a refused sweep does not stop the run: the queue is still worked', async () => {
+    const repository = await setup({});
+
+    const result = await runWith(repository, async () =>
+      sweepResult({ rateLimited: true, quota: quotaAt(0) }),
+    );
+
+    expect(result.discoveryStopped).toBe('rate_limited');
+    expect(result.aborted).toBe(false);
+    expect(result.attempted).toBe(1);
+    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+  });
+
+  test('a sweep cut short is not counted as done, so the next run sweeps again', async () => {
+    const repository = await setup({});
+
+    await runWith(repository, async () => sweepResult({ rateLimited: true, quota: quotaAt(0) }));
+    expect(await repository.lastDiscoveryAt()).toBeNull();
+
+    await runWith(repository, async () => sweepResult({ budgetReached: true, quota: quotaAt(40) }));
+    expect(await repository.lastDiscoveryAt()).toBeNull();
+  });
+
+  test('stopping at the reserve is reported as a budget stop, and the allowance is remembered', async () => {
+    const repository = await setup({});
+
+    const result = await runWith(repository, async () =>
+      sweepResult({ budgetReached: true, quota: quotaAt(40) }),
+    );
+
+    expect(result.discoveryStopped).toBe('budget');
+    expect((await repository.openDataQuota())?.remainingDay).toBe(40);
+  });
+
+  test('a finished sweep is marked done and remembers the allowance it left', async () => {
+    const repository = await setup({});
+
+    const result = await runWith(repository, async () => sweepResult({ quota: quotaAt(700) }));
+
+    expect(result.discoveryStopped).toBeNull();
+    expect(await repository.lastDiscoveryAt()).not.toBeNull();
+    expect((await repository.openDataQuota())?.remainingDay).toBe(700);
+  });
+
+  test('a sweep that reported nothing about the allowance leaves the known one alone', async () => {
+    const repository = await setup({ quota: quotaAt(900) });
+
+    await runWith(repository, async () => sweepResult());
+
+    expect((await repository.openDataQuota())?.remainingDay).toBe(900);
+  });
+
+  test('with too little left today, no sweep is attempted, and the queue is still worked', async () => {
+    const repository = await setup({ quota: quotaAt(120) });
+    const discover = mock(async () => sweepResult());
+
+    const result = await runWith(repository, discover);
+
+    expect(discover).not.toHaveBeenCalled();
+    expect(result.discoverySkipped).toBe(true);
+    expect(result.attempted).toBe(1);
+  });
+
+  test('forcing a sweep cannot conjure allowance that is not there', async () => {
+    const repository = await setup({ quota: quotaAt(0), lastSweepHoursAgo: 30 });
+    const discover = mock(async () => sweepResult());
+
+    await runWith(repository, discover, { forceDiscovery: true });
+
+    expect(discover).not.toHaveBeenCalled();
+  });
+
+  test('an allowance read on an earlier day is taken to have reset', async () => {
+    const repository = await setup({ quota: quotaAt(0, 36) });
+    const discover = mock(async () => sweepResult());
+
+    await runWith(repository, discover);
+
+    expect(discover).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -472,6 +577,8 @@ describe('a sweep that only re-sees what it already has', () => {
       resolutions: [],
       failures: [],
       rateLimited: false,
+      budgetReached: false,
+      quota: null,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -507,6 +614,8 @@ describe('when discovery runs', () => {
       resolutions: [],
       failures: [],
       rateLimited: false,
+      budgetReached: false,
+      quota: null,
       ranAt: new Date().toISOString(),
     }));
 
@@ -582,6 +691,8 @@ describe('a run that is told to stop', () => {
           resolutions: [],
           failures: [],
           rateLimited: false,
+          budgetReached: false,
+          quota: null,
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
         resolveZipId: async (projectId) => {
@@ -610,6 +721,8 @@ describe('a deadline that fires while a site request is in flight', () => {
       resolutions: [],
       failures: [],
       rateLimited: false,
+      budgetReached: false,
+      quota: null,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -708,6 +821,8 @@ describe('what Gemini reads from the TOR', () => {
       resolutions: [],
       failures: [],
       rateLimited: false,
+      budgetReached: false,
+      quota: null,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -809,6 +924,8 @@ describe('the analysis pool', () => {
         resolutions: [],
         failures: [],
         rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       downloadArchive: async () => {
@@ -845,6 +962,8 @@ describe('the reaper', () => {
         resolutions: [],
         failures: [],
         rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: async () => null,
@@ -867,6 +986,8 @@ describe('the reaper', () => {
         resolutions: [],
         failures: [],
         rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
     });

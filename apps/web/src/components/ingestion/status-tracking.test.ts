@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import { MAX_RETRIEVAL_ATTEMPTS } from '@torfun/types';
 import type { IngestionSummaryResponse } from '@/lib/api';
-import { attemptsLabel, describeChange, runBanner, stageDuration } from './status-tracking';
+import {
+  attemptsLabel,
+  describeChange,
+  describeQuota,
+  runBanner,
+  stageDuration,
+} from './status-tracking';
 
 const NOW = new Date('2026-09-30T12:00:00.000Z');
 const minutesAgo = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
@@ -75,6 +81,7 @@ describe('runBanner', () => {
     totalTorBytes: 0,
     failureCount: 0,
     lastRunAt: null,
+    openDataQuota: null,
     runInProgress: true,
     agencies: [],
     ...overrides,
@@ -121,5 +128,54 @@ describe('describeChange', () => {
         at: '2026-09-30T10:00:00.000Z',
       }).detail,
     ).toBeUndefined();
+  });
+});
+
+describe('describeQuota', () => {
+  const NOW = Date.parse('2026-09-30T18:00:00.000Z');
+  const today = (remainingDay: number) => ({
+    remainingDay,
+    limitDay: 1000,
+    observedAt: '2026-09-30T15:00:00.000Z',
+  });
+
+  test('says nothing is known before a sweep has read it', () => {
+    expect(describeQuota(null, NOW)).toEqual({
+      label: 'โควตา open-data: ยังไม่ทราบ',
+      low: false,
+    });
+  });
+
+  test('shows what is left of the day, without alarm, while a full sweep is affordable', () => {
+    const result = describeQuota(today(640), NOW);
+
+    expect(result.label).toContain('640');
+    expect(result.label).toContain('1,000');
+    expect(result.low).toBe(false);
+  });
+
+  test('warns when what is left cannot cover a full sweep', () => {
+    const result = describeQuota(today(120), NOW);
+
+    expect(result.low).toBe(true);
+    expect(result.label).toContain('120');
+    expect(result.label).toMatch(/ไม่พอ/);
+  });
+
+  test('says plainly when it is used up', () => {
+    const result = describeQuota(today(0), NOW);
+
+    expect(result.low).toBe(true);
+    expect(result.label).toMatch(/หมด/);
+  });
+
+  test('a reading from an earlier day is treated as stale, not as still true', () => {
+    const result = describeQuota(
+      { remainingDay: 0, limitDay: 1000, observedAt: '2026-09-29T15:00:00.000Z' },
+      NOW,
+    );
+
+    expect(result.low).toBe(false);
+    expect(result.label).toMatch(/ยังไม่ทราบ/);
   });
 });

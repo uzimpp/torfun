@@ -32,6 +32,8 @@ export function gatedDeps(fail = false) {
         resolutions: [],
         failures: [],
         rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: new Date().toISOString(),
       };
     },

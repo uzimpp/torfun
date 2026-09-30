@@ -15,6 +15,7 @@ import { mapWithConcurrency } from './concurrency';
 import {
   ANALYSIS_CONCURRENCY,
   MAX_ATTEMPTS,
+  OPEN_DATA_SWEEP_CALLS,
   RECORD_DEADLINE_MS,
   STALE_PROCESSING_MS,
 } from './constants';
@@ -172,8 +173,13 @@ export interface RunResult {
   changedRecords: number;
   /** Seen again with nothing the agency owns moved. */
   unchangedRecords: number;
-  /** The last sweep was recent enough that this Run retrieved from the queue without another. */
+  /** This Run made no discovery sweep (the last was recent, or the day's allowance is too low). */
   discoverySkipped: boolean;
+  /**
+   * Why a sweep that began did not finish: the open-data API refused it, or it
+   * stopped with the day's reserve in hand. Null when it finished or never began.
+   */
+  discoveryStopped: 'rate_limited' | 'budget' | null;
   rejectedNonRegistry: number;
   attempted: number;
   /** Announcement archives successfully retrieved, whatever was in them. */
@@ -184,6 +190,10 @@ export interface RunResult {
   aborted: boolean;
   failures: IngestionFailure[];
   ranAt: string;
+}
+
+function sameUtcDay(iso: string, nowMs: number): boolean {
+  return iso.slice(0, 10) === new Date(nowMs).toISOString().slice(0, 10);
 }
 
 /** Which records are worth spending an upstream request on, best first. */
@@ -293,19 +303,40 @@ export async function runIngestion(
     lastSweep !== null &&
     Date.now() - Date.parse(lastSweep) < options.discoveryMaxAgeMs;
 
+  // The open-data key has a hard daily allowance. If what it last reported, today,
+  // is less than a sweep costs, a sweep would only be refused part-way — so none
+  // is tried, whatever an administrator asked for. A reading from an earlier day
+  // is taken to have reset.
+  const knownQuota = await repository.openDataQuota();
+  const quotaTooLow =
+    knownQuota !== null &&
+    sameUtcDay(knownQuota.observedAt, Date.now()) &&
+    knownQuota.remainingDay < OPEN_DATA_SWEEP_CALLS;
+
+  const skipSweep = sweepIsRecent || quotaTooLow;
+
   let discovery: DiscoveryResult;
   let sync = { created: 0, changed: 0, unchanged: 0 };
+  let discoveryStopped: RunResult['discoveryStopped'] = null;
 
-  if (sweepIsRecent) {
-    // Same queries, same answer, and the open-data API rate limits them. The
-    // queue already holds what the last sweep found, so go straight to it.
-    logger.info({ lastSweep }, 'egp: last discovery sweep is recent, skipping it');
+  if (skipSweep) {
+    // Either the answer has not had time to change, or there is no allowance left
+    // to ask again with. The queue already holds what the last sweep found, so go
+    // straight to retrieving from it.
+    logger.info(
+      { lastSweep, remainingToday: quotaTooLow ? knownQuota?.remainingDay : undefined },
+      quotaTooLow
+        ? 'egp: open-data allowance too low for a sweep today, skipping it'
+        : 'egp: last discovery sweep is recent, skipping it',
+    );
     discovery = {
       records: [],
       rejected: [],
       resolutions: [],
       failures: [],
       rateLimited: false,
+      budgetReached: false,
+      quota: null,
       ranAt: lastSweep ?? new Date().toISOString(),
     };
   } else {
@@ -313,7 +344,19 @@ export async function runIngestion(
     discovery = await deps.discoverProjects(options.apiKey);
     sync = await repository.upsertMany(discovery.records);
     await repository.recordFailures(discovery.failures);
-    await repository.markRun(discovery.ranAt);
+    if (discovery.quota) await repository.recordOpenDataQuota(discovery.quota);
+
+    if (discovery.rateLimited || discovery.budgetReached) {
+      // Cut short. What it found is kept, but it is not a finished sweep: marking
+      // it done would make the next Run skip the agencies it never reached.
+      discoveryStopped = discovery.rateLimited ? 'rate_limited' : 'budget';
+      logger.warn(
+        { stopped: discoveryStopped, remainingToday: discovery.quota?.remainingDay },
+        'egp: discovery sweep stopped early; retrieval from the queue carries on',
+      );
+    } else {
+      await repository.markRun(discovery.ranAt);
+    }
   }
   const newRecords = sync.created;
 
@@ -335,26 +378,9 @@ export async function runIngestion(
     newRecords,
     changedRecords: sync.changed,
     unchangedRecords: sync.unchanged,
-    discoverySkipped: sweepIsRecent,
+    discoverySkipped: skipSweep,
+    discoveryStopped,
   };
-
-  if (discovery.rateLimited) {
-    // The open-data API said stop. Everything found so far is kept, and nothing
-    // more is asked of any upstream this Run — the same rule as for the site.
-    logger.warn('egp: open-data API rate limited discovery, stopping the run');
-    return {
-      discovered: discovery.records.length,
-      ...syncCounts,
-      rejectedNonRegistry: discovery.rejected.length,
-      attempted: 0,
-      archivesRetrieved: 0,
-      torAnalysed: 0,
-      failed: 0,
-      aborted: true,
-      failures,
-      ranAt: discovery.ranAt,
-    };
-  }
 
   const candidates = await selectForRetrieval(repository, options);
 

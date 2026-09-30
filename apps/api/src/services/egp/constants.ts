@@ -145,9 +145,20 @@ export const TOR_MEMBER_PATTERNS = [
 ];
 
 /**
+ * The open-data key's daily allowance is a hard cap (1,000 requests, read from
+ * its `x-ratelimit-limit-day` header), shared by anything using the key. A sweep
+ * stops with this many left rather than running until it is refused, so a second
+ * caller of the same key, or a retry, is not left with nothing.
+ */
+export const OPEN_DATA_RESERVE = 50;
+
+/** What a full discovery sweep costs; the number lives in `@torfun/types`, where the admin page reads it too. */
+export { OPEN_DATA_SWEEP_CALLS } from '@torfun/types';
+
+/**
  * A discovery sweep younger than this is not repeated. It is ~270 open-data
  * queries for an answer that has not had time to change, and that API rate
- * limits them — pressing Run three times in an hour returned a wall of 429s.
- * Retrieval from the queue still happens on every Run.
+ * limits them at 1,000 a day, and a sweep is ~300 of those, so a day allows about
+ * three and one is plenty. Retrieval from the queue still happens on every Run.
  */
-export const DISCOVERY_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+export const DISCOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000;

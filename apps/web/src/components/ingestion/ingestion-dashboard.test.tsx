@@ -23,6 +23,7 @@ const summary = (overrides: Partial<IngestionSummaryResponse> = {}): IngestionSu
   totalTorBytes: 0,
   failureCount: 0,
   lastRunAt: '2026-09-30T10:00:00.000Z',
+  openDataQuota: null,
   runInProgress: false,
   agencies: [],
   ...overrides,

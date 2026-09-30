@@ -291,6 +291,7 @@ describe('SummaryCards', () => {
     totalTorBytes: 70_900_000,
     failureCount: 4,
     lastRunAt: null,
+    openDataQuota: null,
     runInProgress: false,
     agencies: [],
   };
