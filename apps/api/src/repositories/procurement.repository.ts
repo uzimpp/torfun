@@ -53,6 +53,32 @@ function biddabilityRank(status: ProcurementStatus): number {
 }
 
 /**
+ * Values this system stored before the status and outcome vocabulary changed.
+ *
+ * Read as their new equivalents so a record written before the migration ran
+ * (`docs/migrations/2026-09-30-status-outcome-vocabulary.js`) is served rather
+ * than failing the whole response it appears in — the API validates every
+ * response against the schema, so one stale value would 500 a page or the
+ * summary. The migration rewrites them for good; this only covers the gap
+ * between deploying the code and running it.
+ */
+const LEGACY_OUTCOMES: Record<string, IngestionOutcome> = { processing: 'downloading' };
+const LEGACY_STATUSES: Record<string, ProcurementStatus> = {
+  drafting_tor: 'drafting',
+  requisition: 'drafting',
+  invitation: 'open',
+  award_announced: 'awarded',
+};
+
+function outcomeFromStored(stored: string): IngestionOutcome {
+  return LEGACY_OUTCOMES[stored] ?? (stored as IngestionOutcome);
+}
+
+function statusFromStored(stored: string): ProcurementStatus {
+  return LEGACY_STATUSES[stored] ?? (stored as ProcurementStatus);
+}
+
+/**
  * Persistence shape. snake_case matches the documents in Atlas; this type must
  * not escape the repository.
  */
@@ -117,7 +143,7 @@ function toDomain(document: ProcurementDocument): Procurement {
     purchaseMethodName: document.purchase_method_name,
     projectMoney: document.project_money,
     priceBuild: document.price_build,
-    status: document.status,
+    status: statusFromStored(document.status),
     statusSource: document.status_source ?? null,
     upstreamStatus: document.upstream_status ?? null,
     matchedKeywords: document.matched_keywords,
@@ -125,9 +151,12 @@ function toDomain(document: ProcurementDocument): Procurement {
     softwareScore: document.software_score,
     eBidding: document.e_bidding,
     state: document.state,
-    outcome: document.outcome,
+    outcome: outcomeFromStored(document.outcome),
     attempts: document.attempts ?? 0,
-    statusHistory: document.status_history,
+    statusHistory: document.status_history.map((entry) => ({
+      ...entry,
+      outcome: outcomeFromStored(entry.outcome),
+    })),
     zipId: document.zip_id,
     zipBytes: document.zip_bytes,
     archiveMemberCount: document.archive_member_count,
@@ -547,7 +576,11 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const byState = {} as Record<IngestionState, number>;
     for (const row of byStateRows) byState[row._id] = row.count;
     const byOutcome = {} as Record<IngestionOutcome, number>;
-    for (const row of byOutcomeRows) byOutcome[row._id] = row.count;
+    // Old and new spellings of one outcome are added together, not overwritten.
+    for (const row of byOutcomeRows) {
+      const outcome = outcomeFromStored(row._id);
+      byOutcome[outcome] = (byOutcome[outcome] ?? 0) + row.count;
+    }
 
     return {
       total,
@@ -565,7 +598,9 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
   }
 
   async recent(limit: number): Promise<Procurement[]> {
-    const documents = await (await this.records())
+    const documents = await (
+      await this.records()
+    )
       .find({})
       .sort({ updated_at: -1, _id: 1 })
       .limit(limit)
