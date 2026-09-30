@@ -439,6 +439,28 @@ describe('what a retrieval remembers about the archive', () => {
   });
 });
 
+describe('a document that was only partly read', () => {
+  test('the record says how it was read, so a person knows to check the source', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      classifyDocument: async () => ({
+        isTor: true,
+        torKind: 'final' as const,
+        whatThisIs: 'ขอบเขตของงาน',
+        analysis: { ...analysis, confidence: 'low' as const },
+        readMode: 'first_pages' as const,
+        readNote: 'อ่านเฉพาะ 30 หน้าแรกจากทั้งหมด 120 หน้า',
+      }),
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.documents[0]?.readMode).toBe('first_pages');
+    expect(record?.documents[0]?.readNote).toMatch(/30/);
+    expect(record?.analysis?.confidence).toBe('low');
+  });
+});
+
 describe('a run that is told to stop', () => {
   test('stops before the next record and leaves the rest Queued', async () => {
     const repository = new InMemoryProcurementStore();
