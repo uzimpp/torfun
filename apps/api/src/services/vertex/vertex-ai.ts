@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type, type Schema } from '@google/genai';
 import type { Env } from '../../config/env';
-import type { ModelCall } from './classify-document';
+import { ModelStatus, type ModelCall } from './classify-document';
 import { sendReliably } from './reliable-model-call';
 
 /**
@@ -75,12 +75,14 @@ const stringList: Schema = { type: Type.ARRAY, items: { type: Type.STRING } };
  * `nullable`, so "not in the document" has somewhere to go other than a
  * fabricated value.
  */
-const ANSWER_SCHEMA: Schema = {
+export const ANSWER_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
     isTor: { type: Type.BOOLEAN },
     torKind: { type: Type.STRING, enum: ['final', 'draft'], nullable: true },
     whatThisIs: { type: Type.STRING },
+    // The stage the document shows; null is how the model says it does not show one.
+    procurementStatus: { type: Type.STRING, enum: [...ModelStatus.options], nullable: true },
     analysis: {
       type: Type.OBJECT,
       nullable: true,
@@ -121,7 +123,7 @@ const ANSWER_SCHEMA: Schema = {
       ],
     },
   },
-  required: ['isTor', 'torKind', 'whatThisIs', 'analysis'],
+  required: ['isTor', 'torKind', 'whatThisIs', 'analysis', 'procurementStatus'],
 };
 
 /**
