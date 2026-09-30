@@ -1,6 +1,6 @@
 import type { IngestionFailure, Procurement } from '@torfun/types';
 import { classifyProject, softwareScore } from './classify';
-import { openDataGet, sleep } from './client';
+import { openDataGet, RateLimitedError, sleep } from './client';
 import { convertDateToISO } from './dates';
 import { readUpstreamStatus } from './status';
 import { toWinner } from './winner';
@@ -62,6 +62,12 @@ export interface DiscoveryResult {
   rejected: Array<{ projectId: string; projectName: string; deptName: string }>;
   resolutions: DeptResolution[];
   failures: IngestionFailure[];
+  /**
+   * The open-data API answered 429/403 and the sweep stopped there. What was
+   * found before that is kept; nothing further was asked for. The caller stops
+   * the Run — a site saying stop is not something to work around.
+   */
+  rateLimited: boolean;
   ranAt: string;
 }
 
@@ -212,6 +218,8 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
   const byProjectId = new Map<string, Procurement>();
   const rejected = new Map<string, { projectId: string; projectName: string; deptName: string }>();
 
+  let rateLimited = false;
+
   for (const registryName of SOURCE_REGISTRY) {
     try {
       resolutions.push(await resolveDeptCodes(registryName, apiKey));
@@ -229,11 +237,16 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
         error: error instanceof Error ? error.message : String(error),
         at: now(),
       });
+      if (error instanceof RateLimitedError) {
+        rateLimited = true;
+        break;
+      }
     }
     await sleep(POLITENESS.openDataDelayMs);
   }
 
-  for (const resolution of resolutions) {
+  sweep: for (const resolution of resolutions) {
+    if (rateLimited) break;
     const deptCodes = [...new Set(resolution.matchedCodes.map((match) => match.deptCode))].sort();
 
     for (const deptCode of deptCodes) {
@@ -257,6 +270,10 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
               error: error instanceof Error ? error.message : String(error),
               at: now(),
             });
+            if (error instanceof RateLimitedError) {
+              rateLimited = true;
+              break sweep;
+            }
             continue;
           }
 
@@ -298,6 +315,7 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
     rejected: [...rejected.values()],
     resolutions,
     failures,
+    rateLimited,
     ranAt: now(),
   };
 }

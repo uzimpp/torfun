@@ -87,6 +87,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       rejected: [],
       resolutions: [],
       failures: [],
+      rateLimited: false,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
     resolveZipId: async () => 'zip-1',
@@ -198,6 +199,7 @@ describe('runIngestion', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: async () => {
@@ -222,6 +224,7 @@ describe('runIngestion', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: failing,
@@ -311,6 +314,7 @@ describe('stages and the per-record deadline', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       classifyDocument: async () => {
@@ -332,6 +336,33 @@ describe('stages and the per-record deadline', () => {
     release();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect((await repository.get('66059313551'))?.outcome).toBe('error');
+  });
+});
+
+describe('a run whose discovery was rate limited', () => {
+  test('stops before retrieval, keeps what was found, and asks the site for nothing', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolved: string[] = [];
+
+    const result = await run(repository, {
+      discoverProjects: async () => ({
+        records: [procurement()],
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        rateLimited: true,
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+      resolveZipId: async (projectId) => {
+        resolved.push(projectId);
+        return 'zip-1';
+      },
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(result.attempted).toBe(0);
+    expect(resolved).toEqual([]);
+    expect((await repository.get('66059313551'))?.state).toBe('Queued'); // found, not lost
   });
 });
 
@@ -394,6 +425,7 @@ describe('a run that is told to stop', () => {
           rejected: [],
           resolutions: [],
           failures: [],
+          rateLimited: false,
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
         resolveZipId: async (projectId) => {
@@ -421,6 +453,7 @@ describe('a deadline that fires while a site request is in flight', () => {
       rejected: [],
       resolutions: [],
       failures: [],
+      rateLimited: false,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -518,6 +551,7 @@ describe('what Gemini reads from the TOR', () => {
       rejected: [],
       resolutions: [],
       failures: [],
+      rateLimited: false,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -618,6 +652,7 @@ describe('the analysis pool', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       downloadArchive: async () => {
@@ -653,6 +688,7 @@ describe('the reaper', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: async () => null,
@@ -674,6 +710,7 @@ describe('the reaper', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
     });
