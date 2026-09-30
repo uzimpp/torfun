@@ -4,6 +4,8 @@ import { ConflictError } from '../core/errors';
 import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
+import { InMemoryScheduleStore } from '../testing/schedule-store';
+import type { RunLog } from '../repositories/schedule.repository';
 import type { IngestionDeps } from './egp/pipeline';
 import { IngestionService } from './ingestion.service';
 
@@ -44,8 +46,16 @@ function gatedDeps(fail = false) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-function build(options: { fail?: boolean; heartbeatMs?: number; leaseTtlMs?: number } = {}) {
+function build(
+  options: {
+    fail?: boolean;
+    heartbeatMs?: number;
+    leaseTtlMs?: number;
+    runLog?: RunLog;
+  } = {},
+) {
   const lease = new InMemoryIngestionLease();
+  const schedule = new InMemoryScheduleStore();
   const { deps, open } = gatedDeps(options.fail);
   const service = new IngestionService(
     new InMemoryProcurementStore(),
@@ -53,12 +63,13 @@ function build(options: { fail?: boolean; heartbeatMs?: number; leaseTtlMs?: num
     logger,
     {
       lease,
+      runLog: options.runLog ?? schedule,
       ...(options.heartbeatMs !== undefined ? { heartbeatMs: options.heartbeatMs } : {}),
       ...(options.leaseTtlMs !== undefined ? { leaseTtlMs: options.leaseTtlMs } : {}),
     },
     deps,
   );
-  return { service, lease, open };
+  return { service, lease, schedule, open };
 }
 
 describe('IngestionService.startRun', () => {
@@ -123,6 +134,44 @@ describe('IngestionService.startRun', () => {
 
     open();
     await settle();
+    expect((await service.summary()).runInProgress).toBe(false);
+  });
+
+  test('records when a run started, so a schedule counts from it — manual or scheduled alike', async () => {
+    const { service, schedule, open } = build();
+    const before = Date.now();
+
+    await service.startRun({ eBiddingOnly: true });
+
+    expect(schedule.runStarts).toHaveLength(1);
+    const noted = Date.parse(schedule.runStarts[0] ?? '');
+    expect(noted).toBeGreaterThanOrEqual(before);
+    expect(noted).toBeLessThanOrEqual(Date.now());
+    open();
+    await settle();
+  });
+
+  test('a refused start records nothing, since no run began', async () => {
+    const { service, schedule, open } = build();
+    await service.startRun({ eBiddingOnly: true });
+
+    await expect(service.startRun({ eBiddingOnly: true })).rejects.toThrow(ConflictError);
+
+    expect(schedule.runStarts).toHaveLength(1);
+    open();
+    await settle();
+  });
+
+  test('if the start cannot be recorded, no run begins and the lease is given back', async () => {
+    const failing: RunLog = {
+      markRunStarted: async () => {
+        throw new Error('mongo went away');
+      },
+    };
+    const { service } = build({ runLog: failing });
+
+    await expect(service.startRun({ eBiddingOnly: true })).rejects.toThrow('mongo went away');
+
     expect((await service.summary()).runInProgress).toBe(false);
   });
 

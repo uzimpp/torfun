@@ -9,6 +9,7 @@ import type { CompanyService } from '../services/company.service';
 import type { ExperienceService } from '../services/experience.service';
 import type { DiagnosticsService } from '../services/diagnostics.service';
 import type { IngestionService } from '../services/ingestion.service';
+import type { ScheduleService } from '../services/schedule.service';
 import type { TorService } from '../services/tor.service';
 import type { UserRole } from '@torfun/types';
 
@@ -38,6 +39,7 @@ declare module 'fastify' {
     clientService: ClientService;
     experienceService: ExperienceService;
     ingestionService: IngestionService;
+    scheduleService: ScheduleService;
     torService: TorService;
     diagnosticsService: DiagnosticsService;
   }
