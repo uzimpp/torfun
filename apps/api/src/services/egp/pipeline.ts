@@ -6,7 +6,13 @@ import type { ProcurementStore } from '../../repositories/procurement.repository
 import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
 import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
-import { MAX_ATTEMPTS, RECORD_DEADLINE_MS, STALE_PROCESSING_MS } from './constants';
+import { mapWithConcurrency } from './concurrency';
+import {
+  ANALYSIS_CONCURRENCY,
+  MAX_ATTEMPTS,
+  RECORD_DEADLINE_MS,
+  STALE_PROCESSING_MS,
+} from './constants';
 import { discoverProjects, type DiscoveryResult } from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
 import {
@@ -160,22 +166,28 @@ async function analyseArchive(
   classifyDocument: IngestionDeps['classifyDocument'],
 ): Promise<AnalysedArchive> {
   const byMember = new Map<string, DocumentClassification>();
-  const candidates: ClassifiedDocument[] = [];
 
-  for (const pdf of extraction.torFiles) {
-    const classification = await classifyDocument(Buffer.from(pdf.payload));
-    byMember.set(pdf.member, classification);
-    candidates.push({
-      member: pdf.member,
-      filename: pdf.filename,
-      bytes: pdf.bytes,
-      namePattern: pdf.namePattern,
-      isTor: classification.isTor,
-      torKind: classification.torKind,
-      whatThisIs: classification.whatThisIs,
-      unreadable: classification.unreadable,
-    });
-  }
+  // Two at a time. This is Gemini, not the upstream site, so the politeness
+  // terms do not apply — only the downloads are held to one at a time. Results
+  // come back in archive order, which `assignDocumentRoles` relies on.
+  const candidates = await mapWithConcurrency(
+    extraction.torFiles,
+    ANALYSIS_CONCURRENCY,
+    async (pdf): Promise<ClassifiedDocument> => {
+      const classification = await classifyDocument(Buffer.from(pdf.payload));
+      byMember.set(pdf.member, classification);
+      return {
+        member: pdf.member,
+        filename: pdf.filename,
+        bytes: pdf.bytes,
+        namePattern: pdf.namePattern,
+        isTor: classification.isTor,
+        torKind: classification.torKind,
+        whatThisIs: classification.whatThisIs,
+        unreadable: classification.unreadable,
+      };
+    },
+  );
 
   const { documents, mainTor, ambiguous } = assignDocumentRoles(candidates);
 

@@ -335,6 +335,66 @@ describe('stages and the per-record deadline', () => {
   });
 });
 
+describe('the analysis pool', () => {
+  const four = ['A', 'B', 'C', 'D'].map((letter) =>
+    extracted({ member: `Attach_TOR_${letter}.pdf`, filename: `Attach_TOR_${letter}.pdf` }),
+  );
+
+  test('reads at most two PDFs of an archive at once, and keeps their order', async () => {
+    const repository = new InMemoryProcurementStore();
+    let inFlight = 0;
+    let peak = 0;
+    const seen: string[] = [];
+
+    await run(repository, {
+      extractTorPdfs: () => ({
+        torFiles: four,
+        members: four.map((pdf) => pdf.member),
+        unsafeSkipped: [],
+      }),
+      classifyDocument: async (pdf) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        seen.push(pdf.byteLength.toString());
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        return { isTor: false, torKind: null, whatThisIs: 'ไม่ใช่ TOR', analysis: null };
+      },
+    });
+
+    expect(peak).toBe(2);
+    const record = await repository.get('66059313551');
+    expect(record?.documents.map((document) => document.filename)).toEqual(
+      four.map((pdf) => pdf.filename),
+    );
+  });
+
+  test('downloads stay one at a time even though analysis is pooled', async () => {
+    const repository = new InMemoryProcurementStore();
+    let downloading = 0;
+    let peak = 0;
+
+    await run(repository, {
+      discoverProjects: async () => ({
+        records: [1, 2, 3].map((n) => procurement({ projectId: `6605931355${n}` })),
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+      downloadArchive: async () => {
+        downloading += 1;
+        peak = Math.max(peak, downloading);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        downloading -= 1;
+        return new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+      },
+    });
+
+    expect(peak).toBe(1);
+  });
+});
+
 describe('the reaper', () => {
   const stuck = (projectId: string, at: string) =>
     procurement({
