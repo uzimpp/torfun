@@ -25,7 +25,10 @@ export function KpiStrip({ tiles }: { tiles: KpiTile[] }) {
             ) : null}
           </dt>
           <dd
-            className={cn('text-2xl font-semibold tabular-nums', tile.alert && 'text-destructive')}
+            className={cn(
+              'text-xl font-semibold break-words tabular-nums sm:text-2xl',
+              tile.alert && 'text-destructive',
+            )}
           >
             {tile.value}
           </dd>
