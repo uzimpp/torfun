@@ -313,6 +313,9 @@ export async function runIngestion(
     attempted += 1;
     await repository.transition(record.projectId, 'downloading');
 
+    // Where the record had got to, so a failure is logged against the step that
+    // actually failed rather than always the download.
+    let stage: IngestionFailure['stage'] = 'info';
     const guard: RecordGuard = {
       expired: false,
       siteRequest: false,
@@ -352,8 +355,10 @@ export async function runIngestion(
             await repository.transition(record.projectId, 'no_tor_package', {}, error);
             failed += 1;
           } else {
+            stage = 'download';
             const archive = await site(() => deps.downloadArchive(zipId, guard.controller.signal));
             if (guard.expired) return;
+            stage = 'extract';
             const extraction = deps.extractTorPdfs(archive);
             archivesRetrieved += 1;
 
@@ -374,6 +379,7 @@ export async function runIngestion(
               await repository.transition(record.projectId, 'analysing');
             }
 
+            stage = 'analysis';
             const analysed = await analyseArchive(extraction, deps.classifyDocument);
             if (guard.expired) return;
 
@@ -444,7 +450,7 @@ export async function runIngestion(
         await note({
           projectId: record.projectId,
           projectName: record.projectName,
-          stage: 'download',
+          stage,
           error: message,
           at: new Date().toISOString(),
         });
@@ -457,7 +463,7 @@ export async function runIngestion(
       await note({
         projectId: record.projectId,
         projectName: record.projectName,
-        stage: 'download',
+        stage,
         error: message,
         at: new Date().toISOString(),
       });
