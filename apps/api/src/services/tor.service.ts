@@ -1,6 +1,10 @@
 import type { Procurement } from '@torfun/types';
 import { NotFoundError } from '../core/errors';
-import type { ProcurementStore } from '../repositories/procurement.repository';
+import type {
+  FindOptions,
+  FindResult,
+  ProcurementStore,
+} from '../repositories/procurement.repository';
 import { downloadArchive, extractTorPdfs } from './egp/tor-package';
 import { unzipSync } from 'fflate';
 
@@ -14,6 +18,10 @@ export class TorService {
     private readonly procurements: ProcurementStore,
     private readonly download: (zipId: string) => Promise<Uint8Array> = downloadArchive,
   ) {}
+
+  list(options: FindOptions): Promise<FindResult> {
+    return this.procurements.find(options);
+  }
 
   async get(projectId: string): Promise<Procurement> {
     const procurement = await this.procurements.get(projectId);

@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { IngestionFailure, Procurement, IngestionSummary } from '@torfun/types';
 import type { Env } from '../config/env';
 import { ConflictError, NotFoundError } from '../core/errors';
-import type { FindOptions, ProcurementRepository } from '../repositories/procurement.repository';
+import type { FindOptions, ProcurementDataSource } from '../repositories/procurement.repository';
 import { createIngestionDeps, runIngestion, type IngestionDeps } from './egp/pipeline';
 
 /**
@@ -30,7 +30,7 @@ export class IngestionService {
   private readonly deps: IngestionDeps;
 
   constructor(
-    private readonly repository: ProcurementRepository,
+    private readonly repository: ProcurementDataSource,
     private readonly env: Env,
     private readonly logger: FastifyBaseLogger,
     deps?: IngestionDeps,

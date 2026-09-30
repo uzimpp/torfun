@@ -36,6 +36,19 @@ describe('classifyTorDocument', () => {
     expect(result.unreadable).toBeUndefined();
   });
 
+  test('stores the deadline as an ISO timestamp whatever format the model wrote it in', async () => {
+    const withDeadline = (deadlineAt: string | null) =>
+      classifyTorDocument(
+        answering({ ...validAnswer, analysis: { ...validAnswer.analysis, deadlineAt } }),
+        pdf(),
+      );
+
+    expect((await withDeadline('15 ต.ค. 69')).analysis?.deadlineAt).toBe('2026-10-15T00:00:00.000Z');
+    expect((await withDeadline('2569-10-15')).analysis?.deadlineAt).toBe('2026-10-15T00:00:00.000Z');
+    expect((await withDeadline('ภายใน 30 วัน')).analysis?.deadlineAt).toBeNull();
+    expect((await withDeadline(null)).analysis?.deadlineAt).toBeNull();
+  });
+
   test('accepts a document the model says is not a TOR', async () => {
     const result = await classifyTorDocument(
       answering({

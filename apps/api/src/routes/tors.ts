@@ -1,10 +1,29 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { ProcurementSchema } from '@torfun/types';
+import {
+  ProcurementListQuerySchema,
+  ProcurementListResponseSchema,
+  ProcurementSchema,
+} from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
 
 export const torRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', requireAuth);
+
+  app.get(
+    '/tors',
+    {
+      schema: {
+        querystring: ProcurementListQuerySchema,
+        response: { 200: ProcurementListResponseSchema },
+      },
+    },
+    async (request) => {
+      const { q, ...filters } = request.query;
+      const { items, total } = await app.torService.list({ ...filters, query: q });
+      return { items, total, limit: filters.limit, offset: filters.offset };
+    },
+  );
 
   app.get(
     '/tors/:projectId',
