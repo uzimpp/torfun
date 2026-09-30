@@ -3,7 +3,11 @@ import { unzipSync } from 'fflate';
 import type { ArchiveDocument, IngestionFailure, Procurement, TorAnalysis } from '@torfun/types';
 import type { Env } from '../../config/env';
 import type { ProcurementStore } from '../../repositories/procurement.repository';
-import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
+import {
+  classifyTorDocument,
+  type DocumentClassification,
+  type ModelStatus,
+} from '../vertex/classify-document';
 import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
 import { mapWithConcurrency } from './concurrency';
@@ -149,6 +153,8 @@ interface AnalysedArchive {
   documents: ArchiveDocument[];
   analysis: TorAnalysis | null;
   torAmbiguous: boolean;
+  /** The stage the main TOR shows, or null where it shows none. */
+  procurementStatus: ModelStatus | null;
   /** True where at least one candidate could not be read at all. */
   anyUnreadable: boolean;
 }
@@ -194,6 +200,7 @@ async function analyseArchive(
   return {
     documents,
     analysis: mainTor ? (byMember.get(mainTor.member)?.analysis ?? null) : null,
+    procurementStatus: mainTor ? (byMember.get(mainTor.member)?.procurementStatus ?? null) : null,
     torAmbiguous: ambiguous,
     anyUnreadable: candidates.some((candidate) => candidate.unreadable !== undefined),
   };
@@ -320,8 +327,19 @@ export async function runIngestion(
               torAmbiguous: analysed.torAmbiguous,
             };
 
+            // The model's reading of the stage fills a gap and never fills over a
+            // stage the feed named: only a record nobody has read is touched.
+            if (analysed.procurementStatus !== null && record.statusSource === null) {
+              patch.status = analysed.procurementStatus;
+              patch.statusSource = 'ai';
+            }
+
             if (analysed.analysis !== null) {
-              await repository.transition(record.projectId, 'tor_analysed', patch);
+              // The TOR was read either way; whether it is software work is the
+              // model's judgement, kept as an outcome so the record stays visible
+              // and can be overruled rather than dropped.
+              const outcome = analysed.analysis.isSoftwareProject ? 'tor_analysed' : 'not_software';
+              await repository.transition(record.projectId, outcome, patch);
               torAnalysed += 1;
             } else if (analysed.anyUnreadable) {
               // The archive was retrieved; only the reading failed. Kept Completed

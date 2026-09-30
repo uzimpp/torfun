@@ -130,6 +130,60 @@ describe('classifyTorDocument', () => {
     expect(result.unreadable).not.toMatch(/JSON|schema/i);
   });
 
+  describe('the procurement status the document shows', () => {
+    test('is read from the answer', async () => {
+      const result = await classifyTorDocument(
+        answering({ ...validAnswer, procurementStatus: 'drafting' }),
+        pdf(),
+      );
+
+      expect(result.procurementStatus).toBe('drafting');
+    });
+
+    test('is null when the document does not show a stage, or the model leaves it out', async () => {
+      const explicit = await classifyTorDocument(
+        answering({ ...validAnswer, procurementStatus: null }),
+        pdf(),
+      );
+      const omitted = await classifyTorDocument(answering(validAnswer), pdf());
+
+      expect(explicit.procurementStatus).toBeNull();
+      expect(omitted.procurementStatus).toBeNull();
+    });
+
+    test('accepts only the six stages: unknown is what the system says, never the model', async () => {
+      for (const value of ['unknown', 'invitation', 'จัดทำ TOR']) {
+        const result = await classifyTorDocument(
+          answering({ ...validAnswer, procurementStatus: value }),
+          pdf(),
+        );
+
+        expect(result.unreadable).toMatch(/schema/i);
+      }
+    });
+
+    test('the prompt names every stage the model may answer with, and tells it not to guess', async () => {
+      let prompt = '';
+      const call: ModelCall = async (parts) => {
+        prompt = parts.prompt;
+        return JSON.stringify(validAnswer);
+      };
+      await classifyTorDocument(call, pdf());
+
+      for (const stage of [
+        'drafting',
+        'open',
+        'evaluating',
+        'awarded',
+        'contracted',
+        'cancelled',
+      ]) {
+        expect(prompt).toContain(stage);
+      }
+      expect(prompt).toContain('ห้ามเดา');
+    });
+  });
+
   test('claims a TOR but supplies no analysis — treated as unusable', async () => {
     const result = await classifyTorDocument(
       answering({ isTor: true, torKind: 'final', whatThisIs: 'TOR', analysis: null }),

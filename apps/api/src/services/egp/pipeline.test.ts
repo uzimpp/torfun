@@ -335,6 +335,89 @@ describe('stages and the per-record deadline', () => {
   });
 });
 
+describe('what Gemini reads from the TOR', () => {
+  const reading = (
+    overrides: {
+      procurementStatus?: 'drafting' | 'awarded' | null;
+      isSoftwareProject?: boolean;
+    } = {},
+  ): Partial<IngestionDeps> => ({
+    classifyDocument: async () => ({
+      isTor: true,
+      torKind: 'final' as const,
+      whatThisIs: 'ขอบเขตของงาน',
+      analysis: { ...analysis, isSoftwareProject: overrides.isSoftwareProject ?? true },
+      procurementStatus: overrides.procurementStatus ?? null,
+    }),
+  });
+  const unread = (overrides: Partial<Procurement> = {}) => ({
+    discoverProjects: async () => ({
+      records: [
+        procurement({
+          status: 'unknown',
+          statusSource: null,
+          upstreamStatus: 'ระหว่างดำเนินการ',
+          ...overrides,
+        }),
+      ],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+  });
+
+  test('a TOR the model judges not to be software work ends as not_software, analysis kept', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, reading({ isSoftwareProject: false }));
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Completed');
+    expect(record?.outcome).toBe('not_software');
+    // The record stays readable and overrulable: nothing is discarded.
+    expect(record?.analysis?.isSoftwareProject).toBe(false);
+    expect(record?.documents.find((d) => d.role === 'main_tor')).toBeDefined();
+  });
+
+  test('fills in a stage nobody has read yet, and marks it as the model’s reading', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, { ...unread(), ...reading({ procurementStatus: 'drafting' }) });
+
+    const record = await repository.get('66059313551');
+    expect(record?.status).toBe('drafting');
+    expect(record?.statusSource).toBe('ai');
+  });
+
+  test('never overrides a stage the feed named', async () => {
+    const repository = new InMemoryProcurementStore();
+    // The default record is `open`, read from upstream.
+    await run(repository, reading({ procurementStatus: 'awarded' }));
+
+    const record = await repository.get('66059313551');
+    expect(record?.status).toBe('open');
+    expect(record?.statusSource).toBe('upstream');
+  });
+
+  test('leaves the status unclassified when the documents do not show one', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, { ...unread(), ...reading({ procurementStatus: null }) });
+
+    const record = await repository.get('66059313551');
+    expect(record?.status).toBe('unknown');
+    expect(record?.statusSource).toBeNull();
+  });
+
+  test('a model reading survives the next discovery sweep', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, { ...unread(), ...reading({ procurementStatus: 'drafting' }) });
+
+    // The feed still says only "in progress", which places the project nowhere.
+    await run(repository, { ...unread(), resolveZipId: async () => null });
+
+    expect((await repository.get('66059313551'))?.status).toBe('drafting');
+  });
+});
+
 describe('the analysis pool', () => {
   const four = ['A', 'B', 'C', 'D'].map((letter) =>
     extracted({ member: `Attach_TOR_${letter}.pdf`, filename: `Attach_TOR_${letter}.pdf` }),

@@ -1,5 +1,21 @@
 import { describe, expect, test } from 'bun:test';
-import { textFromResponse } from './vertex-ai';
+import { ModelStatus } from './classify-document';
+import { ANSWER_SCHEMA, textFromResponse } from './vertex-ai';
+
+/**
+ * The request schema and the zod schema that validates the reply are written
+ * twice. This keeps them from drifting on the one list that is easy to get
+ * wrong: which stages the model may answer with.
+ */
+describe('ANSWER_SCHEMA', () => {
+  test('offers the model exactly the stages the reply validator accepts, or null', () => {
+    const field = ANSWER_SCHEMA.properties?.procurementStatus;
+
+    expect(field?.enum).toEqual([...ModelStatus.options]);
+    expect(field?.nullable).toBe(true);
+    expect(ANSWER_SCHEMA.required).toContain('procurementStatus');
+  });
+});
 
 /**
  * `gemini-3.5-flash` is a thinking model, and its thinking tokens are spent
