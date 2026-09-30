@@ -199,7 +199,7 @@ export async function runIngestion(
 
   for (const [index, record] of candidates.entries()) {
     attempted += 1;
-    await repository.transition(record.projectId, 'Processing', 'downloading');
+    await repository.transition(record.projectId, 'downloading');
 
     try {
       const zipId = await deps.resolveZipId(record.projectId);
@@ -216,7 +216,7 @@ export async function runIngestion(
           error,
           at: new Date().toISOString(),
         });
-        await repository.transition(record.projectId, 'Failed', 'no_tor_package', {}, error);
+        await repository.transition(record.projectId, 'no_tor_package', {}, error);
         failed += 1;
       } else {
         const archive = await deps.downloadArchive(zipId);
@@ -249,7 +249,7 @@ export async function runIngestion(
         };
 
         if (analysed.analysis !== null) {
-          await repository.transition(record.projectId, 'Completed', 'tor_analysed', patch);
+          await repository.transition(record.projectId, 'tor_analysed', patch);
           torAnalysed += 1;
         } else if (analysed.anyUnreadable) {
           // The archive was retrieved; only the reading failed. Kept Completed
@@ -266,7 +266,7 @@ export async function runIngestion(
             error,
             at: new Date().toISOString(),
           });
-          await repository.transition(record.projectId, 'Completed', 'analysis_failed', patch);
+          await repository.transition(record.projectId, 'analysis_failed', patch);
         } else {
           await note({
             projectId: record.projectId,
@@ -275,7 +275,7 @@ export async function runIngestion(
             error: `Archive downloaded (${extraction.members.length} members) but none of its documents is a TOR.`,
             at: new Date().toISOString(),
           });
-          await repository.transition(record.projectId, 'Completed', 'no_tor_in_archive', patch);
+          await repository.transition(record.projectId, 'no_tor_in_archive', patch);
         }
       }
     } catch (error) {
@@ -284,7 +284,7 @@ export async function runIngestion(
       if (error instanceof RateLimitedError) {
         // The site is telling us to stop. Stop — leaving the rest Queued for a
         // later run rather than pushing through.
-        await repository.transition(record.projectId, 'Failed', 'error', {}, message);
+        await repository.transition(record.projectId, 'error', {}, message);
         await note({
           projectId: record.projectId,
           projectName: record.projectName,
@@ -305,7 +305,7 @@ export async function runIngestion(
         error: message,
         at: new Date().toISOString(),
       });
-      await repository.transition(record.projectId, 'Failed', 'error', {}, message);
+      await repository.transition(record.projectId, 'error', {}, message);
       failed += 1;
     }
 

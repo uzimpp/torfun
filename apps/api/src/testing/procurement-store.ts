@@ -1,9 +1,9 @@
-import type {
-  IngestionFailure,
-  IngestionOutcome,
-  IngestionState,
-  IngestionSummary,
-  Procurement,
+import {
+  OUTCOME_STATE,
+  type IngestionFailure,
+  type IngestionOutcome,
+  type IngestionSummary,
+  type Procurement,
 } from '@torfun/types';
 import type {
   FindOptions,
@@ -49,7 +49,6 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch: Partial<Procurement> = {},
     detail?: string,
@@ -57,6 +56,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     const existing = this.records.get(projectId);
     if (!existing) return undefined;
 
+    const state = OUTCOME_STATE[outcome];
     const at = new Date().toISOString();
     const updated: Procurement = {
       ...existing,
