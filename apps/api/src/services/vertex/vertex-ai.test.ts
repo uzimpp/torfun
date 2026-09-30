@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { ModelStatus } from './classify-document';
-import { ANSWER_SCHEMA, textFromResponse } from './vertex-ai';
+import { ANSWER_SCHEMA, contentParts, textFromResponse } from './vertex-ai';
 
 /**
  * The request schema and the zod schema that validates the reply are written
@@ -55,5 +55,26 @@ describe('textFromResponse', () => {
 
   test('no candidates at all is reported rather than returning empty', () => {
     expect(() => textFromResponse({ candidates: [] })).toThrow(/no candidates/i);
+  });
+});
+
+describe('contentParts', () => {
+  test('a PDF goes as inline data, followed by the prompt', () => {
+    const parts = contentParts({ pdfBase64: 'QUJD', prompt: 'classify this' });
+
+    expect(parts).toEqual([
+      { inlineData: { mimeType: 'application/pdf', data: 'QUJD' } },
+      { text: 'classify this' },
+    ]);
+  });
+
+  test('extracted text goes as text, with no inline data, and says it is extracted', () => {
+    const parts = contentParts({ text: 'ขอบเขตของงาน', prompt: 'classify this' });
+
+    expect(parts).toHaveLength(3);
+    expect(parts.some((part) => 'inlineData' in part)).toBe(false);
+    expect(parts[0]).toEqual({ text: expect.stringContaining('ถูกดึงจากเอกสาร PDF') });
+    expect(parts[1]).toEqual({ text: 'ขอบเขตของงาน' });
+    expect(parts[2]).toEqual({ text: 'classify this' });
   });
 });

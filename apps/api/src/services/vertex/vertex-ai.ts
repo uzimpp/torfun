@@ -179,23 +179,45 @@ export function textFromResponse(response: ModelResponse): string {
  * enforce the answer's shape instead of the prompt merely requesting it, and
  * `temperature: 0` because this is a classification, not a composition.
  */
+/**
+ * What one request carries. A PDF goes as inline data; a document too large for
+ * that goes as its extracted text, introduced as such so the model does not
+ * mistake a missing table or figure for one the document lacks.
+ */
+export function contentParts(input: {
+  pdfBase64?: string;
+  text?: string;
+  prompt: string;
+}): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> {
+  if (input.text !== undefined) {
+    return [
+      {
+        text: 'ข้อความต่อไปนี้ถูกดึงจากเอกสาร PDF ขนาดใหญ่ อาจไม่มีภาพ ตาราง หรือส่วนที่เป็นภาพสแกน:',
+      },
+      { text: input.text },
+      { text: input.prompt },
+    ];
+  }
+  return [
+    { inlineData: { mimeType: 'application/pdf', data: input.pdfBase64 ?? '' } },
+    { text: input.prompt },
+  ];
+}
+
 export function createModelCall(env: Env): ModelCall {
   const client = createVertexAiClient(env);
 
   // Each request carries a ceiling and is retried when the service says it is
   // busy (see reliable-model-call.ts). Without one, a request that never
   // answers freezes the whole serial run.
-  return ({ pdfBase64, prompt }) =>
+  return (input) =>
     sendReliably(async (signal) => {
       const response = await client.models.generateContent({
         model: env.VERTEX_AI_MODEL,
         contents: [
           {
             role: 'user',
-            parts: [
-              { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
-              { text: prompt },
-            ],
+            parts: contentParts(input),
           },
         ],
         config: {

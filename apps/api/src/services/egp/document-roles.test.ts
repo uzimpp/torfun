@@ -104,3 +104,21 @@ describe('assignDocumentRoles', () => {
     expect(result.mainTor).toBeNull();
   });
 });
+
+describe('how each document was read', () => {
+  test('a partial reading is recorded on the manifest entry, with what was lost', () => {
+    const result = assignDocumentRoles([
+      candidate({ readMode: 'first_pages', readNote: 'อ่านเฉพาะ 30 หน้าแรกจากทั้งหมด 120 หน้า' }),
+    ]);
+
+    expect(result.documents[0]?.readMode).toBe('first_pages');
+    expect(result.documents[0]?.readNote).toBe('อ่านเฉพาะ 30 หน้าแรกจากทั้งหมด 120 หน้า');
+  });
+
+  test('a whole-PDF reading adds no note, and leaves no key behind for the database to store as null', () => {
+    const entry = assignDocumentRoles([candidate({ readMode: 'pdf' })]).documents[0];
+
+    expect(entry?.readMode).toBe('pdf');
+    expect(entry).not.toHaveProperty('readNote');
+  });
+});

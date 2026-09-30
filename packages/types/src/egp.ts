@@ -185,6 +185,14 @@ export const ArchiveDocumentSchema = z.object({
   role: DocumentRole,
   /** Why this document has that role, in the model's words. */
   note: z.string(),
+  /**
+   * How the model was given the document. Absent on records from before this was
+   * kept, and means `pdf`. Anything else is a partial reading: a person should
+   * check the source for what was left out.
+   */
+  readMode: z.enum(['pdf', 'text', 'first_pages']).optional(),
+  /** For a partial reading, what was lost. */
+  readNote: z.string().optional(),
 });
 export type ArchiveDocument = z.infer<typeof ArchiveDocumentSchema>;
 

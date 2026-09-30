@@ -8,6 +8,7 @@ import {
   type DocumentClassification,
   type ModelStatus,
 } from '../vertex/classify-document';
+import { createOversizeReaders } from '../vertex/oversize-readers';
 import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
 import { mapWithConcurrency } from './concurrency';
@@ -55,12 +56,13 @@ export interface IngestionDeps {
 
 export function createIngestionDeps(env: Env): IngestionDeps {
   const callModel = createModelCall(env);
+  const oversizeReaders = createOversizeReaders();
   return {
     discoverProjects,
     resolveZipId,
     downloadArchive,
     extractTorPdfs: (archive) => extractTorPdfs(archive, unzipSync),
-    classifyDocument: (pdf) => classifyTorDocument(callModel, pdf),
+    classifyDocument: (pdf) => classifyTorDocument(callModel, pdf, oversizeReaders),
     sleep,
     recordDeadlineMs: RECORD_DEADLINE_MS,
   };
@@ -230,6 +232,8 @@ async function analyseArchive(
         torKind: classification.torKind,
         whatThisIs: classification.whatThisIs,
         unreadable: classification.unreadable,
+        readMode: classification.readMode,
+        readNote: classification.readNote,
       };
     },
   );

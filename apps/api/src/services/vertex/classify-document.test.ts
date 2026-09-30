@@ -1,5 +1,10 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { classifyTorDocument, MAX_INLINE_PDF_BYTES, type ModelCall } from './classify-document';
+import {
+  classifyTorDocument,
+  MAX_INLINE_PDF_BYTES,
+  type ModelCall,
+  type OversizeReaders,
+} from './classify-document';
 import { ModelTimeoutError } from './reliable-model-call';
 
 /** Bytes that pass the %PDF magic-number check, padded to a given length. */
@@ -191,5 +196,109 @@ describe('classifyTorDocument', () => {
     );
 
     expect(result.unreadable).toBeDefined();
+  });
+});
+
+describe('a document over the inline limit', () => {
+  const big = () => pdf(MAX_INLINE_PDF_BYTES + 1);
+  const readers = (overrides: Partial<OversizeReaders> = {}): OversizeReaders => ({
+    extractText: async () => null,
+    firstPages: async () => null,
+    ...overrides,
+  });
+  const TEXT = 'ขอบเขตของงาน จ้างพัฒนาระบบสารสนเทศ '.repeat(40);
+
+  test('with a usable text layer, the text is sent instead of the PDF, and the reading is marked partial', async () => {
+    const callModel = answering(validAnswer);
+
+    const result = await classifyTorDocument(
+      callModel,
+      big(),
+      readers({ extractText: async () => TEXT }),
+    );
+
+    const sent = (callModel as ReturnType<typeof mock>).mock.calls[0]?.[0] as {
+      pdfBase64?: string;
+      text?: string;
+    };
+    expect(sent.text).toBe(TEXT);
+    expect(sent.pdfBase64).toBeUndefined();
+    expect(result.readMode).toBe('text');
+    expect(result.readNote).toMatch(/ข้อความ/);
+    expect(result.isTor).toBe(true);
+    // A reading from extracted text can have lost tables and scans; never "high".
+    expect(result.analysis?.confidence).toBe('low');
+  });
+
+  test('with no text layer, the first pages are sent as a smaller PDF', async () => {
+    const callModel = answering(validAnswer);
+    const slice = pdf(2_000);
+
+    const result = await classifyTorDocument(
+      callModel,
+      big(),
+      readers({ firstPages: async () => ({ pdf: slice, pages: 30, totalPages: 120 }) }),
+    );
+
+    const sent = (callModel as ReturnType<typeof mock>).mock.calls[0]?.[0] as {
+      pdfBase64?: string;
+    };
+    expect(sent.pdfBase64).toBe(slice.toString('base64'));
+    expect(result.readMode).toBe('first_pages');
+    expect(result.readNote).toMatch(/30/);
+    expect(result.readNote).toMatch(/120/);
+    expect(result.analysis?.confidence).toBe('low');
+  });
+
+  test('the text layer is preferred to cutting pages off', async () => {
+    const firstPages = mock(async () => ({ pdf: pdf(2_000), pages: 30, totalPages: 120 }));
+
+    const result = await classifyTorDocument(
+      answering(validAnswer),
+      big(),
+      readers({ extractText: async () => TEXT, firstPages }),
+    );
+
+    expect(result.readMode).toBe('text');
+    expect(firstPages).not.toHaveBeenCalled();
+  });
+
+  test('when neither fallback works it is unreadable, with the reason, and the model is not called', async () => {
+    const callModel = answering(validAnswer);
+
+    const result = await classifyTorDocument(callModel, big(), readers());
+
+    expect(result.unreadable).toMatch(/15MB/);
+    expect(result.unreadable).toMatch(/text layer/i);
+    expect(callModel).not.toHaveBeenCalled();
+  });
+
+  test('a fallback that throws counts as unavailable, and the next one is tried', async () => {
+    const result = await classifyTorDocument(
+      answering(validAnswer),
+      big(),
+      readers({
+        extractText: async () => {
+          throw new Error('pdf.js could not open it');
+        },
+        firstPages: async () => ({ pdf: pdf(2_000), pages: 10, totalPages: 50 }),
+      }),
+    );
+
+    expect(result.readMode).toBe('first_pages');
+  });
+
+  test('a normal-size document never touches the fallbacks', async () => {
+    const extractText = mock(async () => TEXT);
+
+    const result = await classifyTorDocument(
+      answering(validAnswer),
+      pdf(),
+      readers({ extractText }),
+    );
+
+    expect(extractText).not.toHaveBeenCalled();
+    expect(result.readMode).toBe('pdf');
+    expect(result.analysis?.confidence).toBe('high');
   });
 });
