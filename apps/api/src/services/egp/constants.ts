@@ -143,3 +143,11 @@ export const TOR_MEMBER_PATTERNS = [
   { label: 'canonical' as const, pattern: /(^|\/)Attach_TOR_[^/]*\.pdf$/i },
   { label: 'loose' as const, pattern: /(^|\/)[^/]*TOR[^/]*\.pdf$/i },
 ];
+
+/**
+ * A discovery sweep younger than this is not repeated. It is ~270 open-data
+ * queries for an answer that has not had time to change, and that API rate
+ * limits them — pressing Run three times in an hour returned a wall of 429s.
+ * Retrieval from the queue still happens on every Run.
+ */
+export const DISCOVERY_MAX_AGE_MS = 6 * 60 * 60 * 1000;

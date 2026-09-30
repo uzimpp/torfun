@@ -52,6 +52,9 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     winner: null,
     torAmbiguous: false,
     discoveredAt: minutesAgo(700),
+    sourceHash: null,
+    lastSeenAt: null,
+    changedAt: null,
     updatedAt: minutesAgo(10),
     ...overrides,
   };

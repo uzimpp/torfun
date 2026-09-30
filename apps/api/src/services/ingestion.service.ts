@@ -7,6 +7,7 @@ import { ConflictError, NotFoundError } from '../core/errors';
 import type { IngestionLeaseStore } from '../repositories/ingestion-lease.repository';
 import type { RunLog } from '../repositories/schedule.repository';
 import type { FindOptions, ProcurementDataSource } from '../repositories/procurement.repository';
+import { DISCOVERY_MAX_AGE_MS } from './egp/constants';
 import { createIngestionDeps, runIngestion, type IngestionDeps } from './egp/pipeline';
 import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience';
 
@@ -52,6 +53,8 @@ const DEFAULT_LEASE_TTL_MS = 2 * 60_000;
 
 export interface StartRunInput {
   eBiddingOnly: boolean;
+  /** Sweep upstream even if the last sweep is recent. Only an administrator's deliberate choice. */
+  forceDiscovery?: boolean;
   maxDownloads?: number;
 }
 
@@ -188,6 +191,8 @@ export class IngestionService {
         eBiddingOnly: input.eBiddingOnly,
         logger: this.logger,
         shouldContinue: () => runMayContinue(held, this.now().getTime(), leaseTtlMs),
+        discoveryMaxAgeMs: DISCOVERY_MAX_AGE_MS,
+        ...(input.forceDiscovery ? { forceDiscovery: true } : {}),
       },
       this.deps,
     )

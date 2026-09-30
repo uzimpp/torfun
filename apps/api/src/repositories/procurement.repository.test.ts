@@ -67,6 +67,9 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
+    sourceHash: null,
+    lastSeenAt: null,
+    changedAt: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -127,7 +130,11 @@ describeMongo('ProcurementRepository', () => {
     });
     await repository.upsert(record);
 
-    expect(await repository.get('66059313551')).toEqual(record);
+    // The store fingerprints a record as it writes it; everything else is unchanged.
+    expect(await repository.get('66059313551')).toEqual({
+      ...record,
+      sourceHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
   });
 
   test('nothing above the repository ever sees a snake_case field or _id', async () => {
@@ -686,6 +693,66 @@ describeMongo('ProcurementRepository', () => {
         'downloading',
       );
       expect((await repository.recent(5))[0]?.outcome).toBe('downloading');
+    });
+  });
+
+  describe('upsertMany, the way a sweep writes', () => {
+    const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
+
+    test('inserts new records and fingerprints them', async () => {
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a' }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({ created: 2, changed: 0, unchanged: 0 });
+      expect((await repository.get('a'))?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    test('a second sweep that sees the same data changes nothing, including updatedAt', async () => {
+      await repository.upsertMany([
+        procurement({ projectId: 'a', updatedAt: at(1) }),
+        procurement({ projectId: 'b', updatedAt: at(2) }),
+      ]);
+
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a' }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({ created: 0, changed: 0, unchanged: 2 });
+      expect((await repository.get('a'))?.updatedAt).toBe(at(1));
+      expect((await repository.get('b'))?.updatedAt).toBe(at(2));
+      expect((await repository.get('a'))?.lastSeenAt).not.toBeNull();
+    });
+
+    test('only the record whose data moved is changed, and it becomes the most recently updated', async () => {
+      await repository.upsertMany([
+        procurement({ projectId: 'a', updatedAt: at(1) }),
+        procurement({ projectId: 'b', updatedAt: at(2) }),
+      ]);
+
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a', projectMoney: 9_999_999 }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({ created: 0, changed: 1, unchanged: 1 });
+      expect((await repository.get('a'))?.changedAt).not.toBeNull();
+      expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['a', 'b']);
+    });
+
+    test('a record the pipeline has worked on keeps that work when it is seen again', async () => {
+      await repository.upsertMany([procurement({ projectId: 'a' })]);
+      await repository.transition('a', 'no_tor_package', {}, 'no package');
+
+      await repository.upsertMany([procurement({ projectId: 'a' })]);
+
+      expect((await repository.get('a'))?.outcome).toBe('no_tor_package');
+    });
+
+    test('an empty sweep is a no-op', async () => {
+      expect(await repository.upsertMany([])).toEqual({ created: 0, changed: 0, unchanged: 0 });
     });
   });
 });
