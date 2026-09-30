@@ -1,9 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 import { FailureLog } from './failure-log';
 import { FilterBar } from './filter-bar';
 import { ProjectTable } from './project-table';
@@ -51,8 +53,18 @@ export function IngestionDashboard() {
   const [filters, setFilters] = useState<FilterValues>(EMPTY_FILTERS);
   const [page, setPage] = useState(0);
 
-  const { summary, projects, total, failures, loading, error, running, startRun } =
-    useIngestionData(filters, page);
+  const {
+    summary,
+    projects,
+    total,
+    failures,
+    loading,
+    error,
+    sessionEnded,
+    running,
+    startRun,
+    retry,
+  } = useIngestionData(filters, page);
 
   // Any filter change invalidates the current page — page 4 of the old result
   // set is rarely page 4 of the new one, and is often past its end.
@@ -79,10 +91,23 @@ export function IngestionDashboard() {
       </header>
 
       {error ? (
-        <Card className="border-destructive/50">
+        <Card className="border-destructive/50" role="alert">
           <CardHeader>
-            <CardTitle className="text-destructive text-base">เชื่อมต่อ API ไม่สำเร็จ</CardTitle>
+            <CardTitle className="text-destructive text-base">
+              {sessionEnded ? 'เซสชันหมดอายุ' : 'เชื่อมต่อ API ไม่สำเร็จ'}
+            </CardTitle>
             <CardDescription>{error}</CardDescription>
+            <div className="pt-2">
+              {sessionEnded ? (
+                <Link href="/login" className={cn(buttonVariants({ variant: 'outline' }))}>
+                  เข้าสู่ระบบอีกครั้ง
+                </Link>
+              ) : (
+                <Button variant="outline" onClick={retry}>
+                  ลองอีกครั้ง
+                </Button>
+              )}
+            </div>
           </CardHeader>
         </Card>
       ) : null}

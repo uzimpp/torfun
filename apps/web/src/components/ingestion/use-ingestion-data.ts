@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { IngestionFailure, Procurement, IngestionState } from '@torfun/types';
 import {
   ApiError,
+  SessionEndedError,
   fetchFailures,
   fetchProjects,
   fetchSummary,
@@ -43,6 +44,13 @@ function toQuery(filters: FilterValues, page: number): ProjectFilters {
   };
 }
 
+export const SESSION_ENDED_MESSAGE = 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง';
+
+function messageFor(caught: unknown, fallback: string): string {
+  if (caught instanceof SessionEndedError) return SESSION_ENDED_MESSAGE;
+  return caught instanceof ApiError ? caught.message : fallback;
+}
+
 export interface IngestionData {
   summary: IngestionSummaryResponse | null;
   projects: Procurement[];
@@ -50,8 +58,15 @@ export interface IngestionData {
   failures: IngestionFailure[];
   loading: boolean;
   error: string | null;
+  /**
+   * True when the API refused to renew the session — the administrator has to
+   * sign in again, and retrying would only repeat the refusal.
+   */
+  sessionEnded: boolean;
   running: boolean;
   startRun: () => Promise<void>;
+  /** Reload after a failure; polling resumes once a load succeeds. */
+  retry: () => void;
 }
 
 /**
@@ -65,6 +80,7 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
   const [total, setTotal] = useState(0);
   const [failures, setFailures] = useState<IngestionFailure[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   /** Bumped to force a reload without changing any filter. */
@@ -93,13 +109,13 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
         setFailures(failureData.items);
         setRunning(summaryData.runInProgress);
         setError(null);
+        setSessionEnded(false);
         setLoading(false);
       },
       (caught: unknown) => {
         if (cancelled) return;
-        setError(
-          caught instanceof ApiError ? caught.message : 'เกิดข้อผิดพลาดที่ไม่คาดคิดในการโหลดข้อมูล',
-        );
+        setSessionEnded(caught instanceof SessionEndedError);
+        setError(messageFor(caught, 'เกิดข้อผิดพลาดที่ไม่คาดคิดในการโหลดข้อมูล'));
         setLoading(false);
       },
     );
@@ -112,11 +128,15 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
   // A run takes minutes, so poll while one is in flight. `runInProgress` comes
   // from the API, so this stops when the run actually ends rather than when the
   // queue momentarily shows nothing Processing.
+  //
+  // It also stops while an error stands. Polling through a failure repeats the
+  // same failing call every five seconds for as long as the page is open, and
+  // for a session that has ended it can never succeed; `retry` restarts it.
   useEffect(() => {
-    if (!running) return;
+    if (!running || error) return;
     const timer = setInterval(() => setRefreshKey((key) => key + 1), 5000);
     return () => clearInterval(timer);
-  }, [running]);
+  }, [running, error]);
 
   const startRun = useCallback(async () => {
     setError(null);
@@ -125,9 +145,26 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
       setRunning(true);
       setRefreshKey((key) => key + 1);
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'ไม่สามารถเริ่มรอบการดึงข้อมูลได้');
+      setSessionEnded(caught instanceof SessionEndedError);
+      setError(messageFor(caught, 'ไม่สามารถเริ่มรอบการดึงข้อมูลได้'));
     }
   }, []);
 
-  return { summary, projects, total, failures, loading, error, running, startRun };
+  const retry = useCallback(() => {
+    setError(null);
+    setRefreshKey((key) => key + 1);
+  }, []);
+
+  return {
+    summary,
+    projects,
+    total,
+    failures,
+    loading,
+    error,
+    sessionEnded,
+    running,
+    startRun,
+    retry,
+  };
 }
