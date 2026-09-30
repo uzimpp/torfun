@@ -8,9 +8,20 @@ import { POLITENESS } from './constants';
  * rather than trusting the shape.
  */
 
+/**
+ * A URL as it may be shown to a person or stored in the failure log.
+ *
+ * The open-data API takes its key as a query parameter, so the raw URL is a
+ * credential. An error message is copied into Mongo and onto the admin page, so
+ * every message that names a URL goes through this first.
+ */
+export function redactUrl(url: string): string {
+  return url.replace(/([?&](?:api[-_]?key|apikey|token|key|secret)=)[^&\s]*/gi, '$1[redacted]');
+}
+
 export class RateLimitedError extends Error {
   constructor(url: string, status: number) {
-    super(`HTTP ${status} from ${url} — treating as rate limited`);
+    super(`HTTP ${status} from ${redactUrl(url)} — treating as rate limited`);
     this.name = 'RateLimitedError';
   }
 }
@@ -60,7 +71,7 @@ async function fetchWithRetry(
   let lastError = 'unknown failure';
 
   for (let attempt = 0; attempt <= POLITENESS.maxRetries; attempt += 1) {
-    if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${url}`);
+    if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
 
     try {
       const timeout = AbortSignal.timeout(timeoutMs);
@@ -75,14 +86,14 @@ async function fetchWithRetry(
       if (response.status >= 500) {
         lastError = `HTTP ${response.status}`;
       } else if (!response.ok) {
-        throw new UpstreamError(`HTTP ${response.status} from ${url}`);
+        throw new UpstreamError(`HTTP ${response.status} from ${redactUrl(url)}`);
       } else {
         return response;
       }
     } catch (error) {
       if (error instanceof RateLimitedError || error instanceof UpstreamError) throw error;
-      if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${url}`);
-      lastError = `transport error: ${error instanceof Error ? error.message : String(error)}`;
+      if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
+      lastError = `transport error: ${redactUrl(error instanceof Error ? error.message : String(error))}`;
     }
 
     if (attempt < POLITENESS.maxRetries) {

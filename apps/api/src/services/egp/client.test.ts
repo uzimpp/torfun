@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { egpGet } from './client';
+import { egpGet, openDataGet, RateLimitedError, UpstreamError } from './client';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -48,5 +48,36 @@ describe('egpGet with a caller-supplied signal', () => {
     globalThis.fetch = (async () => new Response('ok', { status: 200 })) as unknown as typeof fetch;
     const response = await egpGet('https://example.test/x', {}, {});
     expect(await response.text()).toBe('ok');
+  });
+});
+
+describe('what an error says about the request that caused it', () => {
+  const SECRET = 'SECRET-KEY-123';
+
+  test('a rate-limit message never contains the API key from the URL', async () => {
+    globalThis.fetch = (async () => new Response('', { status: 429 })) as unknown as typeof fetch;
+
+    const error = await openDataGet(
+      'https://opend.test/egp-dept',
+      { dept_name: 'x' },
+      SECRET,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(RateLimitedError);
+    const message = (error as Error).message;
+    expect(message).not.toContain(SECRET);
+    expect(message).toContain('https://opend.test/egp-dept'); // still says where
+    expect(message).toContain('429');
+  });
+
+  test('an upstream error message never contains the API key either', async () => {
+    globalThis.fetch = (async () => new Response('', { status: 404 })) as unknown as typeof fetch;
+
+    const error = await openDataGet('https://opend.test/egp-dept', {}, SECRET).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(UpstreamError);
+    expect((error as Error).message).not.toContain(SECRET);
   });
 });

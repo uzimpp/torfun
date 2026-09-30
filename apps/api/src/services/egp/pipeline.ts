@@ -290,6 +290,25 @@ export async function runIngestion(
   );
 
   const failures: IngestionFailure[] = [...discovery.failures];
+
+  if (discovery.rateLimited) {
+    // The open-data API said stop. Everything found so far is kept, and nothing
+    // more is asked of any upstream this Run — the same rule as for the site.
+    logger.warn('egp: open-data API rate limited discovery, stopping the run');
+    return {
+      discovered: discovery.records.length,
+      newRecords,
+      rejectedNonRegistry: discovery.rejected.length,
+      attempted: 0,
+      archivesRetrieved: 0,
+      torAnalysed: 0,
+      failed: 0,
+      aborted: true,
+      failures,
+      ranAt: discovery.ranAt,
+    };
+  }
+
   const candidates = await selectForRetrieval(repository, options);
 
   let archivesRetrieved = 0;
