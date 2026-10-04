@@ -1,4 +1,4 @@
-import type { IngestionLeaseStore } from '../repositories/ingestion-lease.repository';
+import type { IngestionLeaseStore, LeaseState } from '../repositories/ingestion-lease.repository';
 
 /**
  * An in-memory `IngestionLeaseStore` for driving the service without Mongo.
@@ -10,19 +10,29 @@ import type { IngestionLeaseStore } from '../repositories/ingestion-lease.reposi
  * own tests; here there is only one thread, so nothing can interleave.
  */
 export class InMemoryIngestionLease implements IngestionLeaseStore {
-  private held: { holder: string; expiresAt: number } | null = null;
+  private held: {
+    holder: string;
+    expiresAt: number;
+    acquiredAt: string;
+    stop: { at: string; by: string } | null;
+  } | null = null;
 
   async acquire(holder: string, now: Date, ttlMs: number): Promise<boolean> {
     const current = this.held;
     if (current && current.holder !== holder && current.expiresAt > now.getTime()) return false;
-    this.held = { holder, expiresAt: now.getTime() + ttlMs };
+    this.held = {
+      holder,
+      expiresAt: now.getTime() + ttlMs,
+      acquiredAt: now.toISOString(),
+      stop: null,
+    };
     return true;
   }
 
   async heartbeat(holder: string, now: Date, ttlMs: number): Promise<boolean> {
     const current = this.held;
     if (!current || current.holder !== holder || current.expiresAt <= now.getTime()) return false;
-    this.held = { holder, expiresAt: now.getTime() + ttlMs };
+    this.held = { ...current, expiresAt: now.getTime() + ttlMs };
     return true;
   }
 
@@ -32,5 +42,27 @@ export class InMemoryIngestionLease implements IngestionLeaseStore {
 
   async isHeld(now: Date): Promise<boolean> {
     return this.held !== null && this.held.expiresAt > now.getTime();
+  }
+
+  async current(now: Date): Promise<LeaseState | null> {
+    const held = this.held;
+    if (!held || held.expiresAt <= now.getTime()) return null;
+    return {
+      holder: held.holder,
+      acquiredAt: held.acquiredAt,
+      stopRequestedAt: held.stop?.at ?? null,
+      stopRequestedBy: held.stop?.by ?? null,
+    };
+  }
+
+  async requestStop(by: string, now: Date): Promise<boolean> {
+    const held = this.held;
+    if (!held || held.expiresAt <= now.getTime()) return false;
+    held.stop ??= { at: now.toISOString(), by };
+    return true;
+  }
+
+  async stopRequested(holder: string): Promise<boolean> {
+    return this.held?.holder === holder && this.held.stop !== null;
   }
 }

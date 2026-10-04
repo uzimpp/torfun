@@ -46,10 +46,10 @@ Self-registration always creates a BD officer. Admin is granted, never claimed.
 ```
 
 Two stages, deliberately separate. **Discovery** sweeps the open-data API for
-announcements and buckets them by a heuristic over Thai project titles.
-**Retrieval** downloads the announcement archive for the most promising ones and
-extracts TOR PDFs. Discovery is cheap and broad; retrieval is slow, rate-limited,
-and capped per run. A record carries both a coarse `state` (Queued → Processing →
+announcements and admits those from Source Registry agencies that are e-bidding
+and not tombstoned; the title is never consulted. **Retrieval** downloads the
+announcement archive for each admitted one, newest first, and extracts TOR PDFs.
+Discovery is cheap and broad; retrieval is slow and rate-limited. A record carries both a coarse `state` (Queued → Processing →
 Completed/Failed) and a finer `outcome`, because "no TOR was ever published" is a
 legitimate upstream answer rather than a failure, and an admin needs to tell them
 apart.
@@ -62,11 +62,14 @@ which is the point.
 ## Guardrails
 
 **Upstream access is conditional.** `gprocurement.go.th` publishes
-`robots.txt: Disallow: /`; this project operates under a low-volume research
-authorisation. The per-run download cap, the politeness delay between requests,
-and the hard stop on a rate-limit response are the terms of that access. They are
-not performance tuning. Do not raise them, parallelise around them, or retry past
-a rate limit.
+`robots.txt: Disallow: /`; this project operates under a research authorisation
+whose own limits are not recorded in this repository. What the code does to stay
+within the spirit of it: requests are single-file through one gate, the politeness
+delay follows each, a rate-limit or forbidden response stops every runner at once,
+and only one Run goes at a time. They are not performance tuning. Do not parallelise
+around them or retry past a refusal. **No volume cap is applied** — a Run works
+through the whole queue — by the owner's decision (ADR-0015); if the site's owner
+ever states a limit, it belongs back in code, not in this paragraph.
 
 **Ingested data is evidence, not decoration.** A BD officer decides whether to
 spend days on a bid. Never seed, mock, or backfill records outside a real
@@ -79,12 +82,12 @@ person time; the original PDF stays reachable so a human can verify before
 bidding. Don't build flows that discard the source or present extracted fields as
 confirmed fact.
 
-**The title heuristic is directional.** `softwareClass` buckets Thai project names
-by pattern matching. It is good enough for triage and not good enough to quote as
-a statistic or to hard-filter on without a human path around it.
+**A title is not a verdict.** Whether work is software is decided from the TOR
+document, never from the project name; discovery has no title check, so nothing is
+quietly kept out of the queue by what it happens to be called.
 
 **Scope changes are product decisions.** Software-only and e-bidding-only are
-encoded in schemas and pipeline policy. Widening them needs a person's call.
+encoded in the schemas and in what discovery admits. Widening them needs a person's call.
 
 ## Commands
 

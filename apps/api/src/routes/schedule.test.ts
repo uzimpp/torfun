@@ -17,7 +17,13 @@ describe('schedule routes', () => {
   let officerCookie: Record<string, string>;
   let schedule: InMemoryScheduleStore;
 
-  const daily = { enabled: true, mode: 'daily', timeOfDay: '02:00', everyHours: 24 };
+  const daily = {
+    enabled: true,
+    mode: 'weekly',
+    timeOfDay: '02:00',
+    weekdays: [0, 1, 2, 3, 4, 5, 6],
+    everyHours: 24,
+  };
 
   beforeAll(async () => {
     schedule = new InMemoryScheduleStore();
@@ -73,13 +79,15 @@ describe('schedule routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json() as unknown).toEqual({
       enabled: false,
-      mode: 'daily',
+      mode: 'interval',
       timeOfDay: '02:00',
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
       everyHours: 24,
       updatedAt: null,
       updatedBy: null,
       lastRunAt: null,
       nextRunAt: null,
+      upcomingRunAts: [],
     });
   });
 
@@ -123,6 +131,9 @@ describe('schedule routes', () => {
       { ...daily, timeOfDay: '24:00' },
       { ...daily, timeOfDay: '2:00' },
       { ...daily, mode: '*/5 * * * *' },
+      { ...daily, mode: 'daily' },
+      { ...daily, weekdays: [] },
+      { ...daily, weekdays: [8] },
       { ...daily, everyHours: 7.5 },
       { ...daily, everyHours: 1000 },
       { enabled: true },

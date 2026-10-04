@@ -106,4 +106,83 @@ describeMongo('IngestionLeaseRepository', () => {
     await lease.acquire('a', at(0), TTL);
     expect(await lease.acquire('a', at(10), TTL)).toBe(true);
   });
+
+  describe('asking the holder to stop', () => {
+    test('current() says who holds the lease, since when, and that nobody has asked it to stop', async () => {
+      expect(await lease.current(at(0))).toBeNull();
+      await lease.acquire('a', at(10), TTL);
+
+      expect(await lease.current(at(20))).toEqual({
+        holder: 'a',
+        acquiredAt: at(10).toISOString(),
+        stopRequestedAt: null,
+        stopRequestedBy: null,
+      });
+    });
+
+    test('an expired lease is not a Run in progress', async () => {
+      await lease.acquire('a', at(0), TTL);
+
+      expect(await lease.current(at(TTL / 1000 + 1))).toBeNull();
+    });
+
+    test('a request to stop is recorded with who made it and when, and seen by the holder', async () => {
+      await lease.acquire('a', at(0), TTL);
+
+      expect(await lease.requestStop('admin-1', at(40))).toBe(true);
+
+      expect(await lease.stopRequested('a')).toBe(true);
+      expect(await lease.current(at(41))).toMatchObject({
+        stopRequestedAt: at(40).toISOString(),
+        stopRequestedBy: 'admin-1',
+      });
+    });
+
+    test('asking twice changes nothing: the first request stands', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await lease.requestStop('admin-1', at(40));
+
+      expect(await lease.requestStop('admin-2', at(50))).toBe(true);
+
+      expect(await lease.current(at(51))).toMatchObject({
+        stopRequestedAt: at(40).toISOString(),
+        stopRequestedBy: 'admin-1',
+      });
+    });
+
+    test('with no Run in progress there is nothing to ask', async () => {
+      expect(await lease.requestStop('admin-1', at(0))).toBe(false);
+
+      await lease.acquire('a', at(0), TTL);
+      expect(await lease.requestStop('admin-1', at(TTL / 1000 + 1))).toBe(false);
+    });
+
+    test('a holder that was not asked is not told to stop', async () => {
+      await lease.acquire('a', at(0), TTL);
+
+      expect(await lease.stopRequested('a')).toBe(false);
+      expect(await lease.stopRequested('someone-else')).toBe(false);
+    });
+
+    test('a request cannot leak into the next Run: releasing clears it', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await lease.requestStop('admin-1', at(40));
+      await lease.release('a');
+
+      await lease.acquire('b', at(60), TTL);
+
+      expect(await lease.stopRequested('b')).toBe(false);
+      expect(await lease.current(at(61))).toMatchObject({ stopRequestedAt: null });
+    });
+
+    test('nor does one left on a lease that expired without being released', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await lease.requestStop('admin-1', at(40));
+
+      // The holder crashed; its lease lapses and another Run takes over.
+      await lease.acquire('b', at(TTL / 1000 + 10), TTL);
+
+      expect(await lease.stopRequested('b')).toBe(false);
+    });
+  });
 });

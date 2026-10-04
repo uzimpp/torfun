@@ -46,9 +46,11 @@ export const EnvSchema = z.object({
   // --- e-GP ingestion (Thai government procurement) ---
   // Open-data API key. Register at https://opend.data.go.th/register_api/
   EGP_API_KEY: z.string().min(1, 'EGP_API_KEY is required'),
-  // Per-run cap on TOR retrievals. gprocurement.go.th's robots.txt is
-  // Disallow: / and the owner's authorisation is for low-volume research.
-  EGP_MAX_DOWNLOADS_PER_RUN: z.coerce.number().int().positive().max(200).default(15),
+  // Records worked on at once. They share the upstream site through one gate, so
+  // the site still sees single-file requests with the usual pause between them
+  // whatever this is; it only lets the model read one TOR while another downloads.
+  // Three at most: a third adds memory, not speed.
+  EGP_RUNNERS: z.coerce.number().int().min(1).max(3).default(2),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -29,6 +29,8 @@ export function gatedDeps(fail = false) {
       return {
         records: [],
         rejected: [],
+        notEBidding: 0,
+        tombstoned: 0,
         resolutions: [],
         failures: [],
         rateLimited: false,
@@ -40,7 +42,13 @@ export function gatedDeps(fail = false) {
     resolveZipId: async () => null,
     downloadArchive: async () => new Uint8Array(),
     extractTorPdfs: () => ({ torFiles: [], members: [], unsafeSkipped: [] }),
-    classifyDocument: async () => ({ isTor: false, torKind: null, whatThisIs: '', analysis: null }),
+    classifyDocument: async () => ({
+      isTor: false,
+      torKind: null,
+      whatThisIs: '',
+      analysis: null,
+      judgement: null,
+    }),
     sleep: async () => {},
     recordDeadlineMs: 60_000,
   };

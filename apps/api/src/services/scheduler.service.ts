@@ -44,9 +44,9 @@ export class SchedulerService {
       const { schedule, lastRunStartedAt } = await this.schedules.get();
       if (!isDue(schedule, lastRunStartedAt, now)) return 'not-due';
 
-      // Exactly what an administrator's button starts: e-bidding only, the
-      // default per-run cap. A Schedule changes when, never how much.
-      await this.startRun({ eBiddingOnly: true });
+      // Exactly what an administrator's button starts. A Schedule changes
+      // when a Run starts, never what it does.
+      await this.startRun({});
       this.logger.info('egp: scheduled ingestion run started');
       return 'started';
     } catch (error) {

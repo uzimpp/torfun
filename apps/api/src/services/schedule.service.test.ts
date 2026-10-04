@@ -1,9 +1,16 @@
+import type { ScheduleUpdate } from '@torfun/types';
 import { describe, expect, test } from 'bun:test';
 import { InMemoryScheduleStore } from '../testing/schedule-store';
 import { ScheduleService } from './schedule.service';
 
 const NOW = new Date('2026-10-01T05:00:00.000Z'); // 12:00 on 1 Oct in Bangkok
-const daily = { enabled: true, mode: 'daily', timeOfDay: '02:00', everyHours: 24 } as const;
+const daily: ScheduleUpdate = {
+  enabled: true,
+  mode: 'weekly',
+  timeOfDay: '02:00',
+  weekdays: [0, 1, 2, 3, 4, 5, 6],
+  everyHours: 24,
+};
 
 function build(now: Date = NOW) {
   const store = new InMemoryScheduleStore();
@@ -17,13 +24,15 @@ describe('ScheduleService', () => {
 
     expect(await service.get()).toEqual({
       enabled: false,
-      mode: 'daily',
+      mode: 'interval',
       timeOfDay: '02:00',
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
       everyHours: 24,
       updatedAt: null,
       updatedBy: null,
       lastRunAt: null,
       nextRunAt: null,
+      upcomingRunAts: [],
     });
   });
 
@@ -75,5 +84,26 @@ describe('ScheduleService', () => {
     expect(view.updatedBy).toBe('admin-2');
     // 06:00 Bangkok on 4 Oct is 23:00 UTC on 3 Oct.
     expect(view.nextRunAt).toBe('2026-10-03T23:00:00.000Z');
+  });
+
+  test('shows the next three runs', async () => {
+    const { service } = build();
+
+    const view = await service.update({ ...daily, weekdays: [1, 3] }, 'admin-1');
+
+    expect(view.upcomingRunAts).toEqual([
+      '2026-10-04T19:00:00.000Z', // Mon 5 Oct 02:00 Bangkok
+      '2026-10-06T19:00:00.000Z', // Wed 7 Oct
+      '2026-10-11T19:00:00.000Z', // Mon 12 Oct
+    ]);
+    expect(view.upcomingRunAts[0]).toBe(view.nextRunAt!);
+  });
+
+  test('shows no upcoming runs while it is off', async () => {
+    const { service } = build();
+
+    expect((await service.update({ ...daily, enabled: false }, 'admin-1')).upcomingRunAts).toEqual(
+      [],
+    );
   });
 });

@@ -47,6 +47,20 @@ export class RateLimitedError extends Error {
   }
 }
 
+/**
+ * The open-data API answered 403. That is a block in front of it (Cloudflare) or
+ * a key it refused, and says nothing about the day's allowance — unlike a 429,
+ * which is the allowance running out. Kept apart so a block is not recorded as
+ * an empty quota. It still ends a sweep: repeating a refused request is not a
+ * fix, and the failure log carries the difference.
+ */
+export class OpenDataForbiddenError extends Error {
+  constructor(url: string) {
+    super(`HTTP 403 from ${redactUrl(url)} — blocked or key refused, not a spent allowance`);
+    this.name = 'OpenDataForbiddenError';
+  }
+}
+
 export class UpstreamError extends Error {
   constructor(message: string) {
     super(message);
@@ -76,8 +90,10 @@ function buildUrl(base: string, params: Record<string, string | number>): string
  * A GET with bounded retries and an explicit rate-limit signal.
  *
  * 429/403 throws RateLimitedError immediately and is never retried: the whole
- * point is to back off the site rather than hammer it. 5xx is retried, since
- * that's the upstream having a bad moment rather than refusing us.
+ * point is to back off the site rather than hammer it (the open-data API's 403
+ * is told apart, via `onForbidden`). 5xx is retried, since that's the upstream
+ * having a bad moment rather than refusing us — except where `maxRetries` says
+ * each request is too dear to repeat.
  *
  * `signal` lets the caller call the whole thing off — the pipeline does at a
  * record's deadline, so an abandoned request cannot linger and overlap the next
@@ -87,11 +103,19 @@ async function fetchWithRetry(
   url: string,
   init: RequestInit,
   timeoutMs: number,
-  signal?: AbortSignal,
+  options: {
+    signal?: AbortSignal;
+    /** Where a 403 is not the site saying stop, the error to raise for it instead. */
+    onForbidden?: (url: string) => Error;
+    /** Retries after the first attempt; the site default applies where unset. */
+    maxRetries?: number;
+  } = {},
 ): Promise<Response> {
+  const { signal, onForbidden } = options;
+  const maxRetries = options.maxRetries ?? POLITENESS.maxRetries;
   let lastError = 'unknown failure';
 
-  for (let attempt = 0; attempt <= POLITENESS.maxRetries; attempt += 1) {
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
 
     try {
@@ -101,6 +125,7 @@ async function fetchWithRetry(
         signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       });
 
+      if (response.status === 403 && onForbidden) throw onForbidden(url);
       if (response.status === 429 || response.status === 403) {
         throw new RateLimitedError(url, response.status, quotaFrom(response.headers));
       }
@@ -112,12 +137,18 @@ async function fetchWithRetry(
         return response;
       }
     } catch (error) {
-      if (error instanceof RateLimitedError || error instanceof UpstreamError) throw error;
+      if (
+        error instanceof RateLimitedError ||
+        error instanceof OpenDataForbiddenError ||
+        error instanceof UpstreamError
+      ) {
+        throw error;
+      }
       if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
       lastError = `transport error: ${redactUrl(error instanceof Error ? error.message : String(error))}`;
     }
 
-    if (attempt < POLITENESS.maxRetries) {
+    if (attempt < maxRetries) {
       await sleep(POLITENESS.retryBackoffMs[attempt] ?? 5000);
     }
   }
@@ -146,7 +177,13 @@ export async function openDataGet<T>(
   apiKey: string,
 ): Promise<{ rows: T[]; total: number; quota: QuotaReading }> {
   const url = buildUrl(endpoint, { ...params, 'api-key': apiKey });
-  const response = await fetchWithRetry(url, {}, POLITENESS.openDataTimeoutMs);
+  const response = await fetchWithRetry(url, {}, POLITENESS.openDataTimeoutMs, {
+    onForbidden: (forbiddenUrl) => new OpenDataForbiddenError(forbiddenUrl),
+    // One request, not three: the key's allowance is 1,000 a day and a failed
+    // request may well be counted. A failed unit is logged and the next sweep
+    // asks again.
+    maxRetries: 0,
+  });
 
   let body: OpenDataEnvelope<T>;
   try {
@@ -171,5 +208,7 @@ export async function egpGet(
   headers: Record<string, string>,
   signal?: AbortSignal,
 ): Promise<Response> {
-  return fetchWithRetry(buildUrl(endpoint, params), { headers }, POLITENESS.torTimeoutMs, signal);
+  return fetchWithRetry(buildUrl(endpoint, params), { headers }, POLITENESS.torTimeoutMs, {
+    signal,
+  });
 }

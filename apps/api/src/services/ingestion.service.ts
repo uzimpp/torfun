@@ -9,7 +9,7 @@ import type { RunLog } from '../repositories/schedule.repository';
 import type { FindOptions, ProcurementDataSource } from '../repositories/procurement.repository';
 import { DISCOVERY_MAX_AGE_MS } from './egp/constants';
 import { createIngestionDeps, runIngestion, type IngestionDeps } from './egp/pipeline';
-import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience';
+import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, presentTo, type Audience } from './audience';
 
 /**
  * Application-level policy over the e-GP ingestion pipeline.
@@ -52,10 +52,17 @@ const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_LEASE_TTL_MS = 2 * 60_000;
 
 export interface StartRunInput {
-  eBiddingOnly: boolean;
   /** Sweep upstream even if the last sweep is recent. Only an administrator's deliberate choice. */
   forceDiscovery?: boolean;
-  maxDownloads?: number;
+  /** Retrieve this project and no other (see `RunOptions.onlyProject`). */
+  onlyProject?: string;
+  /**
+   * Work that must happen only if this Run really begins, after the lease is held
+   * and before anything is swept: a caller whose change the sweep depends on
+   * (lifting a tombstone) makes it here, so a refused start changes nothing. If it
+   * throws, no Run begins.
+   */
+  beforeRun?: () => Promise<void>;
 }
 
 export type SummaryView = IngestionSummary & { agencies: string[] };
@@ -66,6 +73,9 @@ export class IngestionService {
    * Overridable so a test can drive a run without the network or a credential.
    */
   private readonly deps: IngestionDeps;
+
+  /** The Run going in this process, if any, so a stop request can reach it without waiting for a heartbeat. */
+  private active: { stopRequested: boolean } | null = null;
 
   constructor(
     private readonly repository: ProcurementDataSource,
@@ -88,19 +98,30 @@ export class IngestionService {
     ]);
     // Read from the lease, not a field on this instance, so a Run started by
     // anything else shows as running here too.
-    const runInProgress = await this.coordination.lease.isHeld(this.now());
-    return { ...summary, agencies, runInProgress };
+    const live = await this.coordination.lease.current(this.now());
+    return {
+      ...summary,
+      agencies,
+      runInProgress: live !== null,
+      runStartedAt: live?.acquiredAt ?? null,
+      stopRequested: live?.stopRequestedAt != null,
+    };
   }
 
   /**
    * An officer's query is narrowed to analysed TORs here, after whatever they
    * sent, so no `outcome` in the request can widen it back out.
    */
-  list(options: FindOptions, audience: Audience): Promise<{ items: Procurement[]; total: number }> {
+  async list(
+    options: FindOptions,
+    audience: Audience,
+  ): Promise<{ items: Procurement[]; total: number }> {
     const filters = resolveProcurementListOptions(
       audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME },
     );
-    return filters ? this.repository.find(filters) : Promise.resolve({ items: [], total: 0 });
+    if (!filters) return { items: [], total: 0 };
+    const { items, total } = await this.repository.find(filters);
+    return { items: items.map((item) => presentTo(audience, item)), total };
   }
 
   /** Passthrough so the composition root's caller (`server.ts`) never touches a repository directly. */
@@ -114,7 +135,7 @@ export class IngestionService {
     if (!record || !isVisibleTo(audience, record)) {
       throw new NotFoundError(`No ingested project ${projectId}`);
     }
-    return record;
+    return presentTo(audience, record);
   }
 
   /** Admin-only, so it takes no audience: nothing here is filtered by role. */
@@ -124,6 +145,20 @@ export class IngestionService {
 
   failures(): Promise<IngestionFailure[]> {
     return this.repository.listFailures();
+  }
+
+  /**
+   * Ask the Run now going to stop, gracefully: records already in flight finish,
+   * nothing new is taken, the rest stay Queued. The request is written to the
+   * lease, so it works whichever API instance the Run is on, and also set at once
+   * on this one if the Run is here. Asking again changes nothing.
+   */
+  async requestStop(by: string): Promise<void> {
+    if (!(await this.coordination.lease.requestStop(by, this.now()))) {
+      throw new ConflictError('No ingestion run is in progress.');
+    }
+    if (this.active) this.active.stopRequested = true;
+    this.logger.info({ by }, 'egp: an administrator asked the ingestion run to stop');
   }
 
   /**
@@ -149,10 +184,11 @@ export class IngestionService {
       throw new ConflictError('An ingestion run is already in progress.');
     }
 
-    // Noted only once the lease is ours, so a refused start records nothing. If
-    // the note cannot be written the Run does not begin: an unrecorded start
-    // would leave a schedule to fire again the moment this one finished.
+    // Both only once the lease is ours, so a refused start changes and records
+    // nothing. If either fails the Run does not begin: an unrecorded start would
+    // leave a schedule to fire again the moment this one finished.
     try {
+      await input.beforeRun?.();
       await this.coordination.runLog.markRunStarted(startedAt.toISOString());
     } catch (error) {
       await lease.release(holder).catch(() => undefined);
@@ -165,13 +201,21 @@ export class IngestionService {
     // for a whole term — the Run stops at its next record (`runMayContinue`),
     // instead of overlapping whoever holds it now. A single failed renewal
     // (Mongo briefly away) is only logged.
-    const held = { lost: false, confirmedAt: startedAt.getTime() };
+    const held = { lost: false, confirmedAt: startedAt.getTime(), stopRequested: false };
+    this.active = held;
     const heartbeat = setInterval(() => {
       const at = this.now();
       lease.heartbeat(holder, at, leaseTtlMs).then(
         (kept) => {
           if (kept) {
             held.confirmedAt = at.getTime();
+            // A stop asked for through the lease, from another API instance.
+            lease.stopRequested(holder).then(
+              (asked) => {
+                if (asked) held.stopRequested = true;
+              },
+              () => undefined,
+            );
           } else {
             held.lost = true;
             this.logger.warn('egp: ingestion lease lost while a run was still going');
@@ -187,12 +231,13 @@ export class IngestionService {
       this.repository,
       {
         apiKey: this.env.EGP_API_KEY,
-        maxDownloads: input.maxDownloads ?? this.env.EGP_MAX_DOWNLOADS_PER_RUN,
-        eBiddingOnly: input.eBiddingOnly,
+        runners: this.env.EGP_RUNNERS,
         logger: this.logger,
         shouldContinue: () => runMayContinue(held, this.now().getTime(), leaseTtlMs),
+        stopRequested: () => held.stopRequested,
         discoveryMaxAgeMs: DISCOVERY_MAX_AGE_MS,
         ...(input.forceDiscovery ? { forceDiscovery: true } : {}),
+        ...(input.onlyProject ? { onlyProject: input.onlyProject } : {}),
       },
       this.deps,
     )
@@ -201,6 +246,7 @@ export class IngestionService {
       })
       .finally(() => {
         clearInterval(heartbeat);
+        if (this.active === held) this.active = null;
         // Whether the pass succeeded or threw, the lease is given back; if this
         // release itself fails the ttl still frees it.
         lease.release(holder).catch((error: unknown) => {

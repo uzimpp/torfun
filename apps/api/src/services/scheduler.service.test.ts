@@ -1,3 +1,4 @@
+import type { ScheduleUpdate } from '@torfun/types';
 import { describe, expect, mock, test } from 'bun:test';
 import { ConflictError } from '../core/errors';
 import { gatedDeps, silentLogger } from '../testing/gated-ingestion';
@@ -9,7 +10,13 @@ import { IngestionService } from './ingestion.service';
 import { SchedulerService } from './scheduler.service';
 
 /** 02:00 in Bangkok is 19:00 UTC the day before. */
-const daily = { enabled: true, mode: 'daily', timeOfDay: '02:00', everyHours: 24 } as const;
+const daily: ScheduleUpdate = {
+  enabled: true,
+  mode: 'weekly',
+  timeOfDay: '02:00',
+  weekdays: [0, 1, 2, 3, 4, 5, 6],
+  everyHours: 24,
+};
 const SWITCHED_ON = '2026-10-01T05:00:00.000Z';
 const BEFORE_SLOT = new Date('2026-10-01T18:59:59.000Z');
 const SLOT = new Date('2026-10-01T19:00:00.000Z');
@@ -110,7 +117,7 @@ describe('SchedulerService.tick', () => {
     await new SchedulerService(schedule, startRun, silentLogger).tick(SLOT);
 
     expect(startRun).toHaveBeenCalledTimes(1);
-    expect(startRun).toHaveBeenCalledWith({ eBiddingOnly: true });
+    expect(startRun).toHaveBeenCalledWith({});
   });
 
   test('a failure to start is reported, not thrown into the timer', async () => {

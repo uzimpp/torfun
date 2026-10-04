@@ -8,9 +8,7 @@ import type { Procurement } from '@torfun/types';
  * nothing. Comparing this says whether the agency's data actually moved. Only
  * what upstream publishes goes in: what this system owns (state, outcome,
  * attempts, its reading of the stage, the analysis) must not, or the pipeline's
- * own work would look like an upstream change on the next sweep. Matched
- * keywords are left out too — they describe which queries found it, not the
- * record.
+ * own work would look like an upstream change on the next sweep.
  */
 export function hashSource(record: Procurement): string {
   const owned = [
@@ -26,7 +24,6 @@ export function hashSource(record: Procurement): string {
     record.purchaseMethodName,
     record.projectMoney,
     record.priceBuild,
-    record.upstreamStatus,
     record.winner,
   ];
   return createHash('sha256').update(JSON.stringify(owned)).digest('hex');

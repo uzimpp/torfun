@@ -88,11 +88,9 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         body: z
           .object({
-            eBiddingOnly: z.boolean().default(true),
-            maxDownloads: z.number().int().positive().max(50).optional(),
             forceDiscovery: z.boolean().optional(),
           })
-          .default({ eBiddingOnly: true }),
+          .default({}),
         response: {
           202: z.object({ started: z.literal(true), message: z.string() }),
           409: z.object({ message: z.string() }),
@@ -105,6 +103,25 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
         started: true,
         message: 'Ingestion run started. Poll /api/ingestion/summary for progress.',
       });
+    },
+  );
+
+  app.post(
+    '/ingestion/run/stop',
+    {
+      onRequest: requireAdmin,
+      schema: {
+        response: {
+          202: z.object({ stopping: z.literal(true) }),
+          409: z.object({ message: z.string() }),
+        },
+      },
+    },
+    async (request, reply) => {
+      // Who asked (their username, as every administrator action records it) comes from the session and nothing else: the request carries
+      // no body, and a name in the query string is not read.
+      await app.ingestionService.requestStop(request.user.username);
+      return reply.code(202).send({ stopping: true as const });
     },
   );
 

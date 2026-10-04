@@ -33,6 +33,7 @@ import { CompanyService } from './services/company.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
+import { ProcurementAdminService } from './services/procurement-admin.service';
 import { ScheduleService } from './services/schedule.service';
 import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
@@ -142,6 +143,14 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     runLog: scheduleStore,
   });
   app.decorate('ingestionService', ingestionService);
+  app.decorate(
+    'procurementAdminService',
+    new ProcurementAdminService(
+      procurementRepository,
+      (input) => ingestionService.startRun(input),
+      app.log,
+    ),
+  );
   app.decorate('scheduleService', new ScheduleService(scheduleStore));
 
   // Built here, started by `server.ts`: a timer running behind every

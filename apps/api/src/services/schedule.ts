@@ -19,15 +19,19 @@ import type { Schedule } from '@torfun/types';
 const BANGKOK_OFFSET_HOURS = 7;
 const HOUR_MS = 60 * 60 * 1000;
 
-/** The first daily slot strictly after `anchorMs`. */
-function nextDailySlot(anchorMs: number, timeOfDay: string): number {
+/**
+ * The first slot strictly after `anchorMs` that falls on one of `weekdays`, at
+ * `timeOfDay` Bangkok time. Every day ticked is a daily schedule.
+ */
+function nextWeeklySlot(anchorMs: number, timeOfDay: string, weekdays: readonly number[]): number {
   const [hours = 0, minutes = 0] = timeOfDay.split(':').map(Number);
   const anchor = new Date(anchorMs);
 
   // A slot's Bangkok date is either the anchor's UTC date or the day after it,
-  // so three UTC days from the anchor's own always contain the first slot after it.
+  // and a week of them always holds a chosen day, so scanning nine UTC days from
+  // the anchor's own always contains the first slot after it.
   let earliest = Number.POSITIVE_INFINITY;
-  for (let day = 0; day <= 2; day += 1) {
+  for (let day = 0; day <= 8; day += 1) {
     const slot = Date.UTC(
       anchor.getUTCFullYear(),
       anchor.getUTCMonth(),
@@ -35,9 +39,28 @@ function nextDailySlot(anchorMs: number, timeOfDay: string): number {
       hours - BANGKOK_OFFSET_HOURS,
       minutes,
     );
-    if (slot > anchorMs && slot < earliest) earliest = slot;
+    // The weekday is the one it is in Bangkok, which is the UTC weekday of the
+    // slot shifted forward by the offset.
+    const bangkokWeekday = new Date(slot + BANGKOK_OFFSET_HOURS * HOUR_MS).getUTCDay();
+    if (weekdays.includes(bangkokWeekday) && slot > anchorMs && slot < earliest) earliest = slot;
   }
   return earliest;
+}
+
+/** The next slot after `anchorMs`, by the schedule's own rule. */
+function slotAfter(schedule: Schedule, anchorMs: number): number {
+  return schedule.mode === 'interval'
+    ? anchorMs + schedule.everyHours * HOUR_MS
+    : nextWeeklySlot(anchorMs, schedule.timeOfDay, schedule.weekdays);
+}
+
+/** Whichever is later of the last run's start and the last save; null if neither is a date. */
+function anchorOf(schedule: Schedule, lastRunStartedAt: string | null): number | null {
+  const anchors = [lastRunStartedAt, schedule.updatedAt]
+    .filter((at): at is string => at !== null)
+    .map((at) => Date.parse(at))
+    .filter((ms) => !Number.isNaN(ms));
+  return anchors.length === 0 ? null : Math.max(...anchors);
 }
 
 /**
@@ -48,20 +71,30 @@ function nextDailySlot(anchorMs: number, timeOfDay: string): number {
  */
 export function nextDueAt(schedule: Schedule, lastRunStartedAt: string | null): string | null {
   if (!schedule.enabled) return null;
+  const anchorMs = anchorOf(schedule, lastRunStartedAt);
+  return anchorMs === null ? null : new Date(slotAfter(schedule, anchorMs)).toISOString();
+}
 
-  const anchors = [lastRunStartedAt, schedule.updatedAt]
-    .filter((at): at is string => at !== null)
-    .map((at) => Date.parse(at))
-    .filter((ms) => !Number.isNaN(ms));
-  if (anchors.length === 0) return null;
-  const anchorMs = Math.max(...anchors);
+/**
+ * The next `count` runs, soonest first, each assuming the one before started on
+ * time. Only the first is a promise the scheduler keeps; the rest are what the
+ * setting implies, for an administrator to check it says what they meant.
+ */
+export function upcomingRuns(
+  schedule: Schedule,
+  lastRunStartedAt: string | null,
+  count: number,
+): string[] {
+  if (!schedule.enabled) return [];
+  let anchorMs = anchorOf(schedule, lastRunStartedAt);
+  if (anchorMs === null) return [];
 
-  const dueMs =
-    schedule.mode === 'interval'
-      ? anchorMs + schedule.everyHours * HOUR_MS
-      : nextDailySlot(anchorMs, schedule.timeOfDay);
-
-  return new Date(dueMs).toISOString();
+  const runs: string[] = [];
+  for (let i = 0; i < count; i += 1) {
+    anchorMs = slotAfter(schedule, anchorMs);
+    runs.push(new Date(anchorMs).toISOString());
+  }
+  return runs;
 }
 
 export function isDue(schedule: Schedule, lastRunStartedAt: string | null, now: Date): boolean {

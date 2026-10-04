@@ -7,8 +7,7 @@ import type {
   ProcurementStore,
 } from '../repositories/procurement.repository';
 import { downloadArchive, extractTorPdfs } from './egp/tor-package';
-import { unzipSync } from 'fflate';
-import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience';
+import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, presentTo, type Audience } from './audience';
 
 export interface TorSource {
   filename: string;
@@ -26,12 +25,14 @@ export class TorService {
    * An officer's query is narrowed to analysed TORs here, after whatever they
    * sent, so no `outcome` in the request can widen it back out.
    */
-  list(options: FindOptions, audience: Audience): Promise<FindResult> {
+  async list(options: FindOptions, audience: Audience): Promise<FindResult> {
     const filters = resolveProcurementListOptions(
       audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME },
       this.now(),
     );
-    return filters ? this.procurements.find(filters) : Promise.resolve({ items: [], total: 0 });
+    if (!filters) return { items: [], total: 0 };
+    const { items, total } = await this.procurements.find(filters);
+    return { items: items.map((item) => presentTo(audience, item)), total };
   }
 
   /** A record the audience may not see is reported exactly as one that does not exist. */
@@ -40,7 +41,7 @@ export class TorService {
     if (!procurement || !isVisibleTo(audience, procurement)) {
       throw new NotFoundError(`No ingested project ${projectId}`);
     }
-    return procurement;
+    return presentTo(audience, procurement);
   }
 
   async source(projectId: string, audience: Audience): Promise<TorSource> {
@@ -51,7 +52,7 @@ export class TorService {
     if (!mainTor) throw new NotFoundError('No main TOR document is available');
 
     const archive = await this.download(procurement.zipId);
-    const extracted = extractTorPdfs(archive, unzipSync);
+    const extracted = extractTorPdfs(archive);
     const pdf = extracted.torFiles.find((file) => file.member === mainTor.member);
     if (!pdf) throw new NotFoundError('The main TOR document is no longer available');
 
