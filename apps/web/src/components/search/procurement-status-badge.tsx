@@ -1,5 +1,5 @@
 import { Clock } from 'lucide-react';
-import { STATUS_LABELS, type ProcurementStatus, type StatusSource } from '@torfun/types';
+import { STATUS_LABELS, type ProcurementStatus } from '@torfun/types';
 
 import { cn } from '@/lib/utils';
 
@@ -11,9 +11,6 @@ import { cn } from '@/lib/utils';
  * `drafting` gets an icon and a reason, because it is the officer's chance to
  * prepare before the invitation is published; `open` is the only stage a bid is
  * possible in.
- *
- * A stage Gemini read out of the documents is labelled as such and points the
- * reader back to the original: an AI reading is a summary, never an authority.
  */
 
 const STYLES: Record<ProcurementStatus, string> = {
@@ -27,26 +24,14 @@ const STYLES: Record<ProcurementStatus, string> = {
   unknown: 'text-muted-foreground border-border border border-dashed',
 };
 
-const AI_NOTE = 'AI อ่านสถานะนี้จากเอกสาร — โปรดตรวจสอบกับเอกสารต้นฉบับก่อนตัดสินใจ';
 const DRAFTING_NOTE = 'อยู่ในช่วงร่าง/เตรียมการ — เตรียมตัวล่วงหน้าได้ก่อนประกาศเชิญชวน';
 
-export function ProcurementStatusBadge({
-  status,
-  source,
-}: {
-  status: ProcurementStatus;
-  source: StatusSource | null;
-}) {
-  const fromAi = source === 'ai' && status !== 'unknown';
-  const notes = [status === 'drafting' ? DRAFTING_NOTE : null, fromAi ? AI_NOTE : null].filter(
-    Boolean,
-  );
-
+export function ProcurementStatusBadge({ status }: { status: ProcurementStatus }) {
   return (
     <span
       data-status={status}
       {...(status === 'drafting' ? { 'data-emphasis': 'prepare-ahead' } : {})}
-      title={notes.length > 0 ? notes.join(' · ') : undefined}
+      title={status === 'drafting' ? DRAFTING_NOTE : undefined}
       className={cn(
         'inline-flex min-h-6 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs',
         STYLES[status],
@@ -54,11 +39,6 @@ export function ProcurementStatusBadge({
     >
       {status === 'drafting' && <Clock aria-hidden="true" className="size-3.5 shrink-0" />}
       {STATUS_LABELS[status]}
-      {fromAi && (
-        <span className="rounded border border-current/40 px-1 text-[10px] leading-4 font-medium">
-          AI ประเมิน
-        </span>
-      )}
     </span>
   );
 }

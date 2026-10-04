@@ -15,6 +15,7 @@ import type { Procurement } from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { ProcurementDeadline } from './procurement-deadline';
 import { ProcurementStatusBadge } from './procurement-status-badge';
 import { hasSearchCriteria, type SearchFilterValues } from './search-filter-values';
 import { ProcurementTiming } from './procurement-timing';
@@ -181,10 +182,11 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
       className="group hover:bg-card -mx-4 px-4 py-6 transition-colors sm:-mx-6 sm:px-6"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <ProcurementStatusBadge status={item.status} source={item.statusSource} />
+        <ProcurementStatusBadge status={item.status} />
         <span data-numeric className="text-muted-foreground font-mono text-xs">
-          ปีงบประมาณ {item.year}
+          ปีงบประมาณ {item.budgetYear}
         </span>
+        <ProcurementDeadline deadlineAt={item.deadlineAt} status={item.status} />
       </div>
 
       <ProcurementTiming item={item} today={today} />
