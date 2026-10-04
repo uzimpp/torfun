@@ -1,14 +1,17 @@
+import { useState } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 
 import { ApiError, SessionEndedError } from '@/lib/api';
-import { ProjectTable } from './project-table';
+import { ProjectActionDialog, type ProjectAction } from './project-action-dialog';
+import { ProjectActionMenu } from './project-action-menu';
 
 /**
- * The per-row action menu on the admin table and the Thai confirmation dialogs
- * behind it. The API does not exist as far as these tests are concerned.
+ * The per-record action menu and the Thai confirmation dialogs behind it, wired
+ * the way the procurement list and drawer wire them. The API does not exist as
+ * far as these tests are concerned.
  */
 vi.mock('@/lib/api-procurement-actions', () => ({
   approveProcurement: vi.fn(),
@@ -60,17 +63,25 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
 const held = () =>
   record({ outcome: 'needs_review', state: 'Completed', holdReason: 'ai_low_confidence' });
 
-function renderTable(projects: Procurement[], onChanged = vi.fn()) {
-  render(
-    <ProjectTable
-      projects={projects}
-      total={projects.length}
-      loading={false}
-      now={new Date('2026-09-30T12:00:00.000Z')}
-      onClearFilters={() => {}}
-      onChanged={onChanged}
-    />,
+function MenuWithDialog({ record, onChanged }: { record: Procurement; onChanged: () => void }) {
+  const [action, setAction] = useState<ProjectAction | null>(null);
+  return (
+    <>
+      <ProjectActionMenu record={record} onChoose={setAction} />
+      {action ? (
+        <ProjectActionDialog
+          record={record}
+          action={action}
+          onClose={() => setAction(null)}
+          onDone={onChanged}
+        />
+      ) : null}
+    </>
   );
+}
+
+function renderMenu(project: Procurement, onChanged = vi.fn()) {
+  render(<MenuWithDialog record={project} onChanged={onChanged} />);
   return { onChanged };
 }
 
@@ -79,9 +90,9 @@ const openMenu = async () =>
 
 beforeEach(() => vi.resetAllMocks());
 
-describe('the row action menu', () => {
+describe('the action menu', () => {
   test('offers Approve only on a held record', async () => {
-    renderTable([record()]);
+    renderMenu(record());
     await openMenu();
     expect(
       await screen.findByRole('menuitem', { name: 'ระบุว่าไม่ใช่ซอฟต์แวร์' }),
@@ -91,26 +102,16 @@ describe('the row action menu', () => {
   });
 
   test('offers Approve on a held record', async () => {
-    renderTable([held()]);
+    renderMenu(held());
     await openMenu();
     expect(await screen.findByRole('menuitem', { name: 'อนุมัติ' })).toBeInTheDocument();
-  });
-
-  test('opening the menu does not expand the row', async () => {
-    renderTable([
-      record({
-        statusHistory: [{ state: 'Queued', outcome: 'queued', at: '2026-09-01T00:00:00.000Z' }],
-      }),
-    ]);
-    await openMenu();
-    expect(screen.queryByRole('list', { name: 'ประวัติสถานะ' })).not.toBeInTheDocument();
   });
 });
 
 describe('approving', () => {
-  test('asks first, then approves, closes and tells the table to reload', async () => {
+  test('asks first, then approves, closes and reports the change', async () => {
     actions.approveProcurement.mockResolvedValue(undefined);
-    const { onChanged } = renderTable([held()]);
+    const { onChanged } = renderMenu(held());
 
     await openMenu();
     await userEvent.click(await screen.findByRole('menuitem', { name: 'อนุมัติ' }));
@@ -125,7 +126,7 @@ describe('approving', () => {
   });
 
   test('Escape closes the dialog without doing anything', async () => {
-    renderTable([held()]);
+    renderMenu(held());
     await openMenu();
     await userEvent.click(await screen.findByRole('menuitem', { name: 'อนุมัติ' }));
     await screen.findByRole('dialog');
@@ -139,7 +140,7 @@ describe('approving', () => {
   test('while the request is in flight the buttons are disabled so it cannot be sent twice', async () => {
     let finish!: () => void;
     actions.approveProcurement.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
-    renderTable([held()]);
+    renderMenu(held());
     await openMenu();
     await userEvent.click(await screen.findByRole('menuitem', { name: 'อนุมัติ' }));
     const dialog = await screen.findByRole('dialog');
@@ -154,7 +155,7 @@ describe('approving', () => {
 
   test('a refusal stays in the dialog as an alert and nothing reloads', async () => {
     actions.approveProcurement.mockRejectedValue(new ApiError('ไม่พบโครงการ', 404));
-    const { onChanged } = renderTable([held()]);
+    const { onChanged } = renderMenu(held());
     await openMenu();
     await userEvent.click(await screen.findByRole('menuitem', { name: 'อนุมัติ' }));
     const dialog = await screen.findByRole('dialog');
@@ -168,7 +169,7 @@ describe('approving', () => {
 
   test('an ended session says so and offers sign-in instead of a retry', async () => {
     actions.approveProcurement.mockRejectedValue(new SessionEndedError());
-    renderTable([held()]);
+    renderMenu(held());
     await openMenu();
     await userEvent.click(await screen.findByRole('menuitem', { name: 'อนุมัติ' }));
     const dialog = await screen.findByRole('dialog');
@@ -187,7 +188,7 @@ describe('approving', () => {
 describe('marking as non-software', () => {
   test('confirms in Thai, then marks the project', async () => {
     actions.markNonSoftware.mockResolvedValue(undefined);
-    const { onChanged } = renderTable([record()]);
+    const { onChanged } = renderMenu(record());
     await openMenu();
     await userEvent.click(await screen.findByRole('menuitem', { name: 'ระบุว่าไม่ใช่ซอฟต์แวร์' }));
     const dialog = await screen.findByRole('dialog', { name: /ไม่ใช่งานซอฟต์แวร์/ });
@@ -208,7 +209,7 @@ describe('deleting', () => {
 
   test('defaults to blocking a re-import, so confirming straight away records a tombstone', async () => {
     actions.deleteProcurement.mockResolvedValue(undefined);
-    renderTable([record()]);
+    renderMenu(record());
     const dialog = await openDelete();
 
     expect(
@@ -225,7 +226,7 @@ describe('deleting', () => {
 
   test('choosing to allow the runner to pull it again sends allowReimport=true', async () => {
     actions.deleteProcurement.mockResolvedValue(undefined);
-    renderTable([record()]);
+    renderMenu(record());
     const dialog = await openDelete();
 
     await userEvent.click(
@@ -237,7 +238,7 @@ describe('deleting', () => {
   });
 
   test('the choice is not carried over to the next time the dialog opens', async () => {
-    renderTable([record()]);
+    renderMenu(record());
     let dialog = await openDelete();
     await userEvent.click(
       within(dialog).getByRole('radio', { name: 'ให้ระบบดึงโครงการนี้อีกได้' }),

@@ -62,15 +62,13 @@ test('the officer menu is the workspace and the company record', async () => {
   expect(screen.queryByRole('menuitem', { name: 'จัดการบัญชีผู้ใช้' })).not.toBeInTheDocument();
 });
 
-test('the administrator menu is the console, its failure log, and the accounts', async () => {
+test('the administrator menu is the failure log and the accounts', async () => {
   render(<SiteHeader user={{ username: 'tester', role: 'admin' }} />);
   fireEvent.click(screen.getByRole('button', { name: 'บัญชี tester · Admin' }));
   await screen.findByRole('menuitem', { name: 'ออกจากระบบ' });
 
-  expect(screen.getByRole('menuitem', { name: 'การดึงข้อมูล TOR' })).toHaveAttribute(
-    'href',
-    '/admin/ingestion',
-  );
+  // The admin pages are in the workspace nav; the menu does not repeat them.
+  expect(screen.queryByRole('menuitem', { name: 'ระบบดึงข้อมูล' })).not.toBeInTheDocument();
   expect(screen.getByRole('menuitem', { name: 'บันทึกข้อผิดพลาด' })).toHaveAttribute(
     'href',
     '/admin/ingestion#failures',

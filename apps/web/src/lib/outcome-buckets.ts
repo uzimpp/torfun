@@ -32,6 +32,10 @@ const BUCKETS: Array<Omit<OutcomeBucket, 'count'>> = [
   { key: 'running', label: 'กำลังทำ', outcomes: ['downloading', 'analysing'] },
 ];
 
+export const BUCKET_LABELS = Object.fromEntries(
+  BUCKETS.map((bucket) => [bucket.key, bucket.label]),
+) as Record<BucketKey, string>;
+
 /**
  * Sparse in, complete out: the API only reports outcomes that occur, and a
  * bucket that is missing from a chart reads as "not tracked" rather than zero.

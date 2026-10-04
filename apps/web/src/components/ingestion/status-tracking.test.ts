@@ -3,8 +3,7 @@ import { MAX_RETRIEVAL_ATTEMPTS } from '@torfun/types';
 import type { IngestionSummaryResponse } from '@/lib/api';
 import {
   attemptsLabel,
-  describeChange,
-  describeQuota,
+  formatClock,
   formatElapsed,
   runBanner,
   stageDuration,
@@ -102,23 +101,21 @@ describe('runBanner', () => {
 
     expect(banner).toMatchObject({
       title: 'กำลังรันรอบดึงข้อมูล',
-      detail: 'ดึงข้อมูล 1 · ประมวลผล 2 · รอคิว 243',
+      detail: 'ดึง 1 · ประมวลผล 2 · รอคิว 243',
       stopping: false,
     });
   });
 
   test('a run that has only just started, with nothing in a stage yet, is still shown', () => {
     expect(runBanner(summary({ byOutcome: { queued: 10 } }), NOW)?.detail).toBe(
-      'ดึงข้อมูล 0 · ประมวลผล 0 · รอคิว 10',
+      'ดึง 0 · ประมวลผล 0 · รอคิว 10',
     );
   });
 
   test('says how long the run has been going, from the time the server recorded', () => {
     const started = new Date(NOW.getTime() - (12 * 60 + 30) * 1000).toISOString();
 
-    expect(runBanner(summary({ runStartedAt: started }), NOW)?.elapsed).toBe(
-      'รันมาแล้ว 12 นาที 30 วิ',
-    );
+    expect(runBanner(summary({ runStartedAt: started }), NOW)?.elapsed).toBe('12:30');
   });
 
   test('says nothing of elapsed time when the server did not say when it began', () => {
@@ -129,7 +126,26 @@ describe('runBanner', () => {
     const banner = runBanner(summary({ stopRequested: true }), NOW);
 
     expect(banner?.stopping).toBe(true);
-    expect(banner?.title).toBe('กำลังหยุด… รอรายการที่ทำอยู่ให้เสร็จ');
+    expect(banner?.title).toBe('กำลังหยุด รอรายการที่ทำอยู่ให้เสร็จ');
+  });
+});
+
+describe('formatClock', () => {
+  const seconds = (n: number) => n * 1000;
+
+  test('reads minutes and seconds as a two-digit clock under an hour', () => {
+    expect(formatClock(seconds(0))).toBe('00:00');
+    expect(formatClock(seconds(9 * 60 + 6))).toBe('09:06');
+    expect(formatClock(seconds(59 * 60 + 59))).toBe('59:59');
+  });
+
+  test('adds hours once there are any', () => {
+    expect(formatClock(seconds(3600 + 2 * 60 + 3))).toBe('1:02:03');
+    expect(formatClock(seconds(25 * 3600))).toBe('25:00:00');
+  });
+
+  test('never runs backwards past zero', () => {
+    expect(formatClock(seconds(-5))).toBe('00:00');
   });
 });
 
@@ -156,78 +172,5 @@ describe('formatElapsed', () => {
 
   test('a clock a little behind the server never shows a negative time', () => {
     expect(formatElapsed(seconds(-5))).toBe('0 วิ');
-  });
-});
-
-describe('describeChange', () => {
-  test('names the state and the outcome in Thai, side by side', () => {
-    const change = describeChange({
-      state: 'Queued',
-      outcome: 'error',
-      at: '2026-09-30T10:00:00.000Z',
-      detail: 'HTTP 502',
-    });
-    expect(change.state).toBe('รอคิว');
-    expect(change.outcome).toBe('ดึงข้อมูลผิดพลาด (จะลองใหม่)');
-    expect(change.detail).toBe('HTTP 502');
-  });
-
-  test('leaves the detail out when there was none', () => {
-    expect(
-      describeChange({
-        state: 'Completed',
-        outcome: 'tor_analysed',
-        at: '2026-09-30T10:00:00.000Z',
-      }).detail,
-    ).toBeUndefined();
-  });
-});
-
-describe('describeQuota', () => {
-  const NOW = Date.parse('2026-09-30T18:00:00.000Z');
-  const today = (remainingDay: number) => ({
-    remainingDay,
-    limitDay: 1000,
-    observedAt: '2026-09-30T15:00:00.000Z',
-  });
-
-  test('says nothing is known before a sweep has read it', () => {
-    expect(describeQuota(null, NOW)).toEqual({
-      label: 'โควตา open-data: ยังไม่ทราบ',
-      low: false,
-    });
-  });
-
-  test('shows what is left of the day, without alarm, while a full sweep is affordable', () => {
-    const result = describeQuota(today(640), NOW);
-
-    expect(result.label).toContain('640');
-    expect(result.label).toContain('1,000');
-    expect(result.low).toBe(false);
-  });
-
-  test('warns when what is left cannot cover a full sweep', () => {
-    const result = describeQuota(today(120), NOW);
-
-    expect(result.low).toBe(true);
-    expect(result.label).toContain('120');
-    expect(result.label).toMatch(/ไม่พอ/);
-  });
-
-  test('says plainly when it is used up', () => {
-    const result = describeQuota(today(0), NOW);
-
-    expect(result.low).toBe(true);
-    expect(result.label).toMatch(/หมด/);
-  });
-
-  test('a reading from an earlier day is treated as stale, not as still true', () => {
-    const result = describeQuota(
-      { remainingDay: 0, limitDay: 1000, observedAt: '2026-09-29T15:00:00.000Z' },
-      NOW,
-    );
-
-    expect(result.low).toBe(false);
-    expect(result.label).toMatch(/ยังไม่ทราบ/);
   });
 });

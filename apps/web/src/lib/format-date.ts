@@ -11,6 +11,20 @@ const dateTimeFormat = new Intl.DateTimeFormat('th-TH', {
   timeZone: TIME_ZONE,
 });
 
+const shortDateFormat = new Intl.DateTimeFormat('th-TH', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: TIME_ZONE,
+});
+
+const shortDateTimeFormat = new Intl.DateTimeFormat('th-TH', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: TIME_ZONE,
+});
+
 /**
  * An ISO timestamp as a Thai date ("26 มิถุนายน 2569", Buddhist era).
  *
@@ -23,4 +37,16 @@ export function formatThaiDate(iso: string, { withTime = false } = {}): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return iso;
   return (withTime ? dateTimeFormat : dateFormat).format(at);
+}
+
+/** "27 มิ.ย.": a day where the year is obvious, such as a 30-day chart axis. */
+export function formatShortDate(iso: string): string {
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? iso : shortDateFormat.format(at);
+}
+
+/** "26 มิ.ย. 16:30": a recent moment, such as when a run started. */
+export function formatShortDateTime(iso: string): string {
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? iso : shortDateTimeFormat.format(at);
 }

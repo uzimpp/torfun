@@ -1,8 +1,9 @@
 import { IngestionOutcome, OUTCOME_LABELS } from '@torfun/types';
 import { cn } from '@/lib/utils';
-import { BUCKET_STYLE } from './bucket-style';
+import { STATUS_STYLE } from '@/components/admin/status-badge';
 import { shareOf, type OutcomeBucket } from '@/lib/outcome-buckets';
 import { donutSegments } from './view-models';
+import { formatCount } from '@/lib/format-number';
 
 /**
  * A ring is 100 units round when its radius is 100 / 2π, which lets an arc's
@@ -46,13 +47,13 @@ export function OutcomeDonut({
     );
   }
 
-  const description = `สัดส่วนผลการประมวลผลจากทั้งหมด ${total.toLocaleString('th-TH')} รายการ: ${buckets
-    .map((bucket) => `${bucket.label} ${bucket.count.toLocaleString('th-TH')}`)
+  const description = `สัดส่วนผลการประมวลผลจากทั้งหมด ${formatCount(total)} รายการ: ${buckets
+    .map((bucket) => `${bucket.label} ${formatCount(bucket.count)}`)
     .join(', ')}`;
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
+      <div className="flex flex-col items-center gap-6 sm:flex-row lg:flex-col">
         <div className="relative size-44 shrink-0">
           <svg
             viewBox="0 0 42 42"
@@ -80,9 +81,9 @@ export function OutcomeDonut({
                   strokeWidth={STROKE}
                   strokeDasharray={`${segment.length} ${100 - segment.length}`}
                   strokeDashoffset={-segment.offset}
-                  className={BUCKET_STYLE[segment.key].stroke}
+                  className={STATUS_STYLE[segment.key].stroke}
                 >
-                  <title>{`${bucket.label} ${bucket.count.toLocaleString('th-TH')} (${shareOf(bucket.count, total)}%)`}</title>
+                  <title>{`${bucket.label} ${formatCount(bucket.count)} (${shareOf(bucket.count, total)}%)`}</title>
                 </circle>
               );
             })}
@@ -91,16 +92,14 @@ export function OutcomeDonut({
             className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
             aria-hidden="true"
           >
-            <span className="text-3xl font-semibold tabular-nums">
-              {total.toLocaleString('th-TH')}
-            </span>
+            <span className="text-3xl font-semibold tabular-nums">{formatCount(total)}</span>
             <span className="text-muted-foreground text-xs">รายการ</span>
           </div>
         </div>
 
         <ul aria-label="สัดส่วนตามผลการประมวลผล" className="grid w-full gap-2">
           {buckets.map((bucket) => {
-            const style = BUCKET_STYLE[bucket.key];
+            const style = STATUS_STYLE[bucket.key];
             const Icon = style.icon;
             return (
               <li
@@ -108,7 +107,10 @@ export function OutcomeDonut({
                 className="flex items-center gap-3 border-b border-dashed pb-2 text-sm last:border-b-0 last:pb-0"
               >
                 <span
-                  className={cn('size-3 shrink-0 rounded-sm', style.swatch)}
+                  className={cn(
+                    'size-3 shrink-0 rounded-sm',
+                    bucket.count === 0 ? 'bg-muted-foreground/30' : style.dot,
+                  )}
                   aria-hidden="true"
                 />
                 <Icon
@@ -116,8 +118,13 @@ export function OutcomeDonut({
                   aria-hidden="true"
                 />
                 <span className="min-w-0 flex-1 truncate">{bucket.label}</span>
-                <span className="font-medium tabular-nums">
-                  {bucket.count.toLocaleString('th-TH')}
+                <span
+                  className={cn(
+                    'font-mono font-medium tabular-nums',
+                    bucket.count === 0 && 'text-muted-foreground',
+                  )}
+                >
+                  {formatCount(bucket.count)}
                 </span>
                 <span className="text-muted-foreground w-10 text-right text-xs tabular-nums">
                   {shareOf(bucket.count, total)}%
@@ -150,7 +157,7 @@ export function OutcomeDonut({
                 <tr key={outcome} className="border-b last:border-b-0">
                   <td className="py-1.5">{OUTCOME_LABELS[outcome]}</td>
                   <td className="py-1.5 text-right tabular-nums">
-                    {(byOutcome[outcome] ?? 0).toLocaleString('th-TH')}
+                    {formatCount(byOutcome[outcome] ?? 0)}
                   </td>
                 </tr>
               ))}
