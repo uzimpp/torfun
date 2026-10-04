@@ -41,17 +41,10 @@ export function mergeDiscovered(
     purchaseMethodName: incoming.purchaseMethodName,
     projectMoney: incoming.projectMoney,
     priceBuild: incoming.priceBuild,
-    upstreamStatus: incoming.upstreamStatus,
     winner: incoming.winner,
 
     // Where this sweep found it, which can move between fiscal years.
-    registryName: incoming.registryName,
     deptCode: incoming.deptCode,
-
-    // Derived from the fields above, so they refresh with them.
-    eBidding: incoming.eBidding,
-    softwareClass: incoming.softwareClass,
-    softwareScore: incoming.softwareScore,
 
     // The stage is read by two parties. The feed's reading wins when it names
     // a stage; when it names none (its usual answer) the stored reading —
@@ -65,22 +58,17 @@ export function mergeDiscovered(
     state: existing.state,
     outcome: existing.outcome,
     attempts: existing.attempts,
+    holdReason: existing.holdReason,
+    approvedBy: existing.approvedBy,
+    approvedAt: existing.approvedAt,
     statusHistory: existing.statusHistory,
     zipId: existing.zipId,
-    zipBytes: existing.zipBytes,
-    archiveMemberCount: existing.archiveMemberCount,
-    archiveMembers: existing.archiveMembers,
     documents: existing.documents,
     analysis: existing.analysis,
     torAmbiguous: existing.torAmbiguous,
     discoveredAt: existing.discoveredAt,
 
-    // A project matching several keywords keeps all of them, across sweeps.
-    matchedKeywords: [...new Set([...existing.matchedKeywords, ...incoming.matchedKeywords])],
-
     sourceHash: hashSource(incoming),
-    lastSeenAt: at,
-    changedAt: changed ? at : existing.changedAt,
     updatedAt: changed ? at : existing.updatedAt,
   };
 }

@@ -21,7 +21,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     province: 'กรุงเทพมหานคร',
     district: 'คลองเตย',
     subdistrict: 'คลองเตย',
-    registryName: 'กรุงเทพมหานคร',
     deptCode: '0100',
     year: 2568,
     announceDate: '2026-08-01',
@@ -31,27 +30,20 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     priceBuild: null,
     status: 'open',
     statusSource: 'upstream',
-    upstreamStatus: 'หนังสือเชิญชวน/ประกาศเชิญชวน',
-    matchedKeywords: ['จ้างพัฒนา'],
-    softwareClass: 'new_build',
-    softwareScore: 5,
-    eBidding: true,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
+    holdReason: null,
+    approvedBy: null,
+    approvedAt: null,
     statusHistory: [],
     zipId: null,
-    zipBytes: null,
-    archiveMemberCount: null,
-    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
     sourceHash: null,
-    lastSeenAt: null,
-    changedAt: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -79,9 +71,11 @@ const analysis = {
   techStack: ['React'],
   targetPlatforms: ['web_app' as const],
   requiredQualifications: [],
-  isSoftwareProject: true,
-  confidence: 'high' as const,
+  reason: 'พัฒนาระบบ',
 };
+
+/** What the model concluded about the work, beside the analysis it is stored with. */
+const judgement = { isSoftware: true, confidence: 'high' as const, reason: 'พัฒนาระบบ' };
 
 /** Every stage stubbed to the happy path; each test overrides what it is about. */
 function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
@@ -89,6 +83,8 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
     discoverProjects: async () => ({
       records: [procurement()],
       rejected: [],
+      notEBidding: 0,
+      tombstoned: 0,
       resolutions: [],
       failures: [],
       rateLimited: false,
@@ -108,6 +104,8 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       torKind: 'final',
       whatThisIs: 'ขอบเขตของงาน',
       analysis,
+      judgement,
+      readMode: 'pdf' as const,
     }),
     sleep: async () => {},
     recordDeadlineMs: 60_000,
@@ -116,11 +114,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
 }
 
 const run = (repository: InMemoryProcurementStore, overrides: Partial<IngestionDeps> = {}) =>
-  runIngestion(
-    repository,
-    { apiKey: 'k', maxDownloads: 5, eBiddingOnly: true, logger },
-    deps(overrides),
-  );
+  runIngestion(repository, { apiKey: 'k', logger }, deps(overrides));
 
 describe('runIngestion', () => {
   test('a classified TOR is stored with its analysis', async () => {
@@ -135,7 +129,7 @@ describe('runIngestion', () => {
       record?.documents.find((d: { role: string; filename: string }) => d.role === 'main_tor')
         ?.filename,
     ).toBe('Attach_TOR_1.pdf');
-    expect(result.torAnalysed).toBe(1);
+    expect(result).toMatchObject({ torAnalysed: 1, held: 0, dropped: 0 });
   });
 
   test('PDF bytes are never written to the record', async () => {
@@ -162,6 +156,7 @@ describe('runIngestion', () => {
         torKind: null,
         whatThisIs: 'หนังสือรับรองผู้รับจ้าง',
         analysis: null,
+        judgement: null,
       }),
     });
 
@@ -178,6 +173,7 @@ describe('runIngestion', () => {
         torKind: null,
         whatThisIs: '',
         analysis: null,
+        judgement: null,
         unreadable: '429 Resource exhausted',
       }),
     });
@@ -203,6 +199,8 @@ describe('runIngestion', () => {
       discoverProjects: async () => ({
         records: [procurement(), second],
         rejected: [],
+        notEBidding: 0,
+        tombstoned: 0,
         resolutions: [],
         failures: [],
         rateLimited: false,
@@ -230,6 +228,8 @@ describe('runIngestion', () => {
       discoverProjects: async () => ({
         records: [procurement(), procurement({ projectId: '66059313552' })],
         rejected: [],
+        notEBidding: 0,
+        tombstoned: 0,
         resolutions: [],
         failures: [],
         rateLimited: false,
@@ -274,6 +274,7 @@ describe('runIngestion', () => {
       torKind: 'final' as const,
       whatThisIs: 'ขอบเขตของงาน',
       analysis,
+      judgement,
     }));
 
     await run(repository, {
@@ -322,6 +323,8 @@ describe('stages and the per-record deadline', () => {
       discoverProjects: async () => ({
         records: [procurement(), procurement({ projectId: '66059313552' })],
         rejected: [],
+        notEBidding: 0,
+        tombstoned: 0,
         resolutions: [],
         failures: [],
         rateLimited: false,
@@ -331,7 +334,13 @@ describe('stages and the per-record deadline', () => {
       }),
       classifyDocument: async () => {
         await hung;
-        return { isTor: true, torKind: 'final' as const, whatThisIs: 'ขอบเขตของงาน', analysis };
+        return {
+          isTor: true,
+          torKind: 'final' as const,
+          whatThisIs: 'ขอบเขตของงาน',
+          analysis,
+          judgement,
+        };
       },
     });
 
@@ -362,6 +371,8 @@ describe('the open-data daily quota', () => {
   const sweepResult = (overrides: Record<string, unknown> = {}) => ({
     records: [],
     rejected: [],
+    notEBidding: 0,
+    tombstoned: 0,
     resolutions: [],
     failures: [],
     rateLimited: false,
@@ -389,7 +400,7 @@ describe('the open-data daily quota', () => {
   ) =>
     runIngestion(
       repository,
-      { apiKey: 'k', maxDownloads: 5, eBiddingOnly: true, logger, ...options },
+      { apiKey: 'k', logger, ...options },
       deps({ discoverProjects: mock(discover) as unknown as IngestionDeps['discoverProjects'] }),
     );
 
@@ -514,21 +525,6 @@ describe('which stage a failure is logged against', () => {
 });
 
 describe('what a retrieval remembers about the archive', () => {
-  test('keeps every member name, so an administrator can see what a no-TOR archive held', async () => {
-    const repository = new InMemoryProcurementStore();
-    await run(repository, {
-      extractTorPdfs: () => ({
-        torFiles: [],
-        members: ['quotation.pdf', 'sit.pdf', 'action_plan.xlsx'],
-        unsafeSkipped: [],
-      }),
-    });
-
-    const record = await repository.get('66059313551');
-    expect(record?.outcome).toBe('no_tor_in_archive');
-    expect(record?.archiveMembers).toEqual(['quotation.pdf', 'sit.pdf', 'action_plan.xlsx']);
-  });
-
   test('a file the model judges to be a TOR despite its name is analysed like any other', async () => {
     const repository = new InMemoryProcurementStore();
     await run(repository, {
@@ -555,17 +551,20 @@ describe('a document that was only partly read', () => {
         isTor: true,
         torKind: 'final' as const,
         whatThisIs: 'ขอบเขตของงาน',
-        analysis: { ...analysis, confidence: 'low' as const },
+        analysis,
+        // Said with confidence: it is the partial read, not the model, that holds it.
+        judgement,
         readMode: 'first_pages' as const,
         readNote: 'อ่านเฉพาะ 30 หน้าแรกจากทั้งหมด 120 หน้า',
       }),
     });
 
     const record = await repository.get('66059313551');
-    expect(record?.outcome).toBe('tor_analysed');
+    // A partial reading is never enough to show a record to an officer.
+    expect(record?.outcome).toBe('needs_review');
+    expect(record?.holdReason).toBe('partial_read');
     expect(record?.documents[0]?.readMode).toBe('first_pages');
     expect(record?.documents[0]?.readNote).toMatch(/30/);
-    expect(record?.analysis?.confidence).toBe('low');
   });
 });
 
@@ -574,6 +573,8 @@ describe('a sweep that only re-sees what it already has', () => {
     discoverProjects: async () => ({
       records: [procurement(overrides)],
       rejected: [],
+      notEBidding: 0,
+      tombstoned: 0,
       resolutions: [],
       failures: [],
       rateLimited: false,
@@ -611,6 +612,8 @@ describe('when discovery runs', () => {
     const discover = mock(async () => ({
       records: [],
       rejected: [],
+      notEBidding: 0,
+      tombstoned: 0,
       resolutions: [],
       failures: [],
       rateLimited: false,
@@ -621,7 +624,7 @@ describe('when discovery runs', () => {
 
     const result = await runIngestion(
       repository,
-      { apiKey: 'k', maxDownloads: 5, eBiddingOnly: true, logger, ...options },
+      { apiKey: 'k', logger, ...options },
       deps({ discoverProjects: discover }),
     );
     return { result, discover, repository };
@@ -679,8 +682,6 @@ describe('a run that is told to stop', () => {
       repository,
       {
         apiKey: 'k',
-        maxDownloads: 5,
-        eBiddingOnly: true,
         logger,
         shouldContinue: () => allowed,
       },
@@ -688,6 +689,8 @@ describe('a run that is told to stop', () => {
         discoverProjects: async () => ({
           records: [procurement(), procurement({ projectId: '66059313552' })],
           rejected: [],
+          notEBidding: 0,
+          tombstoned: 0,
           resolutions: [],
           failures: [],
           rateLimited: false,
@@ -718,6 +721,8 @@ describe('a deadline that fires while a site request is in flight', () => {
     discoverProjects: async () => ({
       records: [procurement(), procurement({ projectId: '66059313552' })],
       rejected: [],
+      notEBidding: 0,
+      tombstoned: 0,
       resolutions: [],
       failures: [],
       rateLimited: false,
@@ -794,16 +799,15 @@ describe('a deadline that fires while a site request is in flight', () => {
 
 describe('what Gemini reads from the TOR', () => {
   const reading = (
-    overrides: {
-      procurementStatus?: 'drafting' | 'awarded' | null;
-      isSoftwareProject?: boolean;
-    } = {},
+    overrides: { procurementStatus?: 'drafting' | 'awarded' | null } = {},
   ): Partial<IngestionDeps> => ({
     classifyDocument: async () => ({
       isTor: true,
       torKind: 'final' as const,
       whatThisIs: 'ขอบเขตของงาน',
-      analysis: { ...analysis, isSoftwareProject: overrides.isSoftwareProject ?? true },
+      analysis,
+      judgement,
+      readMode: 'pdf' as const,
       procurementStatus: overrides.procurementStatus ?? null,
     }),
   });
@@ -813,11 +817,12 @@ describe('what Gemini reads from the TOR', () => {
         procurement({
           status: 'unknown',
           statusSource: null,
-          upstreamStatus: 'ระหว่างดำเนินการ',
           ...overrides,
         }),
       ],
       rejected: [],
+      notEBidding: 0,
+      tombstoned: 0,
       resolutions: [],
       failures: [],
       rateLimited: false,
@@ -827,16 +832,64 @@ describe('what Gemini reads from the TOR', () => {
     }),
   });
 
-  test('a TOR the model judges not to be software work ends as not_software, analysis kept', async () => {
-    const repository = new InMemoryProcurementStore();
-    await run(repository, reading({ isSoftwareProject: false }));
+  test.each([
+    { name: 'not software, unsure', isSoftware: false, holdReason: 'ai_not_software_low' },
+    { name: 'software, unsure', isSoftware: true, holdReason: 'ai_low_confidence' },
+  ])(
+    'a TOR the model is unsure about ($name) is held with the reason, its analysis kept',
+    async ({ isSoftware, holdReason }) => {
+      const repository = new InMemoryProcurementStore();
+      await run(repository, {
+        classifyDocument: async () => ({
+          isTor: true,
+          torKind: 'final' as const,
+          whatThisIs: 'ขอบเขตของงาน',
+          analysis: { ...analysis, reason: 'จัดซื้อและติดตั้ง' },
+          judgement: { isSoftware, confidence: 'low' as const, reason: 'จัดซื้อและติดตั้ง' },
+          readMode: 'pdf' as const,
+        }),
+      });
 
-    const record = await repository.get('66059313551');
-    expect(record?.state).toBe('Completed');
-    expect(record?.outcome).toBe('not_software');
-    // The record stays readable and overrulable: nothing is discarded.
-    expect(record?.analysis?.isSoftwareProject).toBe(false);
-    expect(record?.documents.find((d) => d.role === 'main_tor')).toBeDefined();
+      const record = await repository.get('66059313551');
+      expect(record?.outcome).toBe('needs_review');
+      expect(record?.state).toBe('Completed');
+      expect(record?.holdReason).toBe(holdReason);
+      expect(record?.analysis?.reason).toBe('จัดซื้อและติดตั้ง');
+    },
+  );
+
+  test('a held TOR is counted as held, not as analysed', async () => {
+    const result = await run(new InMemoryProcurementStore(), {
+      classifyDocument: async () => ({
+        isTor: true,
+        torKind: 'final' as const,
+        whatThisIs: 'ขอบเขตของงาน',
+        analysis,
+        judgement: { ...judgement, confidence: 'low' as const },
+        readMode: 'pdf' as const,
+      }),
+    });
+
+    expect(result).toMatchObject({ torAnalysed: 0, held: 1, dropped: 0 });
+  });
+
+  test('a record that leaves review no longer carries a hold reason', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      classifyDocument: async () => ({
+        isTor: true,
+        torKind: 'final' as const,
+        whatThisIs: 'ขอบเขตของงาน',
+        analysis,
+        judgement: { ...judgement, confidence: 'low' as const },
+        readMode: 'pdf' as const,
+      }),
+    });
+    expect((await repository.get('66059313551'))?.holdReason).toBe('ai_low_confidence');
+
+    await repository.transition('66059313551', 'queued');
+
+    expect((await repository.get('66059313551'))?.holdReason).toBeNull();
   });
 
   test('fills in a stage nobody has read yet, and marks it as the model’s reading', async () => {
@@ -901,7 +954,13 @@ describe('the analysis pool', () => {
         seen.push(pdf.byteLength.toString());
         await new Promise((resolve) => setTimeout(resolve, 5));
         inFlight -= 1;
-        return { isTor: false, torKind: null, whatThisIs: 'ไม่ใช่ TOR', analysis: null };
+        return {
+          isTor: false,
+          torKind: null,
+          whatThisIs: 'ไม่ใช่ TOR',
+          analysis: null,
+          judgement: null,
+        };
       },
     });
 
@@ -921,6 +980,8 @@ describe('the analysis pool', () => {
       discoverProjects: async () => ({
         records: [1, 2, 3].map((n) => procurement({ projectId: `6605931355${n}` })),
         rejected: [],
+        notEBidding: 0,
+        tombstoned: 0,
         resolutions: [],
         failures: [],
         rateLimited: false,
@@ -959,6 +1020,8 @@ describe('the reaper', () => {
       discoverProjects: async () => ({
         records: [],
         rejected: [],
+        notEBidding: 0,
+        tombstoned: 0,
         resolutions: [],
         failures: [],
         rateLimited: false,
@@ -983,6 +1046,8 @@ describe('the reaper', () => {
       discoverProjects: async () => ({
         records: [],
         rejected: [],
+        notEBidding: 0,
+        tombstoned: 0,
         resolutions: [],
         failures: [],
         rateLimited: false,
@@ -1065,5 +1130,304 @@ describe('retry policy (ADR-0006)', () => {
     expect(record?.state).toBe('Failed');
     expect(record?.outcome).toBe('no_tor_package');
     expect(record?.attempts).toBe(0);
+  });
+});
+
+describe('a record the model drops', () => {
+  /** A sweep that answers as discovery does: what has a tombstone is not admitted. */
+  const admitting =
+    (records: Procurement[]): IngestionDeps['discoverProjects'] =>
+    async (_apiKey, tombstonedIds) => {
+      const ruledOut = await tombstonedIds(records.map((record) => record.projectId));
+      return {
+        records: records.filter((record) => !ruledOut.has(record.projectId)),
+        rejected: [],
+        notEBidding: 0,
+        tombstoned: ruledOut.size,
+        resolutions: [],
+        failures: [],
+        rateLimited: false,
+        budgetReached: false,
+        quota: null,
+        ranAt: '2026-09-09T00:00:00.000Z',
+      };
+    };
+
+  const hardware = (): Partial<IngestionDeps> => ({
+    discoverProjects: admitting([procurement({ projectName: 'บำรุงรักษาระบบคอมพิวเตอร์' })]),
+    classifyDocument: async () => ({
+      isTor: true,
+      torKind: 'final' as const,
+      whatThisIs: 'ขอบเขตของงาน',
+      analysis: { ...analysis, promptVersion: '2026-10-01.1' },
+      judgement: {
+        isSoftware: false,
+        confidence: 'high' as const,
+        reason: 'จัดซื้อเครื่องคอมพิวเตอร์ 50 เครื่อง',
+      },
+      readMode: 'pdf' as const,
+    }),
+  });
+
+  test('is deleted, leaving a small tombstone that says why, by whom, and on which prompt', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, hardware());
+
+    expect(await repository.get('66059313551')).toBeUndefined();
+    expect(await repository.listTombstones()).toEqual([
+      {
+        projectId: '66059313551',
+        reason: 'ai_not_software',
+        evidence: 'จัดซื้อเครื่องคอมพิวเตอร์ 50 เครื่อง',
+        promptVersion: '2026-10-01.1',
+        decidedAt: expect.any(String),
+        decidedBy: null,
+      },
+    ]);
+  });
+
+  test('is counted as dropped, not as analysed', async () => {
+    const result = await run(new InMemoryProcurementStore(), hardware());
+
+    expect(result).toMatchObject({ torAnalysed: 0, dropped: 1, held: 0 });
+  });
+
+  test('is not admitted again, or fetched again, when a later sweep finds it', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, hardware());
+
+    const resolveZipId = mock(async () => 'zip-1');
+    await run(repository, { ...hardware(), resolveZipId });
+
+    expect(await repository.get('66059313551')).toBeUndefined();
+    expect(resolveZipId).not.toHaveBeenCalled();
+  });
+
+  test('comes back through one fresh reading once an administrator restores it', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, hardware());
+
+    expect(await repository.removeTombstone('66059313551')).toBe(true);
+    expect(await repository.listTombstones()).toEqual([]);
+    expect(await repository.removeTombstone('66059313551')).toBe(false);
+
+    await run(repository, { discoverProjects: hardware().discoverProjects });
+    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+  });
+});
+
+describe('a run for one project only', () => {
+  const ids = ['66059313551', '66059313552', '66059313553'];
+  const sweep = () =>
+    mock(async () => ({
+      records: ids.map((projectId) => procurement({ projectId })),
+      rejected: [],
+      notEBidding: 0,
+      tombstoned: 0,
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      budgetReached: false,
+      quota: null,
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }));
+
+  test('sweeps, then reads that project once and leaves the rest of the queue untouched', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolveZipId = mock(async (_projectId: string) => 'zip-1');
+
+    const result = await runIngestion(
+      repository,
+      { apiKey: 'k', logger, onlyProject: '66059313552' },
+      deps({ discoverProjects: sweep(), resolveZipId }),
+    );
+
+    expect(resolveZipId).toHaveBeenCalledTimes(1);
+    expect(resolveZipId.mock.calls[0]?.[0]).toBe('66059313552');
+    expect(result.attempted).toBe(1);
+    expect((await repository.get('66059313552'))?.outcome).toBe('tor_analysed');
+    expect((await repository.get('66059313551'))?.outcome).toBe('queued');
+    expect((await repository.get('66059313553'))?.outcome).toBe('queued');
+  });
+
+  test('a project the sweep did not find is reported, not silently skipped, and nothing is fetched', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolveZipId = mock(async (_projectId: string) => 'zip-1');
+
+    const result = await runIngestion(
+      repository,
+      { apiKey: 'k', logger, onlyProject: '99999999999' },
+      deps({ discoverProjects: sweep(), resolveZipId }),
+    );
+
+    expect(resolveZipId).not.toHaveBeenCalled();
+    expect(result.attempted).toBe(0);
+    expect(result.failures).toEqual([
+      expect.objectContaining({ projectId: '99999999999', stage: 'discovery' }),
+    ]);
+    expect(await repository.listFailures()).toHaveLength(1);
+  });
+});
+
+describe('two runners sharing the site', () => {
+  const ids = ['66059313551', '66059313552', '66059313553', '66059313554'];
+  const many = (): Partial<IngestionDeps> => ({
+    discoverProjects: async () => ({
+      records: ids.map((projectId) => procurement({ projectId })),
+      rejected: [],
+      notEBidding: 0,
+      tombstoned: 0,
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      budgetReached: false,
+      quota: null,
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+  });
+  const runWith = (
+    repository: InMemoryProcurementStore,
+    runners: number,
+    overrides: Partial<IngestionDeps>,
+  ) =>
+    runIngestion(repository, { apiKey: 'k', logger, runners }, deps({ ...many(), ...overrides }));
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+  test('never has more than one request to the site in flight, while the model reads in parallel', async () => {
+    let siteInFlight = 0;
+    let maxSite = 0;
+    let reading = 0;
+    let maxReading = 0;
+    const site = async <T>(value: T): Promise<T> => {
+      siteInFlight += 1;
+      maxSite = Math.max(maxSite, siteInFlight);
+      await tick();
+      siteInFlight -= 1;
+      return value;
+    };
+
+    const repository = new InMemoryProcurementStore();
+    await runWith(repository, 2, {
+      resolveZipId: () => site('zip-1'),
+      downloadArchive: () => site(new Uint8Array([0x50, 0x4b, 0x03, 0x04])),
+      classifyDocument: async () => {
+        reading += 1;
+        maxReading = Math.max(maxReading, reading);
+        await tick();
+        await tick();
+        reading -= 1;
+        return {
+          isTor: true,
+          torKind: 'final' as const,
+          whatThisIs: 'ขอบเขตของงาน',
+          analysis,
+          judgement,
+          readMode: 'pdf' as const,
+        };
+      },
+    });
+
+    expect(maxSite).toBe(1);
+    expect(maxReading).toBe(2);
+    for (const id of ids) expect((await repository.get(id))?.outcome).toBe('tor_analysed');
+  });
+
+  test('a refusal from the site stops both runners at once and leaves the rest queued', async () => {
+    let siteCalls = 0;
+    const repository = new InMemoryProcurementStore();
+
+    const result = await runWith(repository, 2, {
+      resolveZipId: async () => {
+        siteCalls += 1;
+        await tick();
+        throw new RateLimitedError('https://site.test/x', 429);
+      },
+    });
+
+    // One request made, one refusal; the second runner never reached the site.
+    expect(siteCalls).toBe(1);
+    expect(result.aborted).toBe(true);
+    for (const id of ids) expect((await repository.get(id))?.outcome).toBe('queued');
+    // The refusal is logged once, and the second runner's stop is not a second failure.
+    expect(result.failures.filter((failure) => failure.stage === 'info')).toHaveLength(1);
+    expect(result.failed).toBe(1);
+  });
+});
+
+describe('a Run over a long queue', () => {
+  test('works through all of it: there is no cap on how many records a Run takes', async () => {
+    const repository = new InMemoryProcurementStore();
+    const total = 240; // far past any page size or former cap
+    for (let i = 0; i < total; i += 1) {
+      await repository.upsert(procurement({ projectId: String(66000000000 + i) }));
+    }
+    const resolveZipId = mock(async (_projectId: string) => 'zip-1');
+
+    const result = await runIngestion(
+      repository,
+      { apiKey: 'k', logger },
+      deps({
+        resolveZipId,
+        discoverProjects: async () => ({
+          records: [],
+          rejected: [],
+          notEBidding: 0,
+          tombstoned: 0,
+          resolutions: [],
+          failures: [],
+          rateLimited: false,
+          budgetReached: false,
+          quota: null,
+          ranAt: '2026-09-09T00:00:00.000Z',
+        }),
+      }),
+    );
+
+    expect(resolveZipId).toHaveBeenCalledTimes(total);
+    expect(result.attempted).toBe(total);
+  }, 30_000);
+});
+
+describe('a Run an administrator stops', () => {
+  test('takes no further record once asked, reports why, and leaves the rest queued', async () => {
+    const repository = new InMemoryProcurementStore();
+    for (const id of ['1', '2', '3']) await repository.upsert(procurement({ projectId: id }));
+    let stop = false;
+    const seen: string[] = [];
+
+    const result = await runIngestion(
+      repository,
+      { apiKey: 'k', logger, stopRequested: () => stop },
+      deps({
+        resolveZipId: async (projectId: string) => {
+          seen.push(projectId);
+          stop = true; // asked while the first record is in flight
+          return null;
+        },
+        discoverProjects: async () => ({
+          records: [],
+          rejected: [],
+          notEBidding: 0,
+          tombstoned: 0,
+          resolutions: [],
+          failures: [],
+          rateLimited: false,
+          budgetReached: false,
+          quota: null,
+          ranAt: '2026-09-09T00:00:00.000Z',
+        }),
+      }),
+    );
+
+    expect(seen).toHaveLength(1);
+    expect(result.stopped).toBe('admin');
+    expect((await repository.get(seen[0]!))?.outcome).toBe('no_tor_package');
+    expect(result.attempted).toBe(1);
+  });
+
+  test('a Run nobody stopped says so', async () => {
+    const result = await run(new InMemoryProcurementStore());
+
+    expect(result.stopped).toBeNull();
   });
 });

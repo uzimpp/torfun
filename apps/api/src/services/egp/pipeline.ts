@@ -1,12 +1,18 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { unzipSync } from 'fflate';
-import type { ArchiveDocument, IngestionFailure, Procurement, TorAnalysis } from '@torfun/types';
+import type {
+  ArchiveDocument,
+  IngestionFailure,
+  Procurement,
+  SoftwareJudgement,
+  TorAnalysis,
+} from '@torfun/types';
 import type { Env } from '../../config/env';
 import type { ProcurementStore } from '../../repositories/procurement.repository';
 import {
   classifyTorDocument,
   type DocumentClassification,
   type ModelStatus,
+  type ReadMode,
 } from '../vertex/classify-document';
 import { createOversizeReaders } from '../vertex/oversize-readers';
 import { createModelCall } from '../vertex/vertex-ai';
@@ -19,7 +25,7 @@ import {
   RECORD_DEADLINE_MS,
   STALE_PROCESSING_MS,
 } from './constants';
-import { discoverProjects, type DiscoveryResult } from './discovery';
+import { discoverProjects, type DiscoveryResult, type TombstoneLookup } from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
 import {
   downloadArchive,
@@ -27,6 +33,9 @@ import {
   resolveZipId,
   type ExtractionResult,
 } from './tor-package';
+import { createSiteGate, SiteLatchedError, type SiteGateHold } from './site-gate';
+import { decideOutcome } from './decision';
+import { buildTombstone } from './tombstone';
 
 /**
  * Orchestrates the two ingestion stages against the repository.
@@ -44,7 +53,7 @@ import {
  * politeness delays that make a real pass take minutes.
  */
 export interface IngestionDeps {
-  discoverProjects: (apiKey: string) => Promise<DiscoveryResult>;
+  discoverProjects: (apiKey: string, tombstonedIds: TombstoneLookup) => Promise<DiscoveryResult>;
   /** `signal` is aborted at the record's deadline, which cancels the site request. */
   resolveZipId: (projectId: string, signal?: AbortSignal) => Promise<string | null>;
   downloadArchive: (zipId: string, signal?: AbortSignal) => Promise<Uint8Array>;
@@ -62,7 +71,7 @@ export function createIngestionDeps(env: Env): IngestionDeps {
     discoverProjects,
     resolveZipId,
     downloadArchive,
-    extractTorPdfs: (archive) => extractTorPdfs(archive, unzipSync),
+    extractTorPdfs: (archive) => extractTorPdfs(archive),
     classifyDocument: (pdf) => classifyTorDocument(callModel, pdf, oversizeReaders),
     sleep,
     recordDeadlineMs: RECORD_DEADLINE_MS,
@@ -137,18 +146,6 @@ async function withDeadline(
 
 export interface RunOptions {
   apiKey: string;
-  /**
-   * Cap on TOR retrievals in one run. The upstream site asked not to be
-   * crawled (robots.txt is Disallow: /) and the owner's authorisation is for
-   * low-volume research, so a run is bounded rather than draining the queue.
-   */
-  maxDownloads: number;
-  /**
-   * Restrict retrieval to competitive tenders. TOR availability tracks the
-   * tender method almost perfectly, so this is the difference between a queue
-   * that mostly succeeds and one that mostly logs "no package published".
-   */
-  eBiddingOnly: boolean;
   logger: FastifyBaseLogger;
   /**
    * Asked before each record. A Run cannot be cancelled mid-record, so this is
@@ -164,6 +161,26 @@ export interface RunOptions {
   discoveryMaxAgeMs?: number;
   /** Sweep regardless of how recent the last one was. */
   forceDiscovery?: boolean;
+  /**
+   * Retrieve this project and no other. Discovery still runs as asked, because it
+   * is what brings the project's feed fields back; what changes is that the queue
+   * is not worked through, so the site is asked about one project. A project
+   * Discovery did not bring back is reported as a failure rather than skipped.
+   */
+  onlyProject?: string;
+  /**
+   * Records worked on at once, default one. More than one shares the upstream
+   * site through a single gate (see `site-gate.ts`): the site still sees one
+   * request at a time with the same pause, and only the reading by the model,
+   * which touches no upstream site, overlaps.
+   */
+  runners?: number;
+  /**
+   * Asked before each record, like `shouldContinue`, but for an administrator's
+   * request to stop. Graceful: a record already in flight is not interrupted,
+   * and nothing further is taken.
+   */
+  stopRequested?: () => boolean;
 }
 
 export interface RunResult {
@@ -184,10 +201,16 @@ export interface RunResult {
   attempted: number;
   /** Announcement archives successfully retrieved, whatever was in them. */
   archivesRetrieved: number;
-  /** Retrievals that ended with a TOR identified and read. */
+  /** Retrievals whose TOR was read and shown to officers (a confident software answer). */
   torAnalysed: number;
+  /** Retrievals whose TOR was read but left for an administrator to decide. */
+  held: number;
+  /** Retrievals whose TOR was read and dropped as not software; only a tombstone remains. */
+  dropped: number;
   failed: number;
   aborted: boolean;
+  /** Why the Run ended before the queue did, where an administrator is the reason; else null. */
+  stopped: 'admin' | null;
   failures: IngestionFailure[];
   ranAt: string;
 }
@@ -196,27 +219,47 @@ function sameUtcDay(iso: string, nowMs: number): boolean {
   return iso.slice(0, 10) === new Date(nowMs).toISOString().slice(0, 10);
 }
 
-/** Which records are worth spending an upstream request on, best first. */
-async function selectForRetrieval(
-  repository: ProcurementStore,
-  options: Pick<RunOptions, 'maxDownloads' | 'eBiddingOnly'>,
-): Promise<Procurement[]> {
-  const { items } = await repository.find({
-    state: 'Queued',
-    // In the query, not filtered afterwards: an exhausted record must not use up
-    // one of the capped slots in a run.
-    attemptsBelow: MAX_ATTEMPTS,
-    ...(options.eBiddingOnly ? { eBidding: true } : {}),
-    limit: options.maxDownloads,
-    offset: 0,
-  });
-  // `find` already orders by biddable status, then software-likeness, then value.
-  return items;
+/** Records read from the queue at a time while it is being collected. */
+const SELECTION_PAGE = 200;
+
+/**
+ * Every record worth spending an upstream request on, newest announcement first.
+ *
+ * There is no cap: a Run works through the whole queue, so what is selected is
+ * all of it, in the order `find` gives, which means a Run that is stopped early
+ * has done the most recent part. Everything in the queue is e-bidding, because
+ * discovery admits nothing else. What keeps the site safe is not how many, but how (single file, paused,
+ * stopped at once by a refusal).
+ */
+async function selectForRetrieval(repository: ProcurementStore): Promise<Procurement[]> {
+  const queue: Procurement[] = [];
+  for (let offset = 0; ; offset += SELECTION_PAGE) {
+    const { items } = await repository.find({
+      state: 'Queued',
+      // In the query, not filtered afterwards: an exhausted record must not be
+      // read into the queue only to be skipped.
+      attemptsBelow: MAX_ATTEMPTS,
+      limit: SELECTION_PAGE,
+      offset,
+    });
+    queue.push(...items);
+    if (items.length < SELECTION_PAGE) return queue;
+  }
+}
+
+/** The one project a restricted Run is for, if it is Queued and may still be tried. */
+async function selectOne(repository: ProcurementStore, projectId: string): Promise<Procurement[]> {
+  const record = await repository.get(projectId);
+  return record && record.state === 'Queued' && record.attempts < MAX_ATTEMPTS ? [record] : [];
 }
 
 interface AnalysedArchive {
   documents: ArchiveDocument[];
   analysis: TorAnalysis | null;
+  /** What the model concluded about the main TOR's work; null exactly when `analysis` is. */
+  judgement: SoftwareJudgement | null;
+  /** How the main TOR was read; only a whole-PDF reading may act on its own. */
+  readMode: ReadMode | undefined;
   torAmbiguous: boolean;
   /** The stage the main TOR shows, or null where it shows none. */
   procurementStatus: ModelStatus | null;
@@ -245,7 +288,10 @@ async function analyseArchive(
     extraction.torFiles,
     ANALYSIS_CONCURRENCY,
     async (pdf): Promise<ClassifiedDocument> => {
-      const classification = await classifyDocument(Buffer.from(pdf.payload));
+      const classification = await classifyDocument(
+        // A view over the extracted bytes, not a copy: a copy doubles every PDF in memory.
+        Buffer.from(pdf.payload.buffer, pdf.payload.byteOffset, pdf.payload.byteLength),
+      );
       byMember.set(pdf.member, classification);
       return {
         member: pdf.member,
@@ -267,6 +313,8 @@ async function analyseArchive(
   return {
     documents,
     analysis: mainTor ? (byMember.get(mainTor.member)?.analysis ?? null) : null,
+    judgement: mainTor ? (byMember.get(mainTor.member)?.judgement ?? null) : null,
+    readMode: mainTor ? byMember.get(mainTor.member)?.readMode : undefined,
     procurementStatus: mainTor ? (byMember.get(mainTor.member)?.procurementStatus ?? null) : null,
     torAmbiguous: ambiguous,
     anyUnreadable: candidates.some((candidate) => candidate.unreadable !== undefined),
@@ -332,6 +380,8 @@ export async function runIngestion(
     discovery = {
       records: [],
       rejected: [],
+      notEBidding: 0,
+      tombstoned: 0,
       resolutions: [],
       failures: [],
       rateLimited: false,
@@ -341,7 +391,9 @@ export async function runIngestion(
     };
   } else {
     logger.info('egp: starting discovery sweep');
-    discovery = await deps.discoverProjects(options.apiKey);
+    // A project that has a tombstone is not admitted, whatever the feed says about
+    // it: the tombstone is the decision, until an administrator lifts it.
+    discovery = await deps.discoverProjects(options.apiKey, (ids) => repository.tombstonedIds(ids));
     sync = await repository.upsertMany(discovery.records);
     await repository.recordFailures(discovery.failures);
     if (discovery.quota) await repository.recordOpenDataQuota(discovery.quota);
@@ -367,6 +419,8 @@ export async function runIngestion(
       changed: sync.changed,
       unchanged: sync.unchanged,
       rejected: discovery.rejected.length,
+      notEBidding: discovery.notEBidding,
+      tombstoned: discovery.tombstoned,
       failures: discovery.failures.length,
     },
     'egp: discovery complete',
@@ -382,10 +436,14 @@ export async function runIngestion(
     discoveryStopped,
   };
 
-  const candidates = await selectForRetrieval(repository, options);
+  const candidates = options.onlyProject
+    ? await selectOne(repository, options.onlyProject)
+    : await selectForRetrieval(repository);
 
   let archivesRetrieved = 0;
   let torAnalysed = 0;
+  let held = 0;
+  let dropped = 0;
   let failed = 0;
   let attempted = 0;
   let aborted = false;
@@ -395,13 +453,26 @@ export async function runIngestion(
     await repository.recordFailures([failure]);
   };
 
-  for (const [index, record] of candidates.entries()) {
-    if (options.shouldContinue && !options.shouldContinue()) {
-      aborted = true;
-      logger.warn('egp: run stopped before its next record; the rest stay Queued');
-      break;
-    }
+  if (options.onlyProject && candidates.length === 0) {
+    // Asked for one project and there is none to read: say so, or the
+    // administrator who asked is left to wonder why nothing happened.
+    await note({
+      projectId: options.onlyProject,
+      projectName: '-',
+      stage: 'discovery',
+      error:
+        'The project was not read: this sweep did not bring it back (it may no longer be in the feed, or the sweep stopped early).',
+      at: new Date().toISOString(),
+    });
+  }
 
+  const queue = [...candidates];
+  const gate = createSiteGate({ pause: () => deps.sleep(politeTorDelayMs()) });
+  let stopped = false;
+  let stoppedBy: 'admin' | null = null;
+
+  /** One record, from its site requests to its stored outcome. Never throws. */
+  const processRecord = async (record: Procurement): Promise<void> => {
     attempted += 1;
     await repository.transition(record.projectId, 'downloading');
 
@@ -424,7 +495,16 @@ export async function runIngestion(
       }
     };
 
+    let hold: SiteGateHold | undefined;
+    // Free the gate once the site is done with. A pause follows only where
+    // another site section is coming; the model's reading is outside the gate.
+    const endSiteSection = () =>
+      hold?.release({ pauseAfter: queue.length > 0 || gate.pending > 0 }) ?? Promise.resolve();
+
     try {
+      // Waiting for the gate is not the record's time: its deadline starts once
+      // it has the site to itself.
+      hold = await gate.acquire();
       await withDeadline(
         async () => {
           const zipId = await site(() =>
@@ -437,6 +517,7 @@ export async function runIngestion(
             // published no TOR package. Recorded as Failed because an admin is
             // left with nothing to read, but distinguished by its outcome.
             const error = 'No zipId in the announcement response — no TOR package published.';
+            await endSiteSection();
             await note({
               projectId: record.projectId,
               projectName: record.projectName,
@@ -450,6 +531,7 @@ export async function runIngestion(
             stage = 'download';
             const archive = await site(() => deps.downloadArchive(zipId, guard.controller.signal));
             if (guard.expired) return;
+            await endSiteSection();
             stage = 'extract';
             const extraction = deps.extractTorPdfs(archive);
             archivesRetrieved += 1;
@@ -479,9 +561,6 @@ export async function runIngestion(
             // and they stop at this line. Only the manifest is persisted (ADR-0002).
             const patch: Partial<Procurement> = {
               zipId,
-              zipBytes: archive.length,
-              archiveMemberCount: extraction.members.length,
-              archiveMembers: extraction.members,
               documents: analysed.documents,
               analysis: analysed.analysis,
               torAmbiguous: analysed.torAmbiguous,
@@ -494,13 +573,39 @@ export async function runIngestion(
               patch.statusSource = 'ai';
             }
 
-            if (analysed.analysis !== null) {
-              // The TOR was read either way; whether it is software work is the
-              // model's judgement, kept as an outcome so the record stays visible
-              // and can be overruled rather than dropped.
-              const outcome = analysed.analysis.isSoftwareProject ? 'tor_analysed' : 'not_software';
-              await repository.transition(record.projectId, outcome, patch);
-              torAnalysed += 1;
+            if (analysed.analysis !== null && analysed.judgement !== null) {
+              // The TOR was read either way. What the model's judgement may do is
+              // decided in one place: only a confident, whole-document answer
+              // shows or drops a record, and anything else is held for a person.
+              const decision = decideOutcome({
+                ...analysed.judgement,
+                partialRead: analysed.readMode !== 'pdf',
+              });
+              if (decision.result === 'drop') {
+                // Dropped: nothing read from the document is kept, only the
+                // decision and the quote that made it.
+                await repository.tombstone(
+                  buildTombstone({
+                    projectId: record.projectId,
+                    reason: 'ai_not_software',
+                    evidence: analysed.judgement.reason,
+                    promptVersion: analysed.analysis.promptVersion,
+                    decidedBy: null,
+                    now: new Date(),
+                  }),
+                );
+                dropped += 1;
+              } else {
+                await repository.transition(
+                  record.projectId,
+                  decision.outcome,
+                  decision.result === 'held'
+                    ? { ...patch, holdReason: decision.holdReason }
+                    : patch,
+                );
+                if (decision.result === 'held') held += 1;
+                else torAnalysed += 1;
+              }
             } else if (analysed.anyUnreadable) {
               // The archive was retrieved; only the reading failed. Kept Completed
               // so a retry re-reads what is already here instead of re-downloading
@@ -535,7 +640,17 @@ export async function runIngestion(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
+      if (error instanceof SiteLatchedError) {
+        // Another runner met the refusal. This one never reached the site, so it
+        // has nothing to log and nothing to count: the record goes back, whole.
+        await repository.transition(record.projectId, 'queued', {});
+        attempted -= 1;
+        stopped = true;
+        return;
+      }
+
       if (error instanceof RateLimitedError) {
+        gate.latch();
         // The site is telling us to stop. Stop — leaving the rest Queued for a
         // later run rather than pushing through. This record did nothing wrong,
         // so it goes back to the queue without spending one of its attempts.
@@ -549,8 +664,9 @@ export async function runIngestion(
         });
         failed += 1;
         aborted = true;
+        stopped = true;
         logger.warn({ projectId: record.projectId }, 'egp: rate limited, aborting run');
-        break;
+        return;
       }
 
       await note({
@@ -571,14 +687,41 @@ export async function runIngestion(
         exhausted ? `${message} (attempt ${attempts} of ${MAX_ATTEMPTS}, giving up)` : message,
       );
       failed += 1;
+    } finally {
+      // Whatever ended the record, the gate is not left held.
+      await hold?.release();
     }
+  };
 
-    if (index < candidates.length - 1) {
-      await deps.sleep(politeTorDelayMs());
+  const runner = async (): Promise<void> => {
+    while (!stopped) {
+      if (options.stopRequested?.()) {
+        // Nothing is taken from the queue: what is left stays Queued, no attempt spent.
+        stoppedBy = 'admin';
+        stopped = true;
+        aborted = true;
+        logger.info('egp: run stopped by an administrator; the rest stay Queued');
+        return;
+      }
+      const record = queue.shift();
+      if (!record) return;
+      if (options.shouldContinue && !options.shouldContinue()) {
+        aborted = true;
+        stopped = true;
+        logger.warn('egp: run stopped before its next record; the rest stay Queued');
+        return;
+      }
+      await processRecord(record);
     }
-  }
+  };
 
-  logger.info({ attempted, archivesRetrieved, torAnalysed, failed, aborted }, 'egp: run complete');
+  const runners = Math.max(1, Math.min(options.runners ?? 1, queue.length));
+  await Promise.all(Array.from({ length: runners }, runner));
+
+  logger.info(
+    { attempted, archivesRetrieved, torAnalysed, held, dropped, failed, aborted },
+    'egp: run complete',
+  );
 
   return {
     discovered: discovery.records.length,
@@ -587,8 +730,11 @@ export async function runIngestion(
     attempted,
     archivesRetrieved,
     torAnalysed,
+    held,
+    dropped,
     failed,
     aborted,
+    stopped: stoppedBy,
     failures,
     ranAt: discovery.ranAt,
   };

@@ -12,7 +12,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     province: 'กรุงเทพมหานคร',
     district: 'คลองเตย',
     subdistrict: 'คลองเตย',
-    registryName: 'กรุงเทพมหานคร',
     deptCode: '0100',
     year: 2568,
     announceDate: '2026-08-01',
@@ -22,27 +21,20 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     priceBuild: null,
     status: 'open',
     statusSource: 'upstream',
-    upstreamStatus: 'หนังสือเชิญชวน/ประกาศเชิญชวน',
-    matchedKeywords: ['จ้างพัฒนา'],
-    softwareClass: 'new_build',
-    softwareScore: 5,
-    eBidding: true,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
+    holdReason: null,
+    approvedBy: null,
+    approvedAt: null,
     statusHistory: [],
     zipId: null,
-    zipBytes: null,
-    archiveMemberCount: null,
-    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
     sourceHash: null,
-    lastSeenAt: null,
-    changedAt: null,
     updatedAt: '2026-09-01T00:00:00.000Z',
     ...overrides,
   };
@@ -61,9 +53,7 @@ describe('mergeDiscovered', () => {
       province: 'เชียงใหม่',
       district: 'เมืองเชียงใหม่',
       subdistrict: 'สุเทพ',
-      eBidding: false,
       status: 'contracted',
-      softwareScore: 7,
     });
 
     const merged = mergeDiscovered(existing, incoming, AT);
@@ -75,9 +65,7 @@ describe('mergeDiscovered', () => {
     expect(merged.province).toBe('เชียงใหม่');
     expect(merged.district).toBe('เมืองเชียงใหม่');
     expect(merged.subdistrict).toBe('สุเทพ');
-    expect(merged.eBidding).toBe(false);
     expect(merged.status).toBe('contracted');
-    expect(merged.softwareScore).toBe(7);
   });
 
   test('keeps what the pipeline found out, so a rediscovery cannot reset a retrieval', () => {
@@ -88,9 +76,6 @@ describe('mergeDiscovered', () => {
         { state: 'Completed', outcome: 'tor_analysed', at: '2026-09-02T00:00:00.000Z' },
       ],
       zipId: 'ZIP-1',
-      zipBytes: 30_000_000,
-      archiveMemberCount: 12,
-      archiveMembers: [],
       documents: [
         {
           member: 'Attach_TOR_1.pdf',
@@ -111,8 +96,6 @@ describe('mergeDiscovered', () => {
     expect(merged.outcome).toBe('tor_analysed');
     expect(merged.statusHistory).toEqual(existing.statusHistory);
     expect(merged.zipId).toBe('ZIP-1');
-    expect(merged.zipBytes).toBe(30_000_000);
-    expect(merged.archiveMemberCount).toBe(12);
     expect(merged.documents).toEqual(existing.documents);
     expect(merged.torAmbiguous).toBe(true);
     expect(merged.discoveredAt).toBe('2026-09-01T00:00:00.000Z');
@@ -122,17 +105,12 @@ describe('mergeDiscovered', () => {
     // The feed sends one generic value, so on every sweep it "reads" unknown.
     // Gemini's earlier reading of the documents must survive that.
     const existing = procurement({ status: 'drafting', statusSource: 'ai' });
-    const incoming = procurement({
-      status: 'unknown',
-      statusSource: null,
-      upstreamStatus: 'ระหว่างดำเนินการ',
-    });
+    const incoming = procurement({ status: 'unknown', statusSource: null });
 
     const merged = mergeDiscovered(existing, incoming, AT);
 
     expect(merged.status).toBe('drafting');
     expect(merged.statusSource).toBe('ai');
-    expect(merged.upstreamStatus).toBe('ระหว่างดำเนินการ');
   });
 
   test('a stage the feed does name overrides an AI reading', () => {
@@ -145,18 +123,22 @@ describe('mergeDiscovered', () => {
     expect(merged.statusSource).toBe('upstream');
   });
 
+  test('a rediscovery keeps who approved a held record and when', () => {
+    const existing = procurement({
+      outcome: 'tor_analysed',
+      approvedBy: 'admin',
+      approvedAt: '2026-09-03T00:00:00.000Z',
+    });
+
+    const merged = mergeDiscovered(existing, procurement(), AT);
+
+    expect(merged.approvedBy).toBe('admin');
+    expect(merged.approvedAt).toBe('2026-09-03T00:00:00.000Z');
+  });
+
   test('keeps the retrieval attempt count', () => {
     const merged = mergeDiscovered(procurement({ attempts: 2 }), procurement(), AT);
     expect(merged.attempts).toBe(2);
-  });
-
-  test('unions the keywords a project has ever matched', () => {
-    const existing = procurement({ matchedKeywords: ['จ้างพัฒนา', 'ซอฟต์แวร์'] });
-    const incoming = procurement({ matchedKeywords: ['ซอฟต์แวร์', 'เว็บไซต์'] });
-
-    const merged = mergeDiscovered(existing, incoming, AT);
-
-    expect(merged.matchedKeywords).toEqual(['จ้างพัฒนา', 'ซอฟต์แวร์', 'เว็บไซต์']);
   });
 });
 
@@ -165,27 +147,24 @@ describe('telling a real change from a record that was only seen again', () => {
   /** A stored record, as a sweep would have left it: fingerprinted and last updated at STORED. */
   const stored = (overrides: Partial<Procurement> = {}) => {
     const record = procurement({ updatedAt: STORED, ...overrides });
-    return { ...record, sourceHash: hashSource(record), lastSeenAt: STORED };
+    return { ...record, sourceHash: hashSource(record) };
   };
 
-  test('nothing the agency owns changed: updatedAt stays, only lastSeenAt moves', () => {
+  test('nothing the agency owns changed: updatedAt stays', () => {
     const existing = stored();
 
     const merged = mergeDiscovered(existing, procurement(), AT);
 
     expect(merged.updatedAt).toBe(STORED);
-    expect(merged.changedAt).toBeNull();
-    expect(merged.lastSeenAt).toBe(AT);
     expect(merged.sourceHash).toBe(existing.sourceHash);
   });
 
-  test('a changed budget is a change: updatedAt and changedAt move, and the fingerprint follows', () => {
+  test('a changed budget is a change: updatedAt moves, and the fingerprint follows', () => {
     const existing = stored();
 
     const merged = mergeDiscovered(existing, procurement({ projectMoney: 2_000_000 }), AT);
 
     expect(merged.updatedAt).toBe(AT);
-    expect(merged.changedAt).toBe(AT);
     expect(merged.sourceHash).not.toBe(existing.sourceHash);
   });
 
@@ -204,20 +183,8 @@ describe('telling a real change from a record that was only seen again', () => {
     expect(merged.updatedAt).toBe(AT);
   });
 
-  test('a new keyword alone is not a change, though it is kept', () => {
-    const merged = mergeDiscovered(
-      stored({ matchedKeywords: ['จ้างพัฒนา'] }),
-      procurement({ matchedKeywords: ['จ้างพัฒนา', 'เว็บไซต์'] }),
-      AT,
-    );
-
-    expect(merged.matchedKeywords).toEqual(['จ้างพัฒนา', 'เว็บไซต์']);
-    expect(merged.updatedAt).toBe(STORED);
-    expect(merged.changedAt).toBeNull();
-  });
-
   test('a record stored before fingerprints existed is compared on its own fields, not assumed changed', () => {
-    const before = { ...procurement({ updatedAt: STORED }), sourceHash: null, lastSeenAt: null };
+    const before = { ...procurement({ updatedAt: STORED }), sourceHash: null };
 
     const same = mergeDiscovered(before, procurement(), AT);
     const different = mergeDiscovered(before, procurement({ projectMoney: 2_000_000 }), AT);

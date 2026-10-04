@@ -40,7 +40,7 @@ describe('readUpstreamStatus', () => {
 describe('isBiddable', () => {
   test('open is the only stage a bid is possible in', () => {
     // The whole point of typing this field: it is what puts a live tender ahead
-    // of a settled contract in a run capped at EGP_MAX_DOWNLOADS_PER_RUN.
+    // of a settled contract in a run that stops early.
     expect(isBiddable('open')).toBe(true);
     for (const status of [
       'drafting',

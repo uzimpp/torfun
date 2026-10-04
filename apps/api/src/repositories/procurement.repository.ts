@@ -1,6 +1,7 @@
 import type { AnyBulkWriteOperation, Collection, Db } from 'mongodb';
 import type {
   ArchiveDocument,
+  HoldReason,
   IngestionFailure,
   IngestionOutcome,
   IngestionState,
@@ -8,14 +9,15 @@ import type {
   OpenDataQuota,
   Procurement,
   ProcurementStatus,
-  SoftwareClass,
   StatusChange,
   StatusSource,
   TargetPlatform,
   TorAnalysis,
+  Tombstone,
+  TombstoneReason,
   Winner,
 } from '@torfun/types';
-import { OUTCOME_STATE } from '@torfun/types';
+import { appendStatusChange, OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 import { hashSource, hasUpstreamChange } from './source-hash';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
@@ -25,34 +27,11 @@ import { INGESTION_META_COLLECTION } from './ingestion-meta';
  *
  * This layer owns the only mapping between the stored documents and the
  * `Procurement` defined in `@torfun/types`. Nothing above it sees a snake_case
- * field or the derived `biddability_rank` that makes the queue's ordering
- * indexable.
+ * field.
  *
  * The store is filled only by an ingestion run — nothing is seeded — so what an
  * administrator sees is only ever what the pipeline actually retrieved.
  */
-
-/**
- * How worth retrieving a stage makes a project, lowest first.
- *
- * `unknown` deliberately outranks the dead stages: it means upstream said
- * something this system does not recognise, which might still be an open
- * tender. Guessing it dead would hide real work.
- */
-const BIDDABILITY_ORDER: ProcurementStatus[] = [
-  'open',
-  'drafting',
-  'evaluating',
-  'unknown',
-  'awarded',
-  'contracted',
-  'cancelled',
-];
-
-function biddabilityRank(status: ProcurementStatus): number {
-  const rank = BIDDABILITY_ORDER.indexOf(status);
-  return rank === -1 ? BIDDABILITY_ORDER.indexOf('unknown') : rank;
-}
 
 /**
  * Values this system stored before the status and outcome vocabulary changed.
@@ -92,7 +71,6 @@ interface ProcurementDocument {
   province?: string | null;
   district?: string | null;
   subdistrict?: string | null;
-  registry_name: string;
   dept_code: string;
   year: number;
   announce_date: string | null;
@@ -103,23 +81,17 @@ interface ProcurementDocument {
   status: ProcurementStatus;
   /** Absent on records written before the reading was attributed. */
   status_source?: StatusSource | null;
-  upstream_status?: string | null;
-  /** Derived from `status` on every write, purely so the queue's sort is indexable. */
-  biddability_rank: number;
-  matched_keywords: string[];
-  software_class: SoftwareClass;
-  software_score: number;
-  e_bidding: boolean;
   state: IngestionState;
   outcome: IngestionOutcome;
   /** Absent on records written before retries were counted. */
   attempts?: number;
+  /** Why the record is held for review; absent unless its outcome is `needs_review`. */
+  hold_reason?: HoldReason | null;
+  /** Who approved a held record, and when; absent until an administrator does. */
+  approved_by?: string | null;
+  approved_at?: string | null;
   status_history: StatusChange[];
   zip_id: string | null;
-  zip_bytes: number | null;
-  archive_member_count: number | null;
-  /** Absent on records written before member names were kept. */
-  archive_members?: string[];
   documents: ArchiveDocument[];
   analysis: TorAnalysis | null;
   winner: Winner | null;
@@ -127,9 +99,19 @@ interface ProcurementDocument {
   discovered_at: string;
   /** Absent on records written before sweeps were fingerprinted. */
   source_hash?: string | null;
-  last_seen_at?: string | null;
-  changed_at?: string | null;
   updated_at: string;
+}
+
+/**
+ * A hold reason only means something while a record is held, so it is derived
+ * from the outcome the way `state` is: set by the transition into
+ * `needs_review`, and cleared by any transition out of it.
+ */
+export function holdReasonFor(
+  outcome: IngestionOutcome,
+  patch: Partial<Procurement>,
+): HoldReason | null {
+  return outcome === 'needs_review' ? (patch.holdReason ?? null) : null;
 }
 
 function toDomain(document: ProcurementDocument): Procurement {
@@ -143,7 +125,6 @@ function toDomain(document: ProcurementDocument): Procurement {
     province: document.province ?? null,
     district: document.district ?? null,
     subdistrict: document.subdistrict ?? null,
-    registryName: document.registry_name,
     deptCode: document.dept_code,
     year: document.year,
     announceDate: document.announce_date,
@@ -153,30 +134,23 @@ function toDomain(document: ProcurementDocument): Procurement {
     priceBuild: document.price_build,
     status: statusFromStored(document.status),
     statusSource: document.status_source ?? null,
-    upstreamStatus: document.upstream_status ?? null,
-    matchedKeywords: document.matched_keywords,
-    softwareClass: document.software_class,
-    softwareScore: document.software_score,
-    eBidding: document.e_bidding,
     state: document.state,
     outcome: outcomeFromStored(document.outcome),
     attempts: document.attempts ?? 0,
+    holdReason: document.hold_reason ?? null,
+    approvedBy: document.approved_by ?? null,
+    approvedAt: document.approved_at ?? null,
     statusHistory: document.status_history.map((entry) => ({
       ...entry,
       outcome: outcomeFromStored(entry.outcome),
     })),
     zipId: document.zip_id,
-    zipBytes: document.zip_bytes,
-    archiveMemberCount: document.archive_member_count,
-    archiveMembers: document.archive_members ?? [],
     documents: document.documents,
     analysis: document.analysis,
     winner: document.winner,
     torAmbiguous: document.tor_ambiguous,
     discoveredAt: document.discovered_at,
     sourceHash: document.source_hash ?? null,
-    lastSeenAt: document.last_seen_at ?? null,
-    changedAt: document.changed_at ?? null,
     updatedAt: document.updated_at,
   };
 }
@@ -190,7 +164,6 @@ function toDocument(record: Procurement): ProcurementDocument {
     province: record.province,
     district: record.district,
     subdistrict: record.subdistrict,
-    registry_name: record.registryName,
     dept_code: record.deptCode,
     year: record.year,
     announce_date: record.announceDate,
@@ -200,28 +173,20 @@ function toDocument(record: Procurement): ProcurementDocument {
     price_build: record.priceBuild,
     status: record.status,
     status_source: record.statusSource,
-    upstream_status: record.upstreamStatus,
-    biddability_rank: biddabilityRank(record.status),
-    matched_keywords: record.matchedKeywords,
-    software_class: record.softwareClass,
-    software_score: record.softwareScore,
-    e_bidding: record.eBidding,
     state: record.state,
     outcome: record.outcome,
     attempts: record.attempts,
+    hold_reason: record.holdReason,
+    approved_by: record.approvedBy,
+    approved_at: record.approvedAt,
     status_history: record.statusHistory,
     zip_id: record.zipId,
-    zip_bytes: record.zipBytes,
-    archive_member_count: record.archiveMemberCount,
-    archive_members: record.archiveMembers,
     documents: record.documents,
     analysis: record.analysis,
     winner: record.winner,
     tor_ambiguous: record.torAmbiguous,
     discovered_at: record.discoveredAt,
     source_hash: record.sourceHash,
-    last_seen_at: record.lastSeenAt,
-    changed_at: record.changedAt,
     updated_at: record.updatedAt,
   };
 }
@@ -236,10 +201,8 @@ export interface FindOptions {
   attemptsBelow?: number;
   deptName?: string;
   year?: number;
-  softwareClass?: SoftwareClass;
   /** Filter to one stage of the agency's own lifecycle. */
   status?: ProcurementStatus;
-  eBidding?: boolean;
   /** Case-insensitive substring over project name and id. */
   query?: string;
   minBudget?: number;
@@ -288,6 +251,21 @@ export interface FindResult {
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
   upsert(record: Procurement): Promise<Procurement>;
+  /**
+   * Replace a record with its tombstone: the record and everything read from it
+   * go, and the project is remembered as dropped, so no later sweep stores it.
+   */
+  tombstone(tombstone: Tombstone): Promise<void>;
+  /** Delete a record and leave nothing behind. False where there was none. */
+  remove(projectId: string): Promise<boolean>;
+  /** Which of these projects were dropped; used to keep them out of a sweep. */
+  tombstonedIds(projectIds: string[]): Promise<Set<string>>;
+  listTombstones(): Promise<Tombstone[]>;
+  /**
+   * Forget a tombstone, so the next sweep that finds the project stores it and
+   * retrieval reads it afresh. False where there was none.
+   */
+  removeTombstone(projectId: string): Promise<boolean>;
   /** What a sweep writes: every discovered record at once, reporting what was new and what moved. */
   upsertMany(records: Procurement[]): Promise<UpsertSummary>;
   /**
@@ -339,6 +317,16 @@ export interface ProcurementDataSource extends ProcurementStore, AgencyNameSourc
 
 const QUOTA_ID = 'open_data_quota';
 
+/** The persistence shape of a Tombstone; snake_case like the rest of what is in Atlas. */
+interface TombstoneDocument {
+  _id: string;
+  reason: TombstoneReason;
+  evidence: string;
+  prompt_version: string | null;
+  decided_at: string;
+  decided_by: string | null;
+}
+
 interface QuotaDocument {
   _id: string;
   remaining_day: number;
@@ -380,11 +368,71 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       await this.records()
     ).createIndexes([
       {
-        key: { state: 1, biddability_rank: 1, software_score: -1, project_money: -1, _id: 1 },
+        key: { state: 1, announce_date: -1, _id: 1 },
       },
       { key: { dept_name: 1 } },
       { key: { year: 1 } },
     ]);
+  }
+
+  private async tombstoneCollection(): Promise<Collection<TombstoneDocument>> {
+    return (await this.getDb()).collection<TombstoneDocument>('tombstones');
+  }
+
+  async tombstone(tombstone: Tombstone): Promise<void> {
+    const document: TombstoneDocument = {
+      _id: tombstone.projectId,
+      reason: tombstone.reason,
+      evidence: tombstone.evidence,
+      prompt_version: tombstone.promptVersion,
+      decided_at: tombstone.decidedAt,
+      decided_by: tombstone.decidedBy,
+    };
+    // The tombstone first: if the delete then failed, the record would still be
+    // there to be tried again, never gone without a trace of why.
+    await (
+      await this.tombstoneCollection()
+    ).replaceOne({ _id: document._id }, document, {
+      upsert: true,
+    });
+    await (await this.records()).deleteOne({ _id: tombstone.projectId });
+  }
+
+  async remove(projectId: string): Promise<boolean> {
+    const result = await (await this.records()).deleteOne({ _id: projectId });
+    return result.deletedCount === 1;
+  }
+
+  async tombstonedIds(projectIds: string[]): Promise<Set<string>> {
+    if (projectIds.length === 0) return new Set();
+    const found = await (
+      await this.tombstoneCollection()
+    )
+      .find({ _id: { $in: projectIds } }, { projection: { _id: 1 } })
+      .toArray();
+    return new Set(found.map((document) => document._id));
+  }
+
+  async listTombstones(): Promise<Tombstone[]> {
+    const documents = await (
+      await this.tombstoneCollection()
+    )
+      .find({})
+      .sort({ decided_at: -1 })
+      .toArray();
+    return documents.map((document) => ({
+      projectId: document._id,
+      reason: document.reason,
+      evidence: document.evidence,
+      promptVersion: document.prompt_version,
+      decidedAt: document.decided_at,
+      decidedBy: document.decided_by ?? null,
+    }));
+  }
+
+  async removeTombstone(projectId: string): Promise<boolean> {
+    const result = await (await this.tombstoneCollection()).deleteOne({ _id: projectId });
+    return result.deletedCount === 1;
   }
 
   /**
@@ -392,9 +440,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
    *
    * Deduplication is by projectId, per the functional requirements. What
    * survives a rediscovery is `mergeDiscovered`'s decision, not this method's:
-   * upstream fields refresh, the pipeline's own findings are preserved. Writing
-   * through `toDocument` is what re-derives `biddability_rank` from a refreshed
-   * status, so the retrieval queue re-sorts itself.
+   * upstream fields refresh, the pipeline's own findings are preserved.
    */
   async upsert(record: Procurement): Promise<Procurement> {
     const collection = await this.records();
@@ -481,7 +527,8 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       ...toDocument({ ...toDomain(existing), ...patch }),
       state,
       outcome,
-      status_history: [...existing.status_history, entry],
+      hold_reason: holdReasonFor(outcome, patch),
+      status_history: appendStatusChange(existing.status_history, entry),
       updated_at: at,
     };
     await collection.replaceOne({ _id: projectId }, updated);
@@ -532,10 +579,8 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     }
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.year) filter.year = options.year;
-    if (options.softwareClass) filter.software_class = options.softwareClass;
     if (options.status) filter.status = options.status;
     if (options.excludeAwarded) filter.winner = null;
-    if (options.eBidding !== undefined) filter.e_bidding = options.eBidding;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
@@ -568,20 +613,19 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
-    // Most relevant first: a queue an admin works top-down, and the order a
-    // capped run spends its downloads in. Biddability leads — a settled contract
-    // cannot be bid on however promising it looks — then software-likeness, then
-    // contract value. A priority, never a filter: nothing is excluded, because
-    // the stage comes from upstream free text and `unknown` may well be live.
+    // Newest announcement first: a queue an administrator works top-down, and the
+    // order a Run works through it in, so one stopped early has done the most
+    // recent part. A deterministic order and nothing more — no stage or title
+    // is trusted to say what is worth reading first.
     //
-    // `_id` breaks any remaining tie. Without it, two documents equal on all
-    // three priority fields have no defined order between them, and `skip`ing
-    // through pages could show one twice or skip it entirely depending on how
-    // the storage engine happens to return ties on a given call.
+    // `_id` breaks any remaining tie. Without it, two documents with the same
+    // announce date have no defined order between them, and `skip`ing through
+    // pages could show one twice or skip it entirely depending on how the
+    // storage engine happens to return ties on a given call.
     const [items, total] = await Promise.all([
       collection
         .find(filter)
-        .sort({ biddability_rank: 1, software_score: -1, project_money: -1, _id: 1 })
+        .sort({ announce_date: -1, _id: 1 })
         .skip(options.offset)
         .limit(options.limit)
         .toArray(),
@@ -718,6 +762,8 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       openDataQuota: await this.openDataQuota(),
       // Owned by the service layer, which is what actually starts a run.
       runInProgress: false,
+      runStartedAt: null,
+      stopRequested: false,
     };
   }
 

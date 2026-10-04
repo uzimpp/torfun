@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type, type Schema } from '@google/genai';
+import { SoftwareConfidence } from '@torfun/types';
 import type { Env } from '../../config/env';
 import { ModelStatus, type ModelCall } from './classify-document';
 import { sendReliably } from './reliable-model-call';
@@ -106,8 +107,9 @@ export const ANSWER_SCHEMA: Schema = {
           },
         },
         requiredQualifications: stringList,
-        isSoftwareProject: { type: Type.BOOLEAN },
-        confidence: { type: Type.STRING, enum: ['high', 'low'] },
+        isSoftware: { type: Type.BOOLEAN },
+        confidence: { type: Type.STRING, enum: [...SoftwareConfidence.options] },
+        reason: { type: Type.STRING },
       },
       required: [
         'summary',
@@ -118,8 +120,9 @@ export const ANSWER_SCHEMA: Schema = {
         'techStack',
         'targetPlatforms',
         'requiredQualifications',
-        'isSoftwareProject',
+        'isSoftware',
         'confidence',
+        'reason',
       ],
     },
   },
