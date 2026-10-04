@@ -1,11 +1,15 @@
 import type { AnyBulkWriteOperation, Collection, Db } from 'mongodb';
 import type {
   ArchiveDocument,
+  DailyThroughput,
   HoldReason,
   IngestionFailure,
   IngestionOutcome,
   IngestionState,
+  IngestionStats,
   IngestionSummary,
+  RecordTimings,
+  StageFailures,
   OpenDataQuota,
   Procurement,
   ProcurementStatus,
@@ -234,6 +238,13 @@ export interface FindOptions {
   industry?: string;
   /** Case-insensitive keyword over the upstream administrative location. */
   location?: string;
+  /**
+   * `announced` (the default): newest announcement first. `urgency`: a tender
+   * still `open` first, nearest deadline first and undated after; then
+   * `unknown`; then drafting, evaluating and cancelled; awarded and contracted
+   * last. Within a rank, newest announcement first.
+   */
+  order?: 'announced' | 'urgency';
   limit: number;
   offset: number;
 }
@@ -333,6 +344,12 @@ export interface AgencyNameSource {
   agencies(): Promise<string[]>;
 }
 
+/** Stored history the operations view reads. */
+export interface IngestionStatsSource {
+  /** Over everything that happened at or after `since`. */
+  stats(since: string): Promise<IngestionStats>;
+}
+
 /** All Procurement reads used above the persistence layer. */
 export interface ProcurementDataSource extends ProcurementStore, AgencyNameSource {
   ensureIndexes(): Promise<void>;
@@ -361,11 +378,88 @@ interface QuotaDocument {
   observed_at: string;
 }
 
-interface FailureDocument extends IngestionFailure {
+/** `kind` is absent on failures logged before it existed. */
+interface FailureDocument extends Omit<IngestionFailure, 'kind'> {
   _id?: unknown;
+  kind?: IngestionFailure['kind'];
 }
 
-export class ProcurementRepository implements ProcurementStore, AgencyNameSource {
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/** Nearest-rank percentile of an ascending list; null for an empty one. */
+function percentile(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] ?? null;
+}
+
+interface Pass {
+  startedAt: number;
+  analysingAt: number | null;
+  end: StatusChange;
+}
+
+/** The record's last pass through retrieval: its last `downloading` and the first end after it. */
+function lastPass(history: readonly StatusChange[]): Pass | null {
+  let start = history.length - 1;
+  while (start >= 0 && history[start]?.outcome !== 'downloading') start -= 1;
+  if (start === -1) return null;
+  let analysingAt: number | null = null;
+  for (const entry of history.slice(start + 1)) {
+    if (entry.outcome === 'analysing') analysingAt = Date.parse(entry.at);
+    else if (entry.state === 'Completed' || entry.state === 'Failed') {
+      return { startedAt: Date.parse(history[start]?.at ?? ''), analysingAt, end: entry };
+    } else return null;
+  }
+  return null;
+}
+
+function timingsOf(passes: Pass[]): RecordTimings {
+  const ascending = (values: number[]) => values.sort((a, b) => a - b);
+  const total = ascending(passes.map((pass) => Date.parse(pass.end.at) - pass.startedAt));
+  const download = ascending(
+    passes.flatMap((pass) =>
+      pass.analysingAt === null ? [] : [pass.analysingAt - pass.startedAt],
+    ),
+  );
+  const analyse = ascending(
+    passes.flatMap((pass) =>
+      pass.analysingAt === null ? [] : [Date.parse(pass.end.at) - pass.analysingAt],
+    ),
+  );
+  return {
+    sample: total.length,
+    p50Ms: percentile(total, 0.5),
+    p90Ms: percentile(total, 0.9),
+    downloadP50Ms: percentile(download, 0.5),
+    analyseP50Ms: percentile(analyse, 0.5),
+  };
+}
+
+const THROUGHPUT_BUCKET: Partial<
+  Record<IngestionOutcome, keyof Omit<DailyThroughput, 'date'>>
+> = {
+  tor_analysed: 'completed',
+  needs_review: 'held',
+  analysis_failed: 'failed',
+  abandoned: 'failed',
+};
+
+function throughputOf(passes: Pass[]): DailyThroughput[] {
+  const byDay = new Map<string, DailyThroughput>();
+  for (const { end } of passes) {
+    const bucket = THROUGHPUT_BUCKET[outcomeFromStored(end.outcome)];
+    if (!bucket) continue;
+    const date = new Date(Date.parse(end.at) + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
+    const day = byDay.get(date) ?? { date, completed: 0, held: 0, failed: 0 };
+    day[bucket] += 1;
+    byDay.set(date, day);
+  }
+  return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export class ProcurementRepository
+  implements ProcurementStore, AgencyNameSource, IngestionStatsSource
+{
   constructor(private readonly getDb: () => Promise<Db>) {}
 
   private async records(): Promise<Collection<ProcurementDocument>> {
@@ -399,7 +493,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       },
       { key: { dept_name: 1 } },
       { key: { budget_year: 1 } },
+      // What the operations view reads: records that finished recently.
+      { key: { state: 1, updated_at: -1 } },
     ]);
+    await (await this.failuresCollection()).createIndex({ at: -1 });
   }
 
   private async tombstoneCollection(): Promise<Collection<TombstoneDocument>> {
@@ -671,6 +768,21 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
+    if (options.order === 'urgency') {
+      const [items, total] = await Promise.all([
+        collection
+          .aggregate<ProcurementDocument>([
+            { $match: filter },
+            ...URGENCY_ORDER,
+            { $skip: options.offset },
+            { $limit: options.limit },
+            { $unset: URGENCY_FIELDS },
+          ])
+          .toArray(),
+        collection.countDocuments(filter),
+      ]);
+      return { items: items.map(toDomain), total };
+    }
     // Newest announcement first: a queue an administrator works top-down, and the
     // order a Run works through it in, so one stopped early has done the most
     // recent part. A deterministic order and nothing more — no stage or title
@@ -700,7 +812,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       .find({}, { projection: { _id: 0 } })
       .sort({ at: -1 })
       .toArray();
-    return documents as IngestionFailure[];
+    return documents.map(({ _id: _ignored, kind, ...failure }) => ({
+      ...failure,
+      kind: kind ?? 'fault',
+    }));
   }
 
   async recordFailures(failures: IngestionFailure[]): Promise<void> {
@@ -825,6 +940,34 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     };
   }
 
+  async stats(since: string): Promise<IngestionStats> {
+    const [finished, failuresByStage] = await Promise.all([
+      (await this.records())
+        .find(
+          { state: { $in: ['Completed', 'Failed'] }, updated_at: { $gte: since } },
+          { projection: { status_history: 1 } },
+        )
+        .toArray(),
+      (await this.failuresCollection())
+        .aggregate<StageFailures>([
+          { $match: { at: { $gte: since }, kind: { $ne: 'no_tor' } } },
+          { $group: { _id: '$stage', count: { $sum: 1 } } },
+          { $sort: { count: -1, _id: 1 } },
+          { $project: { _id: 0, stage: '$_id', count: 1 } },
+        ])
+        .toArray(),
+    ]);
+    const passes = finished
+      .map((document) => lastPass(document.status_history))
+      .filter((pass): pass is Pass => pass !== null && pass.end.at >= since);
+
+    return {
+      recordTimings: timingsOf(passes),
+      throughputDaily: throughputOf(passes),
+      failuresByStage,
+    };
+  }
+
   async recent(limit: number): Promise<Procurement[]> {
     const documents = await (
       await this.records()
@@ -836,6 +979,54 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     return documents.map(toDomain);
   }
 }
+
+const URGENCY_FIELDS = ['urgency_rank', 'urgency_undated', 'urgency_deadline'];
+
+/** Stored status values, legacy spellings included (see `LEGACY_STATUSES`), by urgency rank. */
+const URGENCY_RANKS: [number, string[]][] = [
+  [0, ['open', 'invitation']],
+  [1, ['unknown']],
+  [2, ['drafting', 'evaluating', 'cancelled', 'drafting_tor', 'requisition']],
+  [3, ['awarded', 'contracted', 'award_announced']],
+];
+
+const URGENCY_ORDER = [
+  {
+    $addFields: {
+      urgency_rank: {
+        $switch: {
+          branches: URGENCY_RANKS.map(([rank, statuses]) => ({
+            case: { $in: ['$status', statuses] },
+            then: rank,
+          })),
+          default: 2,
+        },
+      },
+    },
+  },
+  {
+    $addFields: {
+      // Only an open tender is ordered by its deadline; an unreadable one is undated.
+      urgency_deadline: {
+        $cond: [
+          { $eq: ['$urgency_rank', 0] },
+          { $dateFromString: { dateString: '$deadline_at', onError: null, onNull: null } },
+          null,
+        ],
+      },
+    },
+  },
+  { $addFields: { urgency_undated: { $cond: [{ $eq: ['$urgency_deadline', null] }, 1, 0] } } },
+  {
+    $sort: {
+      urgency_rank: 1,
+      urgency_undated: 1,
+      urgency_deadline: 1,
+      announce_date: -1,
+      _id: 1,
+    },
+  },
+];
 
 function escapeRegex(value: string): string {
   return value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

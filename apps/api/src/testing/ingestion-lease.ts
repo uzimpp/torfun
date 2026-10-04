@@ -1,3 +1,4 @@
+import type { LeaseLive } from '@torfun/types';
 import type { IngestionLeaseStore, LeaseState } from '../repositories/ingestion-lease.repository';
 
 /**
@@ -15,6 +16,7 @@ export class InMemoryIngestionLease implements IngestionLeaseStore {
     expiresAt: number;
     acquiredAt: string;
     stop: { at: string; by: string } | null;
+    live: LeaseLive | null;
   } | null = null;
 
   async acquire(holder: string, now: Date, ttlMs: number): Promise<boolean> {
@@ -25,14 +27,15 @@ export class InMemoryIngestionLease implements IngestionLeaseStore {
       expiresAt: now.getTime() + ttlMs,
       acquiredAt: now.toISOString(),
       stop: null,
+      live: null,
     };
     return true;
   }
 
-  async heartbeat(holder: string, now: Date, ttlMs: number): Promise<boolean> {
+  async heartbeat(holder: string, now: Date, ttlMs: number, live?: LeaseLive): Promise<boolean> {
     const current = this.held;
     if (!current || current.holder !== holder || current.expiresAt <= now.getTime()) return false;
-    this.held = { ...current, expiresAt: now.getTime() + ttlMs };
+    this.held = { ...current, expiresAt: now.getTime() + ttlMs, live: live ?? current.live };
     return true;
   }
 
@@ -52,6 +55,7 @@ export class InMemoryIngestionLease implements IngestionLeaseStore {
       acquiredAt: held.acquiredAt,
       stopRequestedAt: held.stop?.at ?? null,
       stopRequestedBy: held.stop?.by ?? null,
+      live: held.live,
     };
   }
 

@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { Type } from '@google/genai';
-import { ANSWER_SCHEMA, contentParts, INVITATION_SCHEMA, textFromResponse } from './vertex-ai';
+import {
+  ANSWER_SCHEMA,
+  contentParts,
+  INVITATION_SCHEMA,
+  textFromResponse,
+  usageFromResponse,
+} from './vertex-ai';
 
 describe('INVITATION_SCHEMA', () => {
   test('asks only for the bid date, which may be null', () => {
@@ -94,5 +100,27 @@ describe('contentParts', () => {
     expect(parts[0]).toEqual({ text: expect.stringContaining('ถูกดึงจากเอกสาร PDF') });
     expect(parts[1]).toEqual({ text: 'ขอบเขตของงาน' });
     expect(parts[2]).toEqual({ text: 'classify this' });
+  });
+});
+
+describe('usageFromResponse', () => {
+  test('reads prompt, answer, thinking and total tokens from the usage metadata', () => {
+    expect(
+      usageFromResponse({
+        usageMetadata: {
+          promptTokenCount: 5120,
+          candidatesTokenCount: 410,
+          thoughtsTokenCount: 980,
+          totalTokenCount: 6510,
+        },
+      }),
+    ).toEqual({ prompt: 5120, output: 410, thoughts: 980, total: 6510 });
+  });
+
+  test('a count the service left out is zero, not missing', () => {
+    expect(
+      usageFromResponse({ usageMetadata: { promptTokenCount: 12, totalTokenCount: 15 } }),
+    ).toEqual({ prompt: 12, output: 0, thoughts: 0, total: 15 });
+    expect(usageFromResponse({})).toEqual({ prompt: 0, output: 0, thoughts: 0, total: 0 });
   });
 });

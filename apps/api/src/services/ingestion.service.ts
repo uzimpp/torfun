@@ -1,14 +1,34 @@
 import { resolveProcurementListOptions } from './procurement-list-options';
 import { randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
-import type { IngestionFailure, Procurement, IngestionSummary } from '@torfun/types';
+import type {
+  IngestionFailure,
+  IngestionOps,
+  IngestionSummary,
+  Procurement,
+  RunCounts,
+  RunProgress,
+  RunTrigger,
+  TokenUsage,
+} from '@torfun/types';
 import type { Env } from '../config/env';
 import { ConflictError, NotFoundError } from '../core/errors';
 import type { IngestionLeaseStore } from '../repositories/ingestion-lease.repository';
+import type { IngestionRunStore } from '../repositories/ingestion-run.repository';
 import type { RunLog } from '../repositories/schedule.repository';
-import type { FindOptions, ProcurementDataSource } from '../repositories/procurement.repository';
+import type {
+  FindOptions,
+  IngestionStatsSource,
+  ProcurementDataSource,
+} from '../repositories/procurement.repository';
 import { DISCOVERY_MAX_AGE_MS } from './egp/constants';
-import { createIngestionDeps, runIngestion, type IngestionDeps } from './egp/pipeline';
+import {
+  createIngestionDeps,
+  runIngestion,
+  type IngestionDeps,
+  type RunResult,
+} from './egp/pipeline';
+import type { ModelUsage } from './vertex/vertex-ai';
 import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, presentTo, type Audience } from './audience';
 
 /**
@@ -26,6 +46,10 @@ export interface RunCoordination {
   lease: IngestionLeaseStore;
   /** Told when a Run begins, so a Schedule counts from real starts. */
   runLog: RunLog;
+  /** Where each Run is logged when it ends. */
+  runs: IngestionRunStore;
+  /** Stored history the operations view reads. */
+  stats: IngestionStatsSource;
   /** How often a live Run renews its lease. */
   heartbeatMs?: number;
   /** How long a lease outlives its last heartbeat — how long a crashed holder blocks everyone. */
@@ -50,6 +74,45 @@ export function runMayContinue(
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_LEASE_TTL_MS = 2 * 60_000;
+const OPS_WINDOW_MS = 30 * 24 * 60 * 60_000;
+const OPS_RUNS = 20;
+
+/** A Run in this process, as its heartbeat and the run log see it. */
+interface ActiveRun {
+  lost: boolean;
+  confirmedAt: number;
+  stopRequested: boolean;
+  progress: RunProgress | null;
+  peakRssBytes: number;
+  tokens: TokenUsage;
+}
+
+function sampleMemory(active: ActiveRun) {
+  const { rss, heapUsed } = process.memoryUsage();
+  active.peakRssBytes = Math.max(active.peakRssBytes, rss);
+  return { rssBytes: rss, heapUsedBytes: heapUsed, peakRssBytes: active.peakRssBytes };
+}
+
+function countsOf(result: RunResult): RunCounts {
+  return {
+    discovered: result.discovered,
+    newRecords: result.newRecords,
+    changedRecords: result.changedRecords,
+    unchangedRecords: result.unchangedRecords,
+    discoverySkipped: result.discoverySkipped,
+    discoveryStopped: result.discoveryStopped,
+    rejectedNonRegistry: result.rejectedNonRegistry,
+    attempted: result.attempted,
+    refreshed: result.refreshed,
+    archivesRetrieved: result.archivesRetrieved,
+    torAnalysed: result.torAnalysed,
+    held: result.held,
+    dropped: result.dropped,
+    failed: result.failed,
+    aborted: result.aborted,
+    stopped: result.stopped,
+  };
+}
 
 export interface StartRunInput {
   /** Sweep upstream even if the last sweep is recent. Only an administrator's deliberate choice. */
@@ -63,6 +126,8 @@ export interface StartRunInput {
    * throws, no Run begins.
    */
   beforeRun?: () => Promise<void>;
+  /** Who started it, for the run log; an administrator unless said otherwise. */
+  trigger?: RunTrigger;
 }
 
 export type SummaryView = IngestionSummary & { agencies: string[] };
@@ -74,17 +139,27 @@ export class IngestionService {
    */
   private readonly deps: IngestionDeps;
 
-  /** The Run going in this process, if any, so a stop request can reach it without waiting for a heartbeat. */
-  private active: { stopRequested: boolean } | null = null;
+  /** The Run going in this process, if any: a stop request reaches it without waiting for a heartbeat, and model calls are counted against it. */
+  private active: ActiveRun | null = null;
 
+  /** `makeDeps` is handed where model calls report their tokens. */
   constructor(
     private readonly repository: ProcurementDataSource,
     private readonly env: Env,
     private readonly logger: FastifyBaseLogger,
     private readonly coordination: RunCoordination,
-    deps?: IngestionDeps,
+    makeDeps: (onUsage: (usage: ModelUsage) => void) => IngestionDeps = (onUsage) =>
+      createIngestionDeps(env, onUsage),
   ) {
-    this.deps = deps ?? createIngestionDeps(env);
+    this.deps = makeDeps((usage) => {
+      const tokens = this.active?.tokens;
+      if (!tokens) return;
+      tokens.prompt += usage.prompt;
+      tokens.output += usage.output;
+      tokens.thoughts += usage.thoughts;
+      tokens.total += usage.total;
+      tokens.calls += 1;
+    });
   }
 
   private now(): Date {
@@ -108,16 +183,43 @@ export class IngestionService {
     };
   }
 
+  /** What the operations view shows: the Run going now, from the lease, and stored history. */
+  async ops(): Promise<IngestionOps> {
+    const now = this.now();
+    const [lease, stats, runs] = await Promise.all([
+      this.coordination.lease.current(now),
+      this.coordination.stats.stats(new Date(now.getTime() - OPS_WINDOW_MS).toISOString()),
+      this.coordination.runs.recent(OPS_RUNS),
+    ]);
+    const live = lease?.live ?? null;
+    return {
+      live: {
+        runInProgress: lease !== null,
+        runStartedAt: lease?.acquiredAt ?? null,
+        elapsedMs: lease ? Math.max(0, now.getTime() - Date.parse(lease.acquiredAt)) : null,
+        stopRequested: lease?.stopRequestedAt != null,
+        inFlight: live?.inFlight ?? null,
+        queueRemaining: live?.queueRemaining ?? null,
+        memory: live?.memory ?? null,
+      },
+      ...stats,
+      runs,
+    };
+  }
+
   /**
    * An officer's query is narrowed to analysed TORs here, after whatever they
-   * sent, so no `outcome` in the request can widen it back out.
+   * sent, so no `outcome` in the request can widen it back out. The held list
+   * comes most urgent first, so a page of it never hides an open tender.
    */
   async list(
     options: FindOptions,
     audience: Audience,
   ): Promise<{ items: Procurement[]; total: number }> {
+    const narrowed =
+      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME };
     const filters = resolveProcurementListOptions(
-      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME },
+      narrowed.outcome === 'needs_review' ? { ...narrowed, order: 'urgency' } : narrowed,
     );
     if (!filters) return { items: [], total: 0 };
     const { items, total } = await this.repository.find(filters);
@@ -125,8 +227,8 @@ export class IngestionService {
   }
 
   /** Passthrough so the composition root's caller (`server.ts`) never touches a repository directly. */
-  ensureIndexes(): Promise<void> {
-    return this.repository.ensureIndexes();
+  async ensureIndexes(): Promise<void> {
+    await Promise.all([this.repository.ensureIndexes(), this.coordination.runs.ensureIndexes()]);
   }
 
   /** A record the audience may not see is reported exactly as one that does not exist. */
@@ -201,11 +303,23 @@ export class IngestionService {
     // for a whole term — the Run stops at its next record (`runMayContinue`),
     // instead of overlapping whoever holds it now. A single failed renewal
     // (Mongo briefly away) is only logged.
-    const held = { lost: false, confirmedAt: startedAt.getTime(), stopRequested: false };
+    const held: ActiveRun = {
+      lost: false,
+      confirmedAt: startedAt.getTime(),
+      stopRequested: false,
+      progress: null,
+      peakRssBytes: 0,
+      tokens: { prompt: 0, output: 0, thoughts: 0, total: 0, calls: 0 },
+    };
     this.active = held;
     const heartbeat = setInterval(() => {
       const at = this.now();
-      lease.heartbeat(holder, at, leaseTtlMs).then(
+      const live = {
+        inFlight: held.progress?.inFlight ?? [],
+        queueRemaining: held.progress?.queueRemaining ?? null,
+        memory: { ...sampleMemory(held), sampledAt: at.toISOString() },
+      };
+      lease.heartbeat(holder, at, leaseTtlMs, live).then(
         (kept) => {
           if (kept) {
             held.confirmedAt = at.getTime();
@@ -235,16 +349,23 @@ export class IngestionService {
         logger: this.logger,
         shouldContinue: () => runMayContinue(held, this.now().getTime(), leaseTtlMs),
         stopRequested: () => held.stopRequested,
+        onProgress: (progress) => {
+          held.progress = progress;
+        },
         discoveryMaxAgeMs: DISCOVERY_MAX_AGE_MS,
         ...(input.forceDiscovery ? { forceDiscovery: true } : {}),
         ...(input.onlyProject ? { onlyProject: input.onlyProject } : {}),
       },
       this.deps,
     )
-      .catch((error: unknown) => {
-        this.logger.error({ err: error }, 'egp: ingestion run failed');
-      })
-      .finally(() => {
+      .then(
+        (result) => ({ counts: countsOf(result), error: null }),
+        (error: unknown) => {
+          this.logger.error({ err: error }, 'egp: ingestion run failed');
+          return { counts: null, error: error instanceof Error ? error.message : String(error) };
+        },
+      )
+      .then((outcome) => {
         clearInterval(heartbeat);
         if (this.active === held) this.active = null;
         // Whether the pass succeeded or threw, the lease is given back; if this
@@ -252,6 +373,22 @@ export class IngestionService {
         lease.release(holder).catch((error: unknown) => {
           this.logger.warn({ err: error }, 'egp: could not release the ingestion lease');
         });
+        const endedAt = this.now();
+        sampleMemory(held);
+        return this.coordination.runs.record({
+          id: holder,
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+          durationMs: Math.max(0, endedAt.getTime() - startedAt.getTime()),
+          trigger: input.trigger ?? 'manual',
+          runners: this.env.EGP_RUNNERS,
+          ...outcome,
+          tokens: held.tokens,
+          peakRssBytes: held.peakRssBytes,
+        });
+      })
+      .catch((error: unknown) => {
+        this.logger.warn({ err: error }, 'egp: could not log the ingestion run');
       });
   }
 }
