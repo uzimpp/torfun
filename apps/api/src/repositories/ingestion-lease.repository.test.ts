@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
+import type { LeaseLive } from '@torfun/types';
 import { IngestionLeaseRepository } from './ingestion-lease.repository';
 
 /**
@@ -117,6 +118,7 @@ describeMongo('IngestionLeaseRepository', () => {
         acquiredAt: at(10).toISOString(),
         stopRequestedAt: null,
         stopRequestedBy: null,
+        live: null,
       });
     });
 
@@ -183,6 +185,86 @@ describeMongo('IngestionLeaseRepository', () => {
       await lease.acquire('b', at(TTL / 1000 + 10), TTL);
 
       expect(await lease.stopRequested('b')).toBe(false);
+    });
+  });
+
+  describe('what a live Run reports through its heartbeat', () => {
+    const live: LeaseLive = {
+      inFlight: [
+        {
+          slot: 1,
+          projectId: '67019000001',
+          projectName: 'จ้างพัฒนาระบบ',
+          stage: 'download',
+          fresh: true,
+          since: at(25).toISOString(),
+        },
+      ],
+      queueRemaining: 41,
+      memory: {
+        rssBytes: 300_000_000,
+        heapUsedBytes: 120_000_000,
+        peakRssBytes: 410_000_000,
+        sampledAt: at(30).toISOString(),
+      },
+    };
+
+    test('is read back by anyone asking for the current lease', async () => {
+      await lease.acquire('a', at(0), TTL);
+      expect((await lease.current(at(1)))?.live).toBeNull();
+
+      await lease.heartbeat('a', at(30), TTL, live);
+
+      expect((await lease.current(at(31)))?.live).toEqual(live);
+    });
+
+    test('a heartbeat with nothing to report keeps what was last reported', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await lease.heartbeat('a', at(30), TTL, live);
+      await lease.heartbeat('a', at(60), TTL);
+
+      expect((await lease.current(at(61)))?.live).toEqual(live);
+    });
+
+    test('does not carry into the next Run', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await lease.heartbeat('a', at(30), TTL, live);
+      await lease.release('a');
+      await lease.acquire('b', at(40), TTL);
+
+      expect((await lease.current(at(41)))?.live).toBeNull();
+    });
+
+    test('nor into a Run that takes over an expired lease', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await lease.heartbeat('a', at(30), TTL, live);
+      await lease.acquire('b', at(200), TTL);
+
+      expect((await lease.current(at(201)))?.live).toBeNull();
+    });
+
+    test('is kept as one subdocument on the lease', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await lease.heartbeat('a', at(30), TTL, live);
+
+      const stored = await (await getDb())
+        .collection('ingestion_meta')
+        .findOne({ _id: 'run_lease' as never });
+      expect(Object.keys(stored ?? {}).sort()).toEqual(
+        ['_id', 'acquired_at', 'expires_at', 'heartbeat_at', 'holder', 'live'].sort(),
+      );
+    });
+
+    test('fields an older build left flat on the lease are not read as live', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await (await getDb())
+        .collection('ingestion_meta')
+        .updateOne(
+          { _id: 'run_lease' as never },
+          { $set: { rss: 1, heap_used: 1, peak_rss: 1, sampled_at: at(5).toISOString() } },
+        );
+
+      expect((await lease.current(at(6)))?.live).toBeNull();
     });
   });
 });

@@ -7,6 +7,7 @@ import { InMemoryProcurementStore } from '../testing/procurement-store';
 import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
 import { InMemoryScheduleStore } from '../testing/schedule-store';
+import { InMemoryIngestionRunStore, noStats } from '../testing/ingestion-run-store';
 import type { IngestionDeps } from './egp/pipeline';
 import { IngestionService, type StartRunInput } from './ingestion.service';
 import { ProcurementAdminService } from './procurement-admin.service';
@@ -344,8 +345,13 @@ describe('restoring a tombstone, end to end through a real Run', () => {
       store,
       testEnv({ EGP_RUNNERS: 2 }),
       silentLogger,
-      { lease: new InMemoryIngestionLease(), runLog: new InMemoryScheduleStore() },
-      deps,
+      {
+        lease: new InMemoryIngestionLease(),
+        runLog: new InMemoryScheduleStore(),
+        runs: new InMemoryIngestionRunStore(),
+        stats: noStats,
+      },
+      () => deps,
     );
     const admin = new ProcurementAdminService(
       store,

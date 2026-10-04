@@ -1,10 +1,12 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import { EMPTY_MILESTONES } from '@torfun/types';
+import { EMPTY_MILESTONES, OUTCOME_STATE } from '@torfun/types';
 import type {
   ArchiveDocument,
+  IngestionFailure,
   Procurement,
   ProcurementStatus,
+  StatusChange,
   TorAnalysis,
   Tombstone,
 } from '@torfun/types';
@@ -711,12 +713,84 @@ describeMongo('ProcurementRepository', () => {
     ]);
   });
 
+  test('a failure keeps its kind; one logged before kinds existed reads as a fault', async () => {
+    const noTor: IngestionFailure = {
+      projectId: '1',
+      projectName: 'x',
+      stage: 'info',
+      kind: 'no_tor',
+      error: 'No zipId',
+      at: '2026-09-09T00:00:01.000Z',
+    };
+    await repository.recordFailures([noTor]);
+    await (await getDb()).collection('ingestion_failures').insertOne({
+      projectId: '2',
+      projectName: 'y',
+      stage: 'download',
+      error: 'none of its documents is a TOR',
+      at: '2026-09-09T00:00:00.000Z',
+    });
+
+    expect(await repository.listFailures()).toEqual([
+      noTor,
+      {
+        projectId: '2',
+        projectName: 'y',
+        stage: 'download',
+        kind: 'fault',
+        error: 'none of its documents is a TOR',
+        at: '2026-09-09T00:00:00.000Z',
+      },
+    ]);
+  });
+
+  test('held records can be read most urgent first, across pages', async () => {
+    await seed([
+      procurement({ projectId: 'contracted', status: 'contracted' }),
+      procurement({ projectId: 'awarded', status: 'awarded' }),
+      procurement({ projectId: 'drafting', status: 'drafting', announceDate: '2026-08-02' }),
+      procurement({ projectId: 'cancelled', status: 'cancelled', announceDate: '2026-08-01' }),
+      procurement({ projectId: 'unknown', status: 'unknown' }),
+      procurement({ projectId: 'open-undated', status: 'open', deadlineAt: null }),
+      procurement({ projectId: 'open-later', status: 'open', deadlineAt: '2026-11-01' }),
+      procurement({
+        projectId: 'open-sooner',
+        status: 'open',
+        deadlineAt: '2026-10-10T09:00:00.000Z',
+      }),
+      procurement({ projectId: 'open-unreadable', status: 'open', deadlineAt: 'soon' }),
+    ]);
+    // Stored before the status vocabulary changed: still open.
+    await (await getDb())
+      .collection('procurements')
+      .updateOne({ _id: 'open-later' as never }, { $set: { status: 'invitation' } });
+
+    const page = (offset: number) =>
+      repository.find({ order: 'urgency', limit: 4, offset }).then((r) => r.items);
+    const ordered = [...(await page(0)), ...(await page(4)), ...(await page(8))];
+
+    expect(ordered.map((r) => r.projectId)).toEqual([
+      'open-sooner',
+      'open-later',
+      'open-undated',
+      'open-unreadable',
+      'unknown',
+      'drafting',
+      'cancelled',
+      'awarded',
+      'contracted',
+    ]);
+    expect(ordered[1]?.status).toBe('open');
+    expect((await repository.find({ order: 'urgency', limit: 4, offset: 0 })).total).toBe(9);
+  });
+
   test('failures and the last run time survive a restart', async () => {
     await repository.recordFailures([
       {
         projectId: '1',
         projectName: 'x',
         stage: 'download',
+        kind: 'fault',
         error: 'connection reset',
         at: '2026-09-09T00:00:00.000Z',
       },
@@ -936,6 +1010,134 @@ describeMongo('ProcurementRepository', () => {
       await repository.recordOpenDataQuota({ ...quota, remainingDay: 0 });
 
       expect((await repository.openDataQuota())?.remainingDay).toBe(0);
+    });
+  });
+
+  describe('operations stats', () => {
+    const since = '2026-09-25T00:00:00.000Z';
+    const step = (outcome: StatusChange['outcome'], at: string): StatusChange => ({
+      state: OUTCOME_STATE[outcome],
+      outcome,
+      at,
+    });
+    const passed = (projectId: string, statusHistory: StatusChange[]) =>
+      procurement({
+        projectId,
+        statusHistory,
+        state: statusHistory.at(-1)?.state ?? 'Queued',
+        outcome: statusHistory.at(-1)?.outcome ?? 'queued',
+        updatedAt: statusHistory.at(-1)?.at ?? since,
+      });
+
+    test('times each record by its last pass, from downloading to where it ended', async () => {
+      await seed([
+        passed('read', [
+          step('downloading', '2026-10-01T00:00:00.000Z'),
+          step('analysing', '2026-10-01T00:00:10.000Z'),
+          step('tor_analysed', '2026-10-01T00:01:10.000Z'),
+        ]),
+        passed('no-package', [
+          step('downloading', '2026-10-01T01:00:00.000Z'),
+          step('no_tor_package', '2026-10-01T01:00:20.000Z'),
+        ]),
+        passed('retried', [
+          step('downloading', '2026-10-02T00:00:00.000Z'),
+          step('error', '2026-10-02T00:00:05.000Z'),
+          step('downloading', '2026-10-03T00:00:00.000Z'),
+          step('analysing', '2026-10-03T00:00:30.000Z'),
+          step('needs_review', '2026-10-03T00:02:10.000Z'),
+        ]),
+        passed('before-the-window', [
+          step('downloading', '2026-09-01T00:00:00.000Z'),
+          step('tor_analysed', '2026-09-01T00:09:00.000Z'),
+        ]),
+        passed('still-queued', [step('queued', '2026-10-01T00:00:00.000Z')]),
+      ]);
+
+      expect((await repository.stats(since)).recordTimings).toEqual({
+        sample: 3,
+        p50Ms: 70_000,
+        p90Ms: 130_000,
+        downloadP50Ms: 10_000,
+        analyseP50Ms: 60_000,
+      });
+    });
+
+    test('counts passes that ended, by Bangkok day, once each however the record was approved later', async () => {
+      await seed([
+        passed('read', [
+          step('downloading', '2026-10-01T16:59:00.000Z'),
+          step('tor_analysed', '2026-10-01T16:59:30.000Z'),
+        ]),
+        passed('no-package-after-midnight-in-bangkok', [
+          step('downloading', '2026-10-01T17:00:00.000Z'),
+          step('no_tor_package', '2026-10-01T17:00:20.000Z'),
+        ]),
+        passed('held-then-approved', [
+          step('downloading', '2026-10-02T03:00:00.000Z'),
+          step('needs_review', '2026-10-02T03:01:00.000Z'),
+          step('tor_analysed', '2026-10-04T03:00:00.000Z'),
+        ]),
+        passed('abandoned', [
+          step('downloading', '2026-10-02T04:00:00.000Z'),
+          step('abandoned', '2026-10-02T04:05:00.000Z'),
+        ]),
+      ]);
+
+      expect((await repository.stats(since)).throughputDaily).toEqual([
+        { date: '2026-10-01', completed: 1, held: 0, failed: 0 },
+        { date: '2026-10-02', completed: 0, held: 1, failed: 1 },
+      ]);
+    });
+
+    test('a pass is counted by the outcome it ended on: a TOR that could not be read is failed, no TOR is none', async () => {
+      await seed([
+        passed('unreadable', [
+          step('downloading', '2026-10-02T00:00:00.000Z'),
+          step('analysis_failed', '2026-10-02T00:01:00.000Z'),
+        ]),
+        passed('empty-archive', [
+          step('downloading', '2026-10-02T01:00:00.000Z'),
+          step('no_tor_in_archive', '2026-10-02T01:01:00.000Z'),
+        ]),
+      ]);
+
+      expect((await repository.stats(since)).throughputDaily).toEqual([
+        { date: '2026-10-02', completed: 0, held: 0, failed: 1 },
+      ]);
+    });
+
+    test('counts logged faults in the window by stage, the commonest first; no TOR is not a fault', async () => {
+      const failure = (stage: IngestionFailure['stage'], at: string): IngestionFailure => ({
+        projectId: 'p',
+        projectName: null,
+        stage,
+        kind: 'fault',
+        error: 'x',
+        at,
+      });
+      await repository.recordFailures([
+        failure('info', '2026-10-01T00:00:00.000Z'),
+        failure('download', '2026-10-02T00:00:00.000Z'),
+        failure('download', '2026-10-03T00:00:00.000Z'),
+        failure('analysis', '2026-09-01T00:00:00.000Z'),
+        { ...failure('extract', '2026-10-03T00:00:00.000Z'), kind: 'no_tor' },
+      ]);
+
+      expect((await repository.stats(since)).failuresByStage).toEqual([
+        { stage: 'download', count: 2 },
+        { stage: 'info', count: 1 },
+      ]);
+    });
+
+    test('with nothing finished in the window there is no timing to give', async () => {
+      expect((await repository.stats(since)).recordTimings).toEqual({
+        sample: 0,
+        p50Ms: null,
+        p90Ms: null,
+        downloadP50Ms: null,
+        analyseP50Ms: null,
+      });
     });
   });
 });

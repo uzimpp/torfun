@@ -1,11 +1,20 @@
 import { describe, expect, test } from 'bun:test';
-import { EMPTY_MILESTONES } from '@torfun/types';
+import {
+  EMPTY_MILESTONES,
+  RunCountsSchema,
+  type IngestionStats,
+  type LeaseLive,
+} from '@torfun/types';
 import { ConflictError } from '../core/errors';
 import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
 import { gatedDeps, silentLogger } from '../testing/gated-ingestion';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
 import { InMemoryScheduleStore } from '../testing/schedule-store';
+import { InMemoryIngestionRunStore, noStats } from '../testing/ingestion-run-store';
+import type { FindOptions } from '../repositories/procurement.repository';
+import type { IngestionDeps } from './egp/pipeline';
+import type { ModelUsage } from './vertex/vertex-ai';
 import type { RunLog } from '../repositories/schedule.repository';
 import { IngestionService, runMayContinue } from './ingestion.service';
 
@@ -19,10 +28,14 @@ function build(
     runLog?: RunLog;
     store?: InMemoryProcurementStore;
     env?: Parameters<typeof testEnv>[0];
+    /** Model calls a Run's discovery makes, as the real stages would report them. */
+    usage?: ModelUsage[];
+    now?: () => Date;
   } = {},
 ) {
   const lease = new InMemoryIngestionLease();
   const schedule = new InMemoryScheduleStore();
+  const runs = new InMemoryIngestionRunStore();
   const { deps, open, calls } = gatedDeps(options.fail);
   const service = new IngestionService(
     options.store ?? new InMemoryProcurementStore(),
@@ -31,12 +44,21 @@ function build(
     {
       lease,
       runLog: options.runLog ?? schedule,
+      runs,
+      stats: noStats,
       ...(options.heartbeatMs !== undefined ? { heartbeatMs: options.heartbeatMs } : {}),
       ...(options.leaseTtlMs !== undefined ? { leaseTtlMs: options.leaseTtlMs } : {}),
+      ...(options.now ? { now: options.now } : {}),
     },
-    deps,
+    (onUsage): IngestionDeps => ({
+      ...deps,
+      discoverProjects: async (...args) => {
+        for (const usage of options.usage ?? []) onUsage(usage);
+        return deps.discoverProjects(...args);
+      },
+    }),
   );
-  return { service, lease, schedule, open, calls };
+  return { service, lease, schedule, runs, open, calls };
 }
 
 describe('the number of runners', () => {
@@ -87,8 +109,13 @@ describe('the number of runners', () => {
       store,
       testEnv({ EGP_RUNNERS: runners }),
       silentLogger,
-      { lease: new InMemoryIngestionLease(), runLog: new InMemoryScheduleStore() },
       {
+        lease: new InMemoryIngestionLease(),
+        runLog: new InMemoryScheduleStore(),
+        runs: new InMemoryIngestionRunStore(),
+        stats: noStats,
+      },
+      () => ({
         ...deps,
         discoverProjects: async () => ({
           records: [],
@@ -106,7 +133,7 @@ describe('the number of runners', () => {
           await held;
           return null;
         },
-      },
+      }),
     );
     await service.startRun({ forceDiscovery: true });
     await settle();
@@ -320,5 +347,302 @@ describe('IngestionService and the discovery sweep', () => {
     await finish(service, open, true);
 
     expect(calls.discover).toBe(2);
+  });
+});
+
+describe('the run log', () => {
+  const usage = (prompt: number, output: number, thoughts: number): ModelUsage => ({
+    prompt,
+    output,
+    thoughts,
+    total: prompt + output + thoughts,
+  });
+
+  test('a finished run is logged once, with how it was started, its counts and the tokens it spent', async () => {
+    const { service, runs, open } = build({
+      env: { EGP_RUNNERS: 3 },
+      usage: [usage(1000, 200, 50), usage(500, 100, 25)],
+    });
+
+    await service.startRun({});
+    expect(runs.runs).toHaveLength(0);
+    open();
+    await settle();
+
+    expect(runs.runs).toHaveLength(1);
+    const [run] = runs.runs;
+    expect(run).toMatchObject({
+      trigger: 'manual',
+      runners: 3,
+      error: null,
+      tokens: { prompt: 1500, output: 300, thoughts: 75, total: 1875, calls: 2 },
+      counts: { discovered: 0, attempted: 0, aborted: false, stopped: null },
+    });
+    expect(Date.parse(run?.endedAt ?? '') - Date.parse(run?.startedAt ?? '')).toBe(
+      run?.durationMs ?? -1,
+    );
+    expect(run?.peakRssBytes).toBeGreaterThan(0);
+    expect(Object.keys(run?.counts ?? {}).sort()).toEqual(
+      Object.keys(RunCountsSchema.shape).sort(),
+    );
+  });
+
+  test('a scheduled start is logged as scheduled', async () => {
+    const { service, runs, open } = build();
+
+    await service.startRun({ trigger: 'scheduled' });
+    open();
+    await settle();
+
+    expect(runs.runs[0]?.trigger).toBe('scheduled');
+  });
+
+  test('a run that threw is logged with why, and no counts', async () => {
+    const { service, runs, open } = build({ fail: true });
+
+    await service.startRun({});
+    open();
+    await settle();
+
+    expect(runs.runs).toEqual([
+      expect.objectContaining({ counts: null, error: 'upstream exploded' }),
+    ]);
+  });
+
+  test("one run's tokens are not counted again in the next", async () => {
+    const { service, runs, open } = build({ usage: [usage(10, 2, 1)] });
+
+    await service.startRun({ forceDiscovery: true });
+    open();
+    await settle();
+    await service.startRun({ forceDiscovery: true });
+    await settle();
+
+    expect(runs.runs.map((run) => run.tokens.calls)).toEqual([1, 1]);
+  });
+});
+
+describe('the heartbeat of a live run', () => {
+  test('reports the memory of the process and the record in flight, readable through the lease', async () => {
+    const store = new InMemoryProcurementStore();
+    await store.upsert({
+      projectId: '67019000001',
+      projectName: 'จ้างพัฒนาระบบสารสนเทศ',
+      deptName: 'x',
+      deptSubName: null,
+      province: null,
+      district: null,
+      subdistrict: null,
+      deptCode: '1',
+      budgetYear: 2568,
+      announceDate: null,
+      projectTypeName: null,
+      purchaseMethodName: null,
+      projectMoney: null,
+      priceBuild: null,
+      status: 'open',
+      milestones: EMPTY_MILESTONES,
+      timelineCheckedAt: null,
+      deadlineAt: null,
+      deadlineSource: null,
+      state: 'Queued',
+      outcome: 'queued',
+      attempts: 0,
+      holdReason: null,
+      approvedBy: null,
+      approvedAt: null,
+      statusHistory: [],
+      zipId: null,
+      documents: [],
+      analysis: null,
+      winner: null,
+      torAmbiguous: false,
+      discoveredAt: '2026-09-09T00:00:00.000Z',
+      sourceHash: null,
+      updatedAt: '2026-09-09T00:00:00.000Z',
+    });
+    const lease = new InMemoryIngestionLease();
+    const { deps } = gatedDeps();
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const service = new IngestionService(
+      store,
+      testEnv({ EGP_RUNNERS: 1 }),
+      silentLogger,
+      {
+        lease,
+        runLog: new InMemoryScheduleStore(),
+        runs: new InMemoryIngestionRunStore(),
+        stats: noStats,
+        heartbeatMs: 10,
+      },
+      () => ({
+        ...deps,
+        discoverProjects: async () => ({
+          records: [],
+          rejected: [],
+          notEBidding: 0,
+          tombstoned: 0,
+          resolutions: [],
+          failures: [],
+          rateLimited: false,
+          budgetReached: false,
+          quota: null,
+          ranAt: new Date().toISOString(),
+        }),
+        resolveZipId: async () => {
+          await held;
+          return null;
+        },
+      }),
+    );
+
+    await service.startRun({ forceDiscovery: true });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const live = (await lease.current(new Date()))?.live;
+    release();
+    await settle();
+
+    expect(live?.inFlight).toEqual([
+      expect.objectContaining({
+        slot: 0,
+        projectId: '67019000001',
+        projectName: 'จ้างพัฒนาระบบสารสนเทศ',
+        stage: 'info',
+        fresh: true,
+      }),
+    ]);
+    expect(live?.queueRemaining).toBe(0);
+    expect(live?.memory.rssBytes).toBeGreaterThan(0);
+    expect(live?.memory.heapUsedBytes).toBeGreaterThan(0);
+    expect(live?.memory.peakRssBytes).toBeGreaterThanOrEqual(live?.memory.rssBytes ?? Infinity);
+  });
+});
+
+describe('IngestionService.ops', () => {
+  const live: LeaseLive = {
+    inFlight: [
+      {
+        slot: 0,
+        projectId: '67019000001',
+        projectName: 'จ้างพัฒนาระบบ',
+        stage: 'analysis',
+        fresh: true,
+        since: '2026-10-04T03:08:00.000Z',
+      },
+    ],
+    queueRemaining: 12,
+    memory: {
+      rssBytes: 300_000_000,
+      heapUsedBytes: 100_000_000,
+      peakRssBytes: 350_000_000,
+      sampledAt: '2026-10-04T03:09:00.000Z',
+    },
+  };
+
+  test('shows a run going on another instance from what its heartbeat left on the lease', async () => {
+    const now = new Date('2026-10-04T03:09:06.000Z');
+    const { service, lease } = build({ now: () => now });
+    await lease.acquire('elsewhere', new Date('2026-10-04T03:00:00.000Z'), 60 * 60_000);
+    await lease.heartbeat('elsewhere', new Date('2026-10-04T03:09:00.000Z'), 60 * 60_000, live);
+
+    expect((await service.ops()).live).toEqual({
+      runInProgress: true,
+      runStartedAt: '2026-10-04T03:00:00.000Z',
+      elapsedMs: 546_000,
+      stopRequested: false,
+      inFlight: live.inFlight,
+      queueRemaining: 12,
+      memory: live.memory,
+    });
+  });
+
+  test('with no run going there is nothing live to show', async () => {
+    const { service } = build();
+
+    expect((await service.ops()).live).toEqual({
+      runInProgress: false,
+      runStartedAt: null,
+      elapsedMs: null,
+      stopRequested: false,
+      inFlight: null,
+      queueRemaining: null,
+      memory: null,
+    });
+  });
+
+  test('reads stored history over the last 30 days, and the latest runs', async () => {
+    const now = new Date('2026-10-04T00:00:00.000Z');
+    const asked: string[] = [];
+    const stats: IngestionStats = {
+      recordTimings: { sample: 4, p50Ms: 1, p90Ms: 2, downloadP50Ms: 3, analyseP50Ms: 4 },
+      throughputDaily: [{ date: '2026-10-03', completed: 3, held: 0, failed: 1 }],
+      failuresByStage: [{ stage: 'download', count: 1 }],
+    };
+    const runs = new InMemoryIngestionRunStore();
+    const service = new IngestionService(
+      new InMemoryProcurementStore(),
+      testEnv(),
+      silentLogger,
+      {
+        lease: new InMemoryIngestionLease(),
+        runLog: new InMemoryScheduleStore(),
+        runs,
+        stats: {
+          stats: async (since) => {
+            asked.push(since);
+            return stats;
+          },
+        },
+        now: () => now,
+      },
+      () => gatedDeps().deps,
+    );
+    for (let day = 1; day <= 25; day += 1) {
+      const endedAt = new Date(Date.UTC(2026, 8, day)).toISOString();
+      await runs.record({
+        id: `run-${day}`,
+        startedAt: endedAt,
+        endedAt,
+        durationMs: 0,
+        trigger: 'manual',
+        runners: 1,
+        counts: null,
+        error: 'x',
+        tokens: { prompt: 0, output: 0, thoughts: 0, total: 0, calls: 0 },
+        peakRssBytes: 0,
+      });
+    }
+
+    const ops = await service.ops();
+
+    expect(asked).toEqual(['2026-09-04T00:00:00.000Z']);
+    expect(ops).toMatchObject(stats);
+    expect(ops.runs).toHaveLength(20);
+    expect(ops.runs[0]?.id).toBe('run-25');
+  });
+});
+
+describe('IngestionService.list', () => {
+  const asked = async (options: Partial<FindOptions>, audience: 'admin' | 'officer') => {
+    const store = new InMemoryProcurementStore();
+    const seen: FindOptions[] = [];
+    const find = store.find.bind(store);
+    store.find = (query) => {
+      seen.push(query);
+      return find(query);
+    };
+    const { service } = build({ store });
+    await service.list({ limit: 50, offset: 0, ...options }, audience);
+    return seen[0];
+  };
+
+  test('the held list comes most urgent first', async () => {
+    expect((await asked({ outcome: 'needs_review' }, 'admin'))?.order).toBe('urgency');
+  });
+
+  test('every other list keeps the newest announcement first', async () => {
+    expect((await asked({}, 'admin'))?.order).toBeUndefined();
+    expect((await asked({ outcome: 'needs_review' }, 'officer'))?.order).toBeUndefined();
   });
 });

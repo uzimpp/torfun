@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, type Schema } from '@google/genai';
-import { SoftwareConfidence } from '@torfun/types';
+import { SoftwareConfidence, type TokenUsage } from '@torfun/types';
 import type { Env } from '../../config/env';
 import type { ModelCall } from './classify-document';
 import { sendReliably } from './reliable-model-call';
@@ -150,7 +150,25 @@ const MAX_OUTPUT_TOKENS = 16_384;
 interface ModelResponse {
   text?: string;
   candidates?: { finishReason?: string }[];
-  usageMetadata?: { thoughtsTokenCount?: number };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    thoughtsTokenCount?: number;
+    totalTokenCount?: number;
+  };
+}
+
+/** One call's tokens. */
+export type ModelUsage = Omit<TokenUsage, 'calls'>;
+
+export function usageFromResponse(response: Pick<ModelResponse, 'usageMetadata'>): ModelUsage {
+  const usage = response.usageMetadata;
+  return {
+    prompt: usage?.promptTokenCount ?? 0,
+    output: usage?.candidatesTokenCount ?? 0,
+    thoughts: usage?.thoughtsTokenCount ?? 0,
+    total: usage?.totalTokenCount ?? 0,
+  };
 }
 
 /**
@@ -214,7 +232,8 @@ export function contentParts(input: {
   ];
 }
 
-export function createModelCall(env: Env): ModelCall {
+/** `onUsage` hears every request the service answered, including one whose answer is then rejected. */
+export function createModelCall(env: Env, onUsage?: (usage: ModelUsage) => void): ModelCall {
   const client = createVertexAiClient(env);
 
   // Each request carries a ceiling and is retried when the service says it is
@@ -238,6 +257,7 @@ export function createModelCall(env: Env): ModelCall {
           abortSignal: signal,
         },
       });
+      onUsage?.(usageFromResponse(response));
 
       return textFromResponse(response);
     });

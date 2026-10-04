@@ -301,6 +301,7 @@ export async function discoverProjects(
         projectId: '-',
         projectName: registryName,
         stage: 'dept',
+        kind: 'fault',
         error: error instanceof Error ? error.message : String(error),
         at: now(),
       });
@@ -352,6 +353,7 @@ export async function discoverProjects(
               projectId: '-',
               projectName: `${resolution.registryName} / ${keyword} / ${year}`,
               stage: 'discovery',
+              kind: 'fault',
               error: error instanceof Error ? error.message : String(error),
               at: now(),
             });
@@ -424,6 +426,7 @@ export async function discoverProjects(
           projectId: '-',
           projectName: `${resolution.registryName} / ${deptCode}`,
           stage: 'discovery',
+          kind: 'fault',
           error: `Agency code ${deptCode} (${resolution.registryName}) returned no rows under any keyword or year — treated as a failed unit, not as having nothing. It may have been renamed or re-coded.`,
           at: now(),
         });

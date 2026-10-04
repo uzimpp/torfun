@@ -6,6 +6,7 @@ import { RateLimitedError } from './client';
 import type { AnnouncementRow } from './milestones';
 import { runIngestion, type IngestionDeps } from './pipeline';
 import type { ExtractedPdf } from './tor-package';
+import type { RunProgress } from '@torfun/types';
 
 const logger = {
   info: () => {},
@@ -197,6 +198,53 @@ describe('runIngestion', () => {
     await run(repository, { resolveZipId: async () => null });
 
     expect((await repository.get('66059313551'))?.outcome).toBe('no_tor_package');
+  });
+
+  test('a failure logged because no TOR was published is marked as such, not as a fault', async () => {
+    const noPackage = new InMemoryProcurementStore();
+    await run(noPackage, { resolveZipId: async () => null });
+    const emptyArchive = new InMemoryProcurementStore();
+    await run(emptyArchive, {
+      classifyDocument: async () => ({
+        isTor: false,
+        torKind: null,
+        whatThisIs: 'หนังสือรับรองผู้รับจ้าง',
+        analysis: null,
+        judgement: null,
+      }),
+    });
+
+    expect((await noPackage.listFailures()).map((f) => [f.stage, f.kind])).toEqual([
+      ['info', 'no_tor'],
+    ]);
+    expect((await emptyArchive.listFailures()).map((f) => [f.stage, f.kind])).toEqual([
+      ['extract', 'no_tor'],
+    ]);
+  });
+
+  test('every other logged failure is a fault', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      extractTorPdfs: () => ({
+        torFiles: [extracted()],
+        members: ['Attach_TOR_1.pdf'],
+        unsafeSkipped: ['../../etc/Attach_TOR_evil.pdf'],
+      }),
+      classifyDocument: async () => ({
+        isTor: false,
+        torKind: null,
+        whatThisIs: '',
+        analysis: null,
+        judgement: null,
+        unreadable: '429 Resource exhausted',
+      }),
+    });
+
+    const failures = await repository.listFailures();
+    expect(failures.map((f) => [f.stage, f.kind])).toEqual([
+      ['extract', 'fault'],
+      ['analysis', 'fault'],
+    ]);
   });
 
   test('a rate limit aborts the run and leaves the rest Queued', async () => {
@@ -1823,5 +1871,81 @@ describe('runIngestion: the timeline', () => {
       expect(result.aborted).toBe(true);
       expect(await repository.get(NEW)).toMatchObject({ outcome: 'queued', attempts: 0 });
     });
+  });
+});
+
+describe('progress reported while a run works', () => {
+  test('shows each record in flight at the stage it is in, and what is left in the queue', async () => {
+    const repository = new InMemoryProcurementStore();
+    let latest = null as RunProgress | null;
+    const seen: RunProgress[] = [];
+    const watched = (inside: string) => () => {
+      if (latest) seen.push({ ...latest, inFlight: latest.inFlight.map((work) => ({ ...work })) });
+      return inside;
+    };
+
+    await runIngestion(
+      repository,
+      {
+        apiKey: 'k',
+        logger,
+        onProgress: (progress) => {
+          latest = progress;
+        },
+      },
+      deps({
+        discoverProjects: async () => ({
+          records: [
+            procurement({ projectId: 'a', announceDate: '2026-08-02' }),
+            procurement({ projectId: 'b', projectName: 'ระบบบัญชี', announceDate: '2026-08-01' }),
+          ],
+          rejected: [],
+          notEBidding: 0,
+          tombstoned: 0,
+          resolutions: [],
+          failures: [],
+          rateLimited: false,
+          budgetReached: false,
+          quota: null,
+          ranAt: '2026-09-09T00:00:00.000Z',
+        }),
+        resolveZipId: async () => watched('zip-1')(),
+        classifyDocument: async () => {
+          watched('')();
+          return {
+            isTor: true,
+            torKind: 'final',
+            whatThisIs: 'ขอบเขตของงาน',
+            analysis,
+            judgement,
+            readMode: 'pdf' as const,
+          };
+        },
+      }),
+    );
+
+    expect(seen.map(({ inFlight, queueRemaining }) => ({ inFlight, queueRemaining }))).toEqual([
+      {
+        inFlight: [
+          expect.objectContaining({ slot: 0, projectId: 'a', stage: 'info', fresh: true }),
+        ],
+        queueRemaining: 1,
+      },
+      {
+        inFlight: [expect.objectContaining({ projectId: 'a', stage: 'analysis' })],
+        queueRemaining: 1,
+      },
+      {
+        inFlight: [
+          expect.objectContaining({ projectId: 'b', projectName: 'ระบบบัญชี', stage: 'info' }),
+        ],
+        queueRemaining: 0,
+      },
+      {
+        inFlight: [expect.objectContaining({ projectId: 'b', stage: 'analysis' })],
+        queueRemaining: 0,
+      },
+    ]);
+    expect(latest).toEqual({ inFlight: [], queueRemaining: 0 });
   });
 });

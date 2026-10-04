@@ -46,7 +46,7 @@ export class SchedulerService {
 
       // Exactly what an administrator's button starts. A Schedule changes
       // when a Run starts, never what it does.
-      await this.startRun({});
+      await this.startRun({ trigger: 'scheduled' });
       this.logger.info('egp: scheduled ingestion run started');
       return 'started';
     } catch (error) {
