@@ -79,9 +79,9 @@ describe('schedule routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json() as unknown).toEqual({
       enabled: false,
-      mode: 'interval',
-      timeOfDay: '02:00',
-      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      mode: 'weekly',
+      timeOfDay: '13:00',
+      weekdays: [1, 2, 3, 4, 5],
       everyHours: 24,
       updatedAt: null,
       updatedBy: null,

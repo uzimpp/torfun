@@ -30,6 +30,8 @@ const on: ScheduleView = {
   ...off,
   enabled: true,
   mode: 'weekly',
+  timeOfDay: '02:00',
+  weekdays: [0, 1, 2, 3, 4, 5, 6],
   updatedAt: '2026-10-01T05:00:00.000Z',
   updatedBy: 'admin-1',
   lastRunAt: '2026-10-01T02:00:00.000Z',
@@ -116,6 +118,7 @@ describe('reading the schedule', () => {
 describe('choosing when', () => {
   test('an interval asks for hours, with presets, and for no days or time', async () => {
     await renderLoaded(off);
+    await userEvent.click(screen.getByRole('radio', { name: 'ทุก N ชั่วโมง' }));
 
     expect(screen.getByRole('radio', { name: 'ทุก N ชั่วโมง' })).toBeChecked();
     expect(screen.getByLabelText(/เว้นระยะ/)).toHaveValue(24);
@@ -132,6 +135,7 @@ describe('choosing when', () => {
 
   test('a preset fills in the hours, and any other number can be typed', async () => {
     await renderLoaded(off);
+    await userEvent.click(screen.getByRole('radio', { name: 'ทุก N ชั่วโมง' }));
 
     await userEvent.click(screen.getByRole('button', { name: '72 ชั่วโมง' }));
     expect(screen.getByLabelText(/เว้นระยะ/)).toHaveValue(72);
@@ -149,15 +153,19 @@ describe('choosing when', () => {
     );
   });
 
-  test('weekly asks for days, with all seven ticked to begin with, and a time, and for no hours', async () => {
+  test('a fresh schedule opens on weekdays Monday to Friday at 13:00, with all seven days offered', async () => {
     await renderLoaded(off);
 
-    await userEvent.click(screen.getByRole('radio', { name: 'ตามวันในสัปดาห์' }));
-
+    expect(screen.getByRole('radio', { name: 'ตามวันในสัปดาห์' })).toBeChecked();
     const days = within(screen.getByRole('group', { name: /วันที่เริ่มรอบ/ }));
     expect(days.getAllByRole('checkbox')).toHaveLength(7);
-    for (const day of days.getAllByRole('checkbox')) expect(day).toBeChecked();
-    expect(screen.getByLabelText(/เวลาเริ่มรอบ/)).toBeInTheDocument();
+    for (const day of ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์']) {
+      expect(days.getByRole('checkbox', { name: day })).toBeChecked();
+    }
+    for (const day of ['อาทิตย์', 'เสาร์']) {
+      expect(days.getByRole('checkbox', { name: day })).not.toBeChecked();
+    }
+    expect(screen.getByLabelText(/เวลาเริ่มรอบ/)).toHaveValue('13:00');
     expect(screen.queryByLabelText(/เว้นระยะ/)).not.toBeInTheDocument();
   });
 
@@ -186,9 +194,8 @@ describe('saving', () => {
     await renderLoaded(off);
 
     await userEvent.click(screen.getByRole('switch', { name: /เปิดใช้งาน/ }));
-    await userEvent.click(screen.getByRole('radio', { name: 'ตามวันในสัปดาห์' }));
     const days = within(screen.getByRole('group', { name: /วันที่เริ่มรอบ/ }));
-    for (const day of ['อาทิตย์', 'อังคาร', 'พฤหัสบดี', 'เสาร์']) {
+    for (const day of ['อังคาร', 'พฤหัสบดี']) {
       await userEvent.click(days.getByRole('checkbox', { name: day }));
     }
     await userEvent.click(screen.getByRole('button', { name: 'บันทึกตารางเวลา' }));
@@ -196,7 +203,7 @@ describe('saving', () => {
     expect(mocked.updateSchedule).toHaveBeenCalledWith({
       enabled: true,
       mode: 'weekly',
-      timeOfDay: '02:00',
+      timeOfDay: '13:00',
       weekdays: [1, 3, 5],
       everyHours: 24,
     });

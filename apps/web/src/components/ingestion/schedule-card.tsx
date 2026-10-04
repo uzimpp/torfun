@@ -160,8 +160,8 @@ function ScheduleForm({
           <div className="grid gap-2 sm:grid-cols-2">
             {(
               [
-                { mode: 'interval', label: 'ทุก N ชั่วโมง' },
                 { mode: 'weekly', label: 'ตามวันในสัปดาห์' },
+                { mode: 'interval', label: 'ทุก N ชั่วโมง' },
               ] as const
             ).map((option) => (
               <label
@@ -197,7 +197,7 @@ function ScheduleForm({
                 {WEEKDAY_LABELS.map((label, day) => (
                   <label
                     key={label}
-                    className="border-input has-[:checked]:border-primary has-[:focus-visible]:ring-ring/50 flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 text-sm has-[:focus-visible]:ring-[3px]"
+                    className="border-input has-[:checked]:border-primary has-[:checked]:bg-primary/10 has-[:focus-visible]:ring-ring/50 flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 text-sm has-[:checked]:font-medium has-[:focus-visible]:ring-[3px]"
                   >
                     <input
                       type="checkbox"

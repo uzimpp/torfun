@@ -23,6 +23,7 @@ export const ScheduleMode = z.enum(['interval', 'weekly']);
 export type ScheduleMode = z.infer<typeof ScheduleMode>;
 
 export const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
+const WORKING_WEEKDAYS = [1, 2, 3, 4, 5] as const;
 
 const Weekdays = z
   .array(z.number().int().min(0).max(6))
@@ -54,14 +55,14 @@ export type Schedule = z.infer<typeof ScheduleSchema>;
 /**
  * The setting an installation starts with: off. A developer's machine or a
  * fresh deployment must not begin asking the upstream for things because
- * someone ran a migration; an administrator turns it on. The 02:00 time is only
- * what the form is pre-filled with for the weekly mode.
+ * someone ran a migration; an administrator turns it on. What it is pre-filled
+ * with is weekdays at 13:00, an hour after e-bidding submissions usually close.
  */
 export const DEFAULT_SCHEDULE: Schedule = {
   enabled: false,
-  mode: 'interval',
-  timeOfDay: '02:00',
-  weekdays: [...ALL_WEEKDAYS],
+  mode: 'weekly',
+  timeOfDay: '13:00',
+  weekdays: [...WORKING_WEEKDAYS],
   everyHours: 24,
   updatedAt: null,
   updatedBy: null,

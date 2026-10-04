@@ -52,7 +52,7 @@ export function validateSchedule(values: ScheduleFormValues): ScheduleFormErrors
     const errors: ScheduleFormErrors = {};
     if (values.weekdays.length === 0) errors.weekdays = 'กรุณาเลือกอย่างน้อยหนึ่งวัน';
     if (!TIME_OF_DAY.test(values.timeOfDay))
-      errors.timeOfDay = 'กรุณาระบุเวลาที่ถูกต้อง เช่น 02:00';
+      errors.timeOfDay = 'กรุณาระบุเวลาที่ถูกต้อง เช่น 13:00';
     return errors;
   }
   const { everyHours } = values;
