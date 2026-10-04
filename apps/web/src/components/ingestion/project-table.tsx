@@ -59,7 +59,7 @@ function compactFacts(record: Procurement): string {
   const budget =
     record.projectMoney === null ? 'ไม่ระบุงบประมาณ' : `${formatThb(record.projectMoney)} บาท`;
   const tors = countTorDocuments(record);
-  return [`ปี ${record.year}`, budget, ...(tors > 0 ? [`TOR ${tors} ไฟล์`] : [])].join(' · ');
+  return [`ปี ${record.budgetYear}`, budget, ...(tors > 0 ? [`TOR ${tors} ไฟล์`] : [])].join(' · ');
 }
 
 /** Status history and retrieved files for one expanded row. */
@@ -257,14 +257,7 @@ export function ProjectTable({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-sm">{STATUS_LABELS[record.status]}</span>
-                          {record.statusSource === 'ai' ? (
-                            <Badge variant="outline" className="w-fit text-[10px]">
-                              AI ประเมิน
-                            </Badge>
-                          ) : null}
-                        </div>
+                        <span className="text-sm">{STATUS_LABELS[record.status]}</span>
                       </TableCell>
                       <TableCell className="w-72 max-w-72">
                         <div className="flex items-start gap-1.5">
@@ -301,7 +294,7 @@ export function ProjectTable({
                       </TableCell>
                       <TableCell className="text-sm">{record.deptName}</TableCell>
                       <TableCell className="hidden text-right tabular-nums xl:table-cell">
-                        {record.year}
+                        {record.budgetYear}
                       </TableCell>
                       <TableCell className="hidden text-right tabular-nums xl:table-cell">
                         {formatThb(record.projectMoney)}

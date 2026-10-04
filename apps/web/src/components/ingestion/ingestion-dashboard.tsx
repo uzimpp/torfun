@@ -233,7 +233,7 @@ export function IngestionDashboard() {
         values={filters}
         onChange={applyFilters}
         agencies={summary?.agencies ?? []}
-        years={(summary?.byYear ?? []).map((entry) => entry.year)}
+        budgetYears={(summary?.byYear ?? []).map((entry) => entry.budgetYear)}
       />
 
       <ProjectTable

@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
-import type { Procurement } from '@torfun/types';
+import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 
 import type { IngestionSummaryResponse } from '@/lib/api';
 import { FilterBar } from './filter-bar';
 import { ProjectTable } from './project-table';
+import { kpiTiles } from '@/components/admin-dashboard/view-models';
 import { SummaryCards } from './summary-cards';
 import { EMPTY_FILTERS } from './use-ingestion-data';
 
@@ -21,14 +22,17 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     district: null,
     subdistrict: null,
     deptCode: '3100001',
-    year: 2568,
+    budgetYear: 2568,
     announceDate: null,
     projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: 16773380,
     priceBuild: null,
     status: 'unknown',
-    statusSource: null,
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
@@ -78,7 +82,7 @@ describe('ProjectTable columns', () => {
   });
 
   test('shows each value in Thai, with no English enum name anywhere in the row', () => {
-    renderTable([record({ status: 'contracted', statusSource: 'upstream' })]);
+    renderTable([record({ status: 'contracted' })]);
 
     const row = screen.getAllByRole('row')[1]!;
     expect(row).toHaveTextContent('เสร็จสิ้น');
@@ -87,18 +91,16 @@ describe('ProjectTable columns', () => {
     expect(row).not.toHaveTextContent('Completed');
   });
 
-  test('a status Gemini read is marked as an assessment, and one the feed gave is not', () => {
+  test('says a status that has not been read yet, and marks none as a guess', () => {
     renderTable([
-      record({ projectId: 'a', status: 'drafting', statusSource: 'ai' }),
-      record({ projectId: 'b', status: 'contracted', statusSource: 'upstream' }),
-      record({ projectId: 'c', status: 'unknown', statusSource: null }),
+      record({ projectId: 'a', status: 'drafting' }),
+      record({ projectId: 'c', status: 'unknown' }),
     ]);
 
-    const [, ai, upstream, unknown] = screen.getAllByRole('row');
-    expect(ai).toHaveTextContent('ร่าง / เตรียมการ');
-    expect(ai).toHaveTextContent('AI ประเมิน');
-    expect(upstream).not.toHaveTextContent('AI ประเมิน');
-    expect(unknown).toHaveTextContent('ยังไม่ระบุ');
+    const [, drafting, unknown] = screen.getAllByRole('row');
+    expect(drafting).toHaveTextContent('ร่าง / เตรียมการ');
+    expect(unknown).toHaveTextContent('ยังไม่ทราบสถานะ');
+    expect(screen.queryByText('AI ประเมิน')).not.toBeInTheDocument();
   });
 });
 
@@ -106,7 +108,7 @@ describe('ProjectTable on a narrow screen', () => {
   test('keeps the year, budget and TOR count beside the title, since their columns are hidden', () => {
     renderTable([
       record({
-        year: 2568,
+        budgetYear: 2568,
         projectMoney: 16773380,
         documents: [
           {
@@ -226,7 +228,7 @@ describe('ProjectTable empty and loading', () => {
 describe('FilterBar', () => {
   const renderBar = (values = EMPTY_FILTERS, onChange = vi.fn()) => {
     render(
-      <FilterBar values={values} onChange={onChange} agencies={['กรุงเทพมหานคร']} years={[2568]} />,
+      <FilterBar values={values} onChange={onChange} agencies={['กรุงเทพมหานคร']} budgetYears={[2568]} />,
     );
     return onChange;
   };
@@ -250,7 +252,7 @@ describe('FilterBar', () => {
     expect(within(state).queryByRole('option', { name: 'Queued' })).not.toBeInTheDocument();
     const status = screen.getByLabelText('สถานะโครงการ');
     expect(within(status).getByRole('option', { name: 'ร่าง / เตรียมการ' })).toBeInTheDocument();
-    expect(within(status).getByRole('option', { name: 'ยังไม่ระบุ' })).toBeInTheDocument();
+    expect(within(status).getByRole('option', { name: 'ยังไม่ทราบสถานะ' })).toBeInTheDocument();
   });
 
   test('choosing an outcome reports just that change', () => {
@@ -289,18 +291,35 @@ describe('SummaryCards', () => {
     agencies: [],
   };
 
-  test('shows fetching and analysing as their own tiles', () => {
+  test('shows one tile per bucket, with the retired "สำเร็จ" gone', () => {
     render(<SummaryCards summary={summary} />);
 
-    expect(screen.getByRole('group', { name: 'กำลังดึงข้อมูล' })).toHaveTextContent('1');
-    expect(screen.getByRole('group', { name: 'กำลังประมวลผล' })).toHaveTextContent('2');
+    for (const label of [
+      'ประกาศทั้งหมด',
+      'รอ',
+      'กำลังทำ',
+      'วิเคราะห์แล้ว',
+      'รอตรวจสอบ',
+      'ไม่มี TOR',
+      'ล้มเหลว',
+    ]) {
+      expect(screen.getByRole('group', { name: label })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('group', { name: 'สำเร็จ' })).not.toBeInTheDocument();
   });
 
-  test('still shows the total, the queue, the successes and the failures', () => {
+  test('shows fetching and analysing together as the running bucket', () => {
     render(<SummaryCards summary={summary} />);
 
-    for (const label of ['ประกาศทั้งหมด', 'รอดำเนินการ', 'สำเร็จ', 'ล้มเหลว']) {
-      expect(screen.getByRole('group', { name: label })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'กำลังทำ' })).toHaveTextContent('3');
+  });
+
+  test('shows the same numbers as the dashboard tiles for the same summary', () => {
+    render(<SummaryCards summary={summary} />);
+
+    for (const tile of kpiTiles(summary)) {
+      if (tile.key === 'lastRun') continue;
+      expect(screen.getByRole('group', { name: tile.label })).toHaveTextContent(tile.value);
     }
   });
 });

@@ -60,13 +60,13 @@ export function FilterBar({
   values,
   onChange,
   agencies,
-  years,
+  budgetYears,
 }: {
   values: FilterValues;
   /** Applies a partial change; the caller resets pagination. */
   onChange: (patch: Partial<FilterValues>) => void;
   agencies: string[];
-  years: number[];
+  budgetYears: number[];
 }) {
   const active = (Object.keys(EMPTY_FILTERS) as Array<keyof FilterValues>).some(
     (key) => values[key] !== EMPTY_FILTERS[key],
@@ -121,9 +121,9 @@ export function FilterBar({
         />
         <Select
           label="ปีงบประมาณ"
-          value={values.year}
-          onChange={(year) => onChange({ year })}
-          options={[ALL, ...years.map((y) => ({ value: String(y), label: String(y) }))]}
+          value={values.budgetYear}
+          onChange={(budgetYear) => onChange({ budgetYear })}
+          options={[ALL, ...budgetYears.map((y) => ({ value: String(y), label: String(y) }))]}
         />
         {active ? (
           <Button variant="ghost" className="min-h-10" onClick={() => onChange(EMPTY_FILTERS)}>

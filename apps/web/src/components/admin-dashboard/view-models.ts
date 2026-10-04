@@ -1,5 +1,10 @@
 import type { IngestionSummaryResponse } from '@/lib/api';
-import { outcomeBuckets, type BucketKey, type OutcomeBucket } from './outcome-buckets';
+import {
+  countTiles,
+  type BucketKey,
+  type CountTile,
+  type OutcomeBucket,
+} from '@/lib/outcome-buckets';
 
 /**
  * Plain functions from API data to what the dashboard draws. Kept apart from
@@ -72,21 +77,13 @@ export function timeAgoTh(iso: string, now: Date = new Date()): string {
  * KPI tiles
  * ------------------------------------------------------------------------- */
 
-export interface KpiTile {
-  key: 'total' | 'queued' | 'processing' | 'done' | 'failed' | 'lastRun';
-  label: string;
-  value: string;
-  hint: string;
-  /** Only set when there is something to look at; an all-zero tile stays neutral. */
-  alert: boolean;
+export interface KpiTile extends Omit<CountTile, 'key'> {
+  key: CountTile['key'] | 'lastRun';
 }
 
-const thai = (n: number) => n.toLocaleString('th-TH');
+const KPI_COUNTS: CountTile['key'][] = ['total', 'queued', 'running', 'analysed', 'failed'];
 
 export function kpiTiles(summary: IngestionSummaryResponse, now: Date = new Date()): KpiTile[] {
-  const outcome = (key: keyof IngestionSummaryResponse['byOutcome']) => summary.byOutcome[key] ?? 0;
-  const failed = outcomeBuckets(summary.byOutcome).find((bucket) => bucket.key === 'failed')!.count;
-
   const lastRun = summary.runInProgress
     ? 'กำลังรันอยู่'
     : summary.lastRunAt
@@ -94,41 +91,7 @@ export function kpiTiles(summary: IngestionSummaryResponse, now: Date = new Date
       : 'ยังไม่เคยรัน';
 
   return [
-    {
-      key: 'total',
-      label: 'ประกาศทั้งหมด',
-      value: thai(summary.total),
-      hint: 'ไม่ซ้ำตามรหัสโครงการ',
-      alert: false,
-    },
-    {
-      key: 'queued',
-      label: 'รอดำเนินการ',
-      value: thai(summary.byState.Queued ?? 0),
-      hint: outcome('error') > 0 ? `รอลองใหม่ ${thai(outcome('error'))}` : 'ยังไม่ได้ดึงเอกสาร',
-      alert: false,
-    },
-    {
-      key: 'processing',
-      label: 'กำลังประมวลผล',
-      value: thai(summary.byState.Processing ?? 0),
-      hint: `ดึงข้อมูล ${thai(outcome('downloading'))} · ประมวลผล ${thai(outcome('analysing'))}`,
-      alert: false,
-    },
-    {
-      key: 'done',
-      label: 'สำเร็จ',
-      value: thai(outcome('tor_analysed')),
-      hint: `ได้ไฟล์ TOR ${thai(summary.torDocumentsRetrieved)} ไฟล์`,
-      alert: false,
-    },
-    {
-      key: 'failed',
-      label: 'ล้มเหลว',
-      value: thai(failed),
-      hint: `บันทึกข้อผิดพลาด ${thai(summary.failureCount)} รายการ`,
-      alert: failed > 0,
-    },
+    ...countTiles(summary).filter((tile) => KPI_COUNTS.includes(tile.key)),
     {
       key: 'lastRun',
       label: 'รอบล่าสุด',

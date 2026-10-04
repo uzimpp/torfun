@@ -7,7 +7,7 @@ import {
   XCircle,
   type LucideIcon,
 } from 'lucide-react';
-import type { BucketKey } from './outcome-buckets';
+import type { BucketKey } from '@/lib/outcome-buckets';
 
 /**
  * How each outcome bucket looks. These are states, not series, so the colours
