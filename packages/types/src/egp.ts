@@ -35,7 +35,7 @@ export const STATE_LABELS: Record<IngestionState, string> = {
  * The agency owns the truth and this system holds a reading of it: first from
  * the open-data feed, then refined by Gemini from the documents (see
  * `statusSource`). `unknown` means no reading exists yet, not "something went
- * wrong" — an unrecognised feed value is kept verbatim in `upstreamStatus`.
+ * wrong".
  */
 export const ProcurementStatus = z.enum([
   'drafting',
@@ -75,15 +75,16 @@ export type StatusSource = z.infer<typeof StatusSource>;
  * `downloading` and `analysing` are the two halves of Processing, so an admin
  * can tell a slow upstream from a slow model. `error` is a transport failure
  * that will be retried (the record stays Queued); `abandoned` is what it becomes
- * after the last attempt. `not_software` is Gemini's reading of the TOR, kept as
- * an outcome so the record stays visible to an admin and can be overruled.
+ * after the last attempt. A TOR Gemini reads as not software is not an outcome:
+ * a confident answer drops the record (and tombstones it), an unsure one holds it
+ * as `needs_review`.
  */
 export const IngestionOutcome = z.enum([
   'queued',
   'downloading',
   'analysing',
   'tor_analysed',
-  'not_software',
+  'needs_review',
   'analysis_failed',
   'no_tor_in_archive',
   'no_tor_package',
@@ -114,7 +115,7 @@ export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
   downloading: 'กำลังดึงข้อมูล',
   analysing: 'กำลังประมวลผล',
   tor_analysed: 'วิเคราะห์ TOR แล้ว',
-  not_software: 'AI: ไม่ใช่งานซอฟต์แวร์',
+  needs_review: 'รอผู้ดูแลตรวจสอบ',
   analysis_failed: 'ได้ไฟล์ TOR แต่วิเคราะห์ไม่สำเร็จ',
   no_tor_in_archive: 'ไม่มี TOR ในไฟล์บีบอัด',
   no_tor_package: 'ไม่มีชุดเอกสาร TOR',
@@ -133,20 +134,12 @@ export const OUTCOME_STATE: Record<IngestionOutcome, IngestionState> = {
   downloading: 'Processing',
   analysing: 'Processing',
   tor_analysed: 'Completed',
-  not_software: 'Completed',
+  needs_review: 'Completed',
   analysis_failed: 'Completed',
   no_tor_in_archive: 'Completed',
   no_tor_package: 'Failed',
   abandoned: 'Failed',
 };
-
-/**
- * How a project title was bucketed by the title heuristic. This is a
- * heuristic over Thai project names, not an authoritative upstream field —
- * directionally useful for triage, not precise enough to quote as a statistic.
- */
-export const SoftwareClass = z.enum(['new_build', 'oandm', 'not_software']);
-export type SoftwareClass = z.infer<typeof SoftwareClass>;
 
 export const StatusChangeSchema = z.object({
   state: IngestionState,
@@ -156,6 +149,21 @@ export const StatusChangeSchema = z.object({
   detail: z.string().optional(),
 });
 export type StatusChange = z.infer<typeof StatusChangeSchema>;
+
+/**
+ * How many status changes a record keeps. A record that keeps failing and being
+ * retried would otherwise grow without bound; the admin log only needs the
+ * recent story.
+ */
+export const STATUS_HISTORY_LIMIT = 50;
+
+/** The history with `entry` added, trimmed to the last `STATUS_HISTORY_LIMIT`. */
+export function appendStatusChange(
+  history: readonly StatusChange[],
+  entry: StatusChange,
+): StatusChange[] {
+  return [...history, entry].slice(-STATUS_HISTORY_LIMIT);
+}
 
 /**
  * What a document inside an announcement Archive turned out to be.
@@ -202,6 +210,73 @@ export const TargetPlatform = z.enum(['macos', 'windows', 'mobile', 'web_app', '
 export type TargetPlatform = z.infer<typeof TargetPlatform>;
 
 /**
+ * What the model concludes about a TOR, and the one thing it must show for it.
+ * `isSoftware` is for the software house's own work: developing or maintaining
+ * software is in; buying or repairing equipment, construction, training and the
+ * like are out. `low` is the model saying it cannot tell, which is a legitimate
+ * answer and is held for a person rather than guessed at.
+ *
+ * Only the Outcome records what was decided from this (ADR-0016), so these two
+ * flags are read once, by `decideOutcome`, and never stored.
+ */
+export const SoftwareConfidence = z.enum(['high', 'low']);
+export type SoftwareConfidence = z.infer<typeof SoftwareConfidence>;
+
+/** Longest reason (and so quote) kept for a judgement. */
+export const SOFTWARE_REASON_MAX_CHARS = 200;
+
+export const SoftwareJudgementSchema = z.object({
+  isSoftware: z.boolean(),
+  confidence: SoftwareConfidence,
+  /** One Thai line with a verbatim quote from the document (at most 200 characters). */
+  reason: z.string().max(SOFTWARE_REASON_MAX_CHARS),
+});
+export type SoftwareJudgement = z.infer<typeof SoftwareJudgementSchema>;
+
+/**
+ * Why a record is held as `needs_review` instead of shown or dropped. Admin-only
+ * wording: officers never see a held record.
+ */
+export const HoldReason = z.enum(['ai_low_confidence', 'ai_not_software_low', 'partial_read']);
+export type HoldReason = z.infer<typeof HoldReason>;
+
+export const HOLD_REASON_LABELS: Record<HoldReason, string> = {
+  ai_low_confidence: 'AI ไม่มั่นใจว่าเป็นงานซอฟต์แวร์',
+  ai_not_software_low: 'AI เห็นว่าไม่ใช่ซอฟต์แวร์ แต่ไม่มั่นใจ',
+  partial_read: 'อ่านเอกสารได้ไม่ครบ (ไฟล์ใหญ่)',
+};
+
+/** Why a project was dropped and its record deleted. */
+export const TombstoneReason = z.enum(['ai_not_software', 'admin_non_software', 'admin_deleted']);
+export type TombstoneReason = z.infer<typeof TombstoneReason>;
+
+export const TOMBSTONE_REASON_LABELS: Record<TombstoneReason, string> = {
+  ai_not_software: 'AI อ่านเอกสารครบแล้วเห็นว่าไม่ใช่ซอฟต์แวร์',
+  admin_non_software: 'ผู้ดูแลระบบระบุว่าไม่ใช่ซอฟต์แวร์',
+  admin_deleted: 'ผู้ดูแลระบบลบและไม่ให้ดึงซ้ำ',
+};
+
+/**
+ * What is kept of a project that was dropped, whether by the model (it read the
+ * whole TOR and said, with confidence, that it is not software work) or by an
+ * administrator: enough to say why, who decided and when, and nothing of what
+ * was read from the document. Its existence is also what stops a later sweep
+ * from fetching the same project afresh.
+ */
+export const TombstoneSchema = z.object({
+  projectId: z.string(),
+  reason: TombstoneReason,
+  /** The model's quoted passage for `ai_not_software`; whatever the administrator recorded otherwise. */
+  evidence: z.string().max(SOFTWARE_REASON_MAX_CHARS),
+  /** The prompt that judged it; null when no model decided. */
+  promptVersion: z.string().nullable(),
+  decidedAt: z.string(),
+  /** The administrator who decided; null when the model did. */
+  decidedBy: z.string().nullable(),
+});
+export type Tombstone = z.infer<typeof TombstoneSchema>;
+
+/**
  * What Gemini read out of a TOR.
  *
  * A time-saving summary, never an authority: the Archive stays reachable
@@ -221,14 +296,13 @@ export const TorAnalysisSchema = z.object({
   targetPlatforms: z.array(TargetPlatform),
   requiredQualifications: z.array(z.string()),
   /**
-   * The model's read of the document, deliberately kept beside `softwareClass`'s
-   * read of the title rather than overwriting it. The title heuristic is
-   * directional and known to over-count; this is the human-grade second
-   * opinion, and where the two disagree that is worth an officer's attention —
-   * so neither is allowed to silently win.
+   * The model's one-line reason for its software judgement, with the passage it
+   * quoted, so an administrator reading a held record sees what decided it.
+   * Absent on analyses from before it was kept.
    */
-  isSoftwareProject: z.boolean(),
-  confidence: z.enum(['high', 'low']),
+  reason: z.string().nullish(),
+  /** The prompt that produced this analysis. Absent means it predates versioning. */
+  promptVersion: z.string().nullish(),
 });
 export type TorAnalysis = z.infer<typeof TorAnalysisSchema>;
 
@@ -281,8 +355,6 @@ export const ProcurementSchema = z.object({
   province: z.string().nullable(),
   district: z.string().nullable(),
   subdistrict: z.string().nullable(),
-  /** The Source Registry entry this record was collected under. */
-  registryName: z.string(),
   deptCode: z.string(),
   /** Thai Buddhist fiscal year (2567–2569). */
   year: z.number().int(),
@@ -300,28 +372,6 @@ export const ProcurementSchema = z.object({
   status: ProcurementStatus,
   /** Who read `status`; null while it is still `unknown`. Never present an `ai` reading as confirmed. */
   statusSource: StatusSource.nullable(),
-  /**
-   * The open-data feed's own `project_status`, verbatim. Kept because the feed
-   * currently sends one generic value, and an unfamiliar one is what tells an
-   * administrator that upstream changed.
-   */
-  upstreamStatus: z.string().nullable(),
-  matchedKeywords: z.array(z.string()),
-
-  softwareClass: SoftwareClass,
-  softwareScore: z.number().int(),
-  /**
-   * Whether the tender method is competitive. This is the single best
-   * predictor of TOR availability found in the POC (32/32 e-bidding projects
-   * had a retrievable TOR; 0/5 direct awards did), because the TOR is an
-   * attachment to a competitive announcement.
-   *
-   * Unlike `status`, this does NOT replace the upstream string it derives from:
-   * a boolean cannot express คัดเลือก versus เฉพาะเจาะจง, so `purchaseMethodName`
-   * keeps what it would otherwise throw away. `status` could drop its raw field
-   * because that enum is lossless; this one is not.
-   */
-  eBidding: z.boolean(),
 
   state: IngestionState,
   outcome: IngestionOutcome,
@@ -330,18 +380,15 @@ export const ProcurementSchema = z.object({
    * exhausted records in the query itself (ADR-0006).
    */
   attempts: z.number().int().nonnegative(),
+  /** Why the record is held for review; null unless `outcome` is `needs_review`. */
+  holdReason: HoldReason.nullable(),
+  /** The administrator who approved a held record for officers, and when; null otherwise. */
+  approvedBy: z.string().nullable(),
+  approvedAt: z.string().nullable(),
   statusHistory: z.array(StatusChangeSchema),
 
   /** Handle for the announcement archive; null until the info call resolves it. */
   zipId: z.string().nullable(),
-  zipBytes: z.number().int().nonnegative().nullable(),
-  archiveMemberCount: z.number().int().nonnegative().nullable(),
-  /**
-   * Every member name in the archive, so an administrator can see what a
-   * no-TOR archive actually held and judge whether the filename gate missed
-   * something. Names only; the files themselves are never kept (ADR-0002).
-   */
-  archiveMembers: z.array(z.string()),
   /**
    * Every candidate document found in the archive and what it turned out to
    * be. A manifest, not files: the bytes are never persisted (ADR-0002).
@@ -365,10 +412,6 @@ export const ProcurementSchema = z.object({
    * record that was merely seen again. Null on records from before it existed.
    */
   sourceHash: z.string().nullable(),
-  /** The last sweep that returned this record, changed or not. */
-  lastSeenAt: z.string().nullable(),
-  /** The last time a sweep found the agency's data changed; null if it never has. */
-  changedAt: z.string().nullable(),
   /**
    * When anything about this record last changed: upstream data, or this
    * system's own work on it. Not bumped by a sweep that saw nothing new, so it
@@ -396,10 +439,6 @@ const CalendarDate = z
     return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
   }, 'Expected a valid calendar date');
 
-const QueryBoolean = z
-  .union([z.boolean(), z.enum(['true', 'false'])])
-  .transform((value) => (typeof value === 'boolean' ? value : value === 'true'));
-
 const QueryList = <T extends z.ZodTypeAny>(item: T) =>
   z.preprocess(
     (value) =>
@@ -418,9 +457,7 @@ export const ProcurementListQuerySchema = z
     outcome: IngestionOutcome.optional(),
     deptName: z.string().trim().min(1).max(300).optional(),
     year: z.coerce.number().int().optional(),
-    softwareClass: SoftwareClass.optional(),
     status: ProcurementStatus.optional(),
-    eBidding: QueryBoolean.optional(),
     q: z.string().trim().max(200).optional(),
     minBudget: z.coerce.number().finite().nonnegative().optional(),
     maxBudget: z.coerce.number().finite().nonnegative().optional(),
@@ -532,5 +569,9 @@ export const IngestionSummarySchema = z.object({
    * a run spends its first seconds in discovery with nothing yet Processing.
    */
   runInProgress: z.boolean(),
+  /** When the Run now going began (the lease's own record of it); null when none is. */
+  runStartedAt: z.string().nullable(),
+  /** An administrator has asked the Run to stop; it finishes the records in flight and ends. */
+  stopRequested: z.boolean(),
 });
 export type IngestionSummary = z.infer<typeof IngestionSummarySchema>;

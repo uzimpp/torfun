@@ -7,8 +7,18 @@ import {
   ProcurementSchema,
   ProcurementStatus,
   STATE_LABELS,
+  STATUS_HISTORY_LIMIT,
+  appendStatusChange,
+  HOLD_REASON_LABELS,
+  HoldReason,
+  SoftwareJudgementSchema,
   STATUS_LABELS,
+  TorAnalysisSchema,
+  TombstoneSchema,
+  TOMBSTONE_REASON_LABELS,
+  TombstoneReason,
   type Procurement,
+  type Tombstone,
 } from './egp';
 
 const THAI = /[฀-๿]/;
@@ -55,9 +65,9 @@ describe('IngestionOutcome', () => {
         'analysis_failed',
         'downloading',
         'error',
+        'needs_review',
         'no_tor_in_archive',
         'no_tor_package',
-        'not_software',
         'queued',
         'tor_analysed',
       ].sort(),
@@ -83,7 +93,6 @@ describe('IngestionOutcome', () => {
     expect(OUTCOME_STATE.downloading).toBe('Processing');
     expect(OUTCOME_STATE.analysing).toBe('Processing');
     expect(OUTCOME_STATE.tor_analysed).toBe('Completed');
-    expect(OUTCOME_STATE.not_software).toBe('Completed');
     expect(OUTCOME_STATE.no_tor_package).toBe('Failed');
     expect(OUTCOME_STATE.abandoned).toBe('Failed');
   });
@@ -97,7 +106,6 @@ const record: Procurement = {
   province: null,
   district: null,
   subdistrict: null,
-  registryName: 'กรุงเทพมหานคร',
   deptCode: '3100001',
   year: 2568,
   announceDate: '2024-11-04T00:00:00.000Z',
@@ -107,35 +115,38 @@ const record: Procurement = {
   priceBuild: 16669097,
   status: 'unknown',
   statusSource: null,
-  upstreamStatus: 'ระหว่างดำเนินการ',
-  matchedKeywords: ['ระบบสารสนเทศ'],
-  softwareClass: 'oandm',
-  softwareScore: 2,
-  eBidding: true,
   state: 'Queued',
   outcome: 'queued',
   attempts: 0,
+  holdReason: null,
+  approvedBy: null,
+  approvedAt: null,
   statusHistory: [],
   zipId: null,
-  zipBytes: null,
-  archiveMemberCount: null,
-  archiveMembers: [],
   documents: [],
   analysis: null,
   winner: null,
   torAmbiguous: false,
   discoveredAt: '2026-09-30T00:00:00.000Z',
   sourceHash: null,
-  lastSeenAt: null,
-  changedAt: null,
   updatedAt: '2026-09-30T00:00:00.000Z',
 };
 
 describe('Procurement', () => {
-  test('carries who read its status and the raw feed value beside it', () => {
-    const parsed = ProcurementSchema.parse(record);
-    expect(parsed.statusSource).toBeNull();
-    expect(parsed.upstreamStatus).toBe('ระหว่างดำเนินการ');
+  test('reads a record stored with fields the schema has since dropped, and drops them', () => {
+    const stored = {
+      ...record,
+      registryName: 'กรุงเทพมหานคร',
+      upstreamStatus: 'ระหว่างดำเนินการ',
+      matchedKeywords: ['ระบบสารสนเทศ'],
+      softwareClass: 'oandm',
+      softwareScore: 2,
+      eBidding: true,
+    };
+
+    const parsed = ProcurementSchema.parse(stored);
+
+    expect(parsed).toEqual(record);
   });
 
   test('accepts an AI-read status and rejects an unknown source', () => {
@@ -149,5 +160,130 @@ describe('Procurement', () => {
     expect(ProcurementSchema.safeParse({ ...record, attempts: 2 }).success).toBe(true);
     expect(ProcurementSchema.safeParse({ ...record, attempts: -1 }).success).toBe(false);
     expect(ProcurementSchema.safeParse({ ...record, attempts: 1.5 }).success).toBe(false);
+  });
+});
+
+describe('status history', () => {
+  const change = (n: number) => ({
+    state: 'Processing' as const,
+    outcome: 'downloading' as const,
+    at: `2026-10-03T00:00:${String(n).padStart(2, '0')}.000Z`,
+  });
+
+  test('appends the new entry after the existing ones', () => {
+    expect(appendStatusChange([change(1)], change(2))).toEqual([change(1), change(2)]);
+  });
+
+  test('keeps only the last STATUS_HISTORY_LIMIT entries, oldest dropped first', () => {
+    const full = Array.from({ length: STATUS_HISTORY_LIMIT }, (_, n) => change(n));
+
+    const next = appendStatusChange(full, change(STATUS_HISTORY_LIMIT));
+
+    expect(STATUS_HISTORY_LIMIT).toBe(50);
+    expect(next).toHaveLength(STATUS_HISTORY_LIMIT);
+    expect(next[0]).toEqual(change(1));
+    expect(next.at(-1)).toEqual(change(STATUS_HISTORY_LIMIT));
+  });
+});
+
+describe('TorAnalysisSchema', () => {
+  const stored = {
+    summary: 'จ้างพัฒนาระบบ',
+    scopeOfWork: [],
+    budgetThb: null,
+    deadlineAt: null,
+    durationDays: null,
+    techStack: [],
+    targetPlatforms: [],
+    requiredQualifications: [],
+  };
+
+  test('still reads an analysis stored before reasons and prompt versions were kept', () => {
+    const parsed = TorAnalysisSchema.parse(stored);
+
+    expect(parsed.reason ?? null).toBeNull();
+    expect(parsed.promptVersion ?? null).toBeNull();
+  });
+
+  test('ignores the verdict flags an older analysis carried instead of failing to read it', () => {
+    const parsed = TorAnalysisSchema.parse({
+      ...stored,
+      isSoftwareProject: true,
+      confidence: 'high',
+    });
+
+    expect(parsed).not.toHaveProperty('isSoftwareProject');
+    expect(parsed).not.toHaveProperty('confidence');
+  });
+});
+
+describe('SoftwareJudgementSchema', () => {
+  const judgement = {
+    isSoftware: false,
+    confidence: 'high',
+    reason: 'จัดซื้อเครื่องคอมพิวเตอร์ 50 เครื่อง',
+  };
+
+  test('reads a judgement and refuses a confidence outside high and low', () => {
+    expect(SoftwareJudgementSchema.safeParse(judgement).success).toBe(true);
+    expect(SoftwareJudgementSchema.safeParse({ ...judgement, confidence: 'medium' }).success).toBe(
+      false,
+    );
+  });
+
+  test('refuses a reason longer than 200 characters', () => {
+    expect(
+      SoftwareJudgementSchema.safeParse({ ...judgement, reason: 'ก'.repeat(201) }).success,
+    ).toBe(false);
+  });
+});
+
+describe('HOLD_REASON_LABELS', () => {
+  test('has a distinct Thai label for every reason a record can be held', () => {
+    const labels = HoldReason.options.map((reason) => HOLD_REASON_LABELS[reason]);
+    for (const label of labels) expect(label).toMatch(THAI);
+    expect(new Set(labels).size).toBe(HoldReason.options.length);
+  });
+});
+
+describe('TombstoneSchema', () => {
+  const tombstone: Tombstone = {
+    projectId: '66059313551',
+    reason: 'ai_not_software',
+    evidence: 'จัดซื้อเครื่องคอมพิวเตอร์ 50 เครื่อง',
+    promptVersion: '2026-10-01.1',
+    decidedAt: '2026-10-02T00:00:00.000Z',
+    decidedBy: null,
+  };
+
+  test('says why a project was dropped, in one of three ways, each with a Thai label', () => {
+    const reasons: string[] = [...TombstoneReason.options];
+    expect(reasons.sort()).toEqual(['admin_deleted', 'admin_non_software', 'ai_not_software']);
+    for (const reason of TombstoneReason.options) {
+      expect(TOMBSTONE_REASON_LABELS[reason]).toMatch(THAI);
+    }
+  });
+
+  test('keeps the quote to 200 characters, like the judgement it comes from', () => {
+    expect(TombstoneSchema.safeParse(tombstone).success).toBe(true);
+    expect(TombstoneSchema.safeParse({ ...tombstone, evidence: 'ก'.repeat(201) }).success).toBe(
+      false,
+    );
+  });
+
+  test('rejects a reason outside the three', () => {
+    expect(TombstoneSchema.safeParse({ ...tombstone, reason: 'because' }).success).toBe(false);
+  });
+
+  test('does not carry the name or archive of the record it replaced', () => {
+    const parsed = TombstoneSchema.parse({ ...tombstone, projectName: 'x', zipId: 'z' });
+    expect(parsed).toEqual(tombstone);
+  });
+});
+
+describe('Procurement approval', () => {
+  test('records who approved a held record and when, or nothing', () => {
+    const approved = { ...record, approvedBy: 'admin', approvedAt: '2026-10-03T00:00:00.000Z' };
+    expect(ProcurementSchema.parse(approved)).toEqual(approved);
   });
 });
