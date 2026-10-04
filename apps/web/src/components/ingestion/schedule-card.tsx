@@ -26,7 +26,7 @@ function ScheduleSkeleton() {
       role="status"
       aria-busy="true"
       aria-label="กำลังโหลดตารางเวลา"
-      className="grid gap-6 md:grid-cols-[3fr_2fr]"
+      className="grid gap-6 @2xl:grid-cols-[3fr_2fr]"
     >
       <div className="flex flex-col gap-4">
         <div className="bg-muted h-11 w-2/3 animate-pulse rounded-md motion-reduce:animate-none" />
@@ -136,8 +136,8 @@ function ScheduleForm({
     'border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive h-11 w-full rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px]';
 
   return (
-    <form onSubmit={submit} noValidate className="grid gap-8 md:grid-cols-[3fr_2fr] md:gap-0">
-      <div className="flex flex-col gap-6 md:pr-8">
+    <form onSubmit={submit} noValidate className="grid gap-8 @2xl:grid-cols-[3fr_2fr] @2xl:gap-0">
+      <div className="flex flex-col gap-6 @2xl:pr-8">
         <div className="flex items-center gap-4">
           <Switch
             checked={values.enabled}
@@ -157,7 +157,7 @@ function ScheduleForm({
 
         <fieldset className="flex flex-col gap-2">
           <legend className="text-muted-foreground mb-2 text-xs font-medium">ความถี่</legend>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 @md:grid-cols-2">
             {(
               [
                 { mode: 'weekly', label: 'ตามวันในสัปดาห์' },
@@ -228,7 +228,7 @@ function ScheduleForm({
                 onChange={(event) => change({ timeOfDay: event.target.value })}
                 aria-invalid={errors.timeOfDay ? true : undefined}
                 aria-describedby={errors.timeOfDay ? timeErrorId : undefined}
-                className="h-11 sm:max-w-40"
+                className="h-11 @md:max-w-40"
               />
               {errors.timeOfDay ? (
                 <p id={timeErrorId} className="text-destructive text-sm">
@@ -311,7 +311,7 @@ function ScheduleForm({
         ) : null}
       </div>
 
-      <dl className="border-border flex flex-col gap-5 border-t pt-6 md:border-t-0 md:border-l md:pt-0 md:pl-8">
+      <dl className="border-border flex flex-col gap-5 border-t pt-6 @2xl:border-t-0 @2xl:border-l @2xl:pt-0 @2xl:pl-8">
         <div className="flex flex-col gap-1">
           <dt className="text-muted-foreground text-xs font-medium">รอบถัดไป</dt>
           <dd className="text-lg font-semibold tabular-nums">
@@ -352,7 +352,7 @@ export function ScheduleCard() {
   const { schedule, loading, error, sessionEnded, retry } = data;
 
   return (
-    <section aria-labelledby="schedule-heading">
+    <section aria-labelledby="schedule-heading" className="@container">
       <Card>
         <CardHeader>
           <CardTitle>

@@ -114,7 +114,7 @@ export function IngestionDashboard() {
         }
       />
 
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,9fr)_minmax(0,3fr)]">
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]">
         <div className="flex min-w-0 flex-col gap-10">
           {banner ? <RunBanner banner={banner} onStop={stopRun} /> : null}
 
