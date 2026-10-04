@@ -21,7 +21,6 @@ function procurement(projectId: string, outcome: IngestionOutcome): Procurement 
     province: null,
     district: null,
     subdistrict: null,
-    registryName: 'หน่วยงานรัฐ',
     deptCode: '1234567890',
     year: 2569,
     announceDate: null,
@@ -31,19 +30,15 @@ function procurement(projectId: string, outcome: IngestionOutcome): Procurement 
     priceBuild: null,
     status: 'drafting',
     statusSource: 'ai',
-    upstreamStatus: null,
-    matchedKeywords: [],
-    softwareClass: 'new_build',
-    softwareScore: 1,
-    eBidding: true,
-    state: outcome === 'tor_analysed' ? 'Completed' : 'Queued',
+    state: outcome === 'tor_analysed' || outcome === 'needs_review' ? 'Completed' : 'Queued',
     outcome,
     attempts: 0,
+    holdReason: outcome === 'needs_review' ? 'partial_read' : null,
+    // An approved record is the one an officer can see that an administrator touched.
+    approvedBy: outcome === 'tor_analysed' ? 'somchai' : null,
+    approvedAt: outcome === 'tor_analysed' ? '2026-09-17T00:00:00.000Z' : null,
     statusHistory: [],
     zipId: 'zip-1',
-    zipBytes: 1,
-    archiveMemberCount: 1,
-    archiveMembers: [],
     documents: [
       {
         member: 'Attach_TOR_1.pdf',
@@ -59,15 +54,13 @@ function procurement(projectId: string, outcome: IngestionOutcome): Procurement 
     torAmbiguous: false,
     discoveredAt: '2026-09-16T00:00:00.000Z',
     sourceHash: null,
-    lastSeenAt: null,
-    changedAt: null,
     updatedAt: '2026-09-16T00:00:00.000Z',
   };
 }
 
 const OUTCOMES: IngestionOutcome[] = [
   'tor_analysed',
-  'not_software',
+  'needs_review',
   'queued',
   'analysis_failed',
   'no_tor_package',
@@ -106,7 +99,7 @@ describe('what a Business Development Officer may see', () => {
     test('an officer cannot widen the list with an outcome or state of their own', async () => {
       for (const query of [
         'outcome=queued',
-        'outcome=not_software',
+        'outcome=needs_review',
         'outcome=analysis_failed',
         'state=Queued',
         'state=Failed',
@@ -134,6 +127,75 @@ describe('what a Business Development Officer may see', () => {
         expect(await listedIds(`${url}?outcome=queued`, admin())).toEqual(['p-queued']);
       }
     });
+  });
+
+  describe('held records and their reasons', () => {
+    test('no officer response carries a hold reason, whatever the route or filter', async () => {
+      const bodies: string[] = [];
+      for (const url of [
+        '/api/ingestion/projects',
+        '/api/ingestion/projects?outcome=needs_review',
+        '/api/ingestion/projects?q=p-needs_review',
+        '/api/ingestion/projects/p-tor_analysed',
+        '/api/ingestion/projects/p-needs_review',
+        '/api/tors/p-tor_analysed',
+        '/api/tors/p-needs_review',
+      ]) {
+        bodies.push((await app.inject({ method: 'GET', url, cookies: officer() })).body);
+      }
+      // The id is left out of the check: a 404 echoes the one the caller sent.
+      for (const body of bodies) expect(body).not.toContain('partial_read');
+    });
+
+    test('an administrator sees the held record and why it is held', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/ingestion/projects/p-needs_review',
+        cookies: admin(),
+      });
+      expect((response.json() as Procurement).holdReason).toBe('partial_read');
+    });
+  });
+
+  describe('who approved a record', () => {
+    test('no officer response names the administrator or the time of an approval', async () => {
+      for (const url of [
+        '/api/ingestion/projects',
+        '/api/ingestion/projects/p-tor_analysed',
+        '/api/tors/p-tor_analysed',
+      ]) {
+        const response = await app.inject({ method: 'GET', url, cookies: officer() });
+        expect(response.statusCode).toBe(200);
+        expect(response.body).not.toContain('somchai');
+        expect(response.body).not.toContain('2026-09-17');
+      }
+    });
+
+    test('an administrator sees who approved it, and when', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/ingestion/projects/p-tor_analysed',
+        cookies: admin(),
+      });
+      expect(response.json() as Procurement).toMatchObject({
+        approvedBy: 'somchai',
+        approvedAt: '2026-09-17T00:00:00.000Z',
+      });
+    });
+  });
+
+  describe('administrator-only views', () => {
+    for (const url of [
+      '/api/ingestion/summary',
+      '/api/ingestion/failures',
+      '/api/ingestion/recent',
+      '/api/ingestion/tombstones',
+    ]) {
+      test(`${url} is forbidden to an officer`, async () => {
+        const response = await app.inject({ method: 'GET', url, cookies: officer() });
+        expect(response.statusCode).toBe(403);
+      });
+    }
   });
 
   describe('single records', () => {

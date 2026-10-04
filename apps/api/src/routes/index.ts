@@ -4,6 +4,7 @@ import { authRoutes } from './auth';
 import { adminRoutes } from './admin';
 import { dashboardRoutes } from './dashboard';
 import { ingestionRoutes } from './ingestion';
+import { procurementAdminRoutes } from './procurement-admin';
 import { scheduleRoutes } from './schedule';
 import { companyRoutes } from './companies';
 import { clientRoutes } from './clients';
@@ -16,6 +17,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(adminRoutes, { prefix: '/api' });
   await app.register(dashboardRoutes, { prefix: '/api' });
   await app.register(ingestionRoutes, { prefix: '/api' });
+  await app.register(procurementAdminRoutes, { prefix: '/api' });
   await app.register(scheduleRoutes, { prefix: '/api' });
   // The vendor's own record. Each is its own plugin scope, which is what lets
   // `requireAuth` be added once per group rather than once per route.

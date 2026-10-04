@@ -1,13 +1,18 @@
 import type { IngestionFailure, OpenDataQuota, Procurement } from '@torfun/types';
-import { classifyProject, softwareScore } from './classify';
-import { openDataGet, RateLimitedError, sleep, type QuotaReading } from './client';
+import { admit } from './admission';
+import {
+  OpenDataForbiddenError,
+  openDataGet,
+  RateLimitedError,
+  sleep,
+  type QuotaReading,
+} from './client';
 import { convertDateToISO } from './dates';
 import { readUpstreamStatus } from './status';
 import { toWinner } from './winner';
 import {
   CONTRACT_URL,
   DEPT_URL,
-  E_BIDDING_METHOD,
   FISCAL_YEARS,
   OPEN_DATA_RESERVE,
   PAGE_LIMIT,
@@ -47,6 +52,11 @@ export interface ContractRow {
   project_status?: string;
 }
 
+/** Which of these project ids have a tombstone. */
+export type TombstoneLookup = (projectIds: string[]) => Promise<Set<string>>;
+
+const NO_TOMBSTONES: ReadonlySet<string> = new Set();
+
 export interface DeptResolution {
   registryName: string;
   candidatesReturned: number;
@@ -61,10 +71,21 @@ export interface DiscoveryResult {
    * match. Kept rather than dropped so the over-collection is auditable.
    */
   rejected: Array<{ projectId: string; projectName: string; deptName: string }>;
+  /**
+   * Rows by any purchase method other than e-bidding. Counted and not stored:
+   * the product is e-bidding tenders, so what a sweep keeps is limited to those.
+   */
+  notEBidding: number;
+  /**
+   * Registry e-bidding projects left out because they have a tombstone: the model
+   * or an administrator already ruled them out. Counted, not stored.
+   */
+  tombstoned: number;
   resolutions: DeptResolution[];
   failures: IngestionFailure[];
   /**
-   * The open-data API answered 429/403 and the sweep stopped there. What was
+   * The open-data API answered 429 (allowance spent) or 403 (blocked, or the key
+   * refused) and the sweep stopped there. What was
    * found before that is kept; nothing further was asked for. The caller stops
    * the Run — a site saying stop is not something to work around.
    */
@@ -161,6 +182,7 @@ async function fetchAllPages(
   year: number,
   apiKey: string,
   onQuota: (reading: QuotaReading) => void,
+  pause: (ms: number) => Promise<void>,
 ): Promise<ContractRow[]> {
   const records: ContractRow[] = [];
   let offset = 0;
@@ -173,7 +195,7 @@ async function fetchAllPages(
       apiKey,
     );
     onQuota(page.quota);
-    await sleep(POLITENESS.openDataDelayMs);
+    await pause(POLITENESS.openDataDelayMs);
 
     total = page.total;
     records.push(...page.rows);
@@ -187,26 +209,18 @@ async function fetchAllPages(
 }
 
 /** Maps one raw e-GP contract row at the upstream boundary. Exported for fixture-based contract tests. */
-export function toRecord(
-  row: ContractRow,
-  registryName: string,
-  deptCode: string,
-  year: number,
-  keyword: string,
-): Procurement {
+export function toRecord(row: ContractRow, deptCode: string, year: number): Procurement {
   const timestamp = now();
-  const projectName = row.project_name ?? '';
   const reading = readUpstreamStatus(row.project_status);
 
   return {
     projectId: String(row.project_id),
-    projectName,
+    projectName: row.project_name ?? '',
     deptName: (row.dept_name ?? '').trim(),
     deptSubName: row.dept_sub_name ?? null,
     province: row.province?.trim() || null,
     district: row.district?.trim() || null,
     subdistrict: row.subdistrict?.trim() || null,
-    registryName,
     deptCode,
     year: row.year ?? year,
     announceDate: convertDateToISO(row.announce_date),
@@ -216,22 +230,16 @@ export function toRecord(
     priceBuild: row.price_build ?? null,
     status: reading.status,
     statusSource: reading.source,
-    upstreamStatus: row.project_status ?? null,
-    matchedKeywords: [keyword],
-
-    softwareClass: classifyProject(projectName),
-    softwareScore: softwareScore(projectName),
-    eBidding: row.purchase_method_name === E_BIDDING_METHOD,
 
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
+    holdReason: null,
+    approvedBy: null,
+    approvedAt: null,
     statusHistory: [{ state: 'Queued', outcome: 'queued', at: timestamp }],
 
     zipId: null,
-    zipBytes: null,
-    archiveMemberCount: null,
-    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: toWinner(row.contract),
@@ -239,8 +247,6 @@ export function toRecord(
 
     discoveredAt: timestamp,
     sourceHash: null, // fingerprinted by the store as it writes
-    lastSeenAt: timestamp,
-    changedAt: null,
     updatedAt: timestamp,
   };
 }
@@ -258,11 +264,18 @@ export function toRecord(
  * passed as a request filter, a post-fetch exact match is the only way to
  * enforce registry membership.
  */
-export async function discoverProjects(apiKey: string): Promise<DiscoveryResult> {
+export async function discoverProjects(
+  apiKey: string,
+  tombstonedIds: TombstoneLookup,
+  // The politeness delay between open-data calls. Only a test replaces it.
+  pause: (ms: number) => Promise<void> = sleep,
+): Promise<DiscoveryResult> {
   const failures: IngestionFailure[] = [];
   const resolutions: DeptResolution[] = [];
   const byProjectId = new Map<string, Procurement>();
   const rejected = new Map<string, { projectId: string; projectName: string; deptName: string }>();
+  const notEBidding = new Set<string>();
+  const tombstoned = new Set<string>();
 
   let rateLimited = false;
   let budgetReached = false;
@@ -289,6 +302,11 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
         error: error instanceof Error ? error.message : String(error),
         at: now(),
       });
+      if (error instanceof OpenDataForbiddenError) {
+        // Blocked, not spent: the allowance is left as the last response said.
+        rateLimited = true;
+        break;
+      }
       if (error instanceof RateLimitedError) {
         // Refused: whatever it said, nothing is left today.
         gauge.observe({ limitDay: error.quota?.limitDay ?? null, remainingDay: 0 });
@@ -296,7 +314,7 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
         break;
       }
     }
-    await sleep(POLITENESS.openDataDelayMs);
+    await pause(POLITENESS.openDataDelayMs);
   }
 
   sweep: for (const resolution of resolutions) {
@@ -311,6 +329,13 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
           .map((match) => match.deptName.trim()),
       );
 
+      // What this agency returned in total, and whether any of it failed to be
+      // asked for. An agency that gave nothing under any keyword is more likely
+      // renamed or re-coded than empty, so it is reported rather than taken as
+      // having nothing — and nothing downstream may treat it as "gone".
+      let rowsSeen = 0;
+      let unitFailed = false;
+
       for (const year of FISCAL_YEARS) {
         for (const keyword of SOFTWARE_KEYWORDS) {
           if (gauge.reserveReached) {
@@ -319,7 +344,7 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
           }
           let rows: ContractRow[];
           try {
-            rows = await fetchAllPages(deptCode, keyword, year, apiKey, gauge.observe);
+            rows = await fetchAllPages(deptCode, keyword, year, apiKey, gauge.observe, pause);
           } catch (error) {
             failures.push({
               projectId: '-',
@@ -328,43 +353,78 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
               error: error instanceof Error ? error.message : String(error),
               at: now(),
             });
+            if (error instanceof OpenDataForbiddenError) {
+              rateLimited = true;
+              break sweep;
+            }
             if (error instanceof RateLimitedError) {
               gauge.observe({ limitDay: error.quota?.limitDay ?? null, remainingDay: 0 });
               rateLimited = true;
               break sweep;
             }
+            unitFailed = true;
             continue;
           }
+          rowsSeen += rows.length;
+
+          const toAdmissionRow = (row: ContractRow, projectId: string) => ({
+            projectId,
+            deptName: (row.dept_name ?? '').trim(),
+            purchaseMethodName: row.purchase_method_name,
+          });
+
+          // Ask about tombstones only for what would otherwise be admitted: the
+          // lookup is a database round trip, and most of a feed is turned away.
+          const wanted = rows.flatMap((row) => {
+            const projectId = row.project_id ? String(row.project_id) : '';
+            return projectId &&
+              admit(toAdmissionRow(row, projectId), expectedNames, NO_TOMBSTONES) === 'admit'
+              ? [projectId]
+              : [];
+          });
+          const ruledOut = wanted.length > 0 ? await tombstonedIds(wanted) : NO_TOMBSTONES;
 
           for (const row of rows) {
             const projectId = row.project_id ? String(row.project_id) : '';
             if (!projectId) continue;
 
-            const rowDeptName = (row.dept_name ?? '').trim();
-            if (!expectedNames.has(rowDeptName)) {
-              rejected.set(projectId, {
-                projectId,
-                projectName: row.project_name ?? '',
-                deptName: rowDeptName,
-              });
-              continue;
-            }
-
-            // Deduplicate by project id, the key the requirements name. A
-            // project matching several keywords keeps all of them.
-            const existing = byProjectId.get(projectId);
-            if (existing) {
-              if (!existing.matchedKeywords.includes(keyword)) {
-                existing.matchedKeywords.push(keyword);
-              }
-            } else {
-              byProjectId.set(
-                projectId,
-                toRecord(row, resolution.registryName, deptCode, year, keyword),
-              );
+            // Admission is the agency, the tender method and the tombstone. The
+            // title is not consulted: whether the work is software is for the
+            // document to say, once it is read.
+            switch (admit(toAdmissionRow(row, projectId), expectedNames, ruledOut)) {
+              case 'not_registry':
+                rejected.set(projectId, {
+                  projectId,
+                  projectName: row.project_name ?? '',
+                  deptName: (row.dept_name ?? '').trim(),
+                });
+                break;
+              case 'not_e_bidding':
+                notEBidding.add(projectId);
+                break;
+              case 'tombstoned':
+                tombstoned.add(projectId);
+                break;
+              case 'admit':
+                // Deduplicated by project id, the key the requirements name: the
+                // same project turns up under several keywords and years.
+                if (!byProjectId.has(projectId)) {
+                  byProjectId.set(projectId, toRecord(row, deptCode, year));
+                }
+                break;
             }
           }
         }
+      }
+
+      if (rowsSeen === 0 && !unitFailed) {
+        failures.push({
+          projectId: '-',
+          projectName: `${resolution.registryName} / ${deptCode}`,
+          stage: 'discovery',
+          error: `Agency code ${deptCode} (${resolution.registryName}) returned no rows under any keyword or year — treated as a failed unit, not as having nothing. It may have been renamed or re-coded.`,
+          at: now(),
+        });
       }
     }
   }
@@ -372,6 +432,8 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
   return {
     records: [...byProjectId.values()],
     rejected: [...rejected.values()],
+    notEBidding: notEBidding.size,
+    tombstoned: tombstoned.size,
     resolutions,
     failures,
     rateLimited,

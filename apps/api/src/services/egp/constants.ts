@@ -53,8 +53,8 @@ export const FISCAL_YEARS = [2567, 2568, 2569] as const;
  *
  * The broad Thai terms (พัฒนาระบบ, จัดทำระบบ) match road, drainage and hardware
  * titles as often as software. That is accepted: discovery favours recall, and
- * the Gemini verdict on the TOR later marks a non-software project
- * `not_software` rather than this list guessing.
+ * Gemini's reading of the TOR later holds or drops a non-software project
+ * rather than this list guessing.
  */
 export const SOFTWARE_KEYWORDS = [
   'ซอฟต์แวร์', // software

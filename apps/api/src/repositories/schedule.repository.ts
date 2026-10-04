@@ -1,5 +1,5 @@
 import type { Collection, Db } from 'mongodb';
-import { DEFAULT_SCHEDULE, type Schedule, type ScheduleUpdate } from '@torfun/types';
+import { ALL_WEEKDAYS, DEFAULT_SCHEDULE, type Schedule, type ScheduleUpdate } from '@torfun/types';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
 
 /**
@@ -31,8 +31,10 @@ export interface ScheduleStore extends RunLog {
 interface ScheduleDocument {
   _id: string;
   enabled?: boolean;
-  mode?: Schedule['mode'];
+  /** `daily` is the retired mode: it reads as weekly with every day ticked. */
+  mode?: Schedule['mode'] | 'daily';
   time_of_day?: string;
+  weekdays?: number[];
   every_hours?: number;
   updated_at?: string;
   updated_by?: string;
@@ -55,8 +57,10 @@ export class ScheduleRepository implements ScheduleStore {
       // run still reads as a complete — and disabled — schedule.
       schedule: {
         enabled: document?.enabled ?? DEFAULT_SCHEDULE.enabled,
-        mode: document?.mode ?? DEFAULT_SCHEDULE.mode,
+        mode: document?.mode === 'daily' ? 'weekly' : (document?.mode ?? DEFAULT_SCHEDULE.mode),
         timeOfDay: document?.time_of_day ?? DEFAULT_SCHEDULE.timeOfDay,
+        // A daily schedule was every day, as was one saved before days were chosen.
+        weekdays: document?.weekdays ?? [...ALL_WEEKDAYS],
         everyHours: document?.every_hours ?? DEFAULT_SCHEDULE.everyHours,
         updatedAt: document?.updated_at ?? null,
         updatedBy: document?.updated_by ?? null,
@@ -75,6 +79,7 @@ export class ScheduleRepository implements ScheduleStore {
           enabled: update.enabled,
           mode: update.mode,
           time_of_day: update.timeOfDay,
+          weekdays: update.weekdays,
           every_hours: update.everyHours,
           updated_at: at,
           updated_by: updatedBy,

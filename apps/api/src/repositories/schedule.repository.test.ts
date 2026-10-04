@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import { DEFAULT_SCHEDULE } from '@torfun/types';
+import { DEFAULT_SCHEDULE, type ScheduleUpdate } from '@torfun/types';
 import { ScheduleRepository } from './schedule.repository';
 
 /** Against a real MongoDB, in a database of its own that is dropped afterwards. */
@@ -23,7 +23,13 @@ afterAll(async () => {
 
 const describeMongo = uri ? describe : describe.skip;
 
-const setting = { enabled: true, mode: 'interval', timeOfDay: '03:30', everyHours: 12 } as const;
+const setting: ScheduleUpdate = {
+  enabled: true,
+  mode: 'weekly',
+  timeOfDay: '03:30',
+  weekdays: [1, 3, 5],
+  everyHours: 12,
+};
 
 describeMongo('ScheduleRepository', () => {
   let repository: ScheduleRepository;
@@ -76,5 +82,43 @@ describeMongo('ScheduleRepository', () => {
 
     await repository.save({ ...setting, everyHours: 24 }, 'admin-1', '2026-10-02T05:00:00.000Z');
     expect((await repository.get()).lastRunStartedAt).toBe('2026-10-01T19:00:00.000Z');
+  });
+
+  test('a schedule stored in the retired daily mode reads as weekly with every day ticked', async () => {
+    await (await getDb()).collection('ingestion_meta').insertOne({
+      _id: 'schedule' as never,
+      enabled: true,
+      mode: 'daily',
+      time_of_day: '04:15',
+      every_hours: 24,
+      updated_at: '2026-09-20T05:00:00.000Z',
+      updated_by: 'admin-1',
+    } as never);
+
+    const { schedule } = await repository.get();
+
+    expect(schedule).toEqual({
+      enabled: true,
+      mode: 'weekly',
+      timeOfDay: '04:15',
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      everyHours: 24,
+      updatedAt: '2026-09-20T05:00:00.000Z',
+      updatedBy: 'admin-1',
+    });
+  });
+
+  test('a stored schedule that predates weekdays still reads, with every day ticked', async () => {
+    await (await getDb()).collection('ingestion_meta').insertOne({
+      _id: 'schedule' as never,
+      enabled: true,
+      mode: 'interval',
+      time_of_day: '02:00',
+      every_hours: 12,
+      updated_at: '2026-09-20T05:00:00.000Z',
+      updated_by: 'admin-1',
+    } as never);
+
+    expect((await repository.get()).schedule.weekdays).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 });
