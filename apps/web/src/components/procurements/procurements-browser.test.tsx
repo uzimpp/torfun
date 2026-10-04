@@ -293,7 +293,7 @@ describe('the drawer', () => {
 
     expect(lastHref()).toBe('/admin/procurements?status=open&page=2&id=67109288963');
     const drawer = await screen.findByRole('dialog', { name: /ประกวดราคาจ้างพัฒนาระบบสารสนเทศ/ });
-    expect(within(drawer).getByRole('button', { name: /ดาวน์โหลด TOR/ })).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: /ดูเอกสาร TOR/ })).toBeInTheDocument();
     expect(within(drawer).getByText(/สรุปจาก AI/)).toBeInTheDocument();
     expect(within(drawer).getByText('พัฒนาระบบบริหารงานบุคคล')).toBeInTheDocument();
   });
