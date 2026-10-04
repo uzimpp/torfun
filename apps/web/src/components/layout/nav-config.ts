@@ -76,8 +76,8 @@ export const plannedNav: { label: string; Icon: LucideIcon }[] = [
  *
  * The two roles get different menus because they own different things: a
  * Business Development Officer has a Company and saved TORs; a Site
- * Administrator has the failure log and the other accounts, and no Company at
- * all (ADR-0011); the admin pages themselves are in `workspaceNav`.
+ * Administrator has the admin pages, the failure log and the other accounts, and
+ * no Company at all (ADR-0011).
  */
 export interface AccountNavItem {
   href: Route;
@@ -91,6 +91,8 @@ export function accountNav(role: UserRole): AccountNavItem[] {
   if (role === 'admin') {
     return [
       { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
+      { href: '/admin/procurements', label: 'ประกาศที่ดึงเข้าระบบ', Icon: FileStack },
+      { href: '/admin/ingestion', label: 'ระบบดึงข้อมูล', Icon: Database },
       {
         href: '/admin/ingestion',
         hash: 'failures',
