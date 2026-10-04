@@ -27,8 +27,7 @@ export interface StatusReading {
 /**
  * The open-data feed's whole vocabulary, as sampled, is the single value
  * `ระหว่างดำเนินการ` ("in progress"), which places a project in no stage. It and
- * anything unrecognised read as `unknown` with no source; the raw string is
- * kept on the record so an unfamiliar value is visible to an administrator.
+ * anything unrecognised read as `unknown` with no source.
  */
 export function readUpstreamStatus(raw: string | null | undefined): StatusReading {
   const status = raw ? BY_UPSTREAM_STAGE.get(raw.trim()) : undefined;

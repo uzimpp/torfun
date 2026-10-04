@@ -1,6 +1,12 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import type { ArchiveDocument, Procurement, ProcurementStatus, TorAnalysis } from '@torfun/types';
+import type {
+  ArchiveDocument,
+  Procurement,
+  ProcurementStatus,
+  TorAnalysis,
+  Tombstone,
+} from '@torfun/types';
 import { TorService } from '../services/tor.service';
 import { ProcurementRepository } from './procurement.repository';
 
@@ -39,7 +45,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     province: 'กรุงเทพมหานคร',
     district: 'คลองเตย',
     subdistrict: 'คลองเตย',
-    registryName: 'กรุงเทพมหานคร',
     deptCode: '0100',
     year: 2568,
     announceDate: '2026-08-01',
@@ -49,27 +54,20 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     priceBuild: null,
     status: 'open',
     statusSource: 'upstream',
-    upstreamStatus: 'หนังสือเชิญชวน/ประกาศเชิญชวน',
-    matchedKeywords: ['จ้างพัฒนา'],
-    softwareClass: 'new_build',
-    softwareScore: 5,
-    eBidding: true,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
+    holdReason: null,
+    approvedBy: null,
+    approvedAt: null,
     statusHistory: [],
     zipId: null,
-    zipBytes: null,
-    archiveMemberCount: null,
-    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
     sourceHash: null,
-    lastSeenAt: null,
-    changedAt: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -94,8 +92,6 @@ const analysis = (overrides: Partial<TorAnalysis> = {}): TorAnalysis => ({
   techStack: ['React', 'PostgreSQL'],
   targetPlatforms: ['web_app'],
   requiredQualifications: [],
-  isSoftwareProject: true,
-  confidence: 'high',
   ...overrides,
 });
 
@@ -108,7 +104,7 @@ describeMongo('ProcurementRepository', () => {
     repository = new ProcurementRepository(getDb);
     const database = await getDb();
     await Promise.all(
-      ['procurements', 'ingestion_failures', 'ingestion_meta'].map((name) =>
+      ['procurements', 'ingestion_failures', 'ingestion_meta', 'tombstones'].map((name) =>
         database.collection(name).deleteMany({}),
       ),
     );
@@ -122,6 +118,104 @@ describeMongo('ProcurementRepository', () => {
     (await repository.find({ limit: 50, offset: 0, ...(status ? { status } : {}) })).items.map(
       (r) => r.projectId,
     );
+
+  describe('tombstones', () => {
+    const dropped: Tombstone = {
+      projectId: '66059313551',
+      reason: 'ai_not_software',
+      evidence: 'จัดซื้อเครื่องคอมพิวเตอร์',
+      promptVersion: '2026-10-01.1',
+      decidedAt: '2026-10-02T00:00:00.000Z',
+      decidedBy: null,
+    };
+
+    test('a tombstone replaces the record, and reads back as written', async () => {
+      await seed([procurement()]);
+
+      await repository.tombstone(dropped);
+
+      expect(await repository.get('66059313551')).toBeUndefined();
+      expect(await repository.listTombstones()).toEqual([dropped]);
+    });
+
+    test("an administrator's tombstone keeps who decided, and has no prompt version", async () => {
+      const byAdmin: Tombstone = {
+        ...dropped,
+        reason: 'admin_deleted',
+        promptVersion: null,
+        decidedBy: 'admin',
+      };
+
+      await repository.tombstone(byAdmin);
+
+      expect(await repository.listTombstones()).toEqual([byAdmin]);
+    });
+
+    test('says which of a set of projects were dropped, and none for an empty set', async () => {
+      await repository.tombstone(dropped);
+
+      expect(await repository.tombstonedIds(['66059313551', '66059313552'])).toEqual(
+        new Set(['66059313551']),
+      );
+      expect(await repository.tombstonedIds([])).toEqual(new Set());
+    });
+
+    test('removing a record leaves no tombstone behind, and says whether there was one to remove', async () => {
+      await seed([procurement()]);
+
+      expect(await repository.remove('66059313551')).toBe(true);
+      expect(await repository.remove('66059313551')).toBe(false);
+
+      expect(await repository.get('66059313551')).toBeUndefined();
+      expect(await repository.listTombstones()).toEqual([]);
+    });
+
+    test('removing a tombstone forgets it once, and says whether there was anything to forget', async () => {
+      await repository.tombstone(dropped);
+
+      expect(await repository.removeTombstone('66059313551')).toBe(true);
+      expect(await repository.removeTombstone('66059313551')).toBe(false);
+      expect(await repository.listTombstones()).toEqual([]);
+    });
+  });
+
+  test('paging through the queue visits every record once, in the same order as one big read', async () => {
+    // Equal rank, score and value, so only the id tiebreak keeps pages from overlapping.
+    await seed(Array.from({ length: 7 }, (_, index) => procurement({ projectId: `7000${index}` })));
+
+    const whole = (await repository.find({ state: 'Queued', limit: 50, offset: 0 })).items.map(
+      (r) => r.projectId,
+    );
+    const paged: string[] = [];
+    for (let offset = 0; offset < 8; offset += 3) {
+      const page = await repository.find({ state: 'Queued', limit: 3, offset });
+      paged.push(...page.items.map((r) => r.projectId));
+    }
+
+    expect(paged).toEqual(whole);
+    expect(new Set(paged).size).toBe(7);
+  });
+
+  test('who approved a held record, and when, survives the round trip and is absent on older records', async () => {
+    const approved = procurement({
+      projectId: 'approved',
+      outcome: 'tor_analysed',
+      approvedBy: 'admin',
+      approvedAt: '2026-10-03T00:00:00.000Z',
+    });
+    await repository.upsert(approved);
+    await repository.upsert(procurement({ projectId: 'plain' }));
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne({ _id: 'plain' as never }, { $unset: { approved_by: '', approved_at: '' } });
+
+    expect((await repository.get('approved'))?.approvedBy).toBe('admin');
+    expect((await repository.get('approved'))?.approvedAt).toBe('2026-10-03T00:00:00.000Z');
+    expect((await repository.get('plain'))?.approvedBy).toBeNull();
+    expect((await repository.get('plain'))?.approvedAt).toBeNull();
+  });
 
   test('a record survives a round trip through Mongo unchanged', async () => {
     const record = procurement({
@@ -143,7 +237,6 @@ describeMongo('ProcurementRepository', () => {
 
     expect(found).not.toHaveProperty('_id');
     expect(found).not.toHaveProperty('project_name');
-    expect(found).not.toHaveProperty('biddability_rank');
     expect(found?.projectId).toBe('66059313551');
   });
 
@@ -166,7 +259,7 @@ describeMongo('ProcurementRepository', () => {
       downloading: 'Processing',
       analysing: 'Processing',
       error: 'Queued',
-      not_software: 'Completed',
+      needs_review: 'Completed',
       no_tor_package: 'Failed',
       abandoned: 'Failed',
     } as const;
@@ -238,31 +331,25 @@ describeMongo('ProcurementRepository', () => {
   });
 
   test('rediscovering a project does not reset a finished retrieval', async () => {
-    await repository.upsert(procurement({ matchedKeywords: ['จ้างพัฒนา'] }));
+    await repository.upsert(procurement());
     await repository.transition('66059313551', 'tor_analysed', {
       documents: [doc()],
     });
 
-    await repository.upsert(procurement({ state: 'Queued', matchedKeywords: ['ซอฟต์แวร์'] }));
+    await repository.upsert(procurement({ state: 'Queued' }));
 
     const record = await repository.get('66059313551');
     expect(record?.state).toBe('Completed');
     expect(record?.documents).toHaveLength(1);
-    expect(record?.matchedKeywords.sort()).toEqual(['จ้างพัฒนา', 'ซอฟต์แวร์'].sort());
   });
 
-  test('rediscovering a project refreshes what the agency published, and re-ranks it', async () => {
-    await seed([
-      procurement({ projectId: 'live', status: 'open', softwareScore: 1 }),
-      procurement({ projectId: 'moving', status: 'contracted', softwareScore: 9 }),
-    ]);
-    expect((await ids())[0]).toBe('live');
+  test('rediscovering a project refreshes what the agency published', async () => {
+    await repository.upsert(procurement({ projectId: 'moving', status: 'contracted' }));
 
     await repository.upsert(
       procurement({
         projectId: 'moving',
         status: 'open',
-        softwareScore: 9,
         projectName: 'จ้างพัฒนาระบบสารสนเทศ (แก้ไข)',
         projectMoney: 2_500_000,
       }),
@@ -272,36 +359,17 @@ describeMongo('ProcurementRepository', () => {
     expect(record?.status).toBe('open');
     expect(record?.projectName).toBe('จ้างพัฒนาระบบสารสนเทศ (แก้ไข)');
     expect(record?.projectMoney).toBe(2_500_000);
-    // The stored rank is derived on write, so a refreshed stage has to re-sort.
-    expect((await ids())[0]).toBe('moving');
   });
 
-  test('a live tender outranks a settled contract, whatever its score', async () => {
+  test('the newest announcement comes first, and a tie is broken by project id', async () => {
     await seed([
-      procurement({ projectId: 'settled', status: 'contracted', softwareScore: 9 }),
-      procurement({ projectId: 'live', status: 'open', softwareScore: 1 }),
+      procurement({ projectId: 'b-old', announceDate: '2026-07-01' }),
+      procurement({ projectId: 'b-new', announceDate: '2026-08-15' }),
+      procurement({ projectId: 'a-new', announceDate: '2026-08-15' }),
+      procurement({ projectId: 'undated', announceDate: null }),
     ]);
 
-    expect((await ids())[0]).toBe('live');
-  });
-
-  test('within the same stage, software-likeness then value still decide', async () => {
-    await seed([
-      procurement({ projectId: 'low', softwareScore: 2, projectMoney: 9_000_000 }),
-      procurement({ projectId: 'high', softwareScore: 8, projectMoney: 1_000 }),
-      procurement({ projectId: 'tie', softwareScore: 8, projectMoney: 5_000_000 }),
-    ]);
-
-    expect(await ids()).toEqual(['tie', 'high', 'low']);
-  });
-
-  test('a cancelled project sinks below one whose stage is unknown', async () => {
-    await seed([
-      procurement({ projectId: 'cancelled', status: 'cancelled' }),
-      procurement({ projectId: 'unknown', status: 'unknown' }),
-    ]);
-
-    expect(await ids()).toEqual(['unknown', 'cancelled']);
+    expect(await ids()).toEqual(['a-new', 'b-new', 'b-old', 'undated']);
   });
 
   test('ordering is a priority, never a filter — nothing is hidden', async () => {
@@ -346,7 +414,7 @@ describeMongo('ProcurementRepository', () => {
       (await repository.find({ limit: 20, offset: 0, maxBudget: 500_000 })).items.map(
         (record) => record.projectId,
       ),
-    ).toEqual(['middle', 'low']);
+    ).toEqual(['low', 'middle']);
     expect(
       (
         await repository.find({
@@ -660,7 +728,7 @@ describeMongo('ProcurementRepository', () => {
             'status_history.$[entry].outcome': 'processing',
             status: 'invitation',
           },
-          $unset: { attempts: '', status_source: '', upstream_status: '' },
+          $unset: { attempts: '', status_source: '' },
         },
         { arrayFilters: [{ 'entry.outcome': 'downloading' }] },
       );
@@ -723,7 +791,6 @@ describeMongo('ProcurementRepository', () => {
       expect(summary).toEqual({ created: 0, changed: 0, unchanged: 2 });
       expect((await repository.get('a'))?.updatedAt).toBe(at(1));
       expect((await repository.get('b'))?.updatedAt).toBe(at(2));
-      expect((await repository.get('a'))?.lastSeenAt).not.toBeNull();
     });
 
     test('only the record whose data moved is changed, and it becomes the most recently updated', async () => {
@@ -738,7 +805,6 @@ describeMongo('ProcurementRepository', () => {
       ]);
 
       expect(summary).toEqual({ created: 0, changed: 1, unchanged: 1 });
-      expect((await repository.get('a'))?.changedAt).not.toBeNull();
       expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['a', 'b']);
     });
 

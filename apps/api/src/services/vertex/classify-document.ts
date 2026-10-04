@@ -1,6 +1,14 @@
-import { ProcurementStatus, TorAnalysisSchema, type TorAnalysis } from '@torfun/types';
+import {
+  ProcurementStatus,
+  SOFTWARE_REASON_MAX_CHARS,
+  SoftwareJudgementSchema,
+  TorAnalysisSchema,
+  type SoftwareJudgement,
+  type TorAnalysis,
+} from '@torfun/types';
 import { convertDateToISO } from '../egp/dates';
 import { z } from 'zod';
+import { TOR_PROMPT, TOR_PROMPT_VERSION } from './prompts/tor-analysis';
 
 /**
  * Asks Gemini what one PDF from an announcement Archive actually is.
@@ -60,11 +68,23 @@ export type ReadMode = 'pdf' | 'text' | 'first_pages';
 export const ModelStatus = ProcurementStatus.exclude(['unknown']);
 export type ModelStatus = z.infer<typeof ModelStatus>;
 
+/**
+ * The model answers with its software judgement inside the analysis. The stored
+ * analysis keeps only the reason (ADR-0016): the flags travel beside it as
+ * `judgement`, to be turned into an Outcome and not kept.
+ */
+const AnswerAnalysis = TorAnalysisSchema.omit({ reason: true, promptVersion: true }).extend({
+  ...SoftwareJudgementSchema.shape,
+  // The length is asked for in the prompt and enforced below by cutting, not by
+  // refusing: a reason a few characters over is no cause to lose the whole read.
+  reason: z.string(),
+});
+
 const AnswerSchema = z.object({
   isTor: z.boolean(),
   torKind: z.enum(['final', 'draft']).nullable(),
   whatThisIs: z.string(),
-  analysis: TorAnalysisSchema.nullable(),
+  analysis: AnswerAnalysis.nullable(),
   // Defaulted so a reply that omits it is still read; the request schema asks
   // for it, but a model is not a contract.
   procurementStatus: ModelStatus.nullable().default(null),
@@ -75,6 +95,8 @@ export interface DocumentClassification {
   torKind: 'final' | 'draft' | null;
   whatThisIs: string;
   analysis: TorAnalysis | null;
+  /** What the model concluded about the work; null exactly when `analysis` is. */
+  judgement: SoftwareJudgement | null;
   /** The agency's stage as this document shows it, or null where it does not. */
   procurementStatus?: ModelStatus | null;
   /** Set when the document could not be read at all; the reason why. */
@@ -85,32 +107,6 @@ export interface DocumentClassification {
   readNote?: string;
 }
 
-const PROMPT = `คุณคือผู้ช่วยคัดกรองเอกสารจัดซื้อจัดจ้างภาครัฐไทย
-อ่านเอกสาร PDF ที่แนบมาแล้วตอบเป็น JSON เท่านั้น ตามโครงสร้างนี้:
-
-{ "isTor": boolean,
-  "torKind": "final" | "draft" | null,
-  "whatThisIs": string,
-  "analysis": { ... } | null,
-  "procurementStatus": "drafting" | "open" | "evaluating" | "awarded" | "contracted" | "cancelled" | null }
-
-- isTor เป็น true เฉพาะเมื่อเอกสารนี้คือขอบเขตของงาน (TOR) จริง ๆ
-  เอกสารอื่น เช่น หนังสือรับรอง สัญญา ใบเสนอราคา ประกาศเชิญชวน ให้ตอบ false
-  หากไม่ใช่ TOR ให้ตอบ false อย่างตรงไปตรงมา ห้ามเดา
-- torKind เป็น "draft" เมื่อเอกสารระบุว่าเป็นร่าง มิฉะนั้นเป็น "final"
-- analysis ต้องมีค่าเมื่อ isTor เป็น true และเป็น null เมื่อไม่ใช่ TOR
-- deadlineAt คือวันและเวลาปิดรับข้อเสนอ/ยื่นเสนอราคาเท่านั้น ไม่ใช่กำหนดส่งมอบงาน
-  ถ้าเอกสารไม่ได้ระบุวันปิดรับข้อเสนอที่แน่นอน ให้เป็น null ห้ามใช้วันที่ทำสัญญาหรือส่งมอบงานแทน
-  ใช้รูปแบบ ISO ปี ค.ศ. หากมีเวลาให้ระบุเขตเวลา +07:00 หากไม่มีเวลาให้ระบุเฉพาะวันที่
-- durationDays คือระยะเวลาดำเนินงาน/ส่งมอบงาน ไม่ใช่จำนวนวันก่อนปิดรับข้อเสนอ
-- procurementStatus คือขั้นตอนของโครงการตามที่เอกสารนี้แสดงอยู่เท่านั้น เลือกได้เพียงหนึ่งใน:
-  "drafting" (เอกสารเป็นร่าง TOR หรืออยู่ระหว่างจัดทำ/รับฟังความคิดเห็น),
-  "open" (ประกาศเชิญชวนแล้ว เปิดรับข้อเสนอ),
-  "evaluating" (ปิดรับข้อเสนอแล้ว อยู่ระหว่างพิจารณา),
-  "awarded" (ประกาศผู้ชนะแล้ว), "contracted" (ทำสัญญาแล้ว), "cancelled" (ยกเลิกโครงการ)
-  หากเอกสารไม่ได้ระบุขั้นตอนอย่างชัดเจนให้ตอบ null ห้ามเดา
-- ค่าที่ไม่ปรากฏในเอกสารให้เป็น null หรือ [] ห้ามคาดเดา`;
-
 /** A PDF really starts with %PDF; an extension is not proof of anything. */
 function looksLikePdf(bytes: Buffer): boolean {
   return (
@@ -119,7 +115,14 @@ function looksLikePdf(bytes: Buffer): boolean {
 }
 
 function unusable(reason: string): DocumentClassification {
-  return { isTor: false, torKind: null, whatThisIs: '', analysis: null, unreadable: reason };
+  return {
+    isTor: false,
+    torKind: null,
+    whatThisIs: '',
+    analysis: null,
+    judgement: null,
+    unreadable: reason,
+  };
 }
 
 interface ModelInput {
@@ -188,7 +191,7 @@ export async function classifyTorDocument(
 
   let raw: string;
   try {
-    raw = await callModel({ ...input.parts, prompt: PROMPT });
+    raw = await callModel({ ...input.parts, prompt: TOR_PROMPT });
   } catch (error) {
     return unusable(error instanceof Error ? error.message : String(error));
   }
@@ -214,15 +217,24 @@ export async function classifyTorDocument(
   // Stored as ISO so a deadline range filter can compare it; a deadline the
   // model wrote in prose ("within 30 days") has no calendar date and becomes null.
   const { analysis } = answer.data;
+  let stored: TorAnalysis | null = null;
+  let judgement: SoftwareJudgement | null = null;
+  if (analysis) {
+    const { isSoftware, confidence, ...fields } = analysis;
+    const reason = fields.reason.slice(0, SOFTWARE_REASON_MAX_CHARS);
+    judgement = { isSoftware, confidence, reason };
+    stored = {
+      ...fields,
+      reason,
+      deadlineAt: convertDateToISO(fields.deadlineAt),
+      promptVersion: TOR_PROMPT_VERSION,
+    };
+  }
+
   return {
     ...answer.data,
-    analysis: analysis && {
-      ...analysis,
-      deadlineAt: convertDateToISO(analysis.deadlineAt),
-      // A reading from extracted text or a cut-down copy can have missed what was
-      // left out, so it is never offered as a confident one.
-      ...(input.readMode !== 'pdf' ? { confidence: 'low' as const } : {}),
-    },
+    analysis: stored,
+    judgement,
     readMode: input.readMode,
     ...(input.readNote ? { readNote: input.readNote } : {}),
   };

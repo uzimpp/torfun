@@ -1,3 +1,4 @@
+import { unzipSync } from 'fflate';
 import { egpGet, UpstreamError } from './client';
 import { BROWSER_HEADERS, TOR_DOWNLOAD_URL, TOR_INFO_URL, TOR_MEMBER_PATTERNS } from './constants';
 
@@ -133,6 +134,47 @@ function basename(member: string): string {
   return member.replace(/\\/g, '/').split('/').pop() ?? member;
 }
 
+/** Every member name in the archive, listed without inflating any of them. */
+function listMembers(archive: Uint8Array): string[] {
+  const members: string[] = [];
+  unzipSync(archive, {
+    filter: (file) => {
+      members.push(file.name);
+      return false;
+    },
+  });
+  return members;
+}
+
+/**
+ * Inflate only the chosen members, which must already have passed the path guard;
+ * output names are flattened to the basename, which that guard makes safe.
+ */
+function inflateChosen<T>(
+  archive: Uint8Array,
+  chosen: Map<string, T>,
+  namePattern: (tag: T) => ExtractedPdf['namePattern'],
+): Array<[ExtractedPdf, T]> {
+  if (chosen.size === 0) return [];
+  const entries = unzipSync(archive, { filter: (file) => chosen.has(file.name) });
+  const out: Array<[ExtractedPdf, T]> = [];
+  for (const [member, tag] of chosen) {
+    const payload = entries[member];
+    if (!payload) continue;
+    out.push([
+      {
+        member,
+        filename: basename(member),
+        bytes: payload.length,
+        namePattern: namePattern(tag),
+        payload,
+      },
+      tag,
+    ]);
+  }
+  return out;
+}
+
 function isUnlabelledPdf(member: string): boolean {
   const name = basename(member);
   return /\.pdf$/i.test(name) && !BOILERPLATE_MEMBER_PATTERNS.some((pattern) => pattern.test(name));
@@ -151,53 +193,38 @@ export interface ExtractionResult {
  *
  * Only TOR-named members are extracted — everything else the archive carries
  * (annoudoc_*.pdf, Attach_PUB_*.pdf, bonds, contracts, quotations) is listed
- * but ignored by this stage. Output names are flattened to the basename, which
- * is safe because every member has already passed the path guard.
+ * but ignored by this stage.
  *
- * `unzipSync` comes from the caller so this function stays free of a hard
- * dependency on any one zip implementation.
+ * Two passes over the archive: the first lists member names without inflating
+ * any of them, the second inflates only the ones chosen. A government archive
+ * carries bonds, contracts and forms we never read, and inflating them all held
+ * several times the archive's size in memory for no purpose.
  */
-export function extractTorPdfs(
-  archive: Uint8Array,
-  unzipSync: (data: Uint8Array) => Record<string, Uint8Array>,
-): ExtractionResult {
-  const entries = unzipSync(archive);
-  const members = Object.keys(entries);
+export function extractTorPdfs(archive: Uint8Array): ExtractionResult {
+  const members = listMembers(archive);
 
-  const torFiles: ExtractedPdf[] = [];
+  const chosen = new Map<string, ExtractedPdf['namePattern']>();
   const unsafeSkipped: string[] = [];
-
-  const take = (member: string, namePattern: ExtractedPdf['namePattern']) => {
-    if (!isSafeMember(member)) {
-      unsafeSkipped.push(member);
-      return;
-    }
-    const payload = entries[member];
-    if (!payload) return;
-
-    torFiles.push({
-      member,
-      filename: basename(member),
-      bytes: payload.length,
-      namePattern,
-      payload,
-    });
-  };
 
   for (const member of members) {
     const namePattern = matchTorMember(member);
-    if (namePattern !== null) take(member, namePattern);
+    if (namePattern === null) continue;
+    if (isSafeMember(member)) chosen.set(member, namePattern);
+    else unsafeSkipped.push(member);
   }
 
   // A TOR is not always named like one: real archives have held it as
   // `20240823082250355.pdf` or `sit.pdf`. With no TOR-named file, send the PDFs
   // that are not the usual boilerplate and let the model say what they are.
   // Not done when a TOR-named file exists — that is what the name patterns are for.
-  if (torFiles.length === 0 && unsafeSkipped.length === 0) {
+  if (chosen.size === 0 && unsafeSkipped.length === 0) {
     for (const member of members.filter(isUnlabelledPdf).slice(0, MAX_UNLABELLED_CANDIDATES)) {
-      take(member, 'unlabelled');
+      if (isSafeMember(member)) chosen.set(member, 'unlabelled');
+      else unsafeSkipped.push(member);
     }
   }
 
+  const torFiles = inflateChosen(archive, chosen, (namePattern) => namePattern).map(([pdf]) => pdf);
   return { torFiles, members, unsafeSkipped };
 }
+

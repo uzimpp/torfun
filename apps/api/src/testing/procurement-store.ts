@@ -1,16 +1,19 @@
 import {
+  appendStatusChange,
   OUTCOME_STATE,
   type IngestionFailure,
   type IngestionOutcome,
   type IngestionSummary,
   type OpenDataQuota,
   type Procurement,
+  type Tombstone,
 } from '@torfun/types';
-import type {
-  FindOptions,
-  FindResult,
-  ProcurementDataSource,
-  UpsertSummary,
+import {
+  holdReasonFor,
+  type FindOptions,
+  type FindResult,
+  type ProcurementDataSource,
+  type UpsertSummary,
 } from '../repositories/procurement.repository';
 import { mergeDiscovered } from '../repositories/merge-discovered';
 import { hashSource, hasUpstreamChange } from '../repositories/source-hash';
@@ -26,6 +29,7 @@ import { hashSource, hasUpstreamChange } from '../repositories/source-hash';
 export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly records = new Map<string, Procurement>();
   private readonly failures: IngestionFailure[] = [];
+  private readonly tombstones = new Map<string, Tombstone>();
   private lastRunAt: string | null = null;
   private quota: OpenDataQuota | null = null;
 
@@ -49,6 +53,27 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     const merged = mergeDiscovered(existing, record);
     this.records.set(merged.projectId, merged);
     return merged;
+  }
+
+  async tombstone(tombstone: Tombstone): Promise<void> {
+    this.tombstones.set(tombstone.projectId, tombstone);
+    this.records.delete(tombstone.projectId);
+  }
+
+  async remove(projectId: string): Promise<boolean> {
+    return this.records.delete(projectId);
+  }
+
+  async tombstonedIds(projectIds: string[]): Promise<Set<string>> {
+    return new Set(projectIds.filter((id) => this.tombstones.has(id)));
+  }
+
+  async listTombstones(): Promise<Tombstone[]> {
+    return [...this.tombstones.values()];
+  }
+
+  async removeTombstone(projectId: string): Promise<boolean> {
+    return this.tombstones.delete(projectId);
   }
 
   async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
@@ -82,7 +107,8 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       ...patch,
       state,
       outcome,
-      statusHistory: [...existing.statusHistory, { state, outcome, at, detail }],
+      holdReason: holdReasonFor(outcome, patch),
+      statusHistory: appendStatusChange(existing.statusHistory, { state, outcome, at, detail }),
       updatedAt: at,
     };
     this.records.set(projectId, updated);
@@ -95,8 +121,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
         (!options.state || record.state === options.state) &&
         (!options.outcome || record.outcome === options.outcome) &&
         (!options.status || record.status === options.status) &&
-        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow) &&
-        (options.eBidding === undefined || record.eBidding === options.eBidding),
+        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow),
     );
     return {
       items: items.slice(options.offset, options.offset + options.limit),
@@ -170,6 +195,8 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       lastRunAt: this.lastRunAt,
       openDataQuota: this.quota,
       runInProgress: false,
+      runStartedAt: null,
+      stopRequested: false,
     };
   }
 

@@ -46,9 +46,16 @@ async function readTextLayer(pdf: Buffer): Promise<string | null> {
   try {
     // A copy: pdf.js may detach the buffer it is given, and the caller still needs it.
     const document = await getDocumentProxy(new Uint8Array(pdf));
-    const { text } = await extractText(document, { mergePages: true });
-    const joined = Array.isArray(text) ? text.join('\n') : text;
-    return looksReadable(joined) ? joined.slice(0, MAX_TEXT_CHARS) : null;
+    try {
+      const { text } = await extractText(document, { mergePages: true });
+      const joined = Array.isArray(text) ? text.join('\n') : text;
+      return looksReadable(joined) ? joined.slice(0, MAX_TEXT_CHARS) : null;
+    } finally {
+      // pdf.js keeps the parsed document and its worker alive until told otherwise.
+      // unpdf's proxy has no destroy() of its own; the loading task owns it. A
+      // failure to clean up must not throw away the text already read.
+      await document.loadingTask.destroy().catch(() => {});
+    }
   } catch {
     return null;
   }
