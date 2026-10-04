@@ -4,7 +4,12 @@ import { DEFAULT_SCHEDULE } from '@torfun/types';
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const view = { ...DEFAULT_SCHEDULE, lastRunAt: null, nextRunAt: null };
+const view = {
+  ...DEFAULT_SCHEDULE,
+  lastRunAt: null,
+  nextRunAt: null,
+  upcomingRunAts: [],
+};
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -46,9 +51,15 @@ describe('fetchSchedule', () => {
 });
 
 describe('updateSchedule', () => {
-  const update = { enabled: true, mode: 'interval', timeOfDay: '02:00', everyHours: 12 } as const;
+  const update = {
+    enabled: true,
+    mode: 'interval' as const,
+    timeOfDay: '02:00',
+    weekdays: [0, 1, 2, 3, 4, 5, 6],
+    everyHours: 12,
+  };
 
-  test('PUTs the four fields as JSON', async () => {
+  test('PUTs the five fields as JSON', async () => {
     fetchMock.mockResolvedValue(json({ ...view, ...update }));
     const { updateSchedule } = await load();
 

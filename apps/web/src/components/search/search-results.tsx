@@ -20,12 +20,6 @@ import { hasSearchCriteria, type SearchFilterValues } from './search-filter-valu
 import { ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
 
-const CLASS_LABELS: Record<Procurement['softwareClass'], string> = {
-  new_build: 'พัฒนาระบบใหม่',
-  oandm: 'ดูแลและบำรุงรักษา',
-  not_software: 'ไม่ใช่งานซอฟต์แวร์',
-};
-
 const bahtFormat = new Intl.NumberFormat('th-TH', {
   style: 'currency',
   currency: 'THB',
@@ -187,18 +181,6 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
       className="group hover:bg-card -mx-4 px-4 py-6 transition-colors sm:-mx-6 sm:px-6"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
-          {CLASS_LABELS[item.softwareClass]}
-        </span>
-        {item.eBidding ? (
-          <span className="text-muted-foreground border-border rounded-full border px-2.5 py-1 text-xs">
-            e-bidding
-          </span>
-        ) : (
-          <span className="text-muted-foreground text-xs">
-            {item.purchaseMethodName ?? 'วิธีอื่นที่ไม่ใช่ e-bidding'}
-          </span>
-        )}
         <ProcurementStatusBadge status={item.status} source={item.statusSource} />
         <span data-numeric className="text-muted-foreground font-mono text-xs">
           ปีงบประมาณ {item.year}

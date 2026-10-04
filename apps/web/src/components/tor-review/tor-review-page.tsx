@@ -2,12 +2,14 @@ import {
   Banknote,
   Bookmark,
   CalendarDays,
+  Gavel,
   Clock3,
   MapPin,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatThaiDate } from '@/lib/format-date';
 import { cn } from '@/lib/utils';
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
@@ -36,6 +38,16 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
                 <span className="inline-flex items-center gap-2">
                   <MapPin aria-hidden="true" className="size-4" />
                   {tor.location}
+                </span>
+              )}
+              <span className="inline-flex items-center gap-2">
+                <CalendarDays aria-hidden="true" className="size-4" />
+                ปีงบประมาณ {tor.fiscalYear}
+              </span>
+              {tor.procurementMethod && (
+                <span className="inline-flex items-center gap-2">
+                  <Gavel aria-hidden="true" className="size-4" />
+                  วิธีการจัดซื้อจัดจ้าง: {tor.procurementMethod}
                 </span>
               )}
               <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
@@ -74,11 +86,6 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
             <p className="leading-relaxed">
               {tor.summary ?? 'ยังไม่มีข้อมูลการวิเคราะห์ TOR'}
             </p>
-            {tor.confidence && (
-              <p className="text-muted-foreground mt-4 text-xs">
-                ระดับความมั่นใจของการวิเคราะห์: {tor.confidence === 'high' ? 'สูง' : 'ต่ำ'}
-              </p>
-            )}
           </CardContent>
         </Card>
       </section>
@@ -139,10 +146,14 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
       <section aria-labelledby="dates-heading" className="border-border mt-12 border-t pt-8 pb-6">
         <SectionHeading id="dates-heading" eyebrow="อย่าพลาดกำหนดการ" title="กำหนดการสำคัญ" />
         <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-          <DateItem label="วันที่ประกาศ" value={tor.announcementDate ?? 'ยังไม่มีข้อมูลวันที่ประกาศ'} />
+          <DateItem label="วันที่ประกาศ" value={tor.announcementDate ? formatThaiDate(tor.announcementDate) : 'ยังไม่มีข้อมูลวันที่ประกาศ'} />
           <DateItem
             label="ปิดรับข้อเสนอ"
-            value={tor.submissionDeadline ?? 'ยังไม่มีข้อมูลวันปิดรับข้อเสนอ'}
+            value={
+              tor.submissionDeadline
+                ? formatThaiDate(tor.submissionDeadline, { withTime: true })
+                : 'ยังไม่มีข้อมูลวันปิดรับข้อเสนอ'
+            }
             urgent
           />
         </div>

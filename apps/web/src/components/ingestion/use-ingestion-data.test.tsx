@@ -18,6 +18,7 @@ vi.mock('@/lib/api', async () => {
     fetchProjects: vi.fn(),
     fetchFailures: vi.fn(),
     startIngestionRun: vi.fn(),
+    stopIngestionRun: vi.fn(),
   };
 });
 
@@ -37,6 +38,8 @@ function summary(runInProgress: boolean): IngestionSummaryResponse {
     lastRunAt: null,
     openDataQuota: null,
     runInProgress,
+    runStartedAt: null,
+    stopRequested: false,
     agencies: [],
   };
 }
@@ -134,6 +137,59 @@ describe('starting a run', () => {
     await act(() => result.current.startRun());
 
     expect(result.current.sessionEnded).toBe(true);
+  });
+});
+
+describe('stopping a run', () => {
+  test('asks the API, then reads the summary again so the banner shows it is stopping', async () => {
+    mocked.fetchSummary.mockResolvedValue(summary(true));
+    mocked.stopIngestionRun.mockResolvedValue({ stopping: true });
+    const { result } = renderHook(() => useIngestionData(EMPTY_FILTERS, 0));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const callsBefore = mocked.fetchSummary.mock.calls.length;
+
+    await act(() => result.current.stopRun());
+
+    expect(mocked.stopIngestionRun).toHaveBeenCalledOnce();
+    await waitFor(() => expect(mocked.fetchSummary.mock.calls.length).toBeGreaterThan(callsBefore));
+    expect(result.current.error).toBeNull();
+  });
+
+  test('a session that ended is reported as ended, not as a failed stop', async () => {
+    mocked.fetchSummary.mockResolvedValue(summary(true));
+    mocked.stopIngestionRun.mockRejectedValue(new SessionEndedError());
+    const { result } = renderHook(() => useIngestionData(EMPTY_FILTERS, 0));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(() => result.current.stopRun());
+
+    expect(result.current.sessionEnded).toBe(true);
+  });
+
+  test('if the run had already finished, it is no error: the page just reads the summary again', async () => {
+    mocked.fetchSummary.mockResolvedValue(summary(true));
+    mocked.stopIngestionRun.mockRejectedValue(
+      new ApiError('No ingestion run is in progress.', 409),
+    );
+    const { result } = renderHook(() => useIngestionData(EMPTY_FILTERS, 0));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const callsBefore = mocked.fetchSummary.mock.calls.length;
+
+    await act(() => result.current.stopRun());
+
+    await waitFor(() => expect(mocked.fetchSummary.mock.calls.length).toBeGreaterThan(callsBefore));
+    expect(result.current.error).toBeNull();
+  });
+
+  test('any other failure is shown in Thai', async () => {
+    mocked.fetchSummary.mockResolvedValue(summary(true));
+    mocked.stopIngestionRun.mockRejectedValue(new TypeError('network down'));
+    const { result } = renderHook(() => useIngestionData(EMPTY_FILTERS, 0));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(() => result.current.stopRun());
+
+    expect(result.current.error).toBe('ไม่สามารถหยุดรอบการดึงข้อมูลได้');
   });
 });
 

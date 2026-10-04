@@ -140,7 +140,7 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   return retried;
 }
 
-async function failure(response: Response): Promise<ApiError> {
+export async function failure(response: Response): Promise<ApiError> {
   const body = (await response.json().catch(() => null)) as { message?: string } | null;
   return new ApiError(body?.message ?? `Request failed: ${response.status}`, response.status);
 }
@@ -180,13 +180,19 @@ export function fetchFailures(): Promise<{ items: IngestionFailure[] }> {
   return request<{ items: IngestionFailure[] }>('/api/ingestion/failures');
 }
 
-export function startIngestionRun(
-  eBiddingOnly = true,
-): Promise<{ started: true; message: string }> {
+export function startIngestionRun(): Promise<{ started: true; message: string }> {
   return request('/api/ingestion/run', {
     method: 'POST',
-    body: JSON.stringify({ eBiddingOnly }),
+    body: JSON.stringify({}),
   });
+}
+
+/**
+ * Ask the run now going to stop, gracefully. No body, so no JSON content-type:
+ * Fastify refuses a request that claims one and sends nothing.
+ */
+export function stopIngestionRun(): Promise<{ stopping: true }> {
+  return request('/api/ingestion/run/stop', { method: 'POST' });
 }
 
 /* ------------------------------------------------------------------------- *
@@ -199,7 +205,7 @@ export function startIngestionRun(
  * ------------------------------------------------------------------------- */
 
 /** A body-less response — DELETE answers 204, which `response.json()` chokes on. */
-async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
+export async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
   const response = await apiFetch(path, init);
   if (!response.ok) throw await failure(response);
 }

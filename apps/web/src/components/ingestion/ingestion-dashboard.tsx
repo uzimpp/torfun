@@ -4,13 +4,23 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { DroppedCard } from './dropped-card';
 import { FailureLog } from './failure-log';
 import { FilterBar } from './filter-bar';
+import { HeldCard } from './held-card';
 import { ProjectTable } from './project-table';
 import { ScheduleCard } from './schedule-card';
-import { describeQuota, runBanner } from './status-tracking';
+import { describeQuota, runBanner, type RunBanner as RunBannerView } from './status-tracking';
 import { SummaryCards } from './summary-cards';
 import { useNow } from './use-now';
 import {
@@ -59,25 +69,72 @@ function QuotaNote({
 }
 
 /**
- * Shown only while a run is in flight: which stage the work is in and how much
- * is left. A polite live region, so a screen reader hears the change without
- * being interrupted, and the dot pulses only for people who allow motion.
+ * Shown only while a run is in flight: which stage the work is in, how much is
+ * left, how long it has been going, and the way to stop it. A polite live
+ * region, so a screen reader hears the change without being interrupted — except
+ * the elapsed time, which ticks every second and would never stop talking. The
+ * dot pulses only for people who allow motion.
+ *
+ * Stopping asks first, because it is not undone: the run ends once the records
+ * in hand are finished, and the rest wait for the next one.
  */
-function RunBanner({ title, detail }: { title: string; detail: string }) {
+function RunBanner({ banner, onStop }: { banner: RunBannerView; onStop: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+
   return (
     <div
       role="status"
-      aria-label={title}
-      className="border-primary/30 bg-primary/5 flex items-center gap-3 rounded-xl border px-4 py-3"
+      aria-label={banner.title}
+      className="border-primary/30 bg-primary/5 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3"
     >
       <span
         className="bg-primary size-2.5 shrink-0 rounded-full motion-safe:animate-pulse"
         aria-hidden="true"
       />
-      <div className="flex flex-col">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-muted-foreground text-xs">{detail}</p>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <p className="text-sm font-medium">{banner.title}</p>
+        <p className="text-muted-foreground text-xs">{banner.detail}</p>
+        {banner.elapsed ? (
+          <p aria-live="off" className="text-muted-foreground text-xs tabular-nums">
+            {banner.elapsed}
+          </p>
+        ) : null}
       </div>
+
+      <Button
+        variant="outline"
+        disabled={banner.stopping}
+        aria-busy={banner.stopping || undefined}
+        onClick={() => setConfirming(true)}
+        className="min-h-11"
+      >
+        {banner.stopping ? 'กำลังหยุด…' : 'หยุดรอบนี้'}
+      </Button>
+
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>หยุดรอบนี้?</DialogTitle>
+            <DialogDescription>
+              รายการที่กำลังทำอยู่จะทำต่อจนเสร็จ ที่เหลือจะยังอยู่ในคิว
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirming(false)}>
+              ไม่หยุด
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirming(false);
+                onStop();
+              }}
+            >
+              หยุดรอบนี้
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -93,6 +150,8 @@ function RunBanner({ title, detail }: { title: string; detail: string }) {
 export function IngestionDashboard() {
   const [filters, setFilters] = useState<FilterValues>(EMPTY_FILTERS);
   const [page, setPage] = useState(0);
+  /** Bumped when an administrator action moves a record between the table and the cards. */
+  const [changes, setChanges] = useState(0);
 
   const {
     summary,
@@ -104,6 +163,7 @@ export function IngestionDashboard() {
     sessionEnded,
     running,
     startRun,
+    stopRun,
     retry,
   } = useIngestionData(filters, page);
 
@@ -114,11 +174,18 @@ export function IngestionDashboard() {
     setPage(0);
   };
 
+  const onChanged = () => {
+    retry();
+    setChanges((count) => count + 1);
+  };
+
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Moves while the console is open, so "in this stage for N minutes" keeps counting.
-  const now = useNow(30_000);
-  const banner = summary ? runBanner(summary) : null;
+  // Every second while a run is going, so its elapsed time counts in seconds; the
+  // slow tick otherwise, so nothing ticks fast when no run is in progress.
+  const now = useNow(running ? 1000 : 30_000);
+  const banner = summary ? runBanner(summary, now) : null;
 
   return (
     <main className="page-fill mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-10">
@@ -136,7 +203,7 @@ export function IngestionDashboard() {
         </Button>
       </header>
 
-      {banner ? <RunBanner title={banner.title} detail={banner.detail} /> : null}
+      {banner ? <RunBanner banner={banner} onStop={() => void stopRun()} /> : null}
 
       {error ? (
         <Card className="border-destructive/50" role="alert">
@@ -175,6 +242,7 @@ export function IngestionDashboard() {
         loading={loading}
         now={now}
         onClearFilters={() => applyFilters(EMPTY_FILTERS)}
+        onChanged={onChanged}
       />
 
       <div className="flex items-center justify-between">
@@ -202,6 +270,10 @@ export function IngestionDashboard() {
       <Separator />
 
       <FailureLog failures={failures} />
+
+      <HeldCard reloadKey={changes} onChanged={onChanged} />
+
+      <DroppedCard reloadKey={changes} onChanged={onChanged} />
 
       <ScheduleCard />
     </main>

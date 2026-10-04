@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import {
+  INTERVAL_PRESETS,
+  WEEKDAY_LABELS,
   formatBangkok,
-  hourChoicesFor,
   toFormValues,
   validateSchedule,
   type ScheduleFormErrors,
@@ -97,13 +98,15 @@ function ScheduleForm({
   const [values, setValues] = useState<ScheduleFormValues>(() => toFormValues(schedule));
   const [errors, setErrors] = useState<ScheduleFormErrors>({});
   const timeRef = useRef<HTMLInputElement>(null);
-  const hoursRef = useRef<HTMLSelectElement>(null);
+  const hoursRef = useRef<HTMLInputElement>(null);
+  const daysRef = useRef<HTMLFieldSetElement>(null);
 
   const id = useId();
   const switchLabelId = `${id}-switch-label`;
   const switchStateId = `${id}-switch-state`;
   const timeErrorId = `${id}-time-error`;
   const hoursErrorId = `${id}-hours-error`;
+  const daysErrorId = `${id}-days-error`;
 
   const change = (patch: Partial<ScheduleFormValues>) => {
     setValues((current) => ({ ...current, ...patch }));
@@ -115,10 +118,18 @@ function ScheduleForm({
     event.preventDefault();
     const found = validateSchedule(values);
     setErrors(found);
-    if (found.timeOfDay) timeRef.current?.focus();
+    if (found.weekdays) daysRef.current?.focus();
+    else if (found.timeOfDay) timeRef.current?.focus();
     else if (found.everyHours) hoursRef.current?.focus();
     else void data.save(values);
   };
+
+  const toggleDay = (day: number) =>
+    change({
+      weekdays: values.weekdays.includes(day)
+        ? values.weekdays.filter((chosen) => chosen !== day)
+        : [...values.weekdays, day],
+    });
 
   const { saving, saveError, saved, sessionEnded } = data;
   const control =
@@ -149,8 +160,8 @@ function ScheduleForm({
           <div className="grid gap-2 sm:grid-cols-2">
             {(
               [
-                { mode: 'daily', label: 'ทุกวัน' },
                 { mode: 'interval', label: 'ทุก N ชั่วโมง' },
+                { mode: 'weekly', label: 'ตามวันในสัปดาห์' },
               ] as const
             ).map((option) => (
               <label
@@ -171,47 +182,101 @@ function ScheduleForm({
           </div>
         </fieldset>
 
-        {values.mode === 'daily' ? (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-time`} className="text-muted-foreground text-xs">
-              เวลาเริ่มรอบ (เวลาไทย)
-            </Label>
-            <Input
-              ref={timeRef}
-              id={`${id}-time`}
-              type="time"
-              value={values.timeOfDay}
-              onChange={(event) => change({ timeOfDay: event.target.value })}
-              aria-invalid={errors.timeOfDay ? true : undefined}
-              aria-describedby={errors.timeOfDay ? timeErrorId : undefined}
-              className="h-11 sm:max-w-40"
-            />
-            {errors.timeOfDay ? (
-              <p id={timeErrorId} className="text-destructive text-sm">
-                {errors.timeOfDay}
-              </p>
-            ) : null}
-          </div>
+        {values.mode === 'weekly' ? (
+          <>
+            <fieldset
+              ref={daysRef}
+              tabIndex={-1}
+              aria-describedby={errors.weekdays ? daysErrorId : undefined}
+              className="flex flex-col gap-2"
+            >
+              <legend className="text-muted-foreground mb-2 text-xs font-medium">
+                วันที่เริ่มรอบ
+              </legend>
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAY_LABELS.map((label, day) => (
+                  <label
+                    key={label}
+                    className="border-input has-[:checked]:border-primary has-[:focus-visible]:ring-ring/50 flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 text-sm has-[:focus-visible]:ring-[3px]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={values.weekdays.includes(day)}
+                      onChange={() => toggleDay(day)}
+                      className="accent-primary size-4"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              {errors.weekdays ? (
+                <p id={daysErrorId} className="text-destructive text-sm">
+                  {errors.weekdays}
+                </p>
+              ) : null}
+            </fieldset>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${id}-time`} className="text-muted-foreground text-xs">
+                เวลาเริ่มรอบ (เวลาไทย)
+              </Label>
+              <Input
+                ref={timeRef}
+                id={`${id}-time`}
+                type="time"
+                value={values.timeOfDay}
+                onChange={(event) => change({ timeOfDay: event.target.value })}
+                aria-invalid={errors.timeOfDay ? true : undefined}
+                aria-describedby={errors.timeOfDay ? timeErrorId : undefined}
+                className="h-11 sm:max-w-40"
+              />
+              {errors.timeOfDay ? (
+                <p id={timeErrorId} className="text-destructive text-sm">
+                  {errors.timeOfDay}
+                </p>
+              ) : null}
+            </div>
+          </>
         ) : (
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${id}-hours`} className="text-muted-foreground text-xs">
               เว้นระยะ (ชั่วโมง)
             </Label>
-            <select
-              ref={hoursRef}
-              id={`${id}-hours`}
-              value={values.everyHours}
-              onChange={(event) => change({ everyHours: Number(event.target.value) })}
-              aria-invalid={errors.everyHours ? true : undefined}
-              aria-describedby={errors.everyHours ? hoursErrorId : undefined}
-              className={cn(control, 'sm:max-w-40')}
-            >
-              {hourChoicesFor(values.everyHours).map((hours) => (
-                <option key={hours} value={hours}>
+            <div className="flex flex-wrap items-center gap-2">
+              {INTERVAL_PRESETS.map((hours) => (
+                <Button
+                  key={hours}
+                  type="button"
+                  variant="outline"
+                  aria-pressed={values.everyHours === hours}
+                  aria-label={`${hours} ชั่วโมง`}
+                  onClick={() => change({ everyHours: hours })}
+                  className={cn(
+                    'min-h-11 min-w-14 tabular-nums',
+                    values.everyHours === hours && 'border-primary bg-primary/10',
+                  )}
+                >
                   {hours}
-                </option>
+                </Button>
               ))}
-            </select>
+              <Input
+                ref={hoursRef}
+                id={`${id}-hours`}
+                type="number"
+                inputMode="numeric"
+                min={6}
+                max={168}
+                value={Number.isNaN(values.everyHours) ? '' : values.everyHours}
+                onChange={(event) =>
+                  change({
+                    everyHours: event.target.value === '' ? Number.NaN : Number(event.target.value),
+                  })
+                }
+                aria-invalid={errors.everyHours ? true : undefined}
+                aria-describedby={errors.everyHours ? hoursErrorId : undefined}
+                className="h-11 w-28"
+              />
+            </div>
             {errors.everyHours ? (
               <p id={hoursErrorId} className="text-destructive text-sm">
                 {errors.everyHours}
@@ -255,6 +320,18 @@ function ScheduleForm({
               : 'ยังไม่ได้กำหนด'}
           </dd>
         </div>
+        {schedule.enabled && schedule.upcomingRunAts.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            <dt className="text-muted-foreground text-xs font-medium">สามรอบถัดไป</dt>
+            <dd>
+              <ul aria-label="สามรอบถัดไป" className="flex flex-col gap-0.5 text-sm tabular-nums">
+                {schedule.upcomingRunAts.map((at) => (
+                  <li key={at}>{formatBangkok(at)}</li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        ) : null}
         <div className="flex flex-col gap-1">
           <dt className="text-muted-foreground text-xs font-medium">รอบล่าสุด</dt>
           <dd className="text-base tabular-nums">

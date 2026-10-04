@@ -13,7 +13,6 @@ function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSu
       downloading: 1,
       analysing: 2,
       tor_analysed: 38,
-      not_software: 4,
       analysis_failed: 2,
       no_tor_package: 5,
     },
@@ -25,6 +24,8 @@ function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSu
     lastRunAt: '2026-09-30T10:00:00.000Z',
     openDataQuota: null,
     runInProgress: false,
+    runStartedAt: null,
+    stopRequested: false,
     agencies: [],
     ...overrides,
   };

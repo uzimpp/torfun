@@ -7,7 +7,7 @@ describe('outcomeBuckets', () => {
     const buckets = outcomeBuckets({});
     expect(buckets.map((bucket) => bucket.label)).toEqual([
       'วิเคราะห์แล้ว',
-      'AI: ไม่ใช่งานซอฟต์แวร์',
+      'รอผู้ดูแลตรวจสอบ',
       'ไม่มี TOR',
       'ล้มเหลว',
       'รอ',
@@ -27,7 +27,7 @@ describe('outcomeBuckets', () => {
   test('sums the outcomes each bucket stands for', () => {
     const buckets = outcomeBuckets({
       tor_analysed: 38,
-      not_software: 4,
+      needs_review: 7,
       no_tor_package: 2,
       no_tor_in_archive: 3,
       analysis_failed: 3,
@@ -39,7 +39,7 @@ describe('outcomeBuckets', () => {
     });
     const count = (key: string) => buckets.find((bucket) => bucket.key === key)?.count;
     expect(count('analysed')).toBe(38);
-    expect(count('notSoftware')).toBe(4);
+    expect(count('needsReview')).toBe(7);
     expect(count('noTor')).toBe(5);
     expect(count('failed')).toBe(6);
     expect(count('queued')).toBe(200);
@@ -67,7 +67,7 @@ describe('shareOf', () => {
 describe('bucketOfOutcome', () => {
   test('names the bucket an outcome is counted in', () => {
     expect(bucketOfOutcome('tor_analysed')).toBe('analysed');
-    expect(bucketOfOutcome('not_software')).toBe('notSoftware');
+    expect(bucketOfOutcome('needs_review')).toBe('needsReview');
     expect(bucketOfOutcome('no_tor_in_archive')).toBe('noTor');
     expect(bucketOfOutcome('abandoned')).toBe('failed');
     expect(bucketOfOutcome('queued')).toBe('queued');

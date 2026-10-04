@@ -15,6 +15,7 @@ import {
   fetchProjects,
   fetchSummary,
   startIngestionRun,
+  stopIngestionRun,
   type IngestionSummaryResponse,
   type ProjectFilters,
 } from '@/lib/api';
@@ -28,7 +29,6 @@ export interface FilterValues {
   status: string;
   agency: string;
   year: string;
-  eBidding: string;
   query: string;
 }
 
@@ -38,7 +38,6 @@ export const EMPTY_FILTERS: FilterValues = {
   status: '',
   agency: '',
   year: '',
-  eBidding: '',
   query: '',
 };
 
@@ -51,14 +50,13 @@ function toQuery(filters: FilterValues, page: number): ProjectFilters {
     ...(filters.status ? { status: filters.status as ProcurementStatus } : {}),
     ...(filters.agency ? { deptName: filters.agency } : {}),
     ...(filters.year ? { year: Number(filters.year) } : {}),
-    ...(filters.eBidding ? { eBidding: filters.eBidding === 'true' } : {}),
     ...(filters.query ? { q: filters.query } : {}),
   };
 }
 
 export const SESSION_ENDED_MESSAGE = 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง';
 
-function messageFor(caught: unknown, fallback: string): string {
+export function messageFor(caught: unknown, fallback: string): string {
   if (caught instanceof SessionEndedError) return SESSION_ENDED_MESSAGE;
   return caught instanceof ApiError ? caught.message : fallback;
 }
@@ -77,6 +75,8 @@ export interface IngestionData {
   sessionEnded: boolean;
   running: boolean;
   startRun: () => Promise<void>;
+  /** Ask the run now going to stop; it finishes the record in hand and leaves the rest queued. */
+  stopRun: () => Promise<void>;
   /** Reload after a failure; polling resumes once a load succeeds. */
   retry: () => void;
 }
@@ -98,14 +98,14 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
   /** Bumped to force a reload without changing any filter. */
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const { state, outcome, status, agency, year, eBidding, query } = filters;
+  const { state, outcome, status, agency, year, query } = filters;
 
   // Pure fetch — deliberately free of setState so an effect can call it without
   // triggering the cascading renders the React compiler warns about.
   const loadData = useCallback(() => {
-    const params = toQuery({ state, outcome, status, agency, year, eBidding, query }, page);
+    const params = toQuery({ state, outcome, status, agency, year, query }, page);
     return Promise.all([fetchSummary(), fetchProjects(params), fetchFailures()]);
-  }, [page, state, outcome, status, agency, year, eBidding, query]);
+  }, [page, state, outcome, status, agency, year, query]);
 
   useEffect(() => {
     // `cancelled` guards against out-of-order responses: changing a filter
@@ -153,12 +153,30 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
   const startRun = useCallback(async () => {
     setError(null);
     try {
-      await startIngestionRun(true);
+      await startIngestionRun();
       setRunning(true);
       setRefreshKey((key) => key + 1);
     } catch (caught) {
       setSessionEnded(caught instanceof SessionEndedError);
       setError(messageFor(caught, 'ไม่สามารถเริ่มรอบการดึงข้อมูลได้'));
+    }
+  }, []);
+
+  const stopRun = useCallback(async () => {
+    setError(null);
+    try {
+      await stopIngestionRun();
+      // Read the summary again now, so the banner shows it is stopping at once.
+      setRefreshKey((key) => key + 1);
+    } catch (caught) {
+      setSessionEnded(caught instanceof SessionEndedError);
+      if (caught instanceof ApiError && caught.status === 409) {
+        // No run in progress: it had finished by the time the request arrived.
+        // Nothing went wrong; reading the summary again takes the banner down.
+        setRefreshKey((key) => key + 1);
+        return;
+      }
+      setError(messageFor(caught, 'ไม่สามารถหยุดรอบการดึงข้อมูลได้'));
     }
   }, []);
 
@@ -177,6 +195,7 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
     sessionEnded,
     running,
     startRun,
+    stopRun,
     retry,
   };
 }

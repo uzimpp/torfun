@@ -125,16 +125,6 @@ export function FilterBar({
           onChange={(year) => onChange({ year })}
           options={[ALL, ...years.map((y) => ({ value: String(y), label: String(y) }))]}
         />
-        <Select
-          label="วิธีจัดหา"
-          value={values.eBidding}
-          onChange={(eBidding) => onChange({ eBidding })}
-          options={[
-            ALL,
-            { value: 'true', label: 'e-bidding เท่านั้น' },
-            { value: 'false', label: 'ไม่ใช่ e-bidding' },
-          ]}
-        />
         {active ? (
           <Button variant="ghost" className="min-h-10" onClick={() => onChange(EMPTY_FILTERS)}>
             ล้างตัวกรอง

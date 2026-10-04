@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useState } from 'react';
+import Link from 'next/link';
 import { AlertTriangle, ChevronDown } from 'lucide-react';
 import { STATUS_LABELS, type Procurement } from '@torfun/types';
 import { Badge } from '@/components/ui/badge';
@@ -16,9 +17,11 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { attemptsLabel, describeChange, stageDuration } from './status-tracking';
+import { ProjectActionDialog, type ProjectAction } from './project-action-dialog';
+import { ProjectActionMenu } from './project-action-menu';
 import { OutcomeLabel, StateBadge } from './status-badge';
 
-const COLUMNS = 8;
+const COLUMNS = 9;
 
 function formatThb(amount: number | null): string {
   if (amount === null) return '—';
@@ -63,6 +66,10 @@ function compactFacts(record: Procurement): string {
 function ProjectDetail({ record }: { record: Procurement }) {
   return (
     <div className="flex flex-col gap-4 p-2">
+      <div>
+        <h3 className="text-muted-foreground text-xs font-medium">ชื่อโครงการ</h3>
+        <p className="mt-1 w-72 text-sm break-words whitespace-normal">{record.projectName}</p>
+      </div>
       <div>
         <h3 className="text-muted-foreground text-xs font-medium">ประวัติสถานะ</h3>
         <ol aria-label="ประวัติสถานะ" className="mt-2 flex flex-col gap-1.5">
@@ -161,6 +168,7 @@ export function ProjectTable({
   loading,
   now,
   onClearFilters,
+  onChanged,
 }: {
   projects: Procurement[];
   total: number;
@@ -168,8 +176,11 @@ export function ProjectTable({
   /** The moment "in this stage for N minutes" is measured to. */
   now: Date;
   onClearFilters: () => void;
+  /** Called after an administrator action went through, so the list can be read again. */
+  onChanged: () => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [acting, setActing] = useState<{ record: Procurement; action: ProjectAction } | null>(null);
   const toggle = (projectId: string) => setExpanded(expanded === projectId ? null : projectId);
 
   return (
@@ -187,14 +198,17 @@ export function ProjectTable({
         <Table aria-busy={loading}>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-32">สถานะการประมวลผล</TableHead>
+              <TableHead className="w-32">การประมวลผล</TableHead>
               <TableHead className="w-48">ผลการประมวลผล</TableHead>
-              <TableHead className="w-32">สถานะโครงการ</TableHead>
-              <TableHead className="min-w-56">โครงการ</TableHead>
+              <TableHead className="w-32">สถานะ</TableHead>
+              <TableHead className="w-72">โครงการ</TableHead>
               <TableHead className="w-40">หน่วยงาน</TableHead>
               <TableHead className="hidden w-20 text-right xl:table-cell">ปี</TableHead>
               <TableHead className="hidden w-36 text-right xl:table-cell">งบประมาณ (บาท)</TableHead>
               <TableHead className="hidden w-20 text-right xl:table-cell">TOR</TableHead>
+              <TableHead className="w-12">
+                <span className="sr-only">การดำเนินการ</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -252,37 +266,37 @@ export function ProjectTable({
                           ) : null}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <button
-                          type="button"
-                          aria-expanded={isOpen}
-                          aria-controls={`detail-${record.projectId}`}
-                          className="focus-visible:ring-ring/50 flex w-full items-start gap-1.5 rounded-sm text-left outline-none focus-visible:ring-[3px]"
-                        >
-                          <span className="line-clamp-2 text-sm">{record.projectName}</span>
-                          <ChevronDown
-                            aria-hidden="true"
-                            className={cn(
-                              'text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform motion-reduce:transition-none',
-                              isOpen && 'rotate-180',
-                            )}
-                          />
-                        </button>
+                      <TableCell className="w-72 max-w-72">
+                        <div className="flex items-start gap-1.5">
+                          <Link
+                            href={`/tor/${record.projectId}`}
+                            title={record.projectName}
+                            onClick={(event) => event.stopPropagation()}
+                            className="focus-visible:ring-ring/50 min-w-0 flex-1 truncate rounded-sm text-sm outline-none hover:underline focus-visible:ring-[3px]"
+                          >
+                            {record.projectName}
+                          </Link>
+                          <button
+                            type="button"
+                            aria-expanded={isOpen}
+                            aria-controls={`detail-${record.projectId}`}
+                            aria-label="แสดงรายละเอียด"
+                            className="focus-visible:ring-ring/50 rounded-sm outline-none focus-visible:ring-[3px]"
+                          >
+                            <ChevronDown
+                              aria-hidden="true"
+                              className={cn(
+                                'text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform motion-reduce:transition-none',
+                                isOpen && 'rotate-180',
+                              )}
+                            />
+                          </button>
+                        </div>
                         <p className="text-muted-foreground mt-1 text-xs xl:hidden">
                           {compactFacts(record)}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <code className="text-muted-foreground text-xs">{record.projectId}</code>
-                          {record.eBidding ? (
-                            <Badge variant="outline" className="text-[10px]">
-                              e-bidding
-                            </Badge>
-                          ) : null}
-                          {record.softwareClass === 'oandm' ? (
-                            <Badge variant="ghost" className="text-[10px]">
-                              O&amp;M
-                            </Badge>
-                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="text-sm">{record.deptName}</TableCell>
@@ -294,6 +308,16 @@ export function ProjectTable({
                       </TableCell>
                       <TableCell className="hidden text-right tabular-nums xl:table-cell">
                         {countTorDocuments(record) > 0 ? countTorDocuments(record) : '—'}
+                      </TableCell>
+                      {/* Not part of the row's click target: opening the menu must not expand it. */}
+                      <TableCell
+                        className="text-right"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <ProjectActionMenu
+                          record={record}
+                          onChoose={(action) => setActing({ record, action })}
+                        />
                       </TableCell>
                     </TableRow>
 
@@ -311,6 +335,15 @@ export function ProjectTable({
           </TableBody>
         </Table>
       </CardContent>
+
+      {acting ? (
+        <ProjectActionDialog
+          record={acting.record}
+          action={acting.action}
+          onClose={() => setActing(null)}
+          onDone={onChanged}
+        />
+      ) : null}
     </Card>
   );
 }
