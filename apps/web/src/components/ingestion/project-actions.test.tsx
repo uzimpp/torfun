@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Procurement } from '@torfun/types';
+import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 
 import { ApiError, SessionEndedError } from '@/lib/api';
 import { ProjectTable } from './project-table';
@@ -27,14 +27,17 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     district: null,
     subdistrict: null,
     deptCode: '3100001',
-    year: 2568,
+    budgetYear: 2568,
     announceDate: null,
     projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
     status: 'unknown',
-    statusSource: null,
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,

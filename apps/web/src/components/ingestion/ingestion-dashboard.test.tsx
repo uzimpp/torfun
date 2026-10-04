@@ -63,6 +63,17 @@ const data = (overrides: Partial<IngestionData> = {}): IngestionData => ({
 
 beforeEach(() => vi.clearAllMocks());
 
+test('offers the budget years the summary counted as filter options', () => {
+  mockedHook.mockReturnValue(
+    data({ summary: summary({ byYear: [{ budgetYear: 2568, count: 3 }, { budgetYear: 2569, count: 1 }] }) }),
+  );
+  render(<IngestionDashboard />);
+
+  const budgetYear = screen.getByLabelText('ปีงบประมาณ');
+  expect(within(budgetYear).getByRole('option', { name: '2568' })).toBeInTheDocument();
+  expect(within(budgetYear).getByRole('option', { name: '2569' })).toBeInTheDocument();
+});
+
 describe('the live run banner', () => {
   test('appears while a run is in flight, announcing the stage and what is left', () => {
     mockedHook.mockReturnValue(data({ running: true, summary: summary({ runInProgress: true }) }));

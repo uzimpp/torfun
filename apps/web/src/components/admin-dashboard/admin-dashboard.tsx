@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { DashboardSkeleton } from './dashboard-skeleton';
 import { KpiStrip } from './kpi-strip';
 import { OutcomeDonut } from './outcome-donut';
-import { outcomeBuckets } from './outcome-buckets';
+import { outcomeBuckets } from '@/lib/outcome-buckets';
 import { RecentActivity } from './recent-activity';
 import { useAdminDashboardData } from './use-admin-dashboard-data';
 import { kpiTiles } from './view-models';
