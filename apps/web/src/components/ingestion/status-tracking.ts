@@ -58,21 +58,43 @@ export function attemptsLabel(attempts: number): string | null {
 export interface RunBanner {
   title: string;
   detail: string;
+  /** "รันมาแล้ว …", or null when the server did not say when the run began. */
+  elapsed: string | null;
+  /** An administrator has asked it to stop and it is finishing the record in hand. */
+  stopping: boolean;
+}
+
+/**
+ * How long, in Thai, at the precision that is useful at that length: seconds
+ * under a minute, minutes and seconds under an hour, hours and minutes after.
+ * Pure — the caller supplies the difference — so it needs no clock to test.
+ */
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total} วิ`;
+  if (total < 3600) return `${Math.floor(total / 60)} นาที ${total % 60} วิ`;
+  return `${Math.floor(total / 3600)} ชม. ${Math.floor((total % 3600) / 60)} นาที`;
 }
 
 /**
  * The live banner's text, or null when no run is in flight.
  *
  * "Queued" counts the retryable errors too: they are waiting for the next
- * attempt just as untouched records are.
+ * attempt just as untouched records are. How long it has run is measured from
+ * the start time the server recorded on the lease, not from anything this page
+ * remembers, so a reload, a scheduled run, or another browser all agree.
  */
-export function runBanner(summary: IngestionSummaryResponse): RunBanner | null {
+export function runBanner(summary: IngestionSummaryResponse, now: Date): RunBanner | null {
   if (!summary.runInProgress) return null;
 
   const outcome = (key: keyof IngestionSummaryResponse['byOutcome']) => summary.byOutcome[key] ?? 0;
   return {
-    title: 'กำลังรันรอบดึงข้อมูล',
+    title: summary.stopRequested ? 'กำลังหยุด… รอรายการที่ทำอยู่ให้เสร็จ' : 'กำลังรันรอบดึงข้อมูล',
     detail: `ดึงข้อมูล ${outcome('downloading')} · ประมวลผล ${outcome('analysing')} · รอคิว ${outcome('queued') + outcome('error')}`,
+    elapsed: summary.runStartedAt
+      ? `รันมาแล้ว ${formatElapsed(now.getTime() - Date.parse(summary.runStartedAt))}`
+      : null,
+    stopping: summary.stopRequested,
   };
 }
 

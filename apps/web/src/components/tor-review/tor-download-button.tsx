@@ -5,7 +5,14 @@ import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ApiError, downloadTor } from '@/lib/api';
 
-export function TorDownloadButton({ projectId }: { projectId: string }) {
+export function TorDownloadButton({
+  projectId,
+  size = 'lg',
+}: {
+  projectId: string;
+  /** `sm` where the button sits in a row of other actions rather than on its own line. */
+  size?: 'lg' | 'sm';
+}) {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +36,13 @@ export function TorDownloadButton({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <Button type="button" size="lg" className="w-full min-w-0" onClick={handleDownload} disabled={downloading}>
+      <Button
+        type="button"
+        size={size}
+        className="w-full min-w-0"
+        onClick={handleDownload}
+        disabled={downloading}
+      >
         <Download aria-hidden="true" />
         {downloading ? 'กำลังดาวน์โหลด' : 'ดาวน์โหลด TOR'}
       </Button>

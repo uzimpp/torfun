@@ -23,7 +23,6 @@ export type TorReviewData = {
   referencePrice: number | null;
   durationDays: number | null;
   platforms: string[];
-  confidence: 'high' | 'low' | null;
   matchScore: number | null;
 };
 
@@ -59,7 +58,6 @@ function toReviewData(procurement: Procurement): TorReviewData {
     referencePrice: procurement.priceBuild,
     durationDays: analysis?.durationDays ?? null,
     platforms: analysis?.targetPlatforms ?? [],
-    confidence: analysis?.confidence ?? null,
     matchScore: null,
   };
 }

@@ -33,6 +33,8 @@ function summary(runInProgress: boolean): IngestionSummaryResponse {
     lastRunAt: null,
     openDataQuota: null,
     runInProgress,
+    runStartedAt: null,
+    stopRequested: false,
     agencies: [],
   };
 }

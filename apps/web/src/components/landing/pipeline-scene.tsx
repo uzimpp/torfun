@@ -14,8 +14,8 @@ import { cn } from '@/lib/utils';
  * records for a marketing panel is exactly what an officer must never have to
  * wonder about when they later read the real queue. `bar` is the width of the
  * placeholder line, `keep` whether this one survives the filter, and `label`
- * the bucket `softwareClass` would put it in — the product's own vocabulary,
- * applied to nothing in particular.
+ * the kind of work it stands for — the product's own vocabulary, applied to
+ * nothing in particular.
  */
 const ROWS = [
   { bar: '78%', keep: true, label: 'พัฒนาระบบใหม่' },

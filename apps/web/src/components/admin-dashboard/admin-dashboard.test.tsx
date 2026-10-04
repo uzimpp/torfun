@@ -20,7 +20,6 @@ function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSu
     byOutcome: {
       queued: 243,
       tor_analysed: 38,
-      not_software: 4,
       analysis_failed: 2,
       downloading: 1,
     },
@@ -32,6 +31,8 @@ function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSu
     lastRunAt: '2026-09-30T10:00:00.000Z',
     openDataQuota: null,
     runInProgress: false,
+    runStartedAt: null,
+    stopRequested: false,
     agencies: [],
     ...overrides,
   };
@@ -46,7 +47,6 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     province: null,
     district: null,
     subdistrict: null,
-    registryName: 'กรุงเทพมหานคร',
     deptCode: '3100001',
     year: 2568,
     announceDate: null,
@@ -56,27 +56,20 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     priceBuild: null,
     status: 'unknown',
     statusSource: null,
-    upstreamStatus: null,
-    matchedKeywords: [],
-    softwareClass: 'new_build',
-    softwareScore: 1,
-    eBidding: true,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
+    holdReason: null,
+    approvedBy: null,
+    approvedAt: null,
     statusHistory: [],
     zipId: null,
-    zipBytes: null,
-    archiveMemberCount: null,
-    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
     sourceHash: null,
-    lastSeenAt: null,
-    changedAt: null,
     updatedAt: '2026-09-30T11:55:00.000Z',
     ...overrides,
   };
@@ -108,7 +101,7 @@ describe('OutcomeDonut', () => {
     expect(rows[4]).toHaveTextContent('243');
   });
 
-  test('offers the ten outcomes as a table, using the shared Thai labels', () => {
+  test('offers every outcome as a table, using the shared Thai labels', () => {
     render(
       <OutcomeDonut
         buckets={outcomeBuckets(summary().byOutcome)}
