@@ -64,12 +64,13 @@ describe('ScheduleUpdateSchema', () => {
 });
 
 describe('DEFAULT_SCHEDULE', () => {
-  test('is off, with every 24 hours ready for an administrator to enable', () => {
+  test('is off, with weekdays at 13:00 ready for an administrator to enable', () => {
+    // e-bidding submissions usually close at noon, so one o'clock catches the morning's changes.
     expect(DEFAULT_SCHEDULE).toEqual({
       enabled: false,
-      mode: 'interval',
-      timeOfDay: '02:00',
-      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      mode: 'weekly',
+      timeOfDay: '13:00',
+      weekdays: [1, 2, 3, 4, 5],
       everyHours: 24,
       updatedAt: null,
       updatedBy: null,

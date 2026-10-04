@@ -43,6 +43,28 @@ describeMongo('ScheduleRepository', () => {
     expect(await repository.get()).toEqual({ schedule: DEFAULT_SCHEDULE, lastRunStartedAt: null });
   });
 
+  test('a schedule saved before modes existed runs every day', async () => {
+    await (
+      await getDb()
+    )
+      .collection('ingestion_meta')
+      .insertOne({
+        _id: 'schedule' as never,
+        enabled: true,
+        time_of_day: '03:30',
+        updated_at: '2026-09-01T00:00:00.000Z',
+        updated_by: 'admin-1',
+      });
+
+    expect((await repository.get()).schedule.weekdays).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  test('a run noted before any schedule was saved leaves the default days', async () => {
+    await repository.markRunStarted('2026-10-01T05:00:00.000Z');
+
+    expect((await repository.get()).schedule.weekdays).toEqual(DEFAULT_SCHEDULE.weekdays);
+  });
+
   test('a saved schedule round-trips with who saved it and when', async () => {
     const saved = await repository.save(setting, 'admin-1', '2026-10-01T05:00:00.000Z');
 

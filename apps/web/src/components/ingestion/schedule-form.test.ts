@@ -69,8 +69,8 @@ describe('toUpdate', () => {
     // The API validates every field whatever the mode, so a blank one must not go up.
     const update = toUpdate({ ...weekly, mode: 'interval', timeOfDay: '', weekdays: [] });
 
-    expect(update.timeOfDay).toBe('02:00');
-    expect(update.weekdays).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(update.timeOfDay).toBe('13:00');
+    expect(update.weekdays).toEqual([1, 2, 3, 4, 5]);
   });
 });
 
