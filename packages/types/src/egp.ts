@@ -32,9 +32,9 @@ export const STATE_LABELS: Record<IngestionState, string> = {
  * worth most to a Business Development Officer, because it is the chance to
  * prepare before the invitation is published.
  *
- * The agency owns the truth and this system holds a reading of it: first from
- * the open-data feed, then refined by Gemini from the documents (see
- * `statusSource`). `unknown` means no reading exists yet, not "something went
+ * The agency owns the truth and this system holds a reading of it, derived from
+ * the project's e-GP announcement timeline (see `MilestonesSchema`), never from
+ * a model. `unknown` means no timeline has been read yet, not "something went
  * wrong".
  */
 export const ProcurementStatus = z.enum([
@@ -56,12 +56,61 @@ export const STATUS_LABELS: Record<ProcurementStatus, string> = {
   awarded: 'ประกาศผู้ชนะแล้ว',
   contracted: 'ทำสัญญาแล้ว',
   cancelled: 'ยกเลิก',
-  unknown: 'ยังไม่ระบุ',
+  unknown: 'ยังไม่ทราบสถานะ',
 };
 
-/** Who read a procurement's status: the open-data feed, or Gemini from the documents. */
-export const StatusSource = z.enum(['upstream', 'ai']);
-export type StatusSource = z.infer<typeof StatusSource>;
+/**
+ * Where a bid deadline came from, best first: the timeline's bidding date, the
+ * invitation announcement, then the TOR.
+ */
+export const DeadlineSource = z.enum(['timeline', 'invitation', 'tor']);
+export type DeadlineSource = z.infer<typeof DeadlineSource>;
+
+/** Thai display labels for where a deadline was read from. */
+export const DEADLINE_SOURCE_LABELS: Record<DeadlineSource, string> = {
+  timeline: 'ไทม์ไลน์โครงการใน e-GP',
+  invitation: 'ประกาศเชิญชวน',
+  tor: 'เอกสาร TOR',
+};
+
+/** The stages of a tender e-GP's timeline can show, in lifecycle order. */
+export const MILESTONE_KEYS = [
+  'drafted',
+  'invited',
+  'priced',
+  'evaluated',
+  'awarded',
+  'contracted',
+] as const;
+export type MilestoneKey = (typeof MILESTONE_KEYS)[number];
+
+/**
+ * When a stage was reached, in our own vocabulary rather than e-GP's announcement
+ * codes. `at` is null where the stage is known to have happened but e-GP gives no
+ * date for it.
+ */
+const MilestoneSchema = z.object({ at: z.string().nullable() });
+export type Milestone = z.infer<typeof MilestoneSchema>;
+
+/** All six keys are always present: null means "not reached", never "absent". */
+export const MilestonesSchema = z.object({
+  drafted: MilestoneSchema.nullable(),
+  invited: MilestoneSchema.nullable(),
+  priced: MilestoneSchema.nullable(),
+  evaluated: MilestoneSchema.nullable(),
+  awarded: MilestoneSchema.nullable(),
+  contracted: MilestoneSchema.nullable(),
+});
+export type Milestones = z.infer<typeof MilestonesSchema>;
+
+export const EMPTY_MILESTONES: Milestones = {
+  drafted: null,
+  invited: null,
+  priced: null,
+  evaluated: null,
+  awarded: null,
+  contracted: null,
+};
 
 /**
  * A finer-grained result than `state`, kept alongside it rather than folded in.
@@ -170,9 +219,18 @@ export function appendStatusChange(
  *
  * Decided by reading the document (ADR-0003), never by matching its filename —
  * the loose filename pattern matches `CONTRACTOR.pdf` and `MONITOR_spec.pdf`,
- * and cannot tell a ร่าง from the TOR it supersedes.
+ * and cannot tell a ร่าง from the TOR it supersedes. The two exceptions are
+ * `invitation` and `bidding_document`, which e-GP names by a fixed convention
+ * (`annoudoc_*`, `doc_*`) and which are read only for the bid deadline.
  */
-export const DocumentRole = z.enum(['main_tor', 'tor_variant', 'not_tor', 'unreadable']);
+export const DocumentRole = z.enum([
+  'main_tor',
+  'tor_variant',
+  'not_tor',
+  'unreadable',
+  'invitation',
+  'bidding_document',
+]);
 export type DocumentRole = z.infer<typeof DocumentRole>;
 
 /**
@@ -356,8 +414,8 @@ export const ProcurementSchema = z.object({
   district: z.string().nullable(),
   subdistrict: z.string().nullable(),
   deptCode: z.string(),
-  /** Thai Buddhist fiscal year (2567–2569). */
-  year: z.number().int(),
+  /** The Thai Buddhist fiscal year the budget belongs to (2567–2569), not the announcement's year. */
+  budgetYear: z.number().int(),
   announceDate: z.string().nullable(),
   /** WHAT is bought: ซื้อ / จ้างทำของ / เช่า / จ้างก่อสร้าง / จ้างที่ปรึกษา. */
   projectTypeName: z.string().nullable(),
@@ -368,10 +426,16 @@ export const ProcurementSchema = z.object({
   /** ราคากลาง — the official reference price. Distinct from the budget, and
    *  from what the work eventually sold for. */
   priceBuild: z.number().nullable(),
-  /** Where the agency's own e-GP lifecycle has reached. `open` is biddable. */
+  /** Where the agency's own e-GP lifecycle has reached. `open` is biddable. Derived from `milestones`. */
   status: ProcurementStatus,
-  /** Who read `status`; null while it is still `unknown`. Never present an `ai` reading as confirmed. */
-  statusSource: StatusSource.nullable(),
+  /** The dates of the tender's stages, read from e-GP's announcement timeline. */
+  milestones: MilestonesSchema,
+  /** When the timeline was last read for this project; null = never. */
+  timelineCheckedAt: z.string().nullable(),
+  /** The bid deadline shown to officers; null when none is known. */
+  deadlineAt: z.string().nullable(),
+  /** Where `deadlineAt` came from; null exactly when `deadlineAt` is. */
+  deadlineSource: DeadlineSource.nullable(),
 
   state: IngestionState,
   outcome: IngestionOutcome,
@@ -456,7 +520,7 @@ export const ProcurementListQuerySchema = z
     state: IngestionState.optional(),
     outcome: IngestionOutcome.optional(),
     deptName: z.string().trim().min(1).max(300).optional(),
-    year: z.coerce.number().int().optional(),
+    budgetYear: z.coerce.number().int().optional(),
     status: ProcurementStatus.optional(),
     q: z.string().trim().max(200).optional(),
     minBudget: z.coerce.number().finite().nonnegative().optional(),
@@ -528,8 +592,8 @@ export type ProcurementListResponse = z.infer<typeof ProcurementListResponseSche
 export const IngestionFailureSchema = z.object({
   projectId: z.string(),
   projectName: z.string().nullable(),
-  /** Which step failed: registry resolution, discovery, info lookup, download, extract, analysis. */
-  stage: z.enum(['dept', 'discovery', 'info', 'download', 'extract', 'analysis']),
+  /** Which step failed: registry resolution, discovery, timeline, info lookup, download, extract, analysis. */
+  stage: z.enum(['dept', 'discovery', 'timeline', 'info', 'download', 'extract', 'analysis']),
   error: z.string(),
   at: z.string(),
 });
@@ -556,7 +620,7 @@ export const IngestionSummarySchema = z.object({
   byState: z.record(IngestionState, z.number().int()),
   byOutcome: z.record(IngestionOutcome, z.number().int()),
   byAgency: z.array(z.object({ deptName: z.string(), count: z.number().int() })),
-  byYear: z.array(z.object({ year: z.number().int(), count: z.number().int() })),
+  byYear: z.array(z.object({ budgetYear: z.number().int(), count: z.number().int() })),
   torDocumentsRetrieved: z.number().int(),
   totalTorBytes: z.number().int(),
   failureCount: z.number().int(),
