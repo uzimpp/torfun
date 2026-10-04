@@ -11,9 +11,15 @@ test('sidebar shows active destination and marks future routes without dead link
   const link = screen.getByRole('link', { name: 'แดชบอร์ด' });
   expect(link).toHaveAttribute('aria-current', 'page');
   expect(screen.getByRole('link', { name: 'ค้นหา TOR' })).toHaveAttribute('href', '/search');
-  expect(screen.getByRole('link', { name: 'การดึงข้อมูล TOR' })).not.toHaveAttribute(
-    'aria-current',
+  expect(screen.getByRole('link', { name: 'ประกาศที่ดึงเข้าระบบ' })).toHaveAttribute(
+    'href',
+    '/admin/procurements',
   );
+  expect(screen.getByRole('link', { name: 'ระบบดึงข้อมูล' })).toHaveAttribute(
+    'href',
+    '/admin/ingestion',
+  );
+  expect(screen.getByRole('link', { name: 'ระบบดึงข้อมูล' })).not.toHaveAttribute('aria-current');
   expect(screen.queryByRole('link', { name: /TOR ของฉัน/ })).not.toBeInTheDocument();
   expect(screen.getByText('TOR ของฉัน').parentElement).toHaveAttribute('aria-disabled', 'true');
   link.addEventListener('click', (event) => event.preventDefault(), { once: true });
@@ -21,8 +27,9 @@ test('sidebar shows active destination and marks future routes without dead link
   expect(onNavigate).toHaveBeenCalledOnce();
 });
 
-test('BD does not see admin ingestion navigation but does see search', () => {
+test('BD does not see admin navigation but does see search', () => {
   render(<WorkspaceNav role="business_development_officer" />);
-  expect(screen.queryByRole('link', { name: 'การดึงข้อมูล TOR' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'ระบบดึงข้อมูล' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'ประกาศที่ดึงเข้าระบบ' })).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'ค้นหา TOR' })).toHaveAttribute('href', '/search');
 });

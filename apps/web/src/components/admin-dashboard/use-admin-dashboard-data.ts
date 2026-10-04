@@ -1,15 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import type { Procurement } from '@torfun/types';
-import {
-  ApiError,
-  SessionEndedError,
-  fetchSummary,
-  type IngestionSummaryResponse,
-} from '@/lib/api';
+import type { IngestionFailure, Procurement } from '@torfun/types';
+import { fetchFailures, fetchSummary, type IngestionSummaryResponse } from '@/lib/api';
+import type { LoadError } from '@/lib/api-errors';
 import { fetchRecent } from '@/lib/api-ingestion-recent';
-import { SESSION_ENDED_MESSAGE } from '@/components/ingestion/use-ingestion-data';
+import { usePolled } from '@/lib/use-polled';
 
 const POLL_MS = 5000;
 export const RECENT_COUNT = 5;
@@ -17,6 +12,8 @@ export const RECENT_COUNT = 5;
 export interface AdminDashboardData {
   summary: IngestionSummaryResponse | null;
   recent: Procurement[];
+  /** The failure log, newest first; the attention row reads the last run's share of it. */
+  failures: IngestionFailure[];
   /**
    * When this data was fetched — the moment "5 minutes ago" is measured from.
    * Null until the first load; held in state because reading the clock while
@@ -24,16 +21,14 @@ export interface AdminDashboardData {
    */
   asOf: Date | null;
   loading: boolean;
-  error: string | null;
-  /** The session cannot be renewed: sign in again, retrying only repeats the refusal. */
-  sessionEnded: boolean;
-  /** Reload after a failure; polling resumes once a load succeeds. */
+  error: LoadError | null;
+  /** Read again: after a failure (polling resumes once it succeeds) or after a decision here. */
   retry: () => void;
 }
 
 /**
- * Owns what the administrator's dashboard reads: the queue summary and the most
- * recent activity, fetched together.
+ * Owns what the administrator's dashboard reads: the queue summary, the most
+ * recent activity and the failure log, fetched together.
  *
  * Refreshes while a run is in flight and otherwise leaves the page alone. It
  * stops polling as soon as anything fails — a poll that repeats a failing call
@@ -41,61 +36,28 @@ export interface AdminDashboardData {
  * the network log. `retry` starts it again.
  */
 export function useAdminDashboardData(): AdminDashboardData {
-  const [summary, setSummary] = useState<IngestionSummaryResponse | null>(null);
-  const [recent, setRecent] = useState<Procurement[]>([]);
-  const [asOf, setAsOf] = useState<Date | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sessionEnded, setSessionEnded] = useState(false);
-  /** Bumped to force a reload without changing anything else. */
-  const [refreshKey, setRefreshKey] = useState(0);
+  const { data, error, loading, updatedAt, reload } = usePolled(
+    async () => {
+      const [summary, recent, failures] = await Promise.all([
+        fetchSummary(),
+        fetchRecent(RECENT_COUNT),
+        fetchFailures(),
+      ]);
+      return { summary, recent: recent.items, failures: failures.items };
+    },
+    {
+      fallback: 'เกิดข้อผิดพลาดที่ไม่คาดคิดในการโหลดข้อมูล',
+      intervalMs: (last) => (last?.summary.runInProgress ? POLL_MS : null),
+    },
+  );
 
-  const running = summary?.runInProgress ?? false;
-
-  useEffect(() => {
-    // Guards against a slow, older response landing after a newer one.
-    let cancelled = false;
-
-    Promise.all([fetchSummary(), fetchRecent(RECENT_COUNT)]).then(
-      ([summaryData, recentData]) => {
-        if (cancelled) return;
-        setSummary(summaryData);
-        setRecent(recentData.items);
-        setAsOf(new Date());
-        setError(null);
-        setSessionEnded(false);
-        setLoading(false);
-      },
-      (caught: unknown) => {
-        if (cancelled) return;
-        const ended = caught instanceof SessionEndedError;
-        setSessionEnded(ended);
-        setError(
-          ended
-            ? SESSION_ENDED_MESSAGE
-            : caught instanceof ApiError
-              ? caught.message
-              : 'เกิดข้อผิดพลาดที่ไม่คาดคิดในการโหลดข้อมูล',
-        );
-        setLoading(false);
-      },
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshKey]);
-
-  useEffect(() => {
-    if (!running || error) return;
-    const timer = setInterval(() => setRefreshKey((key) => key + 1), POLL_MS);
-    return () => clearInterval(timer);
-  }, [running, error]);
-
-  const retry = useCallback(() => {
-    setError(null);
-    setRefreshKey((key) => key + 1);
-  }, []);
-
-  return { summary, recent, asOf, loading, error, sessionEnded, retry };
+  return {
+    summary: data?.summary ?? null,
+    recent: data?.recent ?? [],
+    failures: data?.failures ?? [],
+    asOf: updatedAt,
+    loading,
+    error,
+    retry: reload,
+  };
 }

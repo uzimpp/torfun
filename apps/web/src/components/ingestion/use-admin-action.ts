@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { SessionEndedError } from '@/lib/api';
-import { messageFor } from './use-ingestion-data';
+import { messageFor } from '@/lib/api-errors';
 
 export interface AdminAction {
   pending: boolean;
