@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, type Schema } from '@google/genai';
 import { SoftwareConfidence } from '@torfun/types';
 import type { Env } from '../../config/env';
-import { ModelStatus, type ModelCall } from './classify-document';
+import type { ModelCall } from './classify-document';
 import { sendReliably } from './reliable-model-call';
 
 /**
@@ -82,8 +82,6 @@ export const ANSWER_SCHEMA: Schema = {
     isTor: { type: Type.BOOLEAN },
     torKind: { type: Type.STRING, enum: ['final', 'draft'], nullable: true },
     whatThisIs: { type: Type.STRING },
-    // The stage the document shows; null is how the model says it does not show one.
-    procurementStatus: { type: Type.STRING, enum: [...ModelStatus.options], nullable: true },
     analysis: {
       type: Type.OBJECT,
       nullable: true,
@@ -126,7 +124,16 @@ export const ANSWER_SCHEMA: Schema = {
       ],
     },
   },
-  required: ['isTor', 'torKind', 'whatThisIs', 'analysis', 'procurementStatus'],
+  required: ['isTor', 'torKind', 'whatThisIs', 'analysis'],
+};
+
+/** The shape an invitation announcement is read into; see `invitation-reader.ts`. */
+export const INVITATION_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    bidDate: { type: Type.STRING, nullable: true },
+  },
+  required: ['bidDate'],
 };
 
 /**
@@ -227,7 +234,7 @@ export function createModelCall(env: Env): ModelCall {
           temperature: 0,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           responseMimeType: 'application/json',
-          responseSchema: ANSWER_SCHEMA,
+          responseSchema: input.answer === 'invitation' ? INVITATION_SCHEMA : ANSWER_SCHEMA,
           abortSignal: signal,
         },
       });

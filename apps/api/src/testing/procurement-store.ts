@@ -129,6 +129,37 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     };
   }
 
+  async amend(
+    projectId: string,
+    patch: Partial<Procurement>,
+    touch: boolean,
+  ): Promise<Procurement | undefined> {
+    const existing = this.records.get(projectId);
+    if (!existing) return undefined;
+    const updated = {
+      ...existing,
+      ...patch,
+      updatedAt: touch ? new Date().toISOString() : existing.updatedAt,
+    };
+    this.records.set(projectId, updated);
+    return updated;
+  }
+
+  async dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]> {
+    return [...this.records.values()]
+      .filter(
+        (record) =>
+          (record.state === 'Completed' || record.state === 'Failed') &&
+          record.status !== 'contracted',
+      )
+      .sort(
+        (a, b) =>
+          (a.timelineCheckedAt ?? '').localeCompare(b.timelineCheckedAt ?? '') ||
+          a.projectId.localeCompare(b.projectId),
+      )
+      .slice(page.offset, page.offset + page.limit);
+  }
+
   async requeueStale(cutoff: string): Promise<number> {
     const stale = [...this.records.values()].filter(
       (record) =>

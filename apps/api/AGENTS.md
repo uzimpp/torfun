@@ -91,6 +91,15 @@ request in flight across all runners, a pause after each, and a refusal latches 
 so every runner stops. Only the model's reading of a TOR overlaps. Do not call the
 site from anywhere that bypasses the gate.
 
+Per candidate the first call is the announcement timeline (`AnnouncementClient`,
+the greenBook endpoint), made inside the same gate hold as the archive lookup and
+download. The pipeline works the never-read projects first, then the already-read
+ones that are not `contracted`, oldest `timelineCheckedAt` first. A timeline that
+changed nothing costs no archive or model call; one whose invitation date moved
+re-reads the invitation alone. `data: null` means the site had none to give, never
+"no announcements", and leaves the project as it was. Status comes only from
+`milestones` through `statusFromMilestones`; nothing a model says sets it.
+
 What the model's verdict may do is decided in `services/egp/decision.ts`: only a
 confident, whole-document answer shows a record to officers or drops it (leaving a
 tombstone); everything else is held (`needs_review`) for an administrator.

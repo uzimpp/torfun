@@ -1,20 +1,26 @@
 import { describe, expect, test } from 'bun:test';
 import { Type } from '@google/genai';
-import { ModelStatus } from './classify-document';
-import { ANSWER_SCHEMA, contentParts, textFromResponse } from './vertex-ai';
+import { ANSWER_SCHEMA, contentParts, INVITATION_SCHEMA, textFromResponse } from './vertex-ai';
 
-/**
- * The request schema and the zod schema that validates the reply are written
- * twice. This keeps them from drifting on the one list that is easy to get
- * wrong: which stages the model may answer with.
- */
+describe('INVITATION_SCHEMA', () => {
+  test('asks only for the bid date, which may be null', () => {
+    const fields = ['bidDate'];
+
+    expect(Object.keys(INVITATION_SCHEMA.properties ?? {})).toEqual(fields);
+    expect(INVITATION_SCHEMA.required).toEqual(fields);
+    for (const field of fields) {
+      expect(INVITATION_SCHEMA.properties?.[field]).toMatchObject({
+        type: Type.STRING,
+        nullable: true,
+      });
+    }
+  });
+});
+
 describe('ANSWER_SCHEMA', () => {
-  test('offers the model exactly the stages the reply validator accepts, or null', () => {
-    const field = ANSWER_SCHEMA.properties?.procurementStatus;
-
-    expect(field?.enum).toEqual([...ModelStatus.options]);
-    expect(field?.nullable).toBe(true);
-    expect(ANSWER_SCHEMA.required).toContain('procurementStatus');
+  test('does not ask for the stage of the tender', () => {
+    expect(ANSWER_SCHEMA.properties).not.toHaveProperty('procurementStatus');
+    expect(ANSWER_SCHEMA.required).not.toContain('procurementStatus');
   });
 
   test('asks for the software judgement as three required fields of the analysis', () => {

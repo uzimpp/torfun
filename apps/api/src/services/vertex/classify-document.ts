@@ -1,5 +1,4 @@
 import {
-  ProcurementStatus,
   SOFTWARE_REASON_MAX_CHARS,
   SoftwareJudgementSchema,
   TorAnalysisSchema,
@@ -30,6 +29,8 @@ export type ModelCall = (parts: {
   /** Text taken from a document too large to send as a PDF, instead of `pdfBase64`. */
   text?: string;
   prompt: string;
+  /** Which answer shape the model is held to; the TOR's unless said otherwise. */
+  answer?: 'tor' | 'invitation';
 }) => Promise<string>;
 
 /**
@@ -61,14 +62,6 @@ export interface OversizeReaders {
 export type ReadMode = 'pdf' | 'text' | 'first_pages';
 
 /**
- * The stages the model may name. `unknown` is what this system says when no one
- * has read a stage; a model asked to choose between six stages and "unknown"
- * would use it as an easy way out, so its way out is null.
- */
-export const ModelStatus = ProcurementStatus.exclude(['unknown']);
-export type ModelStatus = z.infer<typeof ModelStatus>;
-
-/**
  * The model answers with its software judgement inside the analysis. The stored
  * analysis keeps only the reason (ADR-0016): the flags travel beside it as
  * `judgement`, to be turned into an Outcome and not kept.
@@ -85,9 +78,6 @@ const AnswerSchema = z.object({
   torKind: z.enum(['final', 'draft']).nullable(),
   whatThisIs: z.string(),
   analysis: AnswerAnalysis.nullable(),
-  // Defaulted so a reply that omits it is still read; the request schema asks
-  // for it, but a model is not a contract.
-  procurementStatus: ModelStatus.nullable().default(null),
 });
 
 export interface DocumentClassification {
@@ -97,8 +87,6 @@ export interface DocumentClassification {
   analysis: TorAnalysis | null;
   /** What the model concluded about the work; null exactly when `analysis` is. */
   judgement: SoftwareJudgement | null;
-  /** The agency's stage as this document shows it, or null where it does not. */
-  procurementStatus?: ModelStatus | null;
   /** Set when the document could not be read at all; the reason why. */
   unreadable?: string;
   /** How the model was given the document; anything but `pdf` is a partial reading. */
@@ -108,7 +96,7 @@ export interface DocumentClassification {
 }
 
 /** A PDF really starts with %PDF; an extension is not proof of anything. */
-function looksLikePdf(bytes: Buffer): boolean {
+export function looksLikePdf(bytes: Buffer): boolean {
   return (
     bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 // %PDF
   );

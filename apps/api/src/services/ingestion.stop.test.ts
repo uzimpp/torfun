@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { type Procurement } from '@torfun/types';
+import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 import { ConflictError } from '../core/errors';
 import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
@@ -27,14 +27,17 @@ function queued(projectId: string): Procurement {
     district: null,
     subdistrict: null,
     deptCode: '1',
-    year: 2568,
+    budgetYear: 2568,
     announceDate: null,
     projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
     status: 'open',
-    statusSource: null,
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,

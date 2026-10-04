@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
+import { EMPTY_MILESTONES, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -21,14 +21,17 @@ const held: Procurement = {
   district: null,
   subdistrict: null,
   deptCode: '0100',
-  year: 2568,
+  budgetYear: 2568,
   announceDate: null,
   projectTypeName: null,
   purchaseMethodName: null,
   projectMoney: null,
   priceBuild: null,
   status: 'open',
-  statusSource: null,
+  milestones: EMPTY_MILESTONES,
+  timelineCheckedAt: null,
+  deadlineAt: null,
+  deadlineSource: null,
   state: 'Completed',
   outcome: 'needs_review',
   attempts: 0,

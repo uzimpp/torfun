@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { type Procurement } from '@torfun/types';
+import { fakeAnnouncements } from '../testing/announcement-client';
+import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 import { ConflictError, NotFoundError } from '../core/errors';
 import { silentLogger } from '../testing/gated-ingestion';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -29,14 +30,17 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     district: null,
     subdistrict: null,
     deptCode: '0100',
-    year: 2568,
+    budgetYear: 2568,
     announceDate: null,
     projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
     status: 'open',
-    statusSource: null,
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: 'Completed',
     outcome: 'needs_review',
     attempts: 0,
@@ -331,6 +335,8 @@ describe('restoring a tombstone, end to end through a real Run', () => {
       classifyDocument: async () => {
         throw new Error('no document is read in this test');
       },
+      readInvitation: async () => ({ documents: [], bidAt: null }),
+      announcements: fakeAnnouncements({}, []),
       sleep: async () => {},
       recordDeadlineMs: 60_000,
     };

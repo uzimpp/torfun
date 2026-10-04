@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { EMPTY_MILESTONES } from '@torfun/types';
 import { OPEN_DATA_RESERVE } from './constants';
 import contractRow from './fixtures/contract-row.json';
 import { discoverProjects, toRecord, type ContractRow } from './discovery';
@@ -300,7 +301,7 @@ describe('discoverProjects and the purchase method', () => {
 });
 
 describe('discoverProjects and the tender stage', () => {
-  test('a record carries the stage the feed names, attributed to the feed', async () => {
+  test('a record starts with no stage and no milestones, whatever the feed says about it', async () => {
     let calls = 0;
     globalThis.fetch = (async (url: string) => {
       calls += 1;
@@ -326,8 +327,9 @@ describe('discoverProjects and the tender stage', () => {
     const [record] = (await discoverProjects('k', noTombstones)).records;
 
     expect(record).toMatchObject({
-      status: 'contracted',
-      statusSource: 'upstream',
+      status: 'unknown',
+      milestones: EMPTY_MILESTONES,
+      timelineCheckedAt: null,
     });
   });
 });

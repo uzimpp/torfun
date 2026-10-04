@@ -49,8 +49,11 @@ Two stages, deliberately separate. **Discovery** sweeps the open-data API for
 announcements and admits those from Source Registry agencies that are e-bidding
 and not tombstoned; the title is never consulted. **Retrieval** downloads the
 announcement archive for each admitted one, newest first, and extracts TOR PDFs.
-Discovery is cheap and broad; retrieval is slow and rate-limited. A record carries both a coarse `state` (Queued → Processing →
-Completed/Failed) and a finer `outcome`, because "no TOR was ever published" is a
+Each project's status and bid deadline come from its e-GP announcement timeline
+(greenBook), read first; projects already read have the timeline read again on
+later Runs, oldest check first, and are retrieved again only if the invitation
+moved. Discovery is cheap and broad; retrieval is slow and rate-limited. A record
+carries both a coarse `state` (Queued → Processing → Completed/Failed) and a finer `outcome`, because "no TOR was ever published" is a
 legitimate upstream answer rather than a failure, and an admin needs to tell them
 apart.
 
@@ -66,7 +69,9 @@ which is the point.
 whose own limits are not recorded in this repository. What the code does to stay
 within the spirit of it: requests are single-file through one gate, the politeness
 delay follows each, a rate-limit or forbidden response stops every runner at once,
-and only one Run goes at a time. They are not performance tuning. Do not parallelise
+and only one Run goes at a time. Every request to the site is one of these: for each
+project, its announcement timeline (greenBook), the archive lookup and the download,
+all inside one gate hold. They are not performance tuning. Do not parallelise
 around them or retry past a refusal. **No volume cap is applied** — a Run works
 through the whole queue — by the owner's decision (ADR-0015); if the site's owner
 ever states a limit, it belongs back in code, not in this paragraph.

@@ -1,3 +1,4 @@
+import { EMPTY_MILESTONES } from '@torfun/types';
 import type { IngestionFailure, OpenDataQuota, Procurement } from '@torfun/types';
 import { admit } from './admission';
 import {
@@ -8,7 +9,6 @@ import {
   type QuotaReading,
 } from './client';
 import { convertDateToISO } from './dates';
-import { readUpstreamStatus } from './status';
 import { toWinner } from './winner';
 import {
   CONTRACT_URL,
@@ -49,7 +49,6 @@ export interface ContractRow {
   project_money?: number;
   price_build?: number;
   contract?: unknown;
-  project_status?: string;
 }
 
 /** Which of these project ids have a tombstone. */
@@ -211,7 +210,6 @@ async function fetchAllPages(
 /** Maps one raw e-GP contract row at the upstream boundary. Exported for fixture-based contract tests. */
 export function toRecord(row: ContractRow, deptCode: string, year: number): Procurement {
   const timestamp = now();
-  const reading = readUpstreamStatus(row.project_status);
 
   return {
     projectId: String(row.project_id),
@@ -222,14 +220,18 @@ export function toRecord(row: ContractRow, deptCode: string, year: number): Proc
     district: row.district?.trim() || null,
     subdistrict: row.subdistrict?.trim() || null,
     deptCode,
-    year: row.year ?? year,
+    budgetYear: row.year ?? year,
     announceDate: convertDateToISO(row.announce_date),
     projectTypeName: row.project_type_name ?? null,
     purchaseMethodName: row.purchase_method_name ?? null,
     projectMoney: row.project_money ?? null,
     priceBuild: row.price_build ?? null,
-    status: reading.status,
-    statusSource: reading.source,
+    // The feed's one status value places a project in no stage; the timeline does.
+    status: 'unknown',
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
 
     state: 'Queued',
     outcome: 'queued',

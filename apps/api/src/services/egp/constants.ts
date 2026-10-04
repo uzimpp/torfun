@@ -14,7 +14,7 @@ export const CONTRACT_URL = `${OPEN_DATA_BASE}/egp-contract`;
 /**
  * e-GP procurement app, used purely as a keyed lookup by project id.
  *
- * These two endpoints need no token, cookie or auth. We deliberately never
+ * These endpoints need no token, cookie or auth. We deliberately never
  * touch the announcement *search* endpoints, which sit behind a Cloudflare
  * Turnstile bot check, and implement none of the site's client-side
  * generateToken/RDCrypto scheme — discovery comes from the open-data API
@@ -24,6 +24,8 @@ export const TOR_INFO_URL =
   'https://process5.gprocurement.go.th/egp-approval-service/apv-common/infoProcureDocAnnounZip';
 export const TOR_DOWNLOAD_URL =
   'https://process5.gprocurement.go.th/egp-upload-service/v1/downloadFileTest';
+export const GREEN_BOOK_URL =
+  'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/greenBook';
 
 /**
  * The Source Registry, keyed by the Thai name a human would query with.
