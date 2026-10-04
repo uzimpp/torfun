@@ -35,7 +35,7 @@ export function mergeDiscovered(
     province: incoming.province,
     district: incoming.district,
     subdistrict: incoming.subdistrict,
-    year: incoming.year,
+    budgetYear: incoming.budgetYear,
     announceDate: incoming.announceDate,
     projectTypeName: incoming.projectTypeName,
     purchaseMethodName: incoming.purchaseMethodName,
@@ -46,15 +46,14 @@ export function mergeDiscovered(
     // Where this sweep found it, which can move between fiscal years.
     deptCode: incoming.deptCode,
 
-    // The stage is read by two parties. The feed's reading wins when it names
-    // a stage; when it names none (its usual answer) the stored reading —
-    // Gemini's, from the documents — stands, so a sweep cannot erase it.
-    status: incoming.statusSource === 'upstream' ? incoming.status : existing.status,
-    statusSource:
-      incoming.statusSource === 'upstream' ? incoming.statusSource : existing.statusSource,
-
     // Owned by this system's pipeline. A rediscovery must never reset a
-    // retrieval that already happened.
+    // retrieval that already happened, nor the stage its timeline established:
+    // the feed carries neither.
+    status: existing.status,
+    milestones: existing.milestones,
+    timelineCheckedAt: existing.timelineCheckedAt,
+    deadlineAt: existing.deadlineAt,
+    deadlineSource: existing.deadlineSource,
     state: existing.state,
     outcome: existing.outcome,
     attempts: existing.attempts,

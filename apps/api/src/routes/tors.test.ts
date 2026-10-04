@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
+import { EMPTY_MILESTONES, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -14,14 +14,17 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     district: 'คลองเตย',
     subdistrict: 'คลองเตย',
     deptCode: '1234567890',
-    year: 2569,
+    budgetYear: 2569,
     announceDate: '1 ตุลาคม 2569',
     projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'e-bidding',
     projectMoney: 4_500_000,
     priceBuild: null,
     status: 'open',
-    statusSource: 'upstream',
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,

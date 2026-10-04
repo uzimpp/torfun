@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { ACCESS_COOKIE, type IngestionOutcome, type Procurement, type User } from '@torfun/types';
+import { EMPTY_MILESTONES, ACCESS_COOKIE, type IngestionOutcome, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -22,14 +22,17 @@ function procurement(projectId: string, outcome: IngestionOutcome): Procurement 
     district: null,
     subdistrict: null,
     deptCode: '1234567890',
-    year: 2569,
+    budgetYear: 2569,
     announceDate: null,
     projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
     status: 'drafting',
-    statusSource: 'ai',
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: outcome === 'tor_analysed' || outcome === 'needs_review' ? 'Completed' : 'Queued',
     outcome,
     attempts: 0,

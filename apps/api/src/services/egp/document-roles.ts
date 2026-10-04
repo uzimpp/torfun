@@ -90,3 +90,19 @@ export function assignDocumentRoles(candidates: ClassifiedDocument[]): RoleAssig
     ambiguous: contenders.length > 1,
   };
 }
+
+/**
+ * The role an archive member has by its filename alone, for the two documents
+ * e-GP names by convention and which are read only for the bid deadline: the
+ * invitation (`annoudoc_<n>_<projectId>.pdf`) and the bidding document
+ * (`doc_<n>_<projectId>.pdf`). Another project's file is not ours.
+ */
+export function invitationRoleOf(
+  member: string,
+  projectId: string,
+): 'invitation' | 'bidding_document' | null {
+  const name = member.replace(/\\/g, '/').split('/').pop() ?? member;
+  const match = /^(annoudoc|doc)_\d+_(\d+)\.pdf$/i.exec(name);
+  if (!match || match[2] !== projectId) return null;
+  return match[1]!.toLowerCase() === 'annoudoc' ? 'invitation' : 'bidding_document';
+}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { unzipSync, zipSync } from 'fflate';
-import { extractTorPdfs } from './tor-package';
+import { extractInvitationPdfs, extractTorPdfs } from './tor-package';
 
 /** A zip of the given member names, each holding a few bytes. */
 const zip = (names: string[]) =>
@@ -110,5 +110,40 @@ describe('extractTorPdfs on a real archive', () => {
     expect(torFiles.map((file) => [file.filename, file.bytes])).toEqual([
       ['Attach_TOR_1.pdf', 2000],
     ]);
+  });
+});
+
+describe('extractInvitationPdfs', () => {
+  const projectId = '66099189191';
+  const extractInvitations = (names: string[]) => extractInvitationPdfs(zip(names), projectId);
+
+  test('finds the invitation and the bidding document of this project by filename', () => {
+    const { invitation, biddingDocument } = extractInvitations([
+      ...BOILERPLATE,
+      'Attach_TOR_1.pdf',
+    ]);
+
+    expect(invitation?.filename).toBe('annoudoc_310000110000077_66099189191.pdf');
+    expect(biddingDocument?.filename).toBe('doc_310000110000077_66099189191.pdf');
+    expect(invitation?.payload).toEqual(new Uint8Array([0x25, 0x50, 0x44, 0x46]));
+  });
+
+  test('another project\'s invitation is not ours', () => {
+    const { invitation } = extractInvitations(['annoudoc_310000110000077_66099100000.pdf']);
+
+    expect(invitation).toBeNull();
+  });
+
+  test('is null for both when the archive carries neither', () => {
+    expect(extractInvitations(['Attach_TOR_1.pdf', 'quotation.pdf'])).toEqual({
+      invitation: null,
+      biddingDocument: null,
+    });
+  });
+
+  test('a member that fails the path guard is never read', () => {
+    const { invitation } = extractInvitations([`../annoudoc_1_${projectId}.pdf`]);
+
+    expect(invitation).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Procurement } from '@torfun/types';
+import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 import { hashSource } from './source-hash';
 
@@ -13,14 +13,17 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     district: 'คลองเตย',
     subdistrict: 'คลองเตย',
     deptCode: '0100',
-    year: 2568,
+    budgetYear: 2568,
     announceDate: '2026-08-01',
     projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 1_000_000,
     priceBuild: null,
     status: 'open',
-    statusSource: 'upstream',
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
@@ -53,7 +56,6 @@ describe('mergeDiscovered', () => {
       province: 'เชียงใหม่',
       district: 'เมืองเชียงใหม่',
       subdistrict: 'สุเทพ',
-      status: 'contracted',
     });
 
     const merged = mergeDiscovered(existing, incoming, AT);
@@ -65,7 +67,6 @@ describe('mergeDiscovered', () => {
     expect(merged.province).toBe('เชียงใหม่');
     expect(merged.district).toBe('เมืองเชียงใหม่');
     expect(merged.subdistrict).toBe('สุเทพ');
-    expect(merged.status).toBe('contracted');
   });
 
   test('keeps what the pipeline found out, so a rediscovery cannot reset a retrieval', () => {
@@ -101,26 +102,16 @@ describe('mergeDiscovered', () => {
     expect(merged.discoveredAt).toBe('2026-09-01T00:00:00.000Z');
   });
 
-  test('a rediscovery that reads no stage cannot wipe a stage already read', () => {
-    // The feed sends one generic value, so on every sweep it "reads" unknown.
-    // Gemini's earlier reading of the documents must survive that.
-    const existing = procurement({ status: 'drafting', statusSource: 'ai' });
-    const incoming = procurement({ status: 'unknown', statusSource: null });
+  test('a rediscovery keeps the deadline the pipeline read, and where it came from', () => {
+    const existing = procurement({
+      deadlineAt: '2026-10-20T09:30:00.000Z',
+      deadlineSource: 'invitation',
+    });
 
-    const merged = mergeDiscovered(existing, incoming, AT);
+    const merged = mergeDiscovered(existing, procurement(), AT);
 
-    expect(merged.status).toBe('drafting');
-    expect(merged.statusSource).toBe('ai');
-  });
-
-  test('a stage the feed does name overrides an AI reading', () => {
-    const existing = procurement({ status: 'drafting', statusSource: 'ai' });
-    const incoming = procurement({ status: 'contracted', statusSource: 'upstream' });
-
-    const merged = mergeDiscovered(existing, incoming, AT);
-
-    expect(merged.status).toBe('contracted');
-    expect(merged.statusSource).toBe('upstream');
+    expect(merged.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
+    expect(merged.deadlineSource).toBe('invitation');
   });
 
   test('a rediscovery keeps who approved a held record and when', () => {
@@ -134,6 +125,24 @@ describe('mergeDiscovered', () => {
 
     expect(merged.approvedBy).toBe('admin');
     expect(merged.approvedAt).toBe('2026-09-03T00:00:00.000Z');
+  });
+
+  test('a rediscovery cannot wipe what the timeline said about the tender', () => {
+    // The sweep builds every record with no stage and no milestones, because the
+    // feed carries neither. What the timeline established must survive that.
+    const milestones = { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } };
+    const existing = procurement({
+      status: 'open',
+      milestones,
+      timelineCheckedAt: '2026-09-21T00:00:00.000Z',
+    });
+    const incoming = procurement({ status: 'unknown' });
+
+    const merged = mergeDiscovered(existing, incoming, AT);
+
+    expect(merged.status).toBe('open');
+    expect(merged.milestones).toEqual(milestones);
+    expect(merged.timelineCheckedAt).toBe('2026-09-21T00:00:00.000Z');
   });
 
   test('keeps the retrieval attempt count', () => {
@@ -200,6 +209,8 @@ describe('telling a real change from a record that was only seen again', () => {
     expect(hashSource({ ...base, state: 'Completed', outcome: 'tor_analysed', attempts: 2 })).toBe(
       hashSource(base),
     );
-    expect(hashSource({ ...base, status: 'drafting', statusSource: 'ai' })).toBe(hashSource(base));
+    expect(
+      hashSource({ ...base, status: 'drafting', timelineCheckedAt: '2026-10-01T00:00:00.000Z' }),
+    ).toBe(hashSource(base));
   });
 });
