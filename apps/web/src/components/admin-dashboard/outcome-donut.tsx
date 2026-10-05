@@ -1,5 +1,6 @@
 import { IngestionOutcome, OUTCOME_LABELS } from '@torfun/types';
 import { cn } from '@/lib/utils';
+import { DISCLOSURE, StatValue, TABLE_HEAD } from '@/components/admin/admin-ui';
 import { STATUS_STYLE } from '@/components/admin/status-badge';
 import { shareOf, type OutcomeBucket } from '@/lib/outcome-buckets';
 import { donutSegments } from './view-models';
@@ -92,7 +93,7 @@ export function OutcomeDonut({
             className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
             aria-hidden="true"
           >
-            <span className="text-3xl font-semibold tabular-nums">{formatCount(total)}</span>
+            <StatValue>{formatCount(total)}</StatValue>
             <span className="text-muted-foreground text-xs">รายการ</span>
           </div>
         </div>
@@ -120,7 +121,7 @@ export function OutcomeDonut({
                 <span className="min-w-0 flex-1 truncate">{bucket.label}</span>
                 <span
                   className={cn(
-                    'font-mono font-medium tabular-nums',
+                    'font-medium tabular-nums',
                     bucket.count === 0 && 'text-muted-foreground',
                   )}
                 >
@@ -137,17 +138,17 @@ export function OutcomeDonut({
 
       {byOutcome ? (
         <details className="group text-sm">
-          <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 w-fit cursor-pointer rounded-sm text-xs underline-offset-4 outline-none hover:underline focus-visible:ring-[3px]">
+          <summary className={DISCLOSURE}>
             ดูเป็นตาราง ({IngestionOutcome.options.length} ผลการประมวลผล)
           </summary>
-          <table className="mt-3 w-full text-xs">
+          <table className="mt-3 w-full text-sm">
             <caption className="sr-only">จำนวนประกาศแยกตามผลการประมวลผล</caption>
             <thead>
-              <tr className="text-muted-foreground border-b text-left">
-                <th scope="col" className="py-1.5 font-medium">
+              <tr className="border-b text-left">
+                <th scope="col" className={cn(TABLE_HEAD, 'py-1.5')}>
                   ผลการประมวลผล
                 </th>
-                <th scope="col" className="py-1.5 text-right font-medium">
+                <th scope="col" className={cn(TABLE_HEAD, 'py-1.5 text-right')}>
                   จำนวน
                 </th>
               </tr>

@@ -1,10 +1,10 @@
 'use client';
 
-import { ShieldCheck, UserRound } from 'lucide-react';
+import { ShieldCheck, ShieldOff, UserCheck, UserRound, UserX } from 'lucide-react';
 import type { AdminUserResponse } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -13,7 +13,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PageHeader } from '@/components/layout/page-header';
 import { cn } from '@/lib/utils';
+import { AdminLoadError } from './admin-load-error';
+import { AdminPage, TABLE_HEAD } from './admin-ui';
+import { LoadingRegion } from './loading-region';
+import { STATUS_STYLE } from './status-badge';
 import { useAccountsData } from './use-accounts-data';
 
 /**
@@ -25,8 +30,6 @@ import { useAccountsData } from './use-accounts-data';
  * administrator cannot be demoted or deactivated — so a refused click is the
  * exception, not the way the screen teaches its rules.
  */
-
-const ACTION = 'h-8 rounded-lg px-2.5 text-xs';
 
 function RoleBadge({ role }: { role: AdminUserResponse['role'] }) {
   return role === 'admin' ? (
@@ -48,40 +51,54 @@ export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
   const officers = accounts.length - accounts.filter((a) => a.role === 'admin').length;
 
   return (
-    <main className="page-fill mx-auto flex w-full max-w-5xl flex-col gap-6 p-6 lg:p-10">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">จัดการบัญชีผู้ใช้</h1>
-        <p className="text-muted-foreground text-sm">
-          ให้หรือถอนสิทธิ์ผู้ดูแลระบบ และเปิดหรือระงับการใช้งานบัญชี
-          {!loading && !error
-            ? ` — ทั้งหมด ${accounts.length} บัญชี, เป็นผู้ดูแลระบบ ${activeAdmins}, เจ้าหน้าที่ ${officers}`
-            : null}
-        </p>
-      </header>
+    <AdminPage>
+      <PageHeader
+        crumbs={[{ label: 'ผู้ดูแลระบบ', href: '/dashboard' }, { label: 'จัดการบัญชีผู้ใช้' }]}
+        title="จัดการบัญชีผู้ใช้"
+        description="ให้หรือถอนสิทธิ์ผู้ดูแลระบบ และเปิดหรือระงับการใช้งานบัญชี"
+        meta={
+          !loading && !error ? (
+            <>
+              <span>ทั้งหมด {accounts.length} บัญชี</span>
+              <span>เป็นผู้ดูแลระบบ {activeAdmins}</span>
+              <span>เจ้าหน้าที่ {officers}</span>
+            </>
+          ) : null
+        }
+      />
 
       {actionError ? (
-        <Card className="border-destructive/50">
-          <CardHeader>
-            <CardTitle className="text-destructive text-base">แก้ไขบัญชีไม่สำเร็จ</CardTitle>
-            <CardDescription>{actionError}</CardDescription>
-          </CardHeader>
-        </Card>
+        <AdminLoadError
+          error={{ kind: 'broken', message: actionError }}
+          title="แก้ไขบัญชีไม่สำเร็จ"
+        />
       ) : null}
 
-      <Card>
-        <CardContent className="p-0">
-          {error ? (
-            <p className="text-destructive p-6 text-sm">{error}</p>
-          ) : loading ? (
-            <p className="text-muted-foreground p-6 text-sm">กำลังโหลดรายชื่อบัญชี…</p>
+      {error ? (
+        <AdminLoadError error={{ kind: 'broken', message: error }} />
+      ) : (
+        <div className="bg-card rounded-lg border">
+          {loading ? (
+            <LoadingRegion label="กำลังโหลดรายชื่อบัญชี" className="flex flex-col divide-y">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="flex items-center gap-3 px-3 py-3">
+                  <Skeleton className="size-8 rounded-lg" />
+                  <div className="flex flex-1 flex-col gap-1.5">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-7 w-28" />
+                </div>
+              ))}
+            </LoadingRegion>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>บัญชี</TableHead>
-                  <TableHead>บทบาท</TableHead>
-                  <TableHead>สถานะ</TableHead>
-                  <TableHead className="text-right">การจัดการ</TableHead>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className={cn(TABLE_HEAD, 'px-3')}>บัญชี</TableHead>
+                  <TableHead className={cn(TABLE_HEAD, 'px-3')}>บทบาท</TableHead>
+                  <TableHead className={cn(TABLE_HEAD, 'px-3')}>สถานะ</TableHead>
+                  <TableHead className={cn(TABLE_HEAD, 'px-3 text-right')}>การจัดการ</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -95,7 +112,7 @@ export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
 
                   return (
                     <TableRow key={account.id} className={cn(!account.is_active && 'opacity-60')}>
-                      <TableCell>
+                      <TableCell className="px-3">
                         <span className="flex items-center gap-2.5">
                           <span className="bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-lg">
                             <UserRound aria-hidden="true" className="size-4" />
@@ -112,11 +129,11 @@ export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
                         </span>
                       </TableCell>
 
-                      <TableCell>
+                      <TableCell className="px-3">
                         <RoleBadge role={account.role} />
                       </TableCell>
 
-                      <TableCell>
+                      <TableCell className="px-3">
                         <span
                           className={cn(
                             'inline-flex items-center gap-1.5 text-sm',
@@ -127,18 +144,20 @@ export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
                             aria-hidden="true"
                             className={cn(
                               'size-1.5 rounded-full',
-                              account.is_active ? 'bg-emerald-500' : 'bg-muted-foreground/50',
+                              account.is_active
+                                ? STATUS_STYLE.analysed.dot
+                                : 'bg-muted-foreground/50',
                             )}
                           />
                           {account.is_active ? 'ใช้งานอยู่' : 'ถูกระงับ'}
                         </span>
                       </TableCell>
 
-                      <TableCell>
+                      <TableCell className="px-3">
                         <span className="flex justify-end gap-2">
                           <Button
                             variant="outline"
-                            className={ACTION}
+                            size="sm"
                             disabled={busy || lockRole}
                             title={
                               isSelf
@@ -156,11 +175,16 @@ export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
                               })
                             }
                           >
+                            {account.role === 'admin' ? (
+                              <ShieldOff className="size-4" aria-hidden="true" />
+                            ) : (
+                              <ShieldCheck className="size-4" aria-hidden="true" />
+                            )}
                             {account.role === 'admin' ? 'ถอนสิทธิ์ผู้ดูแล' : 'ตั้งเป็นผู้ดูแลระบบ'}
                           </Button>
                           <Button
-                            variant="ghost"
-                            className={ACTION}
+                            variant={account.is_active ? 'destructive' : 'outline'}
+                            size="sm"
                             disabled={busy || lockActive}
                             title={
                               isSelf
@@ -173,6 +197,11 @@ export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
                               updateAccount(account.id, { is_active: !account.is_active })
                             }
                           >
+                            {account.is_active ? (
+                              <UserX className="size-4" aria-hidden="true" />
+                            ) : (
+                              <UserCheck className="size-4" aria-hidden="true" />
+                            )}
                             {account.is_active ? 'ระงับบัญชี' : 'เปิดใช้งาน'}
                           </Button>
                         </span>
@@ -183,8 +212,8 @@ export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
-    </main>
+        </div>
+      )}
+    </AdminPage>
   );
 }

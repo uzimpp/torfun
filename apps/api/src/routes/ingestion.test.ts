@@ -206,7 +206,6 @@ describe('ingestion route access and procurement query validation', () => {
         counts: null,
         error: 'boom',
         tokens: { prompt: 1, output: 2, thoughts: 3, total: 6, calls: 1 },
-        peakRssBytes: 1024,
       });
     });
 
@@ -248,7 +247,6 @@ describe('ingestion route access and procurement query validation', () => {
           stopRequested: false,
           inFlight: null,
           queueRemaining: null,
-          memory: null,
         },
         recordTimings: {
           sample: 0,
@@ -258,6 +256,7 @@ describe('ingestion route access and procurement query validation', () => {
           analyseP50Ms: null,
         },
         throughputDaily: [],
+        discoveredDaily: [],
         failuresByStage: [],
         runs: [
           {
@@ -270,7 +269,6 @@ describe('ingestion route access and procurement query validation', () => {
             counts: null,
             error: 'boom',
             tokens: { prompt: 1, output: 2, thoughts: 3, total: 6, calls: 1 },
-            peakRssBytes: 1024,
           },
         ],
       });

@@ -52,6 +52,10 @@
 
   /* Type scale.
    *
+   * App UI uses 12 / 14 / 16 / 18 / 20 / 24 only; 30 is for landing section
+   * headings. Anything larger belongs to the hero and the footer wordmark, which
+   * set their own `clamp()` size. See "Typography" in apps/web/AGENTS.md.
+   *
    * Thai stacks up to four marks over one base glyph, so every step carries a
    * line height well above what a Latin-only scale would use — the stock
    * values clip tone marks against the line above. Display sizes tighten
@@ -205,7 +209,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-light;
+    @apply bg-background text-foreground font-normal;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }

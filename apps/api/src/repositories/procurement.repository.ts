@@ -1,6 +1,7 @@
 import type { AnyBulkWriteOperation, Collection, Db } from 'mongodb';
 import type {
   ArchiveDocument,
+  DailyDiscovered,
   DailyThroughput,
   HoldReason,
   IngestionFailure,
@@ -346,8 +347,8 @@ export interface AgencyNameSource {
 
 /** Stored history the operations view reads. */
 export interface IngestionStatsSource {
-  /** Over everything that happened at or after `since`. */
-  stats(since: string): Promise<IngestionStats>;
+  /** Over the `days` Asia/Bangkok days ending on the one `now` falls in. */
+  stats(now: string, days: number): Promise<IngestionStats>;
 }
 
 /** All Procurement reads used above the persistence layer. */
@@ -385,6 +386,21 @@ interface FailureDocument extends Omit<IngestionFailure, 'kind'> {
 }
 
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function bangkokDate(at: string): string {
+  return new Date(Date.parse(at) + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** The window's days, oldest first, and the instant the first one began. */
+function bangkokWindow(now: string, days: number): { since: string; dates: string[] } {
+  const lastMidnight = Date.parse(`${bangkokDate(now)}T00:00:00.000Z`);
+  const dates = Array.from({ length: days }, (_, index) =>
+    new Date(lastMidnight - (days - 1 - index) * DAY_MS).toISOString().slice(0, 10),
+  );
+  const since = new Date(lastMidnight - (days - 1) * DAY_MS - BANGKOK_OFFSET_MS).toISOString();
+  return { since, dates };
+}
 
 /** Nearest-rank percentile of an ascending list; null for an empty one. */
 function percentile(sorted: number[], p: number): number | null {
@@ -435,26 +451,21 @@ function timingsOf(passes: Pass[]): RecordTimings {
   };
 }
 
-const THROUGHPUT_BUCKET: Partial<
-  Record<IngestionOutcome, keyof Omit<DailyThroughput, 'date'>>
-> = {
+const THROUGHPUT_BUCKET: Partial<Record<IngestionOutcome, keyof Omit<DailyThroughput, 'date'>>> = {
   tor_analysed: 'completed',
   needs_review: 'held',
   analysis_failed: 'failed',
   abandoned: 'failed',
 };
 
-function throughputOf(passes: Pass[]): DailyThroughput[] {
-  const byDay = new Map<string, DailyThroughput>();
+function throughputOf(passes: Pass[], dates: string[]): DailyThroughput[] {
+  const byDay = new Map(dates.map((date) => [date, { date, completed: 0, held: 0, failed: 0 }]));
   for (const { end } of passes) {
     const bucket = THROUGHPUT_BUCKET[outcomeFromStored(end.outcome)];
-    if (!bucket) continue;
-    const date = new Date(Date.parse(end.at) + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
-    const day = byDay.get(date) ?? { date, completed: 0, held: 0, failed: 0 };
-    day[bucket] += 1;
-    byDay.set(date, day);
+    const day = byDay.get(bangkokDate(end.at));
+    if (bucket && day) day[bucket] += 1;
   }
-  return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
+  return [...byDay.values()];
 }
 
 export class ProcurementRepository
@@ -495,6 +506,7 @@ export class ProcurementRepository
       { key: { budget_year: 1 } },
       // What the operations view reads: records that finished recently.
       { key: { state: 1, updated_at: -1 } },
+      { key: { discovered_at: -1 } },
     ]);
     await (await this.failuresCollection()).createIndex({ at: -1 });
   }
@@ -940,8 +952,9 @@ export class ProcurementRepository
     };
   }
 
-  async stats(since: string): Promise<IngestionStats> {
-    const [finished, failuresByStage] = await Promise.all([
+  async stats(now: string, days: number): Promise<IngestionStats> {
+    const { since, dates } = bangkokWindow(now, days);
+    const [finished, failuresByStage, discovered] = await Promise.all([
       (await this.records())
         .find(
           { state: { $in: ['Completed', 'Failed'] }, updated_at: { $gte: since } },
@@ -956,14 +969,34 @@ export class ProcurementRepository
           { $project: { _id: 0, stage: '$_id', count: 1 } },
         ])
         .toArray(),
+      (await this.records())
+        .aggregate<DailyDiscovered>([
+          { $match: { discovered_at: { $gte: since } } },
+          {
+            $group: {
+              _id: {
+                $dateToString: {
+                  date: { $dateFromString: { dateString: '$discovered_at' } },
+                  format: '%Y-%m-%d',
+                  timezone: 'Asia/Bangkok',
+                },
+              },
+              discovered: { $sum: 1 },
+            },
+          },
+          { $project: { _id: 0, date: '$_id', discovered: 1 } },
+        ])
+        .toArray(),
     ]);
     const passes = finished
       .map((document) => lastPass(document.status_history))
       .filter((pass): pass is Pass => pass !== null && pass.end.at >= since);
+    const discoveredOn = new Map(discovered.map((day) => [day.date, day.discovered]));
 
     return {
       recordTimings: timingsOf(passes),
-      throughputDaily: throughputOf(passes),
+      throughputDaily: throughputOf(passes, dates),
+      discoveredDaily: dates.map((date) => ({ date, discovered: discoveredOn.get(date) ?? 0 })),
       failuresByStage,
     };
   }

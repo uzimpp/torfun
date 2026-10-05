@@ -49,7 +49,6 @@ const run = (id: string, endedAt: string, overrides: Partial<IngestionRun> = {})
   },
   error: null,
   tokens: { prompt: 1200, output: 300, thoughts: 90, total: 1590, calls: 3 },
-  peakRssBytes: 512_000_000,
   ...overrides,
 });
 
@@ -71,6 +70,15 @@ describeMongo('IngestionRunRepository', () => {
   test('a run that threw keeps its error and no counts', async () => {
     const written = run('a', '2026-10-01T00:01:00.000Z', { counts: null, error: 'boom' });
     await runs.record(written);
+
+    expect(await runs.recent(10)).toEqual([written]);
+  });
+
+  test('the peak memory an older build recorded is not read back', async () => {
+    const written = run('a', '2026-10-01T00:01:00.000Z');
+    await runs.record(written);
+    const stored = (await getDb()).collection('ingestion_runs');
+    await stored.updateOne({ _id: 'a' as never }, { $set: { peak_rss_bytes: 512_000_000 } });
 
     expect(await runs.recent(10)).toEqual([written]);
   });

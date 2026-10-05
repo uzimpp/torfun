@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileText } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { downloadTor } from '@/lib/api';
 import { messageFor } from '@/lib/api-errors';
@@ -41,7 +41,7 @@ export function SourceTorButton({ projectId }: { projectId: string }) {
         aria-busy={pending || undefined}
         onClick={() => void download()}
       >
-        <FileText aria-hidden="true" />
+        <Download className="size-4" aria-hidden="true" />
         ดาวน์โหลด TOR ต้นฉบับ
       </Button>
       {error ? (

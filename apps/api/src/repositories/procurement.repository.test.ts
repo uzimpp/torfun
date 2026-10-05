@@ -761,7 +761,9 @@ describeMongo('ProcurementRepository', () => {
       procurement({ projectId: 'open-unreadable', status: 'open', deadlineAt: 'soon' }),
     ]);
     // Stored before the status vocabulary changed: still open.
-    await (await getDb())
+    await (
+      await getDb()
+    )
       .collection('procurements')
       .updateOne({ _id: 'open-later' as never }, { $set: { status: 'invitation' } });
 
@@ -1015,6 +1017,12 @@ describeMongo('ProcurementRepository', () => {
 
   describe('operations stats', () => {
     const since = '2026-09-25T00:00:00.000Z';
+    const now = '2026-10-05T05:00:00.000Z';
+    const stats = () => repository.stats(now, 30);
+    const active = <T extends { date: string }>(series: T[], quiet: (day: T) => boolean) =>
+      series.filter((day) => !quiet(day));
+    const noThroughput = (day: { completed: number; held: number; failed: number }) =>
+      day.completed + day.held + day.failed === 0;
     const step = (outcome: StatusChange['outcome'], at: string): StatusChange => ({
       state: OUTCOME_STATE[outcome],
       outcome,
@@ -1054,7 +1062,7 @@ describeMongo('ProcurementRepository', () => {
         passed('still-queued', [step('queued', '2026-10-01T00:00:00.000Z')]),
       ]);
 
-      expect((await repository.stats(since)).recordTimings).toEqual({
+      expect((await stats()).recordTimings).toEqual({
         sample: 3,
         p50Ms: 70_000,
         p90Ms: 130_000,
@@ -1084,7 +1092,7 @@ describeMongo('ProcurementRepository', () => {
         ]),
       ]);
 
-      expect((await repository.stats(since)).throughputDaily).toEqual([
+      expect(active((await stats()).throughputDaily, noThroughput)).toEqual([
         { date: '2026-10-01', completed: 1, held: 0, failed: 0 },
         { date: '2026-10-02', completed: 0, held: 1, failed: 1 },
       ]);
@@ -1102,7 +1110,7 @@ describeMongo('ProcurementRepository', () => {
         ]),
       ]);
 
-      expect((await repository.stats(since)).throughputDaily).toEqual([
+      expect(active((await stats()).throughputDaily, noThroughput)).toEqual([
         { date: '2026-10-02', completed: 0, held: 0, failed: 1 },
       ]);
     });
@@ -1124,14 +1132,67 @@ describeMongo('ProcurementRepository', () => {
         { ...failure('extract', '2026-10-03T00:00:00.000Z'), kind: 'no_tor' },
       ]);
 
-      expect((await repository.stats(since)).failuresByStage).toEqual([
+      expect((await stats()).failuresByStage).toEqual([
         { stage: 'download', count: 2 },
         { stage: 'info', count: 1 },
       ]);
     });
 
+    test('every daily series covers the thirty Bangkok days ending today, oldest first, quiet days as zeros', async () => {
+      const result = await stats();
+
+      for (const series of [result.throughputDaily, result.discoveredDaily]) {
+        expect(series).toHaveLength(30);
+        expect(series[0]?.date).toBe('2026-09-06');
+        expect(series.at(-1)?.date).toBe('2026-10-05');
+      }
+      expect(result.throughputDaily[0]).toEqual({
+        date: '2026-09-06',
+        completed: 0,
+        held: 0,
+        failed: 0,
+      });
+      expect(result.discoveredDaily[0]).toEqual({ date: '2026-09-06', discovered: 0 });
+    });
+
+    test('the window opens at Bangkok midnight of its first day', async () => {
+      await seed([
+        passed('just-before', [
+          step('downloading', '2026-09-05T16:58:00.000Z'),
+          step('tor_analysed', '2026-09-05T16:59:59.000Z'),
+        ]),
+        passed('just-after', [
+          step('downloading', '2026-09-05T16:59:00.000Z'),
+          step('tor_analysed', '2026-09-05T17:00:00.000Z'),
+        ]),
+      ]);
+
+      const result = await stats();
+
+      expect(result.recordTimings.sample).toBe(1);
+      expect(active(result.throughputDaily, noThroughput)).toEqual([
+        { date: '2026-09-06', completed: 1, held: 0, failed: 0 },
+      ]);
+    });
+
+    test('counts procurements by the Bangkok day they were first found', async () => {
+      await seed([
+        procurement({ projectId: 'before-window', discoveredAt: '2026-09-05T16:59:59.000Z' }),
+        procurement({ projectId: 'window-opens', discoveredAt: '2026-09-05T17:00:00.000Z' }),
+        procurement({ projectId: 'late-utc', discoveredAt: '2026-10-01T16:59:59.000Z' }),
+        procurement({ projectId: 'bangkok-midnight', discoveredAt: '2026-10-01T17:00:00.000Z' }),
+        procurement({ projectId: 'same-day', discoveredAt: '2026-10-02T09:00:00.000Z' }),
+      ]);
+
+      expect(active((await stats()).discoveredDaily, (day) => day.discovered === 0)).toEqual([
+        { date: '2026-09-06', discovered: 1 },
+        { date: '2026-10-01', discovered: 1 },
+        { date: '2026-10-02', discovered: 2 },
+      ]);
+    });
+
     test('with nothing finished in the window there is no timing to give', async () => {
-      expect((await repository.stats(since)).recordTimings).toEqual({
+      expect((await stats()).recordTimings).toEqual({
         sample: 0,
         p50Ms: null,
         p90Ms: null,

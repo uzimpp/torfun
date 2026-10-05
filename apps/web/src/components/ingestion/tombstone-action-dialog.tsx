@@ -1,5 +1,6 @@
 'use client';
 
+import { ListX, RefreshCw } from 'lucide-react';
 import type { Tombstone } from '@torfun/types';
 import { removeTombstone, restoreTombstone } from '@/lib/api-tombstones';
 import { ConfirmDialog } from './confirm-dialog';
@@ -33,6 +34,7 @@ export function TombstoneActionDialog({
       description:
         'ลบเฉพาะ Tombstone ของโครงการนี้ ยังไม่มีการดาวน์โหลดใดๆ แต่รอบดึงข้อมูลถัดไปอาจนำโครงการนี้กลับมาได้',
       confirmLabel: 'ลบออกจากรายการ',
+      icon: ListX,
       fallback: 'ลบออกจากรายการไม่สำเร็จ ลองอีกครั้ง',
       send: () => removeTombstone(projectId),
     },
@@ -41,6 +43,7 @@ export function TombstoneActionDialog({
       description:
         'ลบ Tombstone แล้วอ่านโครงการนี้ใหม่ 1 ครั้ง ซึ่งต้องดาวน์โหลดเอกสารจากเว็บไซต์ต้นทาง (gprocurement.go.th)',
       confirmLabel: 'ดึงข้อมูลใหม่',
+      icon: RefreshCw,
       fallback: 'ดึงข้อมูลใหม่ไม่สำเร็จ ลองอีกครั้ง',
       send: () => restoreTombstone(projectId),
     },
@@ -63,6 +66,7 @@ export function TombstoneActionDialog({
         </>
       }
       confirmLabel={copy.confirmLabel}
+      confirmIcon={copy.icon}
       action={request}
       onConfirm={() => void confirm()}
       onCancel={onClose}

@@ -1,6 +1,7 @@
 'use client';
 
 import { OUTCOME_LABELS, STATUS_LABELS, type Procurement } from '@torfun/types';
+import { RECORD_LINK, TABLE_HEAD } from '@/components/admin/admin-ui';
 import { LoadingRegion } from '@/components/admin/loading-region';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { ProjectActionMenu } from '@/components/ingestion/project-action-menu';
@@ -10,8 +11,10 @@ import { BUCKET_LABELS, bucketOfOutcome } from '@/lib/outcome-buckets';
 import { cn } from '@/lib/utils';
 import { countTorDocuments, formatThb } from './procurement-format';
 
-const HEAD =
-  'bg-card text-muted-foreground sticky top-(--header-h) z-10 h-10 border-b px-3 text-left align-middle text-xs font-medium';
+const HEAD = cn(
+  TABLE_HEAD,
+  'bg-card sticky top-(--header-h) z-10 h-10 border-b px-3 text-left align-middle',
+);
 
 /** Below `md` each row is a stacked card-like block; from `md` it is a table row. */
 const ROW =
@@ -129,40 +132,36 @@ export function ProcurementTable({
                         event.stopPropagation();
                         onOpen(record.projectId);
                       }}
-                      className="focus-visible:ring-ring/50 line-clamp-2 rounded-sm text-left font-medium break-words outline-none hover:underline focus-visible:ring-[3px]"
+                      className={RECORD_LINK}
                     >
                       {record.projectName}
                     </button>
                     <p className="text-muted-foreground mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs">
-                      <span className="font-mono tabular-nums">{record.projectId}</span>
+                      <span className="font-mono">{record.projectId}</span>
                       <span aria-hidden="true">·</span>
                       <span>
-                        TOR <span className="font-mono tabular-nums">{tors}</span> ไฟล์
+                        TOR <span className="tabular-nums">{tors}</span> ไฟล์
                       </span>
                       <span aria-hidden="true">·</span>
                       <span>{STATUS_LABELS[record.status]}</span>
                       <span className="lg:hidden">
-                        · ปีงบ <span className="font-mono tabular-nums">{record.budgetYear}</span>
+                        · ปีงบ <span className="tabular-nums">{record.budgetYear}</span>
                       </span>
                       <span className="md:hidden">
-                        ·{' '}
-                        <span className="font-mono tabular-nums">
-                          {formatThb(record.projectMoney)}
-                        </span>{' '}
-                        บาท
+                        · <span className="tabular-nums">{formatThb(record.projectMoney)}</span> บาท
                       </span>
                     </p>
                     <p className="text-muted-foreground mt-0.5 text-xs break-words md:hidden">
                       {record.deptName}
                     </p>
                   </td>
-                  <td className="hidden min-w-0 text-sm break-words md:table-cell md:px-3 md:py-2 md:align-top">
+                  <td className="hidden min-w-0 break-words md:table-cell md:px-3 md:py-2 md:align-top">
                     {record.deptName}
                   </td>
-                  <td className="hidden text-right font-mono tabular-nums md:table-cell md:px-3 md:py-2 md:align-top">
+                  <td className="hidden text-right tabular-nums md:table-cell md:px-3 md:py-2 md:align-top">
                     {formatThb(record.projectMoney)}
                   </td>
-                  <td className="hidden text-right font-mono tabular-nums lg:table-cell lg:px-3 lg:py-2 lg:align-top">
+                  <td className="hidden text-right tabular-nums lg:table-cell lg:px-3 lg:py-2 lg:align-top">
                     {record.budgetYear}
                   </td>
                   <td

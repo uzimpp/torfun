@@ -41,18 +41,8 @@ export const RunProgressSchema = z.object({
 });
 export type RunProgress = z.infer<typeof RunProgressSchema>;
 
-/** Memory of the process running the Run, as of its last heartbeat. */
-export const RunMemorySchema = z.object({
-  rssBytes: z.number().nonnegative(),
-  heapUsedBytes: z.number().nonnegative(),
-  /** Highest RSS sampled since the Run began. */
-  peakRssBytes: z.number().nonnegative(),
-  sampledAt: z.string(),
-});
-export type RunMemory = z.infer<typeof RunMemorySchema>;
-
 /** What a live Run's heartbeat writes to the lease, so any instance can serve it. */
-export const LeaseLiveSchema = RunProgressSchema.extend({ memory: RunMemorySchema });
+export const LeaseLiveSchema = RunProgressSchema;
 export type LeaseLive = z.infer<typeof LeaseLiveSchema>;
 
 export const RunTrigger = z.enum(['manual', 'scheduled']);
@@ -91,7 +81,6 @@ export const IngestionRunSchema = z.object({
   counts: RunCountsSchema.nullable(),
   error: z.string().nullable(),
   tokens: TokenUsageSchema,
-  peakRssBytes: z.number().nonnegative(),
 });
 export type IngestionRun = z.infer<typeof IngestionRunSchema>;
 
@@ -111,7 +100,7 @@ export type RecordTimings = z.infer<typeof RecordTimingsSchema>;
 
 /**
  * Retrieval passes that ended on a day (Asia/Bangkok), by the outcome each ended
- * on; only days with any. `completed` is `tor_analysed`, `held` is
+ * on. `completed` is `tor_analysed`, `held` is
  * `needs_review`, `failed` is `analysis_failed` or `abandoned`. A pass that ended
  * `no_tor_package` or `no_tor_in_archive` is in none of them: upstream published
  * no TOR, which is an answer, not a failure. Dropped records are deleted, so they
@@ -125,16 +114,32 @@ export const DailyThroughputSchema = z.object({
 });
 export type DailyThroughput = z.infer<typeof DailyThroughputSchema>;
 
+/**
+ * Procurements first found on a day (Asia/Bangkok), by `discoveredAt`. Only
+ * records still stored are counted: one deleted since (dropped, or removed by an
+ * administrator) no longer has a day to be counted on.
+ */
+export const DailyDiscoveredSchema = z.object({
+  date: z.string(),
+  discovered: z.number().int().nonnegative(),
+});
+export type DailyDiscovered = z.infer<typeof DailyDiscoveredSchema>;
+
 export const StageFailuresSchema = z.object({
   stage: IngestionStage,
   count: z.number().int().nonnegative(),
 });
 export type StageFailures = z.infer<typeof StageFailuresSchema>;
 
-/** Stored history the operations view reads, over a trailing window. */
+/**
+ * Stored history the operations view reads, over a trailing window of whole
+ * Asia/Bangkok days. Each daily series has one entry per day of the window,
+ * oldest first, quiet days included as zeros.
+ */
 export const IngestionStatsSchema = z.object({
   recordTimings: RecordTimingsSchema,
   throughputDaily: z.array(DailyThroughputSchema),
+  discoveredDaily: z.array(DailyDiscoveredSchema),
   /** Logged failures of kind `fault`; a `no_tor` answer is not one. */
   failuresByStage: z.array(StageFailuresSchema),
 });
@@ -148,7 +153,6 @@ export const LiveRunSchema = z.object({
   /** Null until the Run's first heartbeat, or when none is going. */
   inFlight: z.array(InFlightWorkSchema).nullable(),
   queueRemaining: z.number().int().nonnegative().nullable(),
-  memory: RunMemorySchema.nullable(),
 });
 export type LiveRun = z.infer<typeof LiveRunSchema>;
 

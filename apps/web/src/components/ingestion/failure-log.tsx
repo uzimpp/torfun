@@ -1,11 +1,13 @@
 import Link from 'next/link';
-import { CheckCircle2, ChevronRight } from 'lucide-react';
+import { CheckCircle2, ChevronRight, FileWarning } from 'lucide-react';
 import type { IngestionFailure, IngestionRun } from '@torfun/types';
+import { EmptyState, RECORD_LINK, SectionHeading } from '@/components/admin/admin-ui';
 import { procurementsHref } from '@/components/procurements/procurement-filter-values';
 import { formatShortDateTime } from '@/lib/format-date';
 import { formatCount } from '@/lib/format-number';
 import { cn } from '@/lib/utils';
 import { formatDuration, groupFailures, type FailureGroup } from './ops-view';
+import { TRIGGER_LABELS } from './run-history-view';
 
 function groupTitle(group: FailureGroup): string {
   if (group.live) return 'รอบที่กำลังทำงาน';
@@ -15,7 +17,7 @@ function groupTitle(group: FailureGroup): string {
 
 function groupMeta(group: FailureGroup): string | null {
   if (!group.run) return null;
-  return `${formatDuration(group.run.durationMs)} · ${group.run.trigger === 'scheduled' ? 'ตามตารางเวลา' : 'สั่งเอง'}`;
+  return `${formatDuration(group.run.durationMs)} · ${TRIGGER_LABELS[group.run.trigger]}`;
 }
 
 function FailureRow({ failure, tone }: { failure: IngestionFailure; tone: 'problem' | 'quiet' }) {
@@ -24,12 +26,12 @@ function FailureRow({ failure, tone }: { failure: IngestionFailure; tone: 'probl
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
         <Link
           href={procurementsHref({ id: failure.projectId })}
-          className="line-clamp-2 min-w-0 flex-1 text-sm underline-offset-4 hover:underline"
+          className={cn(RECORD_LINK, 'min-w-0 flex-1')}
         >
           {failure.projectName ?? failure.projectId}
         </Link>
-        <span className="text-muted-foreground font-mono text-xs tabular-nums">
-          {failure.projectId} · {formatShortDateTime(failure.at)}
+        <span className="text-muted-foreground text-xs tabular-nums">
+          <span className="font-mono">{failure.projectId}</span> · {formatShortDateTime(failure.at)}
         </span>
       </div>
       <p
@@ -53,15 +55,13 @@ function Group({ group, open }: { group: FailureGroup; open: boolean }) {
       <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-x-4 gap-y-1 [&::-webkit-details-marker]:hidden">
         <span className="flex flex-wrap items-baseline gap-x-3">
           <ChevronRight
-            className="text-muted-foreground size-3.5 self-center group-open:rotate-90 motion-safe:transition-transform"
+            className="text-muted-foreground size-4 self-center group-open:rotate-90 motion-safe:transition-transform"
             aria-hidden="true"
           />
           <span className="text-sm font-medium">{groupTitle(group)}</span>
-          {meta ? (
-            <span className="text-muted-foreground font-mono text-xs tabular-nums">{meta}</span>
-          ) : null}
+          {meta ? <span className="text-muted-foreground text-xs tabular-nums">{meta}</span> : null}
         </span>
-        <span className="font-mono text-xs tabular-nums">
+        <span className="text-xs tabular-nums">
           <span className={problems > 0 ? 'text-destructive' : 'text-muted-foreground'}>
             เป็นปัญหา {formatCount(problems)}
           </span>
@@ -75,14 +75,12 @@ function Group({ group, open }: { group: FailureGroup; open: boolean }) {
       <div className="mt-3 flex flex-col gap-4 pl-3 sm:pl-4">
         {group.problems.length > 0 ? (
           <section className="flex flex-col gap-3">
-            <h3 className="text-xs font-medium">เป็นปัญหา</h3>
+            <h3 className="text-muted-foreground text-xs font-medium">เป็นปัญหา</h3>
             {group.problems.map((stage) => (
               <div key={stage.stage} className="flex flex-col">
                 <p className="text-muted-foreground text-xs">
                   {stage.label}{' '}
-                  <span className="font-mono tabular-nums">
-                    ({formatCount(stage.items.length)})
-                  </span>
+                  <span className="tabular-nums">({formatCount(stage.items.length)})</span>
                 </p>
                 <ul className="flex flex-col divide-y">
                   {stage.items.map((failure, index) => (
@@ -99,9 +97,8 @@ function Group({ group, open }: { group: FailureGroup; open: boolean }) {
         ) : null}
         {group.noTor.length > 0 ? (
           <section className="flex flex-col gap-1">
-            <h3 className="text-xs font-medium">
-              ไม่ใช่ปัญหา{' '}
-              <span className="text-muted-foreground font-normal">หน่วยงานไม่ได้เผยแพร่ TOR</span>
+            <h3 className="text-muted-foreground text-xs font-medium">
+              ไม่ใช่ปัญหา <span className="font-normal">หน่วยงานไม่ได้เผยแพร่ TOR</span>
             </h3>
             <ul className="flex flex-col divide-y">
               {group.noTor.map((failure, index) => (
@@ -135,22 +132,23 @@ export function FailureLog({
     <section
       id="failures"
       aria-labelledby="failures-heading"
-      className="flex scroll-mt-24 flex-col gap-3"
+      className="flex scroll-mt-24 flex-col gap-4"
     >
       <div className="flex flex-col gap-1">
-        <h2 id="failures-heading" className="text-base font-semibold">
+        <SectionHeading id="failures-heading" icon={FileWarning}>
           บันทึกข้อผิดพลาด
-        </h2>
-        <p className="text-muted-foreground text-xs">
+        </SectionHeading>
+        <p className="text-muted-foreground max-w-prose text-sm">
           จัดกลุ่มตามช่วงเวลาของแต่ละรอบ แล้วตามขั้นตอน — &ldquo;ไม่ใช่ปัญหา&rdquo;
           คือโครงการที่ไม่มี TOR ให้อ่าน ไม่ต้องแก้ไข
         </p>
       </div>
       {groups.length === 0 ? (
-        <div className="flex items-center gap-3 border-y py-6">
-          <CheckCircle2 className="text-muted-foreground size-5" aria-hidden="true" />
-          <p className="text-muted-foreground text-sm">ไม่มีข้อผิดพลาดที่บันทึกไว้</p>
-        </div>
+        <EmptyState
+          icon={CheckCircle2}
+          title="ไม่มีข้อผิดพลาดที่บันทึกไว้"
+          className="rounded-xl border border-dashed"
+        />
       ) : (
         <div className="border-y">
           {groups.map((group, index) => (

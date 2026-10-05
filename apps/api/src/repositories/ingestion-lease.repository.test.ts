@@ -201,12 +201,6 @@ describeMongo('IngestionLeaseRepository', () => {
         },
       ],
       queueRemaining: 41,
-      memory: {
-        rssBytes: 300_000_000,
-        heapUsedBytes: 120_000_000,
-        peakRssBytes: 410_000_000,
-        sampledAt: at(30).toISOString(),
-      },
     };
 
     test('is read back by anyone asking for the current lease', async () => {
@@ -247,7 +241,9 @@ describeMongo('IngestionLeaseRepository', () => {
       await lease.acquire('a', at(0), TTL);
       await lease.heartbeat('a', at(30), TTL, live);
 
-      const stored = await (await getDb())
+      const stored = await (
+        await getDb()
+      )
         .collection('ingestion_meta')
         .findOne({ _id: 'run_lease' as never });
       expect(Object.keys(stored ?? {}).sort()).toEqual(
@@ -257,7 +253,9 @@ describeMongo('IngestionLeaseRepository', () => {
 
     test('fields an older build left flat on the lease are not read as live', async () => {
       await lease.acquire('a', at(0), TTL);
-      await (await getDb())
+      await (
+        await getDb()
+      )
         .collection('ingestion_meta')
         .updateOne(
           { _id: 'run_lease' as never },
@@ -265,6 +263,16 @@ describeMongo('IngestionLeaseRepository', () => {
         );
 
       expect((await lease.current(at(6)))?.live).toBeNull();
+    });
+
+    test('memory an older build wrote into the live subdocument is not read back', async () => {
+      await lease.acquire('a', at(0), TTL);
+      await lease.heartbeat('a', at(30), TTL, live);
+      const leases = (await getDb()).collection('ingestion_meta');
+      const olderMemory = { 'live.rss': 1, 'live.heap_used': 1, 'live.peak_rss': 1 };
+      await leases.updateOne({ _id: 'run_lease' as never }, { $set: olderMemory });
+
+      expect((await lease.current(at(31)))?.live).toEqual(live);
     });
   });
 });

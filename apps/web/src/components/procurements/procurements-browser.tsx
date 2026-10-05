@@ -3,9 +3,10 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Inbox, SearchX } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, FilterX, Inbox, SearchX } from 'lucide-react';
 import type { Procurement } from '@torfun/types';
 import { AdminLoadError } from '@/components/admin/admin-load-error';
+import { ADMIN_LINK, AdminPage, EmptyState } from '@/components/admin/admin-ui';
 import {
   ProjectActionDialog,
   type ProjectAction,
@@ -61,31 +62,33 @@ function filtersActive(url: ProcurementListFilters): boolean {
   );
 }
 
-function EmptyState({ filtered, onClear }: { filtered: boolean; onClear: () => void }) {
-  const Icon = filtered ? SearchX : Inbox;
-  return (
-    <div className="flex flex-col items-center gap-2 px-4 py-14 text-center">
-      <Icon aria-hidden="true" className="text-muted-foreground size-6" />
-      {filtered ? (
-        <>
-          <p className="text-sm">ไม่พบประกาศที่ตรงกับตัวกรอง</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={onClear}>
-            ล้างตัวกรองทั้งหมด
-          </Button>
-        </>
-      ) : (
-        <>
-          <p className="text-sm">ยังไม่มีประกาศในระบบ</p>
-          <p className="text-muted-foreground text-xs">ประกาศจะเข้ามาเมื่อรอบดึงข้อมูลทำงาน</p>
-          <Link
-            href="/admin/ingestion"
-            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-2')}
-          >
-            ไปที่ระบบดึงข้อมูล
-          </Link>
-        </>
-      )}
-    </div>
+function ListEmpty({ filtered, onClear }: { filtered: boolean; onClear: () => void }) {
+  return filtered ? (
+    <EmptyState
+      icon={SearchX}
+      title="ไม่พบประกาศที่ตรงกับตัวกรอง"
+      action={
+        <Button variant="outline" size="sm" onClick={onClear}>
+          <FilterX className="size-4" aria-hidden="true" />
+          ล้างตัวกรองทั้งหมด
+        </Button>
+      }
+    />
+  ) : (
+    <EmptyState
+      icon={Inbox}
+      title="ยังไม่มีประกาศในระบบ"
+      hint="ประกาศจะเข้ามาเมื่อรอบดึงข้อมูลทำงาน"
+      action={
+        <Link
+          href="/admin/ingestion"
+          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+        >
+          ไปที่ระบบดึงข้อมูล
+          <ArrowRight className="size-4" aria-hidden="true" />
+        </Link>
+      }
+    />
   );
 }
 
@@ -103,7 +106,7 @@ function Pagination({
   const last = Math.max(1, Math.ceil(total / PROCUREMENT_PAGE_SIZE));
   return (
     <nav aria-label="หน้ารายการ" className="flex items-center justify-between gap-4">
-      <p className="text-muted-foreground font-mono text-xs tabular-nums">
+      <p className="text-muted-foreground text-xs tabular-nums">
         {total > 0
           ? `${formatCount(start)}–${formatCount(end)} จาก ${formatCount(total)}`
           : '0 รายการ'}
@@ -116,7 +119,7 @@ function Pagination({
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
         >
-          <ChevronLeft aria-hidden="true" />
+          <ChevronLeft className="size-4" aria-hidden="true" />
         </Button>
         <Button
           variant="outline"
@@ -125,7 +128,7 @@ function Pagination({
           disabled={page >= last}
           onClick={() => onPage(page + 1)}
         >
-          <ChevronRight aria-hidden="true" />
+          <ChevronRight className="size-4" aria-hidden="true" />
         </Button>
       </div>
     </nav>
@@ -182,7 +185,7 @@ export function ProcurementsBrowser({ initialUrl }: { initialUrl: ProcurementUrl
   const showEmpty = !list.loading && !list.error && list.items.length === 0;
 
   return (
-    <main className="page-fill mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-8 px-4 py-8 sm:px-6 lg:px-10 lg:py-10">
+    <AdminPage>
       <PageHeader
         crumbs={[{ label: 'ผู้ดูแลระบบ', href: '/dashboard' }, { label: 'ประกาศที่ดึงเข้าระบบ' }]}
         title={
@@ -196,17 +199,15 @@ export function ProcurementsBrowser({ initialUrl }: { initialUrl: ProcurementUrl
             ) : (
               <span className="text-muted-foreground text-lg font-normal">
                 {droppedView ? 'ถูกคัดออก ' : null}
-                <span className="font-mono tabular-nums">{formatCount(total)}</span>
+                <span className="tabular-nums">{formatCount(total)}</span>
               </span>
             )}
           </span>
         }
+        description="ประกาศที่ระบบดึงเข้ามา สถานะการดึงเอกสาร TOR และรายการที่ถูกคัดออก"
         actions={
           running ? (
-            <Link
-              href="/admin/ingestion"
-              className="text-primary inline-flex items-center gap-2 text-sm underline-offset-4 hover:underline"
-            >
+            <Link href="/admin/ingestion" className={ADMIN_LINK}>
               <span
                 aria-hidden="true"
                 className="bg-primary size-2 rounded-full motion-safe:animate-pulse"
@@ -270,7 +271,7 @@ export function ProcurementsBrowser({ initialUrl }: { initialUrl: ProcurementUrl
               {list.error && list.items.length === 0 ? null : (
                 <div className="bg-card rounded-lg border">
                   {showEmpty ? (
-                    <EmptyState
+                    <ListEmpty
                       filtered={filtersActive(url)}
                       onClear={() => applyFilters(EMPTY_PROCUREMENT_FILTERS)}
                     />
@@ -320,6 +321,6 @@ export function ProcurementsBrowser({ initialUrl }: { initialUrl: ProcurementUrl
           onDone={list.reload}
         />
       ) : null}
-    </main>
+    </AdminPage>
   );
 }

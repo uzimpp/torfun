@@ -12,7 +12,11 @@ export interface Crumb {
 
 /**
  * The admin pages' header: breadcrumb, h1, at most one line of description,
- * a mono meta row, and the primary action on the h1's baseline.
+ * a meta row, and the primary action on the h1's baseline.
+ *
+ * Every line here can carry Thai, so all of it is set in the sans face; the meta
+ * row only adds tabular figures so times and counts hold their width while they
+ * refresh. Mono is for machine identifiers alone, since it has no Thai glyphs.
  */
 export function PageHeader({
   crumbs,
@@ -25,7 +29,7 @@ export function PageHeader({
   crumbs?: Crumb[];
   title: ReactNode;
   description?: ReactNode;
-  /** Counts, times, quota: set in mono. */
+  /** Counts, times, quota: sans with tabular figures. */
   meta?: ReactNode;
   actions?: ReactNode;
   className?: string;
@@ -56,12 +60,14 @@ export function PageHeader({
         </nav>
       ) : null}
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
-        <h1 className="min-w-0 text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="min-w-0 text-2xl font-medium tracking-tight">{title}</h1>
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
-      {description ? <p className="text-muted-foreground max-w-prose text-sm">{description}</p> : null}
+      {description ? (
+        <p className="text-muted-foreground max-w-prose text-sm">{description}</p>
+      ) : null}
       {meta ? (
-        <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs tabular-nums">
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums">
           {meta}
         </div>
       ) : null}

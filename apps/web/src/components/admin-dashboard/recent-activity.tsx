@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { Activity } from 'lucide-react';
 import { OUTCOME_LABELS, type Procurement } from '@torfun/types';
 import { cn } from '@/lib/utils';
+import { EmptyState, RECORD_LINK } from '@/components/admin/admin-ui';
 import { STATUS_STYLE } from '@/components/admin/status-badge';
 import { formatThaiDate } from '@/lib/format-date';
 import { bucketOfOutcome } from '@/lib/outcome-buckets';
@@ -17,12 +19,12 @@ import { timeAgoTh } from './view-models';
 export function RecentActivity({ items, now }: { items: Procurement[]; now: Date }) {
   if (items.length === 0) {
     return (
-      <div className="flex min-h-32 flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-center">
-        <p className="text-sm font-medium">ยังไม่มีความเคลื่อนไหว</p>
-        <p className="text-muted-foreground max-w-xs text-xs">
-          รายการที่ถูกดึงหรืออัปเดตล่าสุดจะแสดงที่นี่หลังรอบดึงข้อมูลครั้งแรก
-        </p>
-      </div>
+      <EmptyState
+        icon={Activity}
+        title="ยังไม่มีความเคลื่อนไหว"
+        hint="รายการที่ถูกดึงหรืออัปเดตล่าสุดจะแสดงที่นี่หลังรอบดึงข้อมูลครั้งแรก"
+        className="rounded-xl border border-dashed"
+      />
     );
   }
 
@@ -40,10 +42,7 @@ export function RecentActivity({ items, now }: { items: Procurement[]; now: Date
             key={item.projectId}
             className="flex flex-col gap-1.5 border-b py-3 first:pt-0 last:border-b-0 last:pb-0"
           >
-            <Link
-              href={href}
-              className="focus-visible:ring-ring/50 line-clamp-2 min-h-6 rounded-sm text-sm font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-[3px]"
-            >
+            <Link href={href} className={RECORD_LINK}>
               {item.projectName}
             </Link>
             <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
