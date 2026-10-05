@@ -5,6 +5,7 @@ import type { IngestionFailure, IngestionOps, IngestionRun as RunLog } from '@to
 
 import type { IngestionSummaryResponse } from '@/lib/api';
 import { IngestionDashboard } from './ingestion-dashboard';
+import { dailyWindow, ZERO_DISCOVERED, ZERO_THROUGHPUT } from './ops-fixture';
 import type { IngestionOpsData } from './use-ingestion-ops';
 import type { IngestionRun } from './use-ingestion-run';
 
@@ -60,7 +61,6 @@ const runLog = (overrides: Partial<RunLog> = {}): RunLog => ({
   counts: null,
   error: null,
   tokens: { prompt: 120_000, output: 8_000, thoughts: 4_000, total: 132_000, calls: 12 },
-  peakRssBytes: 600 * 1024 * 1024,
   ...overrides,
 });
 
@@ -72,7 +72,6 @@ const ops = (overrides: Partial<IngestionOps> = {}): IngestionOps => ({
     stopRequested: false,
     inFlight: null,
     queueRemaining: null,
-    memory: null,
   },
   recordTimings: {
     sample: 40,
@@ -81,7 +80,8 @@ const ops = (overrides: Partial<IngestionOps> = {}): IngestionOps => ({
     downloadP50Ms: 8_000,
     analyseP50Ms: 30_000,
   },
-  throughputDaily: [],
+  throughputDaily: dailyWindow(ZERO_THROUGHPUT),
+  discoveredDaily: dailyWindow(ZERO_DISCOVERED),
   failuresByStage: [],
   runs: [runLog()],
   ...overrides,
@@ -173,6 +173,7 @@ describe('run control', () => {
 
     expect(screen.queryByRole('status', { name: /กำลังรันรอบดึงข้อมูล/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'หยุดรอบนี้' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'งานที่กำลังทำ' })).not.toBeInTheDocument();
     expect(screen.getByText(/^รอบล่าสุด /)).toBeInTheDocument();
   });
 
@@ -279,7 +280,7 @@ describe('the run banner', () => {
 
     const banner = screen.getByRole('status', { name: /กำลังหยุด/ });
     expect(banner).toHaveTextContent('รอรายการที่ทำอยู่ให้เสร็จ');
-    expect(within(banner).getByRole('button', { name: 'กำลังหยุด' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'กำลังหยุด' })).toBeDisabled();
   });
 });
 
@@ -331,40 +332,20 @@ describe('live work', () => {
     );
     expect(screen.getByText('เหลือในคิวรอบนี้ 99 รายการ')).toBeInTheDocument();
   });
-
-  test('says when no run is going', () => {
-    mockedRun.mockReturnValue(runData());
-    render(<IngestionDashboard />);
-
-    expect(screen.getByText('ไม่มีรอบที่กำลังทำงาน')).toBeInTheDocument();
-  });
 });
 
 describe('monitoring', () => {
-  test('tiles read the last run, the per-record median, memory and the token split', () => {
+  test('shows no metric tiles, memory or caveat footnotes', () => {
     mockedRun.mockReturnValue(runData());
     render(<IngestionDashboard />);
 
-    expect(screen.getByRole('group', { name: 'ระยะเวลารอบล่าสุด' })).toHaveTextContent(
-      '9 นาที 6 วิ',
-    );
-    expect(screen.getByRole('group', { name: /เวลาต่อรายการ/ })).toHaveTextContent('42 วิ');
-    expect(screen.getByRole('group', { name: /หน่วยความจำ/ })).toHaveTextContent('600 MB');
-    const tokens = screen.getByRole('group', { name: 'โทเคน รอบล่าสุด' });
-    expect(tokens).toHaveTextContent('132,000');
-    expect(tokens).toHaveTextContent('prompt 120,000 · output 8,000 · thinking 4,000');
+    expect(screen.queryByRole('list', { name: 'ตัวชี้วัดการทำงาน' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/หน่วยความจำ/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Cloud Run/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ไม่รวมรายการที่ถูกคัดออก/)).not.toBeInTheDocument();
   });
 
-  test('says what the numbers leave out', () => {
-    mockedRun.mockReturnValue(runData());
-    render(<IngestionDashboard />);
-
-    expect(screen.getByText(/ไม่รวมรายการที่ถูกคัดออก/)).toBeInTheDocument();
-    expect(screen.getByText(/โทเคนไม่รวมการเรียก AI ที่ล้มเหลว/)).toBeInTheDocument();
-    expect(screen.getByText(/หน่วยความจำเป็นของอินสแตนซ์ที่รันงานนี้/)).toBeInTheDocument();
-  });
-
-  test('charts state their values in words, not only as bars', () => {
+  test('trend charts carry their figures in words and as a table, not only as marks', () => {
     mockedRun.mockReturnValue(runData());
     mockedOps.mockReturnValue(
       opsData({
@@ -375,12 +356,21 @@ describe('monitoring', () => {
     );
     render(<IngestionDashboard />);
 
-    expect(screen.getByRole('figure', { name: 'ระยะเวลาต่อรอบ' })).toHaveTextContent(
-      'ล่าสุด 9 นาที 6 วิ · สูงสุด 9 นาที 6 วิ',
+    const trends = screen.getByRole('region', { name: 'แนวโน้ม' });
+    for (const name of [
+      'ประกาศที่พบต่อวัน (30 วัน)',
+      'ผลการประมวลผลต่อวัน',
+      'ข้อผิดพลาดตามขั้นตอน',
+    ]) {
+      expect(within(trends).getByRole('figure', { name })).toBeInTheDocument();
+    }
+    expect(
+      within(trends).getByRole('group', { name: 'เวลาต่อรายการ (มัธยฐาน 30 วัน)' }),
+    ).toHaveTextContent('42 วิ');
+    const stages = within(screen.getByRole('figure', { name: 'ข้อผิดพลาดตามขั้นตอน' })).getByRole(
+      'table',
     );
-    expect(screen.getByRole('figure', { name: /ข้อผิดพลาดตามขั้นตอน/ })).toHaveTextContent(
-      'ดาวน์โหลดเอกสาร4',
-    );
+    expect(within(stages).getAllByRole('row')[1]).toHaveTextContent('ดาวน์โหลดเอกสาร4');
   });
 
   test('a failed read says why and offers a retry', async () => {
@@ -395,6 +385,87 @@ describe('monitoring', () => {
       within(screen.getByRole('alert')).getByRole('button', { name: 'ลองอีกครั้ง' }),
     );
     expect(reload).toHaveBeenCalledOnce();
+  });
+});
+
+describe('run history', () => {
+  test('lists each recorded run with how it started, what it did and how it ended', () => {
+    mockedRun.mockReturnValue(runData());
+    mockedOps.mockReturnValue(
+      opsData({
+        ops: ops({
+          runs: [
+            runLog({
+              counts: {
+                discovered: 30,
+                newRecords: 12,
+                changedRecords: 0,
+                unchangedRecords: 18,
+                discoverySkipped: false,
+                discoveryStopped: null,
+                rejectedNonRegistry: 0,
+                attempted: 9,
+                refreshed: 2,
+                archivesRetrieved: 8,
+                torAnalysed: 5,
+                held: 2,
+                dropped: 1,
+                failed: 1,
+                aborted: true,
+                stopped: null,
+              },
+            }),
+          ],
+        }),
+      }),
+    );
+    render(<IngestionDashboard />);
+
+    const history = screen.getByRole('region', { name: 'ประวัติรอบ' });
+    const [header, row] = within(history).getAllByRole('row');
+    expect(
+      within(header!)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      'เริ่ม',
+      'วิธีเริ่ม',
+      'ระยะเวลา',
+      'รายการที่ทำ',
+      'วิเคราะห์แล้ว',
+      'รอตรวจสอบ',
+      'ล้มเหลว',
+      'โทเคน',
+      'ผล',
+    ]);
+    expect(
+      within(row!)
+        .getAllByRole('cell')
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      '3 ต.ค. 10:00',
+      'ตามตาราง',
+      '9 นาที 6 วิ',
+      '9',
+      '5',
+      '2',
+      '1',
+      expect.stringContaining('132,000'),
+      'เว็บปฏิเสธ',
+    ]);
+    expect(within(row!).getByRole('button', { name: '132,000' })).toHaveAccessibleDescription(
+      /prompt 120,000 · output 8,000 · thinking 4,000 — นับโดย Gemini; ไม่รวมการเรียกที่ล้มเหลว/,
+    );
+  });
+
+  test('before the first recorded run, says so in one sentence', () => {
+    mockedRun.mockReturnValue(runData());
+    mockedOps.mockReturnValue(opsData({ ops: ops({ runs: [] }) }));
+    render(<IngestionDashboard />);
+
+    const history = screen.getByRole('region', { name: 'ประวัติรอบ' });
+    expect(history).toHaveTextContent('ยังไม่มีรอบที่บันทึก — เริ่มบันทึกตั้งแต่รอบถัดไป');
+    expect(within(history).queryByRole('table')).not.toBeInTheDocument();
   });
 });
 

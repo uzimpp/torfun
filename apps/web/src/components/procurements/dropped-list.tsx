@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { ArchiveX } from 'lucide-react';
+import { ArchiveX, ListX, RefreshCw } from 'lucide-react';
 import { TOMBSTONE_REASON_LABELS, type Tombstone } from '@torfun/types';
 import { AdminLoadError } from '@/components/admin/admin-load-error';
+import { EmptyState } from '@/components/admin/admin-ui';
 import { LoadingRegion } from '@/components/admin/loading-region';
 import {
   TombstoneActionDialog,
@@ -56,13 +57,12 @@ export function DroppedList({ dropped }: { dropped: DroppedState }) {
           ))}
         </LoadingRegion>
       ) : items.length === 0 ? (
-        <div className="bg-card flex flex-col items-center gap-2 rounded-lg border px-4 py-12 text-center">
-          <ArchiveX aria-hidden="true" className="text-muted-foreground size-6" />
-          <p className="text-sm">ยังไม่มีโครงการที่ถูกคัดออก</p>
-          <p className="text-muted-foreground text-xs">
-            เมื่อ AI หรือผู้ดูแลระบบคัดโครงการออก รายการจะแสดงที่นี่
-          </p>
-        </div>
+        <EmptyState
+          icon={ArchiveX}
+          title="ยังไม่มีโครงการที่ถูกคัดออก"
+          hint="เมื่อ AI หรือผู้ดูแลระบบคัดโครงการออก รายการจะแสดงที่นี่"
+          className="bg-card rounded-lg border"
+        />
       ) : (
         <ul className="bg-card divide-y rounded-lg border">
           {items.map((item) => (
@@ -72,7 +72,7 @@ export function DroppedList({ dropped }: { dropped: DroppedState }) {
             >
               <div className="flex min-w-0 flex-col gap-1">
                 <p className="text-muted-foreground flex flex-wrap gap-x-2 text-xs">
-                  <span className="text-foreground font-mono tabular-nums">{item.projectId}</span>
+                  <span className="text-foreground font-mono">{item.projectId}</span>
                   <span>{formatThaiDate(item.decidedAt, { withTime: true })}</span>
                 </p>
                 <p className="text-sm break-words">
@@ -89,6 +89,7 @@ export function DroppedList({ dropped }: { dropped: DroppedState }) {
                   size="sm"
                   onClick={() => setActing({ tombstone: item, action: 'remove' })}
                 >
+                  <ListX className="size-4" aria-hidden="true" />
                   ลบออกจากรายการ
                 </Button>
                 <Button
@@ -96,6 +97,7 @@ export function DroppedList({ dropped }: { dropped: DroppedState }) {
                   size="sm"
                   onClick={() => setActing({ tombstone: item, action: 'restore' })}
                 >
+                  <RefreshCw className="size-4" aria-hidden="true" />
                   ดึงข้อมูลใหม่
                 </Button>
               </div>

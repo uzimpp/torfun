@@ -91,7 +91,7 @@ export const PipelineScene = memo(function PipelineScene() {
   return (
     <div ref={root} className="bg-card shadow-lifted rounded-[1.75rem] border p-5 sm:p-7">
       <div className="flex items-center justify-between border-b pb-4">
-        <p className="text-sm font-semibold">คัดกรองประกาศอัตโนมัติ</p>
+        <p className="text-sm font-medium">คัดกรองประกาศอัตโนมัติ</p>
         <FileText aria-hidden="true" className="text-primary size-5" />
       </div>
 
@@ -129,7 +129,7 @@ export const PipelineScene = memo(function PipelineScene() {
               {keep && (
                 <span
                   data-tag
-                  className="bg-primary/10 text-primary shrink-0 rounded-full px-2 py-1 text-[0.6875rem] font-medium whitespace-nowrap"
+                  className="bg-primary/10 text-primary shrink-0 rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap"
                 >
                   {label}
                 </span>

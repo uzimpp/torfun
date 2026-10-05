@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, LogIn, RotateCw } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import type { LoadError, LoadErrorKind } from '@/lib/api-errors';
 import { cn } from '@/lib/utils';
@@ -46,10 +46,12 @@ export function AdminLoadError({
       </div>
       {ended ? (
         <Link href="/login" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
+          <LogIn className="size-4" aria-hidden="true" />
           เข้าสู่ระบบอีกครั้ง
         </Link>
       ) : onRetry ? (
         <Button variant="outline" size="sm" onClick={onRetry}>
+          <RotateCw className="size-4" aria-hidden="true" />
           ลองอีกครั้ง
         </Button>
       ) : null}

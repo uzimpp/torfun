@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
+import { StatValue } from '@/components/admin/admin-ui';
 import { cn } from '@/lib/utils';
 import type { KpiTile } from './view-models';
 
@@ -26,20 +27,12 @@ export function KpiStrip({ tiles }: { tiles: KpiTile[] }) {
               {tile.label}
               {tile.alert ? (
                 <>
-                  <AlertTriangle className="text-destructive size-3.5" aria-hidden="true" />
+                  <AlertTriangle className="text-destructive size-4" aria-hidden="true" />
                   <span className="sr-only">ต้องตรวจสอบ</span>
                 </>
               ) : null}
             </span>
-            <span
-              className={cn(
-                'text-xl font-semibold break-words tabular-nums',
-                tile.key !== 'lastRun' && 'font-mono',
-                tile.alert && 'text-destructive',
-              )}
-            >
-              {tile.value}
-            </span>
+            <StatValue className={cn(tile.alert && 'text-destructive')}>{tile.value}</StatValue>
             <span className="text-muted-foreground text-xs">{tile.hint}</span>
           </Link>
         </li>

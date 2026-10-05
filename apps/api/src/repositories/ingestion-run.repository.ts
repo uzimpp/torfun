@@ -41,7 +41,6 @@ interface RunDocument {
   counts: CountsDocument | null;
   error: string | null;
   tokens: IngestionRun['tokens'];
-  peak_rss_bytes: number;
 }
 
 function countsToDocument(counts: RunCounts): CountsDocument {
@@ -112,7 +111,6 @@ export class IngestionRunRepository implements IngestionRunStore {
       counts: run.counts ? countsToDocument(run.counts) : null,
       error: run.error,
       tokens: run.tokens,
-      peak_rss_bytes: run.peakRssBytes,
     });
   }
 
@@ -140,7 +138,6 @@ export class IngestionRunRepository implements IngestionRunStore {
         total: document.tokens.total,
         calls: document.tokens.calls,
       },
-      peakRssBytes: document.peak_rss_bytes,
     }));
   }
 }

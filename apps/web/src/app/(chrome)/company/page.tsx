@@ -22,7 +22,7 @@ export default async function Company() {
 
   return (
     <main className="page-fill mx-auto w-full max-w-4xl px-5 py-10 sm:px-8 lg:py-14">
-      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">บริษัทและผลงาน</h1>
+      <h1 className="text-2xl font-medium tracking-tight">บริษัทและผลงาน</h1>
       <p className="text-muted-foreground mt-2 max-w-xl">
         ข้อมูลนี้คือสิ่งที่ระบบนำไปเทียบกับข้อกำหนดในประกาศ TOR แก้ไขได้ทุกเมื่อ
       </p>

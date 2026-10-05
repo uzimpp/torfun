@@ -8,13 +8,29 @@ import { OutcomeDonut } from './outcome-donut';
 import { RecentActivity } from './recent-activity';
 import { outcomeBuckets } from '@/lib/outcome-buckets';
 import type { AdminDashboardData } from './use-admin-dashboard-data';
+import { dailyWindow, opsFixture, ZERO_DISCOVERED } from '@/components/ingestion/ops-fixture';
 
 vi.mock('./use-admin-dashboard-data', () => ({ useAdminDashboardData: vi.fn() }));
+vi.mock('@/components/ingestion/use-ingestion-ops', () => ({ useIngestionOps: vi.fn() }));
 vi.mock('./approval-queue', () => ({
   ApprovalQueue: () => <section aria-label="approval queue stub" />,
 }));
 const { useAdminDashboardData } = await import('./use-admin-dashboard-data');
 const mockedHook = vi.mocked(useAdminDashboardData);
+const { useIngestionOps } = await import('@/components/ingestion/use-ingestion-ops');
+const mockedOps = vi.mocked(useIngestionOps);
+
+beforeEach(() => {
+  mockedOps.mockReturnValue({
+    ops: opsFixture({
+      discoveredDaily: dailyWindow(ZERO_DISCOVERED, { '2026-10-05': { discovered: 9 } }),
+    }),
+    loading: false,
+    error: null,
+    updatedAt: null,
+    reload: vi.fn(),
+  });
+});
 
 function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSummaryResponse {
   return {
@@ -218,6 +234,22 @@ describe('AdminDashboard', () => {
     expect(screen.getByRole('region', { name: 'approval queue stub' })).toBeInTheDocument();
     expect(screen.getByRole('img')).toBeInTheDocument();
     expect(screen.getByText('ประกวดราคาจ้างพัฒนาระบบสารสนเทศ')).toBeInTheDocument();
+  });
+
+  test('one trend card shows what was found over 30 days', () => {
+    mockedHook.mockReturnValue(data());
+    render(<AdminDashboard />);
+
+    const trends = screen.getByRole('region', { name: 'แนวโน้ม 30 วัน' });
+    expect(
+      within(trends).getByRole('figure', { name: 'ประกาศที่พบต่อวัน (30 วัน)' }),
+    ).toHaveTextContent('9รวม 30 วัน');
+    expect(within(trends).getAllByRole('figure')).toHaveLength(1);
+    expect(within(trends).getByRole('link', { name: 'ดูแนวโน้มทั้งหมด' })).toHaveAttribute(
+      'href',
+      '/admin/ingestion',
+    );
+    expect(mockedOps).toHaveBeenCalledWith({ live: false });
   });
 
   test('the run-state chip says when the last run was and links to the ingestion page', () => {

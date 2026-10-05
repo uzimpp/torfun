@@ -47,7 +47,7 @@ export function TorDownloadButton({
         {downloading ? 'กำลังดาวน์โหลด' : 'ดาวน์โหลด TOR'}
       </Button>
       {error && (
-        <p role="alert" className="text-destructive text-xs leading-relaxed">
+        <p role="alert" className="text-destructive text-xs">
           {error}
         </p>
       )}

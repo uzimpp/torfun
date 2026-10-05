@@ -1,9 +1,4 @@
-import {
-  IngestionStage,
-  type DailyThroughput,
-  type IngestionFailure,
-  type IngestionRun,
-} from '@torfun/types';
+import { IngestionStage, type IngestionFailure, type IngestionRun } from '@torfun/types';
 import { formatElapsed } from './status-tracking';
 
 /**
@@ -28,40 +23,6 @@ export function formatDuration(ms: number | null): string {
   if (ms === null) return '—';
   if (ms < 10_000) return `${(Math.max(0, ms) / 1000).toFixed(1)} วิ`;
   return formatElapsed(ms);
-}
-
-export function formatBytes(bytes: number): string {
-  const mb = bytes / 1024 ** 2;
-  return mb < 1024 ? `${Math.round(mb)} MB` : `${(mb / 1024).toFixed(1)} GB`;
-}
-
-/** Wall time over records attempted, so runner parallelism is already in it. */
-export function perRecordMs(run: IngestionRun): number | null {
-  const attempted = run.counts?.attempted ?? 0;
-  return attempted > 0 ? run.durationMs / attempted : null;
-}
-
-const BANGKOK_OFFSET_MS = 7 * 3_600_000;
-const DAY_MS = 86_400_000;
-
-export function bangkokDate(at: Date): string {
-  return new Date(at.getTime() + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
-}
-
-/** The API lists only days with activity; a chart needs every day in the window. */
-export function dailySeries(active: DailyThroughput[], now: Date, days = 30): DailyThroughput[] {
-  const byDate = new Map(active.map((day) => [day.date, day]));
-  const today = Date.parse(`${bangkokDate(now)}T00:00:00.000Z`);
-  return Array.from({ length: days }, (_, index) => {
-    const date = new Date(today - (days - 1 - index) * DAY_MS).toISOString().slice(0, 10);
-    const day = byDate.get(date);
-    return {
-      date,
-      completed: day?.completed ?? 0,
-      held: day?.held ?? 0,
-      failed: day?.failed ?? 0,
-    };
-  });
 }
 
 /** Upstream published no TOR: logged as a failure, but there is nothing to fix. */

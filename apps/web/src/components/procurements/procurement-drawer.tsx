@@ -14,7 +14,7 @@ import {
 } from '@torfun/types';
 import { AdminLoadError } from '@/components/admin/admin-load-error';
 import { LoadingRegion } from '@/components/admin/loading-region';
-import { StateBadge, StatusBadge } from '@/components/admin/status-badge';
+import { STATUS_STYLE, StateBadge, StatusBadge } from '@/components/admin/status-badge';
 import {
   ProjectActionDialog,
   type ProjectAction,
@@ -44,17 +44,25 @@ const ROLE_LABELS: Record<ArchiveDocument['role'], string> = {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-3 px-5 py-5">
-      <h3 className="text-muted-foreground text-xs font-medium">{title}</h3>
+      <h3 className="text-base font-medium">{title}</h3>
       {children}
     </section>
   );
 }
 
-function Fact({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
+function Fact({
+  label,
+  children,
+  numeric,
+}: {
+  label: string;
+  children: ReactNode;
+  numeric?: boolean;
+}) {
   return (
     <div className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 py-1.5 text-sm">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className={cn('min-w-0 break-words', mono && 'font-mono tabular-nums')}>{children}</dd>
+      <dd className={cn('min-w-0 break-words', numeric && 'tabular-nums')}>{children}</dd>
     </div>
   );
 }
@@ -74,7 +82,7 @@ function SourceSection({ record }: { record: Procurement }) {
           href={`/tor/${record.projectId}`}
           className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
         >
-          <ExternalLink aria-hidden="true" />
+          <ExternalLink className="size-4" aria-hidden="true" />
           หน้าตรวจ TOR
         </Link>
       </div>
@@ -117,7 +125,7 @@ function AnalysisSection({ record }: { record: Procurement }) {
     <Section title="สรุปจาก AI (สรุป ไม่ใช่ข้อยืนยัน)">
       {analysis ? (
         <div className="flex flex-col gap-3 text-sm">
-          <p className="leading-relaxed break-words">{analysis.summary}</p>
+          <p className="break-words">{analysis.summary}</p>
           {analysis.scopeOfWork.length > 0 ? (
             <ul className="text-muted-foreground list-disc space-y-1 pl-5">
               {analysis.scopeOfWork.map((item, index) => (
@@ -156,13 +164,13 @@ function FactsSection({ record }: { record: Procurement }) {
         </Fact>
         {area ? <Fact label="พื้นที่">{area}</Fact> : null}
         <Fact label="สถานะโครงการ">{STATUS_LABELS[record.status]}</Fact>
-        <Fact label="ปีงบประมาณ" mono>
+        <Fact label="ปีงบประมาณ" numeric>
           {record.budgetYear}
         </Fact>
-        <Fact label="งบประมาณ (บาท)" mono>
+        <Fact label="งบประมาณ (บาท)" numeric>
           {formatThb(record.projectMoney)}
         </Fact>
-        <Fact label="ราคากลาง (บาท)" mono>
+        <Fact label="ราคากลาง (บาท)" numeric>
           {formatThb(record.priceBuild)}
         </Fact>
         {record.projectTypeName ? <Fact label="ประเภท">{record.projectTypeName}</Fact> : null}
@@ -176,7 +184,7 @@ function FactsSection({ record }: { record: Procurement }) {
           <Fact label="ผู้ชนะ">
             {record.winner.name}
             {record.winner.priceAgree !== null ? (
-              <span className="text-muted-foreground block font-mono tabular-nums">
+              <span className="text-muted-foreground block tabular-nums">
                 {formatThb(record.winner.priceAgree)} บาท
               </span>
             ) : null}
@@ -232,7 +240,7 @@ function DocumentsSection({ record }: { record: Procurement }) {
   return (
     <Section title="เอกสารในไฟล์บีบอัด">
       {record.torAmbiguous ? (
-        <p className="text-xs text-amber-800 dark:text-amber-300">
+        <p className={cn('text-xs', STATUS_STYLE.needsReview.text)}>
           พบเอกสารที่อ้างเป็น TOR มากกว่าหนึ่งฉบับ ระบบเลือกตามแบบแผนชื่อไฟล์ โปรดตรวจสอบ
         </p>
       ) : null}
@@ -243,9 +251,7 @@ function DocumentsSection({ record }: { record: Procurement }) {
             <span className="text-muted-foreground text-xs">
               {ROLE_LABELS[file.role]}
               {file.namePattern === 'loose' ? ' · ชื่อไฟล์ไม่ตรงแบบแผน' : ''} ·{' '}
-              <span className="font-mono tabular-nums">
-                {(file.bytes / 1024 / 1024).toFixed(1)} MB
-              </span>
+              <span className="tabular-nums">{(file.bytes / 1024 / 1024).toFixed(1)} MB</span>
             </span>
             {file.note ? (
               <span className="text-muted-foreground text-xs break-words">{file.note}</span>
@@ -312,12 +318,12 @@ function StatusLine({ record, now }: { record: Procurement; now: Date }) {
             duration.overdue ? 'text-destructive font-medium' : 'text-muted-foreground',
           )}
         >
-          {duration.overdue ? <AlertTriangle className="size-3.5" aria-hidden="true" /> : null}
+          {duration.overdue ? <AlertTriangle className="size-4" aria-hidden="true" /> : null}
           {duration.label}
         </span>
       ) : null}
       {attempts ? (
-        <span className="text-muted-foreground font-mono text-xs tabular-nums">{attempts}</span>
+        <span className="text-muted-foreground text-xs tabular-nums">{attempts}</span>
       ) : null}
     </div>
   );
@@ -359,11 +365,11 @@ export function ProcurementDrawer({
           {record ? (
             <>
               <StatusLine record={record} now={now} />
-              <SheetTitle className="text-lg leading-snug font-semibold break-words">
+              <SheetTitle className="text-lg font-medium break-words">
                 {record.projectName}
               </SheetTitle>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <SheetDescription className="font-mono text-xs tabular-nums">
+                <SheetDescription className="font-mono text-xs">
                   {record.projectId}
                 </SheetDescription>
                 <ProjectActionMenu record={record} onChoose={setActing} />
@@ -371,7 +377,7 @@ export function ProcurementDrawer({
             </>
           ) : (
             <>
-              <SheetTitle className="text-lg font-semibold">รายละเอียดประกาศ</SheetTitle>
+              <SheetTitle className="text-lg font-medium">รายละเอียดประกาศ</SheetTitle>
               <SheetDescription className="text-xs">
                 {error ? 'โหลดรายละเอียดไม่สำเร็จ' : 'กำลังโหลดรายละเอียด'}
               </SheetDescription>

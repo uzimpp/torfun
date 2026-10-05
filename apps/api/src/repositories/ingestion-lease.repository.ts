@@ -51,11 +51,8 @@ interface InFlightDocument {
   since: string;
 }
 
+/** One written by an older build may also carry memory fields; they are not read. */
 interface LiveDocument {
-  rss: number;
-  heap_used: number;
-  peak_rss: number;
-  sampled_at: string;
   in_flight: InFlightDocument[];
   queue_remaining: number | null;
 }
@@ -77,10 +74,6 @@ interface LeaseDocument {
 
 function liveToDocument(live: LeaseLive): LiveDocument {
   return {
-    rss: live.memory.rssBytes,
-    heap_used: live.memory.heapUsedBytes,
-    peak_rss: live.memory.peakRssBytes,
-    sampled_at: live.memory.sampledAt,
     in_flight: live.inFlight.map((work) => ({
       slot: work.slot,
       project_id: work.projectId,
@@ -105,12 +98,6 @@ function liveFromDocument(document: LiveDocument | undefined): LeaseLive | null 
       since: work.since,
     })),
     queueRemaining: document.queue_remaining,
-    memory: {
-      rssBytes: document.rss,
-      heapUsedBytes: document.heap_used,
-      peakRssBytes: document.peak_rss,
-      sampledAt: document.sampled_at,
-    },
   };
 }
 

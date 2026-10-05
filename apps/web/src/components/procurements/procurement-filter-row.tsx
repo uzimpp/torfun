@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Search, SlidersHorizontal, X } from 'lucide-react';
+import { FilterX, Search, SlidersHorizontal, X } from 'lucide-react';
 import {
   IngestionOutcome,
   IngestionState,
@@ -197,10 +197,10 @@ export function ProcurementFilterRow({
               />
             }
           >
-            <SlidersHorizontal aria-hidden="true" />
+            <SlidersHorizontal className="size-4" aria-hidden="true" />
             ตัวกรองเพิ่มเติม
             {extraCount > 0 ? (
-              <span className="bg-primary/10 text-primary rounded-full px-1.5 font-mono text-xs tabular-nums">
+              <span className="bg-primary/10 text-primary rounded-full px-1.5 text-xs tabular-nums">
                 {extraCount}
               </span>
             ) : null}
@@ -247,12 +247,13 @@ export function ProcurementFilterRow({
             <Button
               variant="link"
               size="sm"
-              className="h-auto px-1 text-xs"
+              className="h-auto px-1"
               onClick={() => {
                 setDraft('');
                 onChange(EMPTY_PROCUREMENT_FILTERS);
               }}
             >
+              <FilterX className="size-4" aria-hidden="true" />
               ล้างทั้งหมด
             </Button>
           </li>

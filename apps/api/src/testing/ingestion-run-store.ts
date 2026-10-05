@@ -22,6 +22,7 @@ export const noStats: IngestionStatsSource = {
   stats: async (): Promise<IngestionStats> => ({
     recordTimings: { sample: 0, p50Ms: null, p90Ms: null, downloadP50Ms: null, analyseP50Ms: null },
     throughputDaily: [],
+    discoveredDaily: [],
     failuresByStage: [],
   }),
 };

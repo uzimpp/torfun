@@ -10,11 +10,12 @@ const anuphan = Anuphan({
 });
 
 /**
- * Numerals, budgets, dates, announcement ids and status codes.
+ * Machine identifiers only: announcement ids and filenames.
  *
- * Anuphan carries the prose; a mono face carries anything a person reads as a
- * value rather than a sentence, so a column of figures lines up and an
- * announcement id cannot be mistaken for a word.
+ * Plex Mono has no Thai glyphs, so anything that can carry Thai — counts with a
+ * unit, dates, durations, money — stays in Anuphan with `tabular-nums` (its
+ * digits already share one advance width) rather than falling back mid-line to
+ * a third face. Mono marks an id so it cannot be mistaken for a word.
  */
 const plexMono = IBM_Plex_Mono({
   subsets: ['latin'],

@@ -3,27 +3,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { IngestionOps } from '@torfun/types';
 
 import { ApiError, SessionEndedError } from '@/lib/api';
+import { opsFixture } from './ops-fixture';
 import { useIngestionOps } from './use-ingestion-ops';
 
 vi.mock('@/lib/api-ingestion-ops', () => ({ fetchIngestionOps: vi.fn() }));
 const { fetchIngestionOps } = await import('@/lib/api-ingestion-ops');
 const mockedFetch = vi.mocked(fetchIngestionOps);
 
-const ops = (runInProgress = false): IngestionOps => ({
-  live: {
-    runInProgress,
-    runStartedAt: null,
-    elapsedMs: null,
-    stopRequested: false,
-    inFlight: null,
-    queueRemaining: null,
-    memory: null,
-  },
-  recordTimings: { sample: 0, p50Ms: null, p90Ms: null, downloadP50Ms: null, analyseP50Ms: null },
-  throughputDaily: [],
-  failuresByStage: [],
-  runs: [],
-});
+const ops = (runInProgress = false): IngestionOps => {
+  const fixture = opsFixture();
+  return { ...fixture, live: { ...fixture.live, runInProgress } };
+};
 
 const POLL_MS = 5000;
 const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));

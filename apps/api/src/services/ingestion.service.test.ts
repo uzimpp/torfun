@@ -381,7 +381,7 @@ describe('the run log', () => {
     expect(Date.parse(run?.endedAt ?? '') - Date.parse(run?.startedAt ?? '')).toBe(
       run?.durationMs ?? -1,
     );
-    expect(run?.peakRssBytes).toBeGreaterThan(0);
+    expect(run).not.toHaveProperty('peakRssBytes');
     expect(Object.keys(run?.counts ?? {}).sort()).toEqual(
       Object.keys(RunCountsSchema.shape).sort(),
     );
@@ -423,7 +423,7 @@ describe('the run log', () => {
 });
 
 describe('the heartbeat of a live run', () => {
-  test('reports the memory of the process and the record in flight, readable through the lease', async () => {
+  test('reports the record in flight and nothing else, readable through the lease', async () => {
     const store = new InMemoryProcurementStore();
     await store.upsert({
       projectId: '67019000001',
@@ -513,9 +513,7 @@ describe('the heartbeat of a live run', () => {
       }),
     ]);
     expect(live?.queueRemaining).toBe(0);
-    expect(live?.memory.rssBytes).toBeGreaterThan(0);
-    expect(live?.memory.heapUsedBytes).toBeGreaterThan(0);
-    expect(live?.memory.peakRssBytes).toBeGreaterThanOrEqual(live?.memory.rssBytes ?? Infinity);
+    expect(Object.keys(live ?? {}).sort()).toEqual(['inFlight', 'queueRemaining']);
   });
 });
 
@@ -532,12 +530,6 @@ describe('IngestionService.ops', () => {
       },
     ],
     queueRemaining: 12,
-    memory: {
-      rssBytes: 300_000_000,
-      heapUsedBytes: 100_000_000,
-      peakRssBytes: 350_000_000,
-      sampledAt: '2026-10-04T03:09:00.000Z',
-    },
   };
 
   test('shows a run going on another instance from what its heartbeat left on the lease', async () => {
@@ -553,7 +545,6 @@ describe('IngestionService.ops', () => {
       stopRequested: false,
       inFlight: live.inFlight,
       queueRemaining: 12,
-      memory: live.memory,
     });
   });
 
@@ -567,16 +558,16 @@ describe('IngestionService.ops', () => {
       stopRequested: false,
       inFlight: null,
       queueRemaining: null,
-      memory: null,
     });
   });
 
   test('reads stored history over the last 30 days, and the latest runs', async () => {
     const now = new Date('2026-10-04T00:00:00.000Z');
-    const asked: string[] = [];
+    const asked: [string, number][] = [];
     const stats: IngestionStats = {
       recordTimings: { sample: 4, p50Ms: 1, p90Ms: 2, downloadP50Ms: 3, analyseP50Ms: 4 },
       throughputDaily: [{ date: '2026-10-03', completed: 3, held: 0, failed: 1 }],
+      discoveredDaily: [{ date: '2026-10-03', discovered: 7 }],
       failuresByStage: [{ stage: 'download', count: 1 }],
     };
     const runs = new InMemoryIngestionRunStore();
@@ -589,8 +580,8 @@ describe('IngestionService.ops', () => {
         runLog: new InMemoryScheduleStore(),
         runs,
         stats: {
-          stats: async (since) => {
-            asked.push(since);
+          stats: async (at, days) => {
+            asked.push([at, days]);
             return stats;
           },
         },
@@ -610,13 +601,12 @@ describe('IngestionService.ops', () => {
         counts: null,
         error: 'x',
         tokens: { prompt: 0, output: 0, thoughts: 0, total: 0, calls: 0 },
-        peakRssBytes: 0,
       });
     }
 
     const ops = await service.ops();
 
-    expect(asked).toEqual(['2026-09-04T00:00:00.000Z']);
+    expect(asked).toEqual([['2026-10-04T00:00:00.000Z', 30]]);
     expect(ops).toMatchObject(stats);
     expect(ops.runs).toHaveLength(20);
     expect(ops.runs[0]?.id).toBe('run-25');

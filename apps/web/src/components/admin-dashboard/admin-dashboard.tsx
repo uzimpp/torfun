@@ -1,10 +1,13 @@
 'use client';
 
+import { Activity, Gauge, PieChart } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { AdminLoadError } from '@/components/admin/admin-load-error';
+import { AdminPage, AdminSection } from '@/components/admin/admin-ui';
 import { outcomeBuckets } from '@/lib/outcome-buckets';
 import { ApprovalQueue } from './approval-queue';
 import { AttentionRow, RunStateChip } from './attention-row';
+import { DashboardTrends } from './dashboard-trends';
 import { DashboardSkeleton } from './dashboard-skeleton';
 import { KpiStrip } from './kpi-strip';
 import { OutcomeDonut } from './outcome-donut';
@@ -25,11 +28,12 @@ export function AdminDashboard() {
   const { summary, recent, failures, asOf, loading, error, retry } = useAdminDashboardData();
 
   return (
-    <main className="page-fill mx-auto flex w-full max-w-7xl flex-col gap-10 px-4 py-8 sm:px-6 lg:px-10 lg:py-10">
+    <AdminPage>
       <PageHeader
         title="ภาพรวม"
         description="สิ่งที่ต้องดูแล รายการรอตรวจสอบ และสถานะของประกาศที่ดึงเข้าระบบ"
         meta={asOf ? <span>อัปเดตเมื่อ {clock(asOf)}</span> : null}
+        actions={summary && asOf ? <RunStateChip state={runState(summary, asOf)} /> : null}
       />
 
       {error ? <AdminLoadError error={error} onRetry={retry} /> : null}
@@ -40,11 +44,9 @@ export function AdminDashboard() {
         <div className="grid gap-10 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)]">
           <div className="flex min-w-0 flex-col gap-10">
             <div className="flex flex-col gap-4">
-              <RunStateChip state={runState(summary, asOf)} />
               <AttentionRow chips={attentionChips(summary, failures, asOf)} />
+              <KpiStrip tiles={kpiTiles(summary, asOf)} />
             </div>
-
-            <KpiStrip tiles={kpiTiles(summary, asOf)} />
 
             <ApprovalQueue
               lastRunAt={summary.lastRunAt}
@@ -53,34 +55,27 @@ export function AdminDashboard() {
               onChanged={retry}
             />
 
-            <section aria-labelledby="recent-heading" className="flex flex-col gap-3">
-              <h2 id="recent-heading" className="text-base font-semibold">
-                อัปเดตล่าสุด
-              </h2>
+            <DashboardTrends live={summary.runInProgress} />
+
+            <AdminSection id="recent-heading" title="อัปเดตล่าสุด" icon={Activity}>
               <RecentActivity items={recent} now={asOf} />
-            </section>
+            </AdminSection>
           </div>
 
           <aside className="flex min-w-0 flex-col gap-10 border-t pt-10 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-10">
-            <section aria-labelledby="outcome-heading" className="flex flex-col gap-4">
-              <h2 id="outcome-heading" className="text-base font-semibold">
-                ผลการประมวลผล
-              </h2>
+            <AdminSection id="outcome-heading" title="ผลการประมวลผล" icon={PieChart}>
               <OutcomeDonut
                 buckets={outcomeBuckets(summary.byOutcome)}
                 total={summary.total}
                 byOutcome={summary.byOutcome}
               />
-            </section>
-            <section aria-labelledby="health-heading" className="flex flex-col gap-4">
-              <h2 id="health-heading" className="text-base font-semibold">
-                สถานะระบบ
-              </h2>
+            </AdminSection>
+            <AdminSection id="health-heading" title="สถานะระบบ" icon={Gauge}>
               <SystemHealth summary={summary} now={asOf} />
-            </section>
+            </AdminSection>
           </aside>
         </div>
       ) : null}
-    </main>
+    </AdminPage>
   );
 }

@@ -74,7 +74,7 @@ export function runMayContinue(
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_LEASE_TTL_MS = 2 * 60_000;
-const OPS_WINDOW_MS = 30 * 24 * 60 * 60_000;
+const OPS_WINDOW_DAYS = 30;
 const OPS_RUNS = 20;
 
 /** A Run in this process, as its heartbeat and the run log see it. */
@@ -83,14 +83,7 @@ interface ActiveRun {
   confirmedAt: number;
   stopRequested: boolean;
   progress: RunProgress | null;
-  peakRssBytes: number;
   tokens: TokenUsage;
-}
-
-function sampleMemory(active: ActiveRun) {
-  const { rss, heapUsed } = process.memoryUsage();
-  active.peakRssBytes = Math.max(active.peakRssBytes, rss);
-  return { rssBytes: rss, heapUsedBytes: heapUsed, peakRssBytes: active.peakRssBytes };
 }
 
 function countsOf(result: RunResult): RunCounts {
@@ -188,7 +181,7 @@ export class IngestionService {
     const now = this.now();
     const [lease, stats, runs] = await Promise.all([
       this.coordination.lease.current(now),
-      this.coordination.stats.stats(new Date(now.getTime() - OPS_WINDOW_MS).toISOString()),
+      this.coordination.stats.stats(now.toISOString(), OPS_WINDOW_DAYS),
       this.coordination.runs.recent(OPS_RUNS),
     ]);
     const live = lease?.live ?? null;
@@ -200,7 +193,6 @@ export class IngestionService {
         stopRequested: lease?.stopRequestedAt != null,
         inFlight: live?.inFlight ?? null,
         queueRemaining: live?.queueRemaining ?? null,
-        memory: live?.memory ?? null,
       },
       ...stats,
       runs,
@@ -308,7 +300,6 @@ export class IngestionService {
       confirmedAt: startedAt.getTime(),
       stopRequested: false,
       progress: null,
-      peakRssBytes: 0,
       tokens: { prompt: 0, output: 0, thoughts: 0, total: 0, calls: 0 },
     };
     this.active = held;
@@ -317,7 +308,6 @@ export class IngestionService {
       const live = {
         inFlight: held.progress?.inFlight ?? [],
         queueRemaining: held.progress?.queueRemaining ?? null,
-        memory: { ...sampleMemory(held), sampledAt: at.toISOString() },
       };
       lease.heartbeat(holder, at, leaseTtlMs, live).then(
         (kept) => {
@@ -374,7 +364,6 @@ export class IngestionService {
           this.logger.warn({ err: error }, 'egp: could not release the ingestion lease');
         });
         const endedAt = this.now();
-        sampleMemory(held);
         return this.coordination.runs.record({
           id: holder,
           startedAt: startedAt.toISOString(),
@@ -384,7 +373,6 @@ export class IngestionService {
           runners: this.env.EGP_RUNNERS,
           ...outcome,
           tokens: held.tokens,
-          peakRssBytes: held.peakRssBytes,
         });
       })
       .catch((error: unknown) => {

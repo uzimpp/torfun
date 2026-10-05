@@ -1,11 +1,4 @@
-import {
-  Banknote,
-  Bookmark,
-  CalendarDays,
-  Gavel,
-  Clock3,
-  MapPin,
-} from 'lucide-react';
+import { Banknote, Bookmark, CalendarDays, Gavel, Clock3, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,9 +25,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               <span className="text-muted-foreground">·</span>
               <span className="text-muted-foreground">ประกาศจัดซื้อจัดจ้าง</span>
             </p>
-            <h1 className="mt-4 text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl">
-              {tor.title}
-            </h1>
+            <h1 className="mt-4 text-2xl font-medium tracking-tight text-balance">{tor.title}</h1>
             <div className="text-muted-foreground mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
               {tor.location && (
                 <span className="inline-flex items-center gap-2">
@@ -61,8 +52,10 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               <Banknote aria-hidden="true" className="text-primary size-4" />
               งบประมาณ
             </p>
-            <p data-numeric className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-              {tor.budget === null ? 'ยังไม่มีข้อมูลงบประมาณ' : `${bahtFormat.format(tor.budget)} บาท`}
+            <p data-numeric className="mt-2 text-2xl font-medium tracking-tight">
+              {tor.budget === null
+                ? 'ยังไม่มีข้อมูลงบประมาณ'
+                : `${bahtFormat.format(tor.budget)} บาท`}
             </p>
             <div
               role="group"
@@ -73,17 +66,24 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
                 <Clock3 aria-hidden="true" className="size-4 text-amber-600" />
                 กำหนดยื่นข้อเสนอ
               </p>
-              <p data-numeric className="mt-2 text-lg font-semibold">
+              <p data-numeric className="mt-2 text-lg font-medium">
                 {deadlineText(tor.submissionDeadline, tor.status)}
               </p>
               {tor.deadlineSource && (
                 <p className="text-muted-foreground mt-1 text-xs">
-                  ที่มา: {DEADLINE_SOURCE_LABELS[tor.deadlineSource]} — โปรดตรวจสอบกับเอกสารต้นฉบับก่อนตัดสินใจ
+                  ที่มา: {DEADLINE_SOURCE_LABELS[tor.deadlineSource]} —
+                  โปรดตรวจสอบกับเอกสารต้นฉบับก่อนตัดสินใจ
                 </p>
               )}
             </div>
             <div className="mt-6 grid grid-cols-2 gap-2">
-              <Button type="button" variant="outline" size="lg" className="w-full min-w-0" aria-label="บันทึก TOR นี้">
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="w-full min-w-0"
+                aria-label="บันทึก TOR นี้"
+              >
                 <Bookmark aria-hidden="true" />
                 บันทึก TOR
               </Button>
@@ -94,21 +94,27 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
       </section>
 
       <section aria-labelledby="summary-heading" className="mt-12">
-        <SectionHeading id="summary-heading" eyebrow="อ่านเร็ว ก่อนเปิดเอกสารต้นฉบับ" title="สรุปโครงการ" />
+        <SectionHeading
+          id="summary-heading"
+          eyebrow="อ่านเร็ว ก่อนเปิดเอกสารต้นฉบับ"
+          title="สรุปโครงการ"
+        />
         <Card className="border-primary/20 bg-primary/5 mt-5">
           <CardHeader>
             <CardTitle className="text-base">สรุปโครงการโดย Vertex AI</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="leading-relaxed">
-              {tor.summary ?? 'ยังไม่มีข้อมูลการวิเคราะห์ TOR'}
-            </p>
+            <p className="leading-relaxed">{tor.summary ?? 'ยังไม่มีข้อมูลการวิเคราะห์ TOR'}</p>
           </CardContent>
         </Card>
       </section>
 
       <section aria-labelledby="match-heading" className="mt-10">
-        <SectionHeading id="match-heading" eyebrow="วิเคราะห์เบื้องต้น" title="สรุปความเหมาะสมกับบริษัท" />
+        <SectionHeading
+          id="match-heading"
+          eyebrow="วิเคราะห์เบื้องต้น"
+          title="สรุปความเหมาะสมกับบริษัท"
+        />
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)]">
           <Card className="bg-primary text-primary-foreground overflow-hidden">
             <CardContent className="flex min-h-72 flex-col items-center justify-center text-center">
@@ -117,7 +123,9 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
                   <p className="font-mono text-5xl leading-none font-medium">
                     {tor.matchScore === null ? '-' : `${tor.matchScore}%`}
                   </p>
-                  <p className="mt-2 text-xs font-medium tracking-widest uppercase opacity-80">Match</p>
+                  <p className="mt-2 text-xs font-medium tracking-widest uppercase opacity-80">
+                    Match
+                  </p>
                 </div>
               </div>
               <p className="mt-5 text-sm opacity-85">
@@ -149,7 +157,11 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
 
       {tor.technologies.length > 0 && (
         <section aria-labelledby="technology-heading" className="mt-12">
-          <SectionHeading id="technology-heading" eyebrow="ข้อมูลจากเอกสาร TOR" title="เทคโนโลยีที่เกี่ยวข้อง" />
+          <SectionHeading
+            id="technology-heading"
+            eyebrow="ข้อมูลจากเอกสาร TOR"
+            title="เทคโนโลยีที่เกี่ยวข้อง"
+          />
           <div className="mt-5 flex flex-wrap gap-3">
             {tor.technologies.map((technology) => (
               <Badge key={technology} variant="outline" className="px-3 py-1.5 text-sm">
@@ -163,7 +175,14 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
       <section aria-labelledby="dates-heading" className="border-border mt-12 border-t pt-8 pb-6">
         <SectionHeading id="dates-heading" eyebrow="อย่าพลาดกำหนดการ" title="กำหนดการสำคัญ" />
         <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-          <DateItem label="วันที่ประกาศ" value={tor.announcementDate ? formatThaiDate(tor.announcementDate) : 'ยังไม่มีข้อมูลวันที่ประกาศ'} />
+          <DateItem
+            label="วันที่ประกาศ"
+            value={
+              tor.announcementDate
+                ? formatThaiDate(tor.announcementDate)
+                : 'ยังไม่มีข้อมูลวันที่ประกาศ'
+            }
+          />
         </div>
       </section>
     </main>
@@ -174,7 +193,7 @@ function SectionHeading({ id, eyebrow, title }: { id: string; eyebrow: string; t
   return (
     <div>
       <p className="text-primary text-xs font-medium tracking-wider">{eyebrow}</p>
-      <h2 id={id} className="mt-2 text-2xl font-semibold tracking-tight">
+      <h2 id={id} className="mt-2 text-2xl font-medium tracking-tight">
         {title}
       </h2>
     </div>

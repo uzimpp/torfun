@@ -97,7 +97,7 @@ function ClientGroup({
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 id={headingId} className="text-base font-semibold">
+        <h3 id={headingId} className="text-base font-medium">
           {client.name}
         </h3>
         <Badge variant={client.kind === 'government' ? 'default' : 'secondary'}>

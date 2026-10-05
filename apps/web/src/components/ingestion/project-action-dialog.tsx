@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Ban, Check, Trash2 } from 'lucide-react';
 import type { Procurement } from '@torfun/types';
 import {
   approveProcurement,
@@ -44,6 +45,7 @@ export function ProjectActionDialog({
       title: 'อนุมัติให้เจ้าหน้าที่เห็นโครงการนี้?',
       description: 'โครงการจะแสดงให้เจ้าหน้าที่ฝ่ายพัฒนาธุรกิจ ระบบจะบันทึกผู้อนุมัติและเวลา',
       confirmLabel: 'อนุมัติ',
+      icon: Check,
       fallback: 'อนุมัติไม่สำเร็จ ลองอีกครั้ง',
       send: () => approveProcurement(projectId),
     },
@@ -52,6 +54,7 @@ export function ProjectActionDialog({
       description:
         'เนื้อหาที่อ่านจาก TOR จะถูกลบ และโครงการจะถูกบันทึกใน Tombstone เพื่อไม่ให้ดึงซ้ำ ดูหรือนำกลับได้ที่รายการ Non-software',
       confirmLabel: 'ระบุว่าไม่ใช่ซอฟต์แวร์',
+      icon: Ban,
       fallback: 'บันทึกไม่สำเร็จ ลองอีกครั้ง',
       send: () => markNonSoftware(projectId),
     },
@@ -59,6 +62,7 @@ export function ProjectActionDialog({
       title: 'ลบโครงการนี้?',
       description: 'ระเบียนของโครงการจะถูกลบ เลือกว่าให้รอบดึงข้อมูลนำกลับมาได้อีกหรือไม่',
       confirmLabel: 'ลบโครงการ',
+      icon: Trash2,
       fallback: 'ลบไม่สำเร็จ ลองอีกครั้ง',
       send: () => deleteProcurement(projectId, allowReimport),
     },
@@ -81,6 +85,7 @@ export function ProjectActionDialog({
         </>
       }
       confirmLabel={copy.confirmLabel}
+      confirmIcon={copy.icon}
       destructive={action !== 'approve'}
       action={request}
       onConfirm={() => void confirm()}
