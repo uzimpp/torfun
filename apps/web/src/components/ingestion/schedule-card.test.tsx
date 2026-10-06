@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { DEFAULT_SCHEDULE, type ScheduleView } from '@torfun/types';
 
 import { ApiError, SessionEndedError } from '@/lib/api';
-import { ScheduleCard } from './schedule-card';
+import { ScheduleSettings } from './schedule-card';
 
 /**
  * What a Site Administrator can see and do with the schedule: read when the
@@ -47,21 +47,21 @@ beforeEach(() => vi.clearAllMocks());
 
 async function renderLoaded(view: ScheduleView = off) {
   mocked.fetchSchedule.mockResolvedValue(view);
-  render(<ScheduleCard />);
+  render(<ScheduleSettings />);
   await screen.findByRole('switch');
 }
 
 describe('while loading and when it cannot load', () => {
   test('holds the space with a busy placeholder rather than a spinner or a blank', () => {
     mocked.fetchSchedule.mockReturnValue(new Promise(() => {}));
-    render(<ScheduleCard />);
+    render(<ScheduleSettings />);
 
     expect(screen.getByRole('status', { name: /กำลังโหลด/ })).toHaveAttribute('aria-busy', 'true');
   });
 
   test('a failure is announced, with a way to try again', async () => {
     mocked.fetchSchedule.mockRejectedValueOnce(new ApiError('Cannot reach the API', 0));
-    render(<ScheduleCard />);
+    render(<ScheduleSettings />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Cannot reach the API');
 
@@ -72,7 +72,7 @@ describe('while loading and when it cannot load', () => {
 
   test('an ended session points to sign-in instead of offering a retry that cannot work', async () => {
     mocked.fetchSchedule.mockRejectedValue(new SessionEndedError());
-    render(<ScheduleCard />);
+    render(<ScheduleSettings />);
 
     expect(await screen.findByRole('link', { name: 'เข้าสู่ระบบอีกครั้ง' })).toHaveAttribute(
       'href',

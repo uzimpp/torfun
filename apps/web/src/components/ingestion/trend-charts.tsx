@@ -12,7 +12,7 @@ import {
   YAxis,
   type TooltipContentProps,
 } from 'recharts';
-import type { DailyDiscovered, DailyThroughput, StageFailures } from '@torfun/types';
+import type { DailyDiscovered, DailyThroughput } from '@torfun/types';
 import { STATUS_STYLE } from '@/components/admin/status-badge';
 import {
   ChartContainer,
@@ -24,7 +24,7 @@ import {
 import { formatCompact, formatCount } from '@/lib/format-number';
 import { usePrefersReducedMotion } from '@/lib/use-reduced-motion';
 import { ChartCard } from './chart-card';
-import { discoveredSeries, stageSeries, throughputSeries } from './trend-series';
+import { discoveredSeries, throughputSeries } from './trend-series';
 
 const PLOT = 'aspect-auto h-56 w-full tabular-nums';
 const MARGIN = { top: 22, right: 12, bottom: 0, left: 0 };
@@ -226,74 +226,6 @@ export function ThroughputChart({
             isAnimationActive={!reduced}
           >
             <LabelList dataKey="mark" {...VALUE_LABEL} />
-          </Bar>
-        </BarChart>
-      </ChartContainer>
-    </ChartCard>
-  );
-}
-
-const STAGE_CONFIG = {
-  count: { label: 'ข้อผิดพลาด', theme: STATUS_STYLE.failed.chart },
-} satisfies ChartConfig;
-
-export function StageFailuresChart({
-  failures,
-  className,
-}: {
-  failures: StageFailures[];
-  className?: string;
-}) {
-  const id = useChartId();
-  const reduced = usePrefersReducedMotion();
-  const series = stageSeries(failures);
-  const height = Math.max(3, series.points.length) * 36 + 32;
-
-  return (
-    <ChartCard
-      id={`${id}-stages`}
-      title="ข้อผิดพลาดตามขั้นตอน"
-      subtitle="ข้อผิดพลาดที่ต้องแก้ใน 30 วัน ไม่นับประกาศที่ไม่มี TOR"
-      headline={{ value: formatCount(series.total), caption: 'รวม 30 วัน' }}
-      empty={series.empty ? 'ไม่มีข้อผิดพลาดใน 30 วัน' : null}
-      rows={series.points}
-      rowKey={(row) => row.stage}
-      columns={[
-        { header: 'ขั้นตอน', cell: (row) => row.label },
-        { header: 'จำนวน', cell: (row) => formatCount(row.count) },
-      ]}
-      className={className}
-    >
-      <ChartContainer
-        config={STAGE_CONFIG}
-        className="aspect-auto w-full tabular-nums"
-        style={{ height }}
-      >
-        <BarChart
-          data={series.points}
-          layout="vertical"
-          margin={{ top: 0, right: 36, bottom: 0, left: 0 }}
-          accessibilityLayer
-        >
-          <CartesianGrid horizontal={false} />
-          <XAxis type="number" {...X_AXIS} allowDecimals={false} domain={[0, 'auto']} />
-          <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={112} />
-          {tooltip(STAGE_CONFIG, (value) => formatCount(value))}
-          <Bar
-            dataKey="count"
-            fill="var(--color-count)"
-            radius={[0, 3, 3, 0]}
-            maxBarSize={20}
-            isAnimationActive={!reduced}
-          >
-            <LabelList
-              dataKey="count"
-              position="right"
-              offset={8}
-              fontSize={12}
-              className="fill-foreground"
-              formatter={(value) => (typeof value === 'number' ? formatCount(value) : value)}
-            />
           </Bar>
         </BarChart>
       </ChartContainer>

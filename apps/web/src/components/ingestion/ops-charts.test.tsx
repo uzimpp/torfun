@@ -62,56 +62,17 @@ describe('OpsCharts', () => {
     expect(
       within(figure('ผลการประมวลผลต่อวัน')).getByText('ไม่มีรายการที่ประมวลผลจบใน 30 วัน'),
     ).toBeInTheDocument();
-    expect(
-      within(figure('ข้อผิดพลาดตามขั้นตอน')).getByText('ไม่มีข้อผิดพลาดใน 30 วัน'),
-    ).toBeInTheDocument();
   });
 
-  test('the time per record is one compact figure with its split and sample', () => {
-    render(
-      <OpsCharts
-        ops={opsFixture({
-          recordTimings: {
-            sample: 40,
-            p50Ms: 42_000,
-            p90Ms: 95_000,
-            downloadP50Ms: 8_000,
-            analyseP50Ms: 30_000,
-          },
-        })}
-      />,
-    );
-
-    const stat = screen.getByRole('group', { name: 'เวลาต่อรายการ (มัธยฐาน 30 วัน)' });
-    expect(stat).toHaveTextContent('42 วิ');
-    expect(stat).toHaveTextContent('ดาวน์โหลด 8.0 วิ · วิเคราะห์ 30 วิ');
-    expect(stat).toHaveTextContent('จาก 40 รายการ');
-  });
-
-  test('draws no run-log charts', () => {
+  test('draws the two daily charts only: no failures-by-stage, no time per record, no run-log charts', () => {
     render(<OpsCharts ops={opsFixture()} />);
 
-    expect(screen.getAllByRole('figure')).toHaveLength(3);
+    expect(screen.getAllByRole('figure')).toHaveLength(2);
+    expect(screen.queryByRole('figure', { name: 'ข้อผิดพลาดตามขั้นตอน' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: 'เวลาต่อรายการ (มัธยฐาน 30 วัน)' }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('figure', { name: 'โทเคนต่อรอบ' })).not.toBeInTheDocument();
     expect(screen.queryByRole('figure', { name: 'ระยะเวลาต่อรอบ' })).not.toBeInTheDocument();
-  });
-
-  test('lists failures by stage in the order the API sends them', () => {
-    render(
-      <OpsCharts
-        ops={opsFixture({
-          failuresByStage: [
-            { stage: 'extract', count: 1 },
-            { stage: 'download', count: 4 },
-          ],
-        })}
-      />,
-    );
-
-    expect(figure('ข้อผิดพลาดตามขั้นตอน')).toHaveTextContent('5รวม 30 วัน');
-    expect(tableRows('ข้อผิดพลาดตามขั้นตอน').slice(1)).toEqual([
-      ['แยกไฟล์ TOR', '1'],
-      ['ดาวน์โหลดเอกสาร', '4'],
-    ]);
   });
 });

@@ -95,11 +95,22 @@ const KPI_HREF: Partial<Record<KpiTile['key'], string>> = {
   queued: procurementsHref({ outcome: 'queued' }),
   running: procurementsHref({ state: 'Processing' }),
   analysed: procurementsHref({ outcome: 'tor_analysed' }),
+  needsReview: procurementsHref({ outcome: 'needs_review' }),
   failed: FAILURE_LOG,
   lastRun: INGESTION,
 };
 
 const KPI_COUNTS: CountTile['key'][] = ['total', 'queued', 'running', 'analysed', 'failed'];
+
+const countKpis = (summary: IngestionSummaryResponse, keys: CountTile['key'][]): KpiTile[] =>
+  countTiles(summary)
+    .filter((tile) => keys.includes(tile.key))
+    .map((tile) => ({ ...tile, href: KPI_HREF[tile.key] ?? INGESTION }));
+
+/** The ingestion page's tiles: where every record stands, across all runs, failed last. */
+export function recordTiles(summary: IngestionSummaryResponse): KpiTile[] {
+  return countKpis(summary, ['queued', 'running', 'analysed', 'needsReview', 'failed']);
+}
 
 export function kpiTiles(summary: IngestionSummaryResponse, now: Date = new Date()): KpiTile[] {
   const lastRun = summary.runInProgress
@@ -109,9 +120,7 @@ export function kpiTiles(summary: IngestionSummaryResponse, now: Date = new Date
       : 'ยังไม่เคยรัน';
 
   return [
-    ...countTiles(summary)
-      .filter((tile) => KPI_COUNTS.includes(tile.key))
-      .map((tile) => ({ ...tile, href: KPI_HREF[tile.key] ?? INGESTION })),
+    ...countKpis(summary, KPI_COUNTS),
     {
       key: 'lastRun',
       href: INGESTION,

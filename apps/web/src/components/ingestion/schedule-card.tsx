@@ -2,11 +2,9 @@
 
 import Link from 'next/link';
 import { useId, useRef, useState, type FormEvent } from 'react';
-import { CalendarClock, LogIn, RotateCw, Save } from 'lucide-react';
+import { LogIn, RotateCw, Save } from 'lucide-react';
 import type { ScheduleView } from '@torfun/types';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { SectionHeading } from '@/components/admin/admin-ui';
-import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -344,49 +342,38 @@ function ScheduleForm({
 }
 
 /**
- * When Runs start on their own — a Site Administrator's control, beside the
- * button that starts one by hand. Off until someone turns it on.
+ * When Runs start on their own — a Site Administrator's control. Off until
+ * someone turns it on. The caller supplies the title (the ingestion page shows
+ * it in a dialog behind the status bar's gear).
  */
-export function ScheduleCard() {
+export function ScheduleSettings() {
   const data = useScheduleData();
   const { schedule, loading, error, sessionEnded, retry } = data;
 
   return (
-    <section aria-labelledby="schedule-heading" className="@container">
-      <Card>
-        <CardHeader>
-          <SectionHeading id="schedule-heading" icon={CalendarClock}>
-            ตารางเวลาดึงข้อมูลอัตโนมัติ
-          </SectionHeading>
-          <CardDescription>
-            ตั้งให้เริ่มรอบดึงข้อมูลเองตามเวลา โดยไม่ต้องกดปุ่มเริ่มรอบ
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <ScheduleSkeleton />
-          ) : error || !schedule ? (
-            <div
-              role="alert"
-              className="border-destructive/50 flex flex-col gap-3 rounded-md border p-4"
-            >
-              <p className="text-destructive text-sm">{sessionEnded ? 'เซสชันหมดอายุ' : error}</p>
-              {sessionEnded ? (
-                <SessionEnded />
-              ) : (
-                <div>
-                  <Button variant="outline" onClick={retry} className="min-h-11">
-                    <RotateCw className="size-4" aria-hidden="true" />
-                    ลองอีกครั้ง
-                  </Button>
-                </div>
-              )}
-            </div>
+    <div className="@container">
+      {loading ? (
+        <ScheduleSkeleton />
+      ) : error || !schedule ? (
+        <div
+          role="alert"
+          className="border-destructive/50 flex flex-col gap-3 rounded-md border p-4"
+        >
+          <p className="text-destructive text-sm">{sessionEnded ? 'เซสชันหมดอายุ' : error}</p>
+          {sessionEnded ? (
+            <SessionEnded />
           ) : (
-            <ScheduleForm key={schedule.updatedAt ?? 'unsaved'} schedule={schedule} data={data} />
+            <div>
+              <Button variant="outline" onClick={retry} className="min-h-11">
+                <RotateCw className="size-4" aria-hidden="true" />
+                ลองอีกครั้ง
+              </Button>
+            </div>
           )}
-        </CardContent>
-      </Card>
-    </section>
+        </div>
+      ) : (
+        <ScheduleForm key={schedule.updatedAt ?? 'unsaved'} schedule={schedule} data={data} />
+      )}
+    </div>
   );
 }

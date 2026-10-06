@@ -46,13 +46,13 @@ export function attemptsLabel(attempts: number): string | null {
   return attempts > 0 ? `ลองแล้ว ${attempts}/${MAX_RETRIEVAL_ATTEMPTS}` : null;
 }
 
-export interface RunBanner {
-  title: string;
-  detail: string;
-  /** A clock such as "09:06", or null when the server did not say when the run began. */
+export type RunPhase = 'idle' | 'running' | 'stopping';
+
+export interface RunStatus {
+  phase: RunPhase;
+  label: string;
+  /** A clock such as "09:06" while a run is going, or null when none is or its start is unknown. */
   elapsed: string | null;
-  /** An administrator has asked it to stop and it is finishing the record in hand. */
-  stopping: boolean;
 }
 
 /**
@@ -77,23 +77,18 @@ export function formatClock(ms: number): string {
 }
 
 /**
- * The live banner's text, or null when no run is in flight.
- *
- * "Queued" counts the retryable errors too: they are waiting for the next
- * attempt just as untouched records are. How long it has run is measured from
- * the start time the server recorded on the lease, not from anything this page
- * remembers, so a reload, a scheduled run, or another browser all agree.
+ * What the status bar says. Elapsed time is measured from the start the server
+ * recorded on the lease, so a reload, a scheduled run, or another browser all agree.
  */
-export function runBanner(summary: IngestionSummaryResponse, now: Date): RunBanner | null {
-  if (!summary.runInProgress) return null;
-
-  const outcome = (key: keyof IngestionSummaryResponse['byOutcome']) => summary.byOutcome[key] ?? 0;
+export function runStatus(summary: IngestionSummaryResponse, now: Date): RunStatus {
+  if (!summary.runInProgress) {
+    return { phase: 'idle', label: 'ไม่มีรอบที่กำลังทำงาน', elapsed: null };
+  }
   return {
-    title: summary.stopRequested ? 'กำลังหยุด รอรายการที่ทำอยู่ให้เสร็จ' : 'กำลังรันรอบดึงข้อมูล',
-    detail: `ดึง ${outcome('downloading')} · ประมวลผล ${outcome('analysing')} · รอคิว ${outcome('queued') + outcome('error')}`,
+    phase: summary.stopRequested ? 'stopping' : 'running',
+    label: summary.stopRequested ? 'กำลังหยุด' : 'กำลังดึงข้อมูล',
     elapsed: summary.runStartedAt
       ? formatClock(now.getTime() - Date.parse(summary.runStartedAt))
       : null,
-    stopping: summary.stopRequested,
   };
 }

@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { IngestionFailure, IngestionOps, IngestionRun as RunLog } from '@torfun/types';
@@ -11,7 +11,7 @@ import type { IngestionRun } from './use-ingestion-run';
 
 vi.mock('./use-ingestion-run', () => ({ useIngestionRun: vi.fn() }));
 vi.mock('./use-ingestion-ops', () => ({ useIngestionOps: vi.fn() }));
-vi.mock('./schedule-card', () => ({ ScheduleCard: () => <div>ตารางเวลา</div> }));
+vi.mock('./schedule-card', () => ({ ScheduleSettings: () => <div>ฟอร์มตารางเวลา</div> }));
 
 const { useIngestionRun } = await import('./use-ingestion-run');
 const { useIngestionOps } = await import('./use-ingestion-ops');
@@ -73,16 +73,8 @@ const ops = (overrides: Partial<IngestionOps> = {}): IngestionOps => ({
     inFlight: null,
     queueRemaining: null,
   },
-  recordTimings: {
-    sample: 40,
-    p50Ms: 42_000,
-    p90Ms: 95_000,
-    downloadP50Ms: 8_000,
-    analyseP50Ms: 30_000,
-  },
   throughputDaily: dailyWindow(ZERO_THROUGHPUT),
   discoveredDaily: dailyWindow(ZERO_DISCOVERED),
-  failuresByStage: [],
   runs: [runLog()],
   ...overrides,
 });
@@ -112,19 +104,125 @@ const running = (overrides: Partial<IngestionSummaryResponse> = {}) =>
   });
 
 describe('operations only', () => {
-  test('holds no procurement table, filters, held or dropped lists', () => {
+  test('holds no procurement table, filters, held or dropped lists, and no aside', () => {
     mockedRun.mockReturnValue(runData());
     render(<IngestionDashboard />);
 
     expect(screen.queryByLabelText('ปีงบประมาณ')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'อนุมัติ' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: /ถูกคัดออก|รอตรวจสอบ/ })).not.toBeInTheDocument();
-    expect(screen.getByText('ตารางเวลา')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /ถูกคัดออก/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    expect(screen.queryByRole('meter')).not.toBeInTheDocument();
   });
 });
 
-describe('header', () => {
-  test('the meta line carries today’s open-data quota, compactly', () => {
+const statusBar = () => screen.getByRole('region', { name: 'สถานะรอบดึงข้อมูล' });
+
+describe('the status bar', () => {
+  test('when idle: one Play button starts a run, and nothing about a run in flight is shown', async () => {
+    const data = runData();
+    mockedRun.mockReturnValue(data);
+    render(<IngestionDashboard />);
+
+    const bar = statusBar();
+    expect(bar).toHaveTextContent('ไม่มีรอบที่กำลังทำงาน');
+    expect(screen.getAllByRole('button', { name: 'เริ่มรอบดึงข้อมูล' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'หยุดรอบนี้' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'งานที่กำลังทำ' })).not.toBeInTheDocument();
+
+    await userEvent.click(within(bar).getByRole('button', { name: 'เริ่มรอบดึงข้อมูล' }));
+    expect(data.startRun).toHaveBeenCalledOnce();
+  });
+
+  test('cannot be pressed again while a start is unanswered', () => {
+    mockedRun.mockReturnValue(runData({ starting: true }));
+    render(<IngestionDashboard />);
+
+    const start = within(statusBar()).getByRole('button', { name: 'เริ่มรอบดึงข้อมูล' });
+    expect(start).toBeDisabled();
+    expect(start).toHaveAttribute('aria-busy', 'true');
+  });
+
+  test('while running: the toggle stops instead, and the state and live work show', () => {
+    mockedRun.mockReturnValue(running());
+    render(<IngestionDashboard />);
+
+    const bar = statusBar();
+    expect(bar).toHaveTextContent('กำลังดึงข้อมูล');
+    expect(within(bar).getByRole('button', { name: 'หยุดรอบนี้' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'เริ่มรอบดึงข้อมูล' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'งานที่กำลังทำ' })).toBeInTheDocument();
+  });
+
+  test('counts elapsed time as a clock, every second', async () => {
+    vi.useFakeTimers();
+    try {
+      mockedRun.mockReturnValue(
+        running({ runStartedAt: new Date(Date.now() - 10_000).toISOString() }),
+      );
+      render(<IngestionDashboard />);
+      expect(within(statusBar()).getByText('00:10')).toBeInTheDocument();
+
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+
+      expect(within(statusBar()).getByText('00:13')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('asks before stopping, and says what stopping does', async () => {
+    const data = running();
+    mockedRun.mockReturnValue(data);
+    render(<IngestionDashboard />);
+
+    await userEvent.click(within(statusBar()).getByRole('button', { name: 'หยุดรอบนี้' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('รายการที่กำลังทำอยู่จะทำต่อจนเสร็จ ที่เหลือจะยังอยู่ในคิว');
+    expect(data.stopRun).not.toHaveBeenCalled();
+  });
+
+  test('confirming asks the API to stop, and the control waits while it does', async () => {
+    let finish: () => void = () => {};
+    const stopRun = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    mockedRun.mockReturnValue({ ...running(), stopRun });
+    render(<IngestionDashboard />);
+
+    await userEvent.click(within(statusBar()).getByRole('button', { name: 'หยุดรอบนี้' }));
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'หยุดรอบนี้' }),
+    );
+
+    expect(stopRun).toHaveBeenCalledOnce();
+    const pending = within(statusBar()).getByRole('button', { name: 'กำลังหยุด' });
+    expect(pending).toBeDisabled();
+    expect(pending).toHaveAttribute('aria-busy', 'true');
+    await act(async () => finish());
+  });
+
+  test('cancelling leaves the run going', async () => {
+    const data = running();
+    mockedRun.mockReturnValue(data);
+    render(<IngestionDashboard />);
+
+    await userEvent.click(within(statusBar()).getByRole('button', { name: 'หยุดรอบนี้' }));
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'ไม่หยุด' }),
+    );
+
+    expect(data.stopRun).not.toHaveBeenCalled();
+  });
+
+  test('once asked to stop, says so and cannot be pressed again', () => {
+    mockedRun.mockReturnValue(running({ stopRequested: true }));
+    render(<IngestionDashboard />);
+
+    expect(statusBar()).toHaveTextContent('กำลังหยุด');
+    expect(within(statusBar()).getByRole('button', { name: 'กำลังหยุด' })).toBeDisabled();
+  });
+
+  test('carries today’s open-data quota, compactly', () => {
     mockedRun.mockReturnValue(
       runData({
         summary: summary({
@@ -138,10 +236,10 @@ describe('header', () => {
     );
     render(<IngestionDashboard />);
 
-    expect(screen.getByText('โควตา 450/1,000')).toBeInTheDocument();
+    expect(within(statusBar()).getByText('โควตา 450/1,000')).toBeInTheDocument();
   });
 
-  test('a quota not read today is unknown in the meta line, not a stale figure', () => {
+  test('a quota not read today is unknown, not a stale figure', () => {
     mockedRun.mockReturnValue(
       runData({
         summary: summary({
@@ -155,33 +253,21 @@ describe('header', () => {
     );
     render(<IngestionDashboard />);
 
-    expect(screen.getByText('โควตา ยังไม่ทราบ')).toBeInTheDocument();
-  });
-});
-
-describe('run control', () => {
-  test('the run button keeps its label and is disabled while a run is in flight', () => {
-    mockedRun.mockReturnValue(running());
-    render(<IngestionDashboard />);
-
-    expect(screen.getByRole('button', { name: 'เริ่มรอบดึงข้อมูล' })).toBeDisabled();
+    expect(within(statusBar()).getByText('โควตา ยังไม่ทราบ')).toBeInTheDocument();
   });
 
-  test('when nothing is running there is no banner, and the last run is in the header', () => {
+  test('the gear opens the schedule settings in a dialog, and Escape closes it', async () => {
     mockedRun.mockReturnValue(runData());
     render(<IngestionDashboard />);
+    expect(screen.queryByText('ฟอร์มตารางเวลา')).not.toBeInTheDocument();
 
-    expect(screen.queryByRole('status', { name: /กำลังรันรอบดึงข้อมูล/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'หยุดรอบนี้' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'งานที่กำลังทำ' })).not.toBeInTheDocument();
-    expect(screen.getByText(/^รอบล่าสุด /)).toBeInTheDocument();
-  });
+    await userEvent.click(within(statusBar()).getByRole('button', { name: 'ตั้งค่าตารางเวลา' }));
 
-  test('cannot be pressed again while a start is unanswered', () => {
-    mockedRun.mockReturnValue(runData({ starting: true }));
-    render(<IngestionDashboard />);
+    const dialog = await screen.findByRole('dialog', { name: 'ตารางเวลาดึงข้อมูลอัตโนมัติ' });
+    expect(within(dialog).getByText('ฟอร์มตารางเวลา')).toBeInTheDocument();
 
-    expect(screen.getByRole('button', { name: 'เริ่มรอบดึงข้อมูล' })).toBeDisabled();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   test('a refused stop is titled as a stop even once the run has ended', () => {
@@ -204,83 +290,37 @@ describe('run control', () => {
   });
 });
 
-describe('the run banner', () => {
-  test('shows where the work is and what is left', () => {
-    mockedRun.mockReturnValue(running());
-    render(<IngestionDashboard />);
-
-    expect(screen.getByRole('status', { name: /กำลังรันรอบดึงข้อมูล/ })).toHaveTextContent(
-      'ดึง 1 · ประมวลผล 2 · รอคิว 240',
+describe('the record tiles', () => {
+  test('count every record in five tiles, failed last, each opening what it counts', () => {
+    mockedRun.mockReturnValue(
+      runData({
+        summary: summary({
+          byOutcome: {
+            queued: 237,
+            downloading: 1,
+            analysing: 2,
+            tor_analysed: 45,
+            needs_review: 4,
+            no_tor_package: 9,
+            analysis_failed: 1,
+            error: 3,
+            abandoned: 2,
+          },
+        }),
+      }),
     );
-  });
-
-  test('counts elapsed time as a clock, every second', async () => {
-    vi.useFakeTimers();
-    try {
-      mockedRun.mockReturnValue(
-        running({ runStartedAt: new Date(Date.now() - 10_000).toISOString() }),
-      );
-      render(<IngestionDashboard />);
-      expect(screen.getByText('00:10')).toBeInTheDocument();
-
-      await act(() => vi.advanceTimersByTimeAsync(3000));
-
-      expect(screen.getByText('00:13')).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test('asks before stopping, and says what stopping does', async () => {
-    const data = running();
-    mockedRun.mockReturnValue(data);
     render(<IngestionDashboard />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'หยุดรอบนี้' }));
-
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveTextContent('รายการที่กำลังทำอยู่จะทำต่อจนเสร็จ ที่เหลือจะยังอยู่ในคิว');
-    expect(data.stopRun).not.toHaveBeenCalled();
-  });
-
-  test('confirming asks the API to stop, and the control waits while it does', async () => {
-    let finish: () => void = () => {};
-    const stopRun = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
-    mockedRun.mockReturnValue({ ...running(), stopRun });
-    render(<IngestionDashboard />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'หยุดรอบนี้' }));
-    await userEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'หยุดรอบนี้' }),
+    const links = within(screen.getByRole('list', { name: 'สถานะรายการทั้งหมด' })).getAllByRole(
+      'link',
     );
-
-    expect(stopRun).toHaveBeenCalledOnce();
-    const pending = screen.getByRole('button', { name: 'กำลังหยุด' });
-    expect(pending).toBeDisabled();
-    expect(pending).toHaveAttribute('aria-busy', 'true');
-    await act(async () => finish());
-  });
-
-  test('cancelling leaves the run going', async () => {
-    const data = running();
-    mockedRun.mockReturnValue(data);
-    render(<IngestionDashboard />);
-
-    await userEvent.click(screen.getByRole('button', { name: 'หยุดรอบนี้' }));
-    await userEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'ไม่หยุด' }),
-    );
-
-    expect(data.stopRun).not.toHaveBeenCalled();
-  });
-
-  test('once asked to stop, says so and cannot be pressed again', () => {
-    mockedRun.mockReturnValue(running({ stopRequested: true }));
-    render(<IngestionDashboard />);
-
-    const banner = screen.getByRole('status', { name: /กำลังหยุด/ });
-    expect(banner).toHaveTextContent('รอรายการที่ทำอยู่ให้เสร็จ');
-    expect(screen.getByRole('button', { name: 'กำลังหยุด' })).toBeDisabled();
+    expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      [expect.stringMatching(/^รอ237/), '/admin/procurements?outcome=queued'],
+      [expect.stringMatching(/^กำลังทำ3/), '/admin/procurements?state=Processing'],
+      [expect.stringMatching(/^วิเคราะห์แล้ว45/), '/admin/procurements?outcome=tor_analysed'],
+      [expect.stringMatching(/^รอตรวจสอบ4/), '/admin/procurements?outcome=needs_review'],
+      [expect.stringMatching(/^ล้มเหลว.*6/), '/admin/ingestion#failures'],
+    ]);
   });
 });
 
@@ -345,32 +385,14 @@ describe('monitoring', () => {
     expect(screen.queryByText(/ไม่รวมรายการที่ถูกคัดออก/)).not.toBeInTheDocument();
   });
 
-  test('trend charts carry their figures in words and as a table, not only as marks', () => {
+  test('draws the two daily charts, and neither failures by stage nor time per record', () => {
     mockedRun.mockReturnValue(runData());
-    mockedOps.mockReturnValue(
-      opsData({
-        ops: ops({
-          failuresByStage: [{ stage: 'download', count: 4 }],
-        }),
-      }),
-    );
     render(<IngestionDashboard />);
 
-    const trends = screen.getByRole('region', { name: 'แนวโน้ม' });
-    for (const name of [
-      'ประกาศที่พบต่อวัน (30 วัน)',
-      'ผลการประมวลผลต่อวัน',
-      'ข้อผิดพลาดตามขั้นตอน',
-    ]) {
-      expect(within(trends).getByRole('figure', { name })).toBeInTheDocument();
-    }
-    expect(
-      within(trends).getByRole('group', { name: 'เวลาต่อรายการ (มัธยฐาน 30 วัน)' }),
-    ).toHaveTextContent('42 วิ');
-    const stages = within(screen.getByRole('figure', { name: 'ข้อผิดพลาดตามขั้นตอน' })).getByRole(
-      'table',
-    );
-    expect(within(stages).getAllByRole('row')[1]).toHaveTextContent('ดาวน์โหลดเอกสาร4');
+    expect(screen.getByRole('figure', { name: 'ประกาศที่พบต่อวัน (30 วัน)' })).toBeInTheDocument();
+    expect(screen.getByRole('figure', { name: 'ผลการประมวลผลต่อวัน' })).toBeInTheDocument();
+    expect(screen.queryByRole('figure', { name: 'ข้อผิดพลาดตามขั้นตอน' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/เวลาต่อรายการ/)).not.toBeInTheDocument();
   });
 
   test('a failed read says why and offers a retry', async () => {

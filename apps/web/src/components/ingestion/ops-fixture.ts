@@ -33,10 +33,8 @@ export function opsFixture(overrides: Partial<IngestionOps> = {}): IngestionOps 
       inFlight: null,
       queueRemaining: null,
     },
-    recordTimings: { sample: 0, p50Ms: null, p90Ms: null, downloadP50Ms: null, analyseP50Ms: null },
     throughputDaily: dailyWindow(ZERO_THROUGHPUT),
     discoveredDaily: dailyWindow(ZERO_DISCOVERED),
-    failuresByStage: [],
     runs: [],
     ...overrides,
   };

@@ -11,11 +11,22 @@ import type { KpiTile } from './view-models';
  * A tile turns red only when there is something to act on, and then says so in
  * words too, so the warning survives without colour.
  */
-export function KpiStrip({ tiles }: { tiles: KpiTile[] }) {
+export function KpiStrip({
+  tiles,
+  label = 'ตัวเลขหลัก',
+  className,
+}: {
+  tiles: KpiTile[];
+  label?: string;
+  className?: string;
+}) {
   return (
     <ul
-      aria-label="ตัวเลขหลัก"
-      className="bg-border grid grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-3"
+      aria-label={label}
+      className={cn(
+        'bg-border grid grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-3',
+        className,
+      )}
     >
       {tiles.map((tile) => (
         <li key={tile.key} className="bg-card flex">
