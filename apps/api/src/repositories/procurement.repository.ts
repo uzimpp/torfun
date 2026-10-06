@@ -9,8 +9,6 @@ import type {
   IngestionState,
   IngestionStats,
   IngestionSummary,
-  RecordTimings,
-  StageFailures,
   OpenDataQuota,
   Procurement,
   ProcurementStatus,
@@ -402,53 +400,16 @@ function bangkokWindow(now: string, days: number): { since: string; dates: strin
   return { since, dates };
 }
 
-/** Nearest-rank percentile of an ascending list; null for an empty one. */
-function percentile(sorted: number[], p: number): number | null {
-  if (sorted.length === 0) return null;
-  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] ?? null;
-}
-
-interface Pass {
-  startedAt: number;
-  analysingAt: number | null;
-  end: StatusChange;
-}
-
-/** The record's last pass through retrieval: its last `downloading` and the first end after it. */
-function lastPass(history: readonly StatusChange[]): Pass | null {
+/** Where the record's last pass through retrieval ended: the first end after its last `downloading`. */
+function lastPassEnd(history: readonly StatusChange[]): StatusChange | null {
   let start = history.length - 1;
   while (start >= 0 && history[start]?.outcome !== 'downloading') start -= 1;
   if (start === -1) return null;
-  let analysingAt: number | null = null;
   for (const entry of history.slice(start + 1)) {
-    if (entry.outcome === 'analysing') analysingAt = Date.parse(entry.at);
-    else if (entry.state === 'Completed' || entry.state === 'Failed') {
-      return { startedAt: Date.parse(history[start]?.at ?? ''), analysingAt, end: entry };
-    } else return null;
+    if (entry.state === 'Completed' || entry.state === 'Failed') return entry;
+    if (entry.outcome !== 'analysing') return null;
   }
   return null;
-}
-
-function timingsOf(passes: Pass[]): RecordTimings {
-  const ascending = (values: number[]) => values.sort((a, b) => a - b);
-  const total = ascending(passes.map((pass) => Date.parse(pass.end.at) - pass.startedAt));
-  const download = ascending(
-    passes.flatMap((pass) =>
-      pass.analysingAt === null ? [] : [pass.analysingAt - pass.startedAt],
-    ),
-  );
-  const analyse = ascending(
-    passes.flatMap((pass) =>
-      pass.analysingAt === null ? [] : [Date.parse(pass.end.at) - pass.analysingAt],
-    ),
-  );
-  return {
-    sample: total.length,
-    p50Ms: percentile(total, 0.5),
-    p90Ms: percentile(total, 0.9),
-    downloadP50Ms: percentile(download, 0.5),
-    analyseP50Ms: percentile(analyse, 0.5),
-  };
 }
 
 const THROUGHPUT_BUCKET: Partial<Record<IngestionOutcome, keyof Omit<DailyThroughput, 'date'>>> = {
@@ -458,9 +419,9 @@ const THROUGHPUT_BUCKET: Partial<Record<IngestionOutcome, keyof Omit<DailyThroug
   abandoned: 'failed',
 };
 
-function throughputOf(passes: Pass[], dates: string[]): DailyThroughput[] {
+function throughputOf(ends: StatusChange[], dates: string[]): DailyThroughput[] {
   const byDay = new Map(dates.map((date) => [date, { date, completed: 0, held: 0, failed: 0 }]));
-  for (const { end } of passes) {
+  for (const end of ends) {
     const bucket = THROUGHPUT_BUCKET[outcomeFromStored(end.outcome)];
     const day = byDay.get(bangkokDate(end.at));
     if (bucket && day) day[bucket] += 1;
@@ -954,20 +915,12 @@ export class ProcurementRepository
 
   async stats(now: string, days: number): Promise<IngestionStats> {
     const { since, dates } = bangkokWindow(now, days);
-    const [finished, failuresByStage, discovered] = await Promise.all([
+    const [finished, discovered] = await Promise.all([
       (await this.records())
         .find(
           { state: { $in: ['Completed', 'Failed'] }, updated_at: { $gte: since } },
           { projection: { status_history: 1 } },
         )
-        .toArray(),
-      (await this.failuresCollection())
-        .aggregate<StageFailures>([
-          { $match: { at: { $gte: since }, kind: { $ne: 'no_tor' } } },
-          { $group: { _id: '$stage', count: { $sum: 1 } } },
-          { $sort: { count: -1, _id: 1 } },
-          { $project: { _id: 0, stage: '$_id', count: 1 } },
-        ])
         .toArray(),
       (await this.records())
         .aggregate<DailyDiscovered>([
@@ -988,16 +941,14 @@ export class ProcurementRepository
         ])
         .toArray(),
     ]);
-    const passes = finished
-      .map((document) => lastPass(document.status_history))
-      .filter((pass): pass is Pass => pass !== null && pass.end.at >= since);
+    const ends = finished
+      .map((document) => lastPassEnd(document.status_history))
+      .filter((end): end is StatusChange => end !== null && end.at >= since);
     const discoveredOn = new Map(discovered.map((day) => [day.date, day.discovered]));
 
     return {
-      recordTimings: timingsOf(passes),
-      throughputDaily: throughputOf(passes, dates),
+      throughputDaily: throughputOf(ends, dates),
       discoveredDaily: dates.map((date) => ({ date, discovered: discoveredOn.get(date) ?? 0 })),
-      failuresByStage,
     };
   }
 

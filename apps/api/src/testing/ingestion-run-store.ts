@@ -20,9 +20,7 @@ export class InMemoryIngestionRunStore implements IngestionRunStore {
 /** Stats with nothing in them, for tests that are not about them. */
 export const noStats: IngestionStatsSource = {
   stats: async (): Promise<IngestionStats> => ({
-    recordTimings: { sample: 0, p50Ms: null, p90Ms: null, downloadP50Ms: null, analyseP50Ms: null },
     throughputDaily: [],
     discoveredDaily: [],
-    failuresByStage: [],
   }),
 };

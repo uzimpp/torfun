@@ -5,7 +5,7 @@ import {
   attemptsLabel,
   formatClock,
   formatElapsed,
-  runBanner,
+  runStatus,
   stageDuration,
 } from './status-tracking';
 
@@ -70,7 +70,7 @@ describe('attemptsLabel', () => {
   });
 });
 
-describe('runBanner', () => {
+describe('runStatus', () => {
   const summary = (overrides: Partial<IngestionSummaryResponse>): IngestionSummaryResponse => ({
     total: 288,
     byState: {},
@@ -89,44 +89,33 @@ describe('runBanner', () => {
     ...overrides,
   });
 
-  test('is null while no run is in flight', () => {
-    expect(runBanner(summary({ runInProgress: false }), NOW)).toBeNull();
-  });
-
-  test('says which stage the work is in and how much is left', () => {
-    const banner = runBanner(
-      summary({ byOutcome: { downloading: 1, analysing: 2, queued: 240, error: 3 } }),
-      NOW,
-    );
-
-    expect(banner).toMatchObject({
-      title: 'กำลังรันรอบดึงข้อมูล',
-      detail: 'ดึง 1 · ประมวลผล 2 · รอคิว 243',
-      stopping: false,
+  test('with no run in flight, is idle and says so, with no clock', () => {
+    expect(runStatus(summary({ runInProgress: false }), NOW)).toEqual({
+      phase: 'idle',
+      label: 'ไม่มีรอบที่กำลังทำงาน',
+      elapsed: null,
     });
   });
 
-  test('a run that has only just started, with nothing in a stage yet, is still shown', () => {
-    expect(runBanner(summary({ byOutcome: { queued: 10 } }), NOW)?.detail).toBe(
-      'ดึง 0 · ประมวลผล 0 · รอคิว 10',
-    );
-  });
-
-  test('says how long the run has been going, from the time the server recorded', () => {
+  test('a run in flight is fetching, timed from the start the server recorded', () => {
     const started = new Date(NOW.getTime() - (12 * 60 + 30) * 1000).toISOString();
 
-    expect(runBanner(summary({ runStartedAt: started }), NOW)?.elapsed).toBe('12:30');
+    expect(runStatus(summary({ runStartedAt: started }), NOW)).toEqual({
+      phase: 'running',
+      label: 'กำลังดึงข้อมูล',
+      elapsed: '12:30',
+    });
   });
 
   test('says nothing of elapsed time when the server did not say when it began', () => {
-    expect(runBanner(summary({ runStartedAt: null }), NOW)?.elapsed).toBeNull();
+    expect(runStatus(summary({ runStartedAt: null }), NOW).elapsed).toBeNull();
   });
 
-  test('once an administrator has asked it to stop, says it is stopping and waiting for the record in hand', () => {
-    const banner = runBanner(summary({ stopRequested: true }), NOW);
-
-    expect(banner?.stopping).toBe(true);
-    expect(banner?.title).toBe('กำลังหยุด รอรายการที่ทำอยู่ให้เสร็จ');
+  test('once an administrator has asked it to stop, it is stopping', () => {
+    expect(runStatus(summary({ stopRequested: true }), NOW)).toMatchObject({
+      phase: 'stopping',
+      label: 'กำลังหยุด',
+    });
   });
 });
 

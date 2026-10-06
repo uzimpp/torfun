@@ -565,10 +565,8 @@ describe('IngestionService.ops', () => {
     const now = new Date('2026-10-04T00:00:00.000Z');
     const asked: [string, number][] = [];
     const stats: IngestionStats = {
-      recordTimings: { sample: 4, p50Ms: 1, p90Ms: 2, downloadP50Ms: 3, analyseP50Ms: 4 },
       throughputDaily: [{ date: '2026-10-03', completed: 3, held: 0, failed: 1 }],
       discoveredDaily: [{ date: '2026-10-03', discovered: 7 }],
-      failuresByStage: [{ stage: 'download', count: 1 }],
     };
     const runs = new InMemoryIngestionRunStore();
     const service = new IngestionService(

@@ -248,16 +248,8 @@ describe('ingestion route access and procurement query validation', () => {
           inFlight: null,
           queueRemaining: null,
         },
-        recordTimings: {
-          sample: 0,
-          p50Ms: null,
-          p90Ms: null,
-          downloadP50Ms: null,
-          analyseP50Ms: null,
-        },
         throughputDaily: [],
         discoveredDaily: [],
-        failuresByStage: [],
         runs: [
           {
             id: 'r1',

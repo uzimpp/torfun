@@ -1037,7 +1037,7 @@ describeMongo('ProcurementRepository', () => {
         updatedAt: statusHistory.at(-1)?.at ?? since,
       });
 
-    test('times each record by its last pass, from downloading to where it ended', async () => {
+    test('counts each record once, by where its last pass ended, inside the window', async () => {
       await seed([
         passed('read', [
           step('downloading', '2026-10-01T00:00:00.000Z'),
@@ -1062,13 +1062,10 @@ describeMongo('ProcurementRepository', () => {
         passed('still-queued', [step('queued', '2026-10-01T00:00:00.000Z')]),
       ]);
 
-      expect((await stats()).recordTimings).toEqual({
-        sample: 3,
-        p50Ms: 70_000,
-        p90Ms: 130_000,
-        downloadP50Ms: 10_000,
-        analyseP50Ms: 60_000,
-      });
+      expect(active((await stats()).throughputDaily, noThroughput)).toEqual([
+        { date: '2026-10-01', completed: 1, held: 0, failed: 0 },
+        { date: '2026-10-03', completed: 0, held: 1, failed: 0 },
+      ]);
     });
 
     test('counts passes that ended, by Bangkok day, once each however the record was approved later', async () => {
@@ -1115,29 +1112,6 @@ describeMongo('ProcurementRepository', () => {
       ]);
     });
 
-    test('counts logged faults in the window by stage, the commonest first; no TOR is not a fault', async () => {
-      const failure = (stage: IngestionFailure['stage'], at: string): IngestionFailure => ({
-        projectId: 'p',
-        projectName: null,
-        stage,
-        kind: 'fault',
-        error: 'x',
-        at,
-      });
-      await repository.recordFailures([
-        failure('info', '2026-10-01T00:00:00.000Z'),
-        failure('download', '2026-10-02T00:00:00.000Z'),
-        failure('download', '2026-10-03T00:00:00.000Z'),
-        failure('analysis', '2026-09-01T00:00:00.000Z'),
-        { ...failure('extract', '2026-10-03T00:00:00.000Z'), kind: 'no_tor' },
-      ]);
-
-      expect((await stats()).failuresByStage).toEqual([
-        { stage: 'download', count: 2 },
-        { stage: 'info', count: 1 },
-      ]);
-    });
-
     test('every daily series covers the thirty Bangkok days ending today, oldest first, quiet days as zeros', async () => {
       const result = await stats();
 
@@ -1169,7 +1143,6 @@ describeMongo('ProcurementRepository', () => {
 
       const result = await stats();
 
-      expect(result.recordTimings.sample).toBe(1);
       expect(active(result.throughputDaily, noThroughput)).toEqual([
         { date: '2026-09-06', completed: 1, held: 0, failed: 0 },
       ]);
@@ -1189,16 +1162,6 @@ describeMongo('ProcurementRepository', () => {
         { date: '2026-10-01', discovered: 1 },
         { date: '2026-10-02', discovered: 2 },
       ]);
-    });
-
-    test('with nothing finished in the window there is no timing to give', async () => {
-      expect((await stats()).recordTimings).toEqual({
-        sample: 0,
-        p50Ms: null,
-        p90Ms: null,
-        downloadP50Ms: null,
-        analyseP50Ms: null,
-      });
     });
   });
 });

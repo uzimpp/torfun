@@ -1,7 +1,6 @@
-import type { DailyDiscovered, DailyThroughput, RecordTimings, StageFailures } from '@torfun/types';
+import type { DailyDiscovered, DailyThroughput } from '@torfun/types';
 import { formatShortDate } from '@/lib/format-date';
 import { formatCount } from '@/lib/format-number';
-import { formatDuration, STAGE_LABELS } from './ops-view';
 
 /**
  * The trend charts' rows, shaped from `GET /api/ingestion/ops` as plain data so
@@ -61,25 +60,4 @@ export function throughputSeries(days: DailyThroughput[]) {
     totals.failed += point.failed;
   }
   return { points, totals, empty: totals.completed + totals.held + totals.failed === 0 };
-}
-
-export function stageSeries(failures: StageFailures[]) {
-  const points = failures
-    .filter((row) => row.count > 0)
-    .map((row) => ({ stage: row.stage, label: STAGE_LABELS[row.stage], count: row.count }));
-  const total = points.reduce((sum, point) => sum + point.count, 0);
-  return { points, total, empty: total === 0 };
-}
-
-/** The median time per record, or one sentence where nothing was measured. */
-export function recordTimingView(timings: RecordTimings) {
-  if (timings.sample === 0 || timings.p50Ms === null) {
-    return { empty: 'ยังไม่มีรายการที่วัดเวลาได้ใน 30 วัน' } as const;
-  }
-  return {
-    empty: null,
-    median: formatDuration(timings.p50Ms),
-    split: `ดาวน์โหลด ${formatDuration(timings.downloadP50Ms)} · วิเคราะห์ ${formatDuration(timings.analyseP50Ms)}`,
-    sample: `จาก ${formatCount(timings.sample)} รายการ`,
-  } as const;
 }

@@ -85,20 +85,6 @@ export const IngestionRunSchema = z.object({
 export type IngestionRun = z.infer<typeof IngestionRunSchema>;
 
 /**
- * Time from a record's last `downloading` to the end of that pass, over records
- * that finished one in the window. Dropped records (deleted) and refresh-only
- * work (no `downloading`) are not in it. Null where there is no sample.
- */
-export const RecordTimingsSchema = z.object({
-  sample: z.number().int().nonnegative(),
-  p50Ms: z.number().nonnegative().nullable(),
-  p90Ms: z.number().nonnegative().nullable(),
-  downloadP50Ms: z.number().nonnegative().nullable(),
-  analyseP50Ms: z.number().nonnegative().nullable(),
-});
-export type RecordTimings = z.infer<typeof RecordTimingsSchema>;
-
-/**
  * Retrieval passes that ended on a day (Asia/Bangkok), by the outcome each ended
  * on. `completed` is `tor_analysed`, `held` is
  * `needs_review`, `failed` is `analysis_failed` or `abandoned`. A pass that ended
@@ -125,23 +111,14 @@ export const DailyDiscoveredSchema = z.object({
 });
 export type DailyDiscovered = z.infer<typeof DailyDiscoveredSchema>;
 
-export const StageFailuresSchema = z.object({
-  stage: IngestionStage,
-  count: z.number().int().nonnegative(),
-});
-export type StageFailures = z.infer<typeof StageFailuresSchema>;
-
 /**
  * Stored history the operations view reads, over a trailing window of whole
  * Asia/Bangkok days. Each daily series has one entry per day of the window,
  * oldest first, quiet days included as zeros.
  */
 export const IngestionStatsSchema = z.object({
-  recordTimings: RecordTimingsSchema,
   throughputDaily: z.array(DailyThroughputSchema),
   discoveredDaily: z.array(DailyDiscoveredSchema),
-  /** Logged failures of kind `fault`; a `no_tor` answer is not one. */
-  failuresByStage: z.array(StageFailuresSchema),
 });
 export type IngestionStats = z.infer<typeof IngestionStatsSchema>;
 

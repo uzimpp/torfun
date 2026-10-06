@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Square } from 'lucide-react';
+import { Play, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,23 +11,46 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import type { RunPhase } from './status-tracking';
+
+const TOGGLE = 'size-10 shrink-0 rounded-full';
 
 /**
- * Stopping asks first, because it is not undone: the run ends once the records
- * in hand are finished, and the rest wait for the next one.
+ * One button for the run: Play starts one when idle; Square stops the one in
+ * flight. Stopping asks first, because it is not undone: the run ends once the
+ * records in hand are finished, and the rest wait for the next one.
  */
-export function StopRunButton({
-  stopping,
+export function RunToggle({
+  phase,
+  starting,
+  onStart,
   onStop,
 }: {
-  /** The API already has the request. */
-  stopping: boolean;
+  phase: RunPhase;
+  /** A start has been sent and not yet answered. */
+  starting: boolean;
+  onStart: () => void;
   onStop: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
-  const pending = sending || stopping;
 
+  if (phase === 'idle') {
+    return (
+      <Button
+        size="icon-lg"
+        className={TOGGLE}
+        aria-label="เริ่มรอบดึงข้อมูล"
+        disabled={starting}
+        aria-busy={starting || undefined}
+        onClick={onStart}
+      >
+        <Play className="size-4" aria-hidden="true" />
+      </Button>
+    );
+  }
+
+  const pending = sending || phase === 'stopping';
   const confirm = async () => {
     setConfirming(false);
     setSending(true);
@@ -42,12 +65,14 @@ export function StopRunButton({
     <>
       <Button
         variant="outline"
+        size="icon-lg"
+        className={TOGGLE}
+        aria-label={pending ? 'กำลังหยุด' : 'หยุดรอบนี้'}
         disabled={pending}
         aria-busy={pending || undefined}
         onClick={() => setConfirming(true)}
       >
-        <Square data-icon="inline-start" className="size-4" aria-hidden="true" />
-        {pending ? 'กำลังหยุด' : 'หยุดรอบนี้'}
+        <Square className="size-4" aria-hidden="true" />
       </Button>
 
       <Dialog open={confirming} onOpenChange={setConfirming}>

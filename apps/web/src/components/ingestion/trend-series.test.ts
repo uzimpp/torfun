@@ -1,13 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { DailyDiscovered } from '@torfun/types';
 
-import {
-  discoveredSeries,
-  markIndexes,
-  recordTimingView,
-  stageSeries,
-  throughputSeries,
-} from './trend-series';
+import { discoveredSeries, markIndexes, throughputSeries } from './trend-series';
 
 /** 30 Bangkok days ending 5 Oct 2026, zero-filled as the API sends them. */
 const days = (at: (date: string, index: number) => Record<string, unknown> = () => ({})) =>
@@ -74,55 +68,5 @@ describe('throughputSeries', () => {
     });
     expect(series.totals).toEqual({ completed: 5, held: 2, failed: 1 });
     expect(series.empty).toBe(false);
-  });
-});
-
-describe('stageSeries', () => {
-  test('keeps the API order, names each stage, and drops stages with none', () => {
-    expect(
-      stageSeries([
-        { stage: 'extract', count: 1 },
-        { stage: 'info', count: 0 },
-        { stage: 'download', count: 4 },
-      ]),
-    ).toEqual({
-      points: [
-        { stage: 'extract', label: 'แยกไฟล์ TOR', count: 1 },
-        { stage: 'download', label: 'ดาวน์โหลดเอกสาร', count: 4 },
-      ],
-      total: 5,
-      empty: false,
-    });
-  });
-});
-
-describe('recordTimingView', () => {
-  test('reads the median with its download and analyse split and the sample size', () => {
-    expect(
-      recordTimingView({
-        sample: 40,
-        p50Ms: 42_000,
-        p90Ms: 95_000,
-        downloadP50Ms: 8_000,
-        analyseP50Ms: 30_000,
-      }),
-    ).toEqual({
-      empty: null,
-      median: '42 วิ',
-      split: 'ดาวน์โหลด 8.0 วิ · วิเคราะห์ 30 วิ',
-      sample: 'จาก 40 รายการ',
-    });
-  });
-
-  test('says in one sentence when nothing was measured', () => {
-    expect(
-      recordTimingView({
-        sample: 0,
-        p50Ms: null,
-        p90Ms: null,
-        downloadP50Ms: null,
-        analyseP50Ms: null,
-      }),
-    ).toEqual({ empty: 'ยังไม่มีรายการที่วัดเวลาได้ใน 30 วัน' });
   });
 });
