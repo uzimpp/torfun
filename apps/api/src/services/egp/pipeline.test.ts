@@ -1207,8 +1207,7 @@ describe('two runners sharing the site', () => {
     repository: InMemoryProcurementStore,
     runners: number,
     overrides: Partial<IngestionDeps>,
-  ) =>
-    runIngestion(repository, { logger, runners }, deps({ ...many(), ...overrides }));
+  ) => runIngestion(repository, { logger, runners }, deps({ ...many(), ...overrides }));
   const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
   test('never has more than one request to the site in flight, while the model reads in parallel', async () => {
@@ -1754,11 +1753,7 @@ describe('runIngestion: the timeline', () => {
       await repository.upsert(read());
       const announcements = fakeAnnouncements({}, []);
 
-      await runIngestion(
-        repository,
-        { logger, onlyProject: NEW },
-        deps({ announcements }),
-      );
+      await runIngestion(repository, { logger, onlyProject: NEW }, deps({ announcements }));
 
       expect(announcements.calls).toEqual([NEW]);
     });
