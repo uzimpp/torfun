@@ -538,9 +538,10 @@ export async function runIngestion(
     await repository.recordFailures([failure]);
   };
 
-  if (options.onlyProject && candidates.length === 0) {
+  if (options.onlyProject && candidates.length === 0 && !discovery.rateLimited) {
     // Asked for one project and there is none to read: say so, or the
-    // administrator who asked is left to wonder why nothing happened.
+    // administrator who asked is left to wonder why nothing happened. After a
+    // refusal the refusal is the reason, and it is already in the log.
     await note(
       { projectId: options.onlyProject, projectName: '-' },
       'discovery',
