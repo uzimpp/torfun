@@ -1104,6 +1104,15 @@ describe('a record the model drops', () => {
         promptVersion: '2026-10-01.1',
         decidedAt: expect.any(String),
         decidedBy: null,
+        // What the feed said, so a restore can queue it again without a sweep.
+        feed: {
+          projectName: 'บำรุงรักษาระบบคอมพิวเตอร์',
+          deptName: 'กรุงเทพมหานคร',
+          deptCode: '0100',
+          announceDate: '2026-08-01',
+          budgetYear: 2568,
+          purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+        },
       },
     ]);
   });

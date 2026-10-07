@@ -281,6 +281,8 @@ export interface ProcurementStore {
   remove(projectId: string): Promise<boolean>;
   /** Which of these projects were dropped; used to keep them out of a sweep. */
   tombstonedIds(projectIds: string[]): Promise<Set<string>>;
+  /** One project's tombstone, if it has one. */
+  getTombstone(projectId: string): Promise<Tombstone | undefined>;
   listTombstones(): Promise<Tombstone[]>;
   /**
    * Forget a tombstone, so the next sweep that finds the project stores it and
@@ -386,6 +388,62 @@ interface TombstoneDocument {
   prompt_version: string | null;
   decided_at: string;
   decided_by: string | null;
+  /** Absent on tombstones written before the feed snapshot was kept. */
+  feed?: FeedSnapshotDocument | null;
+}
+
+/** A FeedSnapshot as stored on a tombstone. */
+interface FeedSnapshotDocument {
+  project_name: string;
+  dept_name: string;
+  dept_code: string;
+  announce_date: string | null;
+  budget_year: number;
+  purchase_method_name: string | null;
+}
+
+function toTombstoneDocument(tombstone: Tombstone): TombstoneDocument {
+  const { feed } = tombstone;
+  return {
+    _id: tombstone.projectId,
+    reason: tombstone.reason,
+    evidence: tombstone.evidence,
+    prompt_version: tombstone.promptVersion,
+    decided_at: tombstone.decidedAt,
+    decided_by: tombstone.decidedBy,
+    feed: feed
+      ? {
+          project_name: feed.projectName,
+          dept_name: feed.deptName,
+          dept_code: feed.deptCode,
+          announce_date: feed.announceDate,
+          budget_year: feed.budgetYear,
+          purchase_method_name: feed.purchaseMethodName,
+        }
+      : null,
+  };
+}
+
+function fromTombstoneDocument(document: TombstoneDocument): Tombstone {
+  const { feed } = document;
+  return {
+    projectId: document._id,
+    reason: document.reason,
+    evidence: document.evidence,
+    promptVersion: document.prompt_version,
+    decidedAt: document.decided_at,
+    decidedBy: document.decided_by ?? null,
+    feed: feed
+      ? {
+          projectName: feed.project_name,
+          deptName: feed.dept_name,
+          deptCode: feed.dept_code,
+          announceDate: feed.announce_date,
+          budgetYear: feed.budget_year,
+          purchaseMethodName: feed.purchase_method_name,
+        }
+      : null,
+  };
 }
 
 interface QuotaDocument {
@@ -499,14 +557,7 @@ export class ProcurementRepository
   }
 
   async tombstone(tombstone: Tombstone): Promise<void> {
-    const document: TombstoneDocument = {
-      _id: tombstone.projectId,
-      reason: tombstone.reason,
-      evidence: tombstone.evidence,
-      prompt_version: tombstone.promptVersion,
-      decided_at: tombstone.decidedAt,
-      decided_by: tombstone.decidedBy,
-    };
+    const document = toTombstoneDocument(tombstone);
     // The tombstone first: if the delete then failed, the record would still be
     // there to be tried again, never gone without a trace of why.
     await (
@@ -539,14 +590,12 @@ export class ProcurementRepository
       .find({})
       .sort({ decided_at: -1 })
       .toArray();
-    return documents.map((document) => ({
-      projectId: document._id,
-      reason: document.reason,
-      evidence: document.evidence,
-      promptVersion: document.prompt_version,
-      decidedAt: document.decided_at,
-      decidedBy: document.decided_by ?? null,
-    }));
+    return documents.map(fromTombstoneDocument);
+  }
+
+  async getTombstone(projectId: string): Promise<Tombstone | undefined> {
+    const document = await (await this.tombstoneCollection()).findOne({ _id: projectId });
+    return document ? fromTombstoneDocument(document) : undefined;
   }
 
   async removeTombstone(projectId: string): Promise<boolean> {

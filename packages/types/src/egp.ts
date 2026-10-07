@@ -315,11 +315,27 @@ export const TOMBSTONE_REASON_LABELS: Record<TombstoneReason, string> = {
 };
 
 /**
+ * What Discovery learned about a project from e-GP's announcement feed, kept on
+ * its tombstone. The feed is read by date, so a sweep does not go back for a
+ * project announced months ago; restoring one rebuilds its Queued record from
+ * this instead. Nothing here was read from the TOR.
+ */
+export const FeedSnapshotSchema = z.object({
+  projectName: z.string(),
+  deptName: z.string(),
+  deptCode: z.string(),
+  announceDate: z.string().nullable(),
+  budgetYear: z.number().int(),
+  purchaseMethodName: z.string().nullable(),
+});
+export type FeedSnapshot = z.infer<typeof FeedSnapshotSchema>;
+
+/**
  * What is kept of a project that was dropped, whether by the model (it read the
  * whole TOR and said, with confidence, that it is not software work) or by an
- * administrator: enough to say why, who decided and when, and nothing of what
- * was read from the document. Its existence is also what stops a later sweep
- * from fetching the same project afresh.
+ * administrator: enough to say why, who decided and when, and what the feed
+ * said about it, but nothing of what was read from the document. Its existence
+ * is also what stops a later sweep from fetching the same project afresh.
  */
 export const TombstoneSchema = z.object({
   projectId: z.string(),
@@ -331,6 +347,8 @@ export const TombstoneSchema = z.object({
   decidedAt: z.string(),
   /** The administrator who decided; null when the model did. */
   decidedBy: z.string().nullable(),
+  /** The project as the feed listed it; absent on tombstones written before it was kept. */
+  feed: FeedSnapshotSchema.nullish(),
 });
 export type Tombstone = z.infer<typeof TombstoneSchema>;
 

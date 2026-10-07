@@ -300,6 +300,23 @@ describe('TombstoneSchema', () => {
     const parsed = TombstoneSchema.parse({ ...tombstone, projectName: 'x', zipId: 'z' });
     expect(parsed).toEqual(tombstone);
   });
+
+  test('may keep what the feed said about the project, so a restore needs no sweep', () => {
+    const feed = {
+      projectName: 'จ้างพัฒนาระบบ',
+      deptName: 'กรมศุลกากร',
+      deptCode: '0305',
+      announceDate: '2026-10-05T00:00:00.000Z',
+      budgetYear: 2570,
+      purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+    };
+    expect(TombstoneSchema.parse({ ...tombstone, feed })).toEqual({ ...tombstone, feed });
+    // Older tombstones were written without it.
+    expect(TombstoneSchema.parse(tombstone).feed ?? null).toBeNull();
+    expect(TombstoneSchema.safeParse({ ...tombstone, feed: { deptName: 'x' } }).success).toBe(
+      false,
+    );
+  });
 });
 
 describe('Procurement approval', () => {

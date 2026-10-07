@@ -133,6 +133,14 @@ describeMongo('ProcurementRepository', () => {
       promptVersion: '2026-10-01.1',
       decidedAt: '2026-10-02T00:00:00.000Z',
       decidedBy: null,
+      feed: {
+        projectName: 'จัดซื้อเครื่องคอมพิวเตอร์',
+        deptName: 'กรมศุลกากร',
+        deptCode: '0305',
+        announceDate: '2026-09-30T00:00:00.000Z',
+        budgetYear: 2569,
+        purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+      },
     };
 
     test('a tombstone replaces the record, and reads back as written', async () => {
@@ -150,11 +158,33 @@ describeMongo('ProcurementRepository', () => {
         reason: 'admin_deleted',
         promptVersion: null,
         decidedBy: 'admin',
+        feed: null,
       };
 
       await repository.tombstone(byAdmin);
 
       expect(await repository.listTombstones()).toEqual([byAdmin]);
+    });
+
+    test('one is found by its project, with the feed snapshot it kept', async () => {
+      await repository.tombstone(dropped);
+
+      expect(await repository.getTombstone('66059313551')).toEqual(dropped);
+      expect(await repository.getTombstone('66059313552')).toBeUndefined();
+    });
+
+    test('one written before the feed snapshot was kept reads back with none', async () => {
+      const { feed: _feed, ...old } = dropped;
+      await (await getDb()).collection('tombstones').insertOne({
+        _id: old.projectId as never,
+        reason: old.reason,
+        evidence: old.evidence,
+        prompt_version: old.promptVersion,
+        decided_at: old.decidedAt,
+        decided_by: old.decidedBy,
+      });
+
+      expect(await repository.getTombstone('66059313551')).toEqual({ ...old, feed: null });
     });
 
     test('says which of a set of projects were dropped, and none for an empty set', async () => {
