@@ -83,14 +83,12 @@ async function build(options: { records?: number; heartbeatMs?: number } = {}) {
       ...deps,
       discoverProjects: async () => ({
         records: [],
-        rejected: [],
         notEBidding: 0,
         tombstoned: 0,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        cursor: {},
         ranAt: new Date().toISOString(),
       }),
       resolveZipId: async (projectId: string) => {

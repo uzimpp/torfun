@@ -310,20 +310,18 @@ describe('restoring a tombstone, end to end through a real Run', () => {
 
     const asked: string[] = [];
     const deps: IngestionDeps = {
-      discoverProjects: async (_key, tombstonedIds) => {
+      discoverProjects: async ({ tombstonedIds }) => {
         // What the real sweep does: whatever still has a tombstone is not admitted.
         const feed = ['66059313551', '66059313552', '66059313553'];
         const ruledOut = await tombstonedIds(feed);
         return {
           records: feed.filter((id) => !ruledOut.has(id)).map(feedRow),
-          rejected: [],
           notEBidding: 0,
           tombstoned: ruledOut.size,
-          resolutions: [],
+          truncated: 0,
           failures: [],
           rateLimited: false,
-          budgetReached: false,
-          quota: null,
+          cursor: {},
           ranAt: new Date().toISOString(),
         };
       },
