@@ -457,6 +457,21 @@ describe('a discovery sweep inside the Run', () => {
     expect(record?.attempts).toBe(0);
   });
 
+  test('a Run for one project that the site refused does not blame the queue', async () => {
+    const repository = await queued();
+
+    const result = await runIngestion(
+      repository,
+      { logger, onlyProject: '66059313551' },
+      deps({ discoverProjects: async () => sweepResult({ rateLimited: true }) }),
+    );
+
+    expect(result.failures.some((failure) => failure.error.includes('not in the queue'))).toBe(
+      false,
+    );
+    expect((await repository.get('66059313551'))?.state).toBe('Queued');
+  });
+
   test('the cursor a sweep reached is stored even when the site cut it short', async () => {
     const repository = await queued();
 

@@ -122,8 +122,10 @@ export class ProcurementAdminService {
         ...(feed ? {} : { forceDiscovery: true }),
         onlyProject: projectId,
         beforeRun: async () => {
-          await this.removeTombstone(projectId, by);
+          // The record first: if lifting the tombstone then failed, the project
+          // would still be held back, never gone along with its snapshot.
           if (feed) await this.store.upsert(queuedRecord(projectId, feed, this.now()));
+          await this.removeTombstone(projectId, by);
         },
       });
     } catch (error) {
