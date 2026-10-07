@@ -22,7 +22,7 @@
     "@google/genai": "^1.52.0",
     "@torfun/types": "workspace:*",
     "bcryptjs": "^3.0.3",
-    "fastify": "^5.12.1",
+    "fastify": "^5.12.5",
     "fastify-type-provider-zod": "^4.0.2",
     "fflate": "^0.8.3",
     "mongodb": "6.20.0",
