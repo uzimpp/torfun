@@ -1,4 +1,10 @@
-import { TOMBSTONE_REASON_LABELS, type Tombstone, type TombstoneReason } from '@torfun/types';
+import {
+  TOMBSTONE_REASON_LABELS,
+  type FeedSnapshot,
+  type Tombstone,
+  type TombstoneReason,
+} from '@torfun/types';
+import { feedSnapshotOf } from './feed-record';
 
 /**
  * The one place a Tombstone is put together, whoever decided: the pipeline when
@@ -7,7 +13,9 @@ import { TOMBSTONE_REASON_LABELS, type Tombstone, type TombstoneReason } from '@
  * whichever of them wrote it.
  *
  * `decidedBy` is null when the model decided and a username when a person did;
- * `now` is the caller's clock, so a test can fix the time.
+ * `now` is the caller's clock, so a test can fix the time. `record` is the
+ * record being replaced: its feed fields are kept so a restore can queue the
+ * project again without a sweep.
  */
 export function buildTombstone(input: {
   projectId: string;
@@ -17,6 +25,7 @@ export function buildTombstone(input: {
   promptVersion?: string | null;
   decidedBy: string | null;
   now: Date;
+  record?: FeedSnapshot;
 }): Tombstone {
   return {
     projectId: input.projectId,
@@ -25,5 +34,6 @@ export function buildTombstone(input: {
     promptVersion: input.promptVersion ?? null,
     decidedAt: input.now.toISOString(),
     decidedBy: input.decidedBy,
+    ...(input.record ? { feed: feedSnapshotOf(input.record) } : {}),
   };
 }

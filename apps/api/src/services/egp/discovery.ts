@@ -1,4 +1,3 @@
-import { EMPTY_MILESTONES } from '@torfun/types';
 import type { IngestionFailure, Procurement } from '@torfun/types';
 import type { FeedCursor } from '../../repositories/procurement.repository';
 import { admit } from './admission';
@@ -12,6 +11,7 @@ import {
   type FeedAnnouncementType,
 } from './constants';
 import { convertDateToISO } from './dates';
+import { queuedRecord } from './feed-record';
 
 /**
  * Stage 1 of the pipeline: e-GP's announcement feed, asked agency by agency and
@@ -99,52 +99,20 @@ function now(): string {
 }
 
 function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurement {
-  const timestamp = now();
   const announcedOn = item.announcedOn ?? day;
-
-  return {
-    projectId: item.projectId,
-    projectName: item.title,
-    // The feed is asked per agency, so the agency is the one asked about.
-    deptName: agency.deptName,
-    deptSubName: null,
-    // Not in the feed. Null says "not known", which is the truth.
-    province: null,
-    district: null,
-    subdistrict: null,
-    deptCode: agency.deptId,
-    budgetYear: fiscalYearOf(announcedOn),
-    announceDate: convertDateToISO(announcedOn),
-    projectTypeName: null,
-    purchaseMethodName: item.methodName,
-    projectMoney: null,
-    priceBuild: null,
-    // Set from the timeline, the first thing Retrieval reads (ADR-0017).
-    status: 'unknown',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
-
-    state: 'Queued',
-    outcome: 'queued',
-    attempts: 0,
-    holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
-    statusHistory: [{ state: 'Queued', outcome: 'queued', at: timestamp }],
-
-    zipId: null,
-    documents: [],
-    analysis: null,
-    // Not known before an award; the feed is read before any is made.
-    winner: null,
-    torAmbiguous: false,
-
-    discoveredAt: timestamp,
-    sourceHash: null, // fingerprinted by the store as it writes
-    updatedAt: timestamp,
-  };
+  return queuedRecord(
+    item.projectId,
+    {
+      projectName: item.title,
+      // The feed is asked per agency, so the agency is the one asked about.
+      deptName: agency.deptName,
+      deptCode: agency.deptId,
+      announceDate: convertDateToISO(announcedOn),
+      budgetYear: fiscalYearOf(announcedOn),
+      purchaseMethodName: item.methodName,
+    },
+    new Date(),
+  );
 }
 
 /**

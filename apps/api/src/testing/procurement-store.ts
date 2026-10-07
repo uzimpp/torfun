@@ -70,6 +70,10 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     return new Set(projectIds.filter((id) => this.tombstones.has(id)));
   }
 
+  async getTombstone(projectId: string): Promise<Tombstone | undefined> {
+    return this.tombstones.get(projectId);
+  }
+
   async listTombstones(): Promise<Tombstone[]> {
     return [...this.tombstones.values()];
   }

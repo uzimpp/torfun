@@ -304,10 +304,10 @@ describe('administrator actions on a procurement', () => {
 
         expect(response.statusCode).toBe(202);
         expect(startRun).toHaveBeenCalledTimes(1);
-        expect(startRun).toHaveBeenCalledWith(
-          expect.objectContaining({ onlyProject: ID, forceDiscovery: true }),
-        );
+        expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ onlyProject: ID }));
         expect(await store.listTombstones()).toEqual([]);
+        // Rebuilt from the tombstone's feed snapshot, ready for that Run to read.
+        expect((await store.get(ID))?.outcome).toBe('queued');
       });
 
       test('409 while a Run is going, and the tombstone stays', async () => {

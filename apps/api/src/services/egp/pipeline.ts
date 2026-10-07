@@ -199,10 +199,11 @@ export interface RunOptions {
   /** Sweep regardless of how recent the last one was. */
   forceDiscovery?: boolean;
   /**
-   * Retrieve this project and no other. Discovery still runs as asked, because it
-   * is what brings the project's feed fields back; what changes is that the queue
-   * is not worked through, so the site is asked about one project. A project
-   * Discovery did not bring back is reported as a failure rather than skipped.
+   * Retrieve this project and no other. Discovery still runs as asked (a restore
+   * from a tombstone with no feed snapshot needs it to bring the project back);
+   * what changes is that the queue is not worked through, so the site is asked
+   * about one project. A project not in the queue by then is reported as a
+   * failure rather than skipped.
    */
   onlyProject?: string;
   /**
@@ -500,11 +501,14 @@ export async function runIngestion(
   const candidates: Candidate[] = discovery.rateLimited
     ? []
     : options.onlyProject
-    ? (await selectOne(repository, options.onlyProject)).map((record) => ({ record, fresh: true }))
-    : [
-        ...(await selectForRetrieval(repository)).map((record) => ({ record, fresh: true })),
-        ...(await selectForRefresh(repository)).map((record) => ({ record, fresh: false })),
-      ];
+      ? (await selectOne(repository, options.onlyProject)).map((record) => ({
+          record,
+          fresh: true,
+        }))
+      : [
+          ...(await selectForRetrieval(repository)).map((record) => ({ record, fresh: true })),
+          ...(await selectForRefresh(repository)).map((record) => ({ record, fresh: false })),
+        ];
 
   let refreshed = 0;
   let archivesRetrieved = 0;
@@ -766,6 +770,7 @@ export async function runIngestion(
             promptVersion: analysed.analysis.promptVersion,
             decidedBy: null,
             now: new Date(),
+            record,
           }),
         );
         dropped += 1;
