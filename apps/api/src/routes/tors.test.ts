@@ -110,6 +110,12 @@ describe('TOR detail routes', () => {
     '/api/tors?publishedFrom=2026-02-30',
     '/api/tors?deadlineFrom=2026-10-02&deadlineTo=2026-10-01',
     '/api/tors?targetPlatforms=television',
+    '/api/tors?deadlineDays=-1',
+    '/api/tors?deadlineDays=3.5',
+    '/api/tors?deadlineDays=366',
+    '/api/tors?deadlineDays=3&deadlineFrom=2026-10-01',
+    '/api/tors?deadlineMode=exact',
+    '/api/tors?deadlineDays=3&deadlineMode=invalid',
   ])('rejects an invalid officer filter query: %s', async (url) => {
     const response = await app.inject({ method: 'GET', url, cookies: session() });
 

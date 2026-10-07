@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { ChevronDown, SlidersHorizontal, X } from 'lucide-react';
-import type { TargetPlatform } from '@torfun/types';
+import { STATUS_LABELS, ProcurementStatus, type TargetPlatform } from '@torfun/types';
+import { BudgetRangeFilter } from './budget-range-filter';
+import { DateRangeFilter } from './date-range-filter';
 
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -13,6 +15,8 @@ import { cn } from '@/lib/utils';
 import { PLATFORM_LABELS, PLATFORM_ORDER } from '@/components/company/labels';
 import {
   activeFilterCount,
+  EMPTY_SEARCH_FILTERS,
+  parseSearchFilters,
   searchHref,
   withoutSearchFilter,
   type SearchFilterCriterion,
@@ -26,6 +30,16 @@ interface ActiveFilter {
 
 function activeFilters(values: SearchFilterValues): ActiveFilter[] {
   const filters: ActiveFilter[] = [];
+  if (values.status) filters.push({ criterion: 'status', label: STATUS_LABELS[values.status] });
+  if (values.eBidding)
+    filters.push({
+      criterion: 'eBidding',
+      label: values.eBidding === 'true' ? 'เฉพาะ e-bidding' : 'วิธีอื่นที่ไม่ใช่ e-bidding',
+    });
+  if (values.deptName)
+    filters.push({ criterion: 'deptName', label: `หน่วยงาน: ${values.deptName}` });
+  if (values.year) filters.push({ criterion: 'year', label: `ปีงบประมาณ ${values.year}` });
+  if (values.outcome) filters.push({ criterion: 'outcome', label: 'มีสรุป TOR แล้ว' });
   if (values.minBudget || values.maxBudget) {
     filters.push({
       criterion: 'budget',
@@ -38,7 +52,12 @@ function activeFilters(values: SearchFilterValues): ActiveFilter[] {
       label: `วันที่ประกาศ ${values.publishedFrom || 'ไม่กำหนด'}–${values.publishedTo || 'ไม่กำหนด'}`,
     });
   }
-  if (values.deadlineFrom || values.deadlineTo) {
+  if (values.deadlineDays !== '') {
+    filters.push({
+      criterion: 'deadline',
+      label: `ปิดรับ${values.deadlineMode === 'exact' ? 'ในอีก' : 'ภายใน'} ${values.deadlineDays} วัน`,
+    });
+  } else if (values.deadlineFrom || values.deadlineTo) {
     filters.push({
       criterion: 'deadline',
       label: `กำหนดส่ง ${values.deadlineFrom || 'ไม่กำหนด'}–${values.deadlineTo || 'ไม่กำหนด'}`,
@@ -55,9 +74,6 @@ function activeFilters(values: SearchFilterValues): ActiveFilter[] {
   }
   if (values.industry) {
     filters.push({ criterion: 'industry', label: `ชื่อโครงการ/หน่วยงาน: ${values.industry}` });
-  }
-  if (values.location) {
-    filters.push({ criterion: 'location', label: `สถานที่: ${values.location}` });
   }
   return filters;
 }
@@ -87,192 +103,302 @@ function Field({
         min={type === 'number' ? 0 : undefined}
         step={type === 'number' ? 1 : undefined}
         defaultValue={value}
+        className="h-11"
         placeholder={placeholder}
       />
     </div>
   );
 }
 
-export function ProcurementFilters({ values }: { values: SearchFilterValues }) {
+const selectClass =
+  'border-input bg-card focus-visible:ring-ring/50 h-11 w-full rounded-lg border px-3 text-sm outline-none focus-visible:ring-3';
+const DEADLINE_PRESETS = [
+  ['3', '3 วัน'],
+  ['7', '1 สัปดาห์'],
+  ['14', '2 สัปดาห์'],
+  ['30', '1 เดือน (30 วัน)'],
+] as const;
+
+export function ProcurementFilters({
+  values,
+  onApply,
+}: {
+  values: SearchFilterValues;
+  onApply?: (values: SearchFilterValues) => void;
+}) {
   const active = activeFilters(values);
   const count = activeFilterCount(values);
-  const [open, setOpen] = useState(count > 0);
+  const [open, setOpen] = useState(false);
+  const [deadlineDays, setDeadlineDays] = useState(values.deadlineDays);
+  const [deadlineMode, setDeadlineMode] = useState(values.deadlineMode);
+  const [status, setStatus] = useState(values.status);
+
+  function apply(event: FormEvent<HTMLFormElement>) {
+    if (!onApply) return;
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const raw: Record<string, string | string[]> = {};
+    for (const [key, entry] of data) {
+      if (typeof entry !== 'string' || !entry) continue;
+      const previous = raw[key];
+      raw[key] = previous ? [...(Array.isArray(previous) ? previous : [previous]), entry] : entry;
+    }
+    onApply(parseSearchFilters(raw));
+    setOpen(false);
+  }
+
+  function clear(event: MouseEvent<HTMLAnchorElement>, next: SearchFilterValues) {
+    if (!onApply || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onApply(next);
+  }
 
   return (
-    <div className="border-border bg-card mt-5 rounded-2xl border">
+    <aside
+      aria-label="ตัวกรองประกาศ"
+      className="bg-card border-border self-start rounded-2xl border lg:sticky lg:top-[calc(var(--header-h)+1rem)] lg:max-h-[calc(100dvh-var(--header-h)-2rem)] lg:overflow-y-auto"
+    >
+      <div className="hidden items-center gap-2 px-5 pt-5 lg:flex">
+        <SlidersHorizontal aria-hidden="true" className="text-primary size-4" />
+        <h2 className="font-semibold">ตัวกรองประกาศ</h2>
+        {count > 0 && <Badge variant="secondary">{count}</Badge>}
+      </div>
       <button
         type="button"
         aria-expanded={open}
         aria-controls="procurement-filter-fields"
         onClick={() => setOpen((current) => !current)}
-        className="focus-visible:ring-ring/50 flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-2xl px-4 text-start outline-none focus-visible:ring-3"
+        className="focus-visible:ring-ring/50 flex min-h-12 w-full items-center justify-between rounded-2xl px-4 text-sm font-medium outline-none focus-visible:ring-3 lg:hidden"
       >
-        <span className="inline-flex items-center gap-2 text-sm font-medium">
+        <span className="flex items-center gap-2">
           <SlidersHorizontal aria-hidden="true" className="size-4" />
-          ตัวกรอง
-          {count > 0 && <Badge variant="secondary">{count}</Badge>}
-        </span>
-        <span className="text-muted-foreground text-xs">
-          {count > 0 ? 'กำลังใช้ตัวกรอง' : 'งบประมาณ วันที่ เทคโนโลยี และอื่น ๆ'}
+          ตัวกรอง {count > 0 && <Badge variant="secondary">{count}</Badge>}
         </span>
         <ChevronDown
           aria-hidden="true"
-          className={cn('size-4 shrink-0 transition-transform duration-200', open && 'rotate-180')}
+          className={cn('size-4 transition-transform', open && 'rotate-180')}
         />
       </button>
-
-      {active.length > 0 && (
-        <div aria-label="ตัวกรองที่ใช้งาน" className="flex flex-wrap gap-2 px-4 pb-4">
-          {active.map((filter) => (
+      <div id="procurement-filter-fields" className={cn(open ? 'block' : 'hidden', 'lg:block')}>
+        {active.length > 0 && (
+          <div aria-label="ตัวกรองที่ใช้งาน" className="flex flex-wrap gap-2 px-5 pt-4">
+            {active.map((filter) => (
+              <Link
+                key={filter.criterion}
+                href={searchHref(withoutSearchFilter(values, filter.criterion))}
+                onClick={(event) => clear(event, withoutSearchFilter(values, filter.criterion))}
+                aria-label={`ล้างตัวกรอง ${filter.label}`}
+                className="bg-primary/10 text-primary hover:bg-primary/15 inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors"
+              >
+                {filter.label}
+                <X aria-hidden="true" className="size-3" />
+              </Link>
+            ))}
             <Link
-              key={filter.criterion}
-              href={searchHref(withoutSearchFilter(values, filter.criterion))}
-              aria-label={`ล้างตัวกรอง ${filter.label}`}
-              className="bg-secondary text-secondary-foreground hover:bg-secondary/70 inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors"
+              href={values.query ? `/search?q=${encodeURIComponent(values.query)}` : '/search'}
+              onClick={(event) => clear(event, { ...EMPTY_SEARCH_FILTERS, query: values.query })}
+              className="text-muted-foreground hover:text-foreground flex min-h-8 items-center text-xs underline underline-offset-4"
             >
-              {filter.label}
-              <X aria-hidden="true" className="size-3.5" />
+              ล้างทั้งหมด
             </Link>
-          ))}
-          <Link
-            href={values.query ? `/search?q=${encodeURIComponent(values.query)}` : '/search'}
-            className="text-muted-foreground hover:text-foreground inline-flex min-h-8 items-center px-2 text-xs font-medium transition-colors"
-          >
-            ล้างทั้งหมด
-          </Link>
-        </div>
-      )}
-
-      <div
-        className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
-          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+          </div>
         )}
-      >
-        <div
-          id="procurement-filter-fields"
-          aria-hidden={!open}
-          inert={!open ? true : undefined}
-          className="min-h-0 overflow-hidden"
-        >
-          <form action="/search" method="get" className="border-border border-t p-4 sm:p-5">
-            {values.query && <input type="hidden" name="q" value={values.query} />}
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Field
-                id="min-budget"
-                name="minBudget"
-                label="งบประมาณต่ำสุด (บาท)"
+        <form action="/search" method="get" onSubmit={apply} className="space-y-5 p-5">
+          {values.query && <input type="hidden" name="q" value={values.query} />}
+          <div className="space-y-1.5">
+            <Label htmlFor="procurement-status">ขั้นตอนจัดซื้อจัดจ้าง</Label>
+            <select
+              id="procurement-status"
+              name="status"
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value as typeof status);
+                if (event.target.value && event.target.value !== 'invitation') setDeadlineDays('');
+              }}
+              className={selectClass}
+            >
+              <option value="">ทุกขั้นตอน</option>
+              {ProcurementStatus.options.map((stage) => (
+                <option key={stage} value={stage}>
+                  {STATUS_LABELS[stage]}
+                </option>
+              ))}
+            </select>
+            <p className="text-muted-foreground text-xs">
+              เลือกจัดทำ TOR เพื่อเตรียมตัวก่อนประกาศเชิญชวน
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="e-bidding">วิธีจัดซื้อจัดจ้าง</Label>
+            <select
+              id="e-bidding"
+              name="eBidding"
+              defaultValue={values.eBidding}
+              className={selectClass}
+            >
+              <option value="">ทุกวิธีในคลัง</option>
+              <option value="true">เฉพาะ e-bidding</option>
+              <option value="false">วิธีอื่นที่ไม่ใช่ e-bidding</option>
+            </select>
+          </div>
+          <fieldset className="border-border space-y-3 border-t pt-4">
+            <legend className="text-sm font-semibold">เวลาที่เหลือก่อนปิดรับ</legend>
+            <div className="flex gap-4 text-sm">
+              {[
+                ['within', 'ภายใน'],
+                ['exact', 'ตรงกับอีก'],
+              ].map(([mode, label]) => (
+                <label key={mode} className="flex min-h-10 items-center gap-2">
+                  <input
+                    type="radio"
+                    name="deadlineMode"
+                    value={mode}
+                    checked={deadlineMode === mode}
+                    disabled={deadlineDays === ''}
+                    onChange={() => setDeadlineMode(mode as typeof deadlineMode)}
+                    className="accent-primary size-4"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {DEADLINE_PRESETS.map(([days, label]) => (
+                <button
+                  key={days}
+                  type="button"
+                  aria-pressed={deadlineDays === days}
+                  onClick={() => {
+                    setDeadlineDays(deadlineDays === days ? '' : days);
+                    setStatus('invitation');
+                  }}
+                  className={cn(
+                    'focus-visible:ring-ring/50 min-h-10 rounded-lg border px-2 text-xs transition-colors outline-none focus-visible:ring-3',
+                    deadlineDays === days
+                      ? 'bg-primary/10 border-primary text-primary font-medium'
+                      : 'border-border hover:bg-muted',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="deadline-days" className="text-xs">
+                จำนวนวันเอง (0 = วันนี้)
+              </Label>
+              <Input
+                id="deadline-days"
+                name="deadlineDays"
                 type="number"
-                value={values.minBudget}
-                placeholder="เช่น 500000"
-              />
-              <Field
-                id="max-budget"
-                name="maxBudget"
-                label="งบประมาณสูงสุด (บาท)"
-                type="number"
-                value={values.maxBudget}
-                placeholder="เช่น 5000000"
-              />
-              <Field
-                id="published-from"
-                name="publishedFrom"
-                label="ประกาศตั้งแต่"
-                type="date"
-                value={values.publishedFrom}
-              />
-              <Field
-                id="published-to"
-                name="publishedTo"
-                label="ประกาศถึง"
-                type="date"
-                value={values.publishedTo}
-              />
-              <Field
-                id="deadline-from"
-                name="deadlineFrom"
-                label="กำหนดส่งตั้งแต่"
-                type="date"
-                value={values.deadlineFrom}
-              />
-              <Field
-                id="deadline-to"
-                name="deadlineTo"
-                label="กำหนดส่งถึง"
-                type="date"
-                value={values.deadlineTo}
-              />
-              <Field
-                id="tech-stack"
-                name="techStack"
-                label="เทคโนโลยี (ต้องตรงทุกคำ)"
-                value={values.techStack}
-                placeholder="React, PostgreSQL"
+                min={0}
+                max={365}
+                step={1}
+                placeholder="0–365 วัน"
+                value={deadlineDays}
+                onChange={(event) => {
+                  setDeadlineDays(event.target.value);
+                  if (event.target.value !== '') setStatus('invitation');
+                }}
+                className="h-11"
               />
             </div>
-
-            <fieldset className="mt-4">
+            <p className="text-muted-foreground text-xs">
+              เฉพาะประกาศเชิญชวนที่ยังไม่มีผู้ชนะ อ้างอิงวันในประเทศไทย
+            </p>
+          </fieldset>
+          <DateRangeFilter
+            label="ช่วงวันที่ปิดรับข้อเสนอ"
+            fromName="deadlineFrom"
+            toName="deadlineTo"
+            fromLabel="กำหนดส่งตั้งแต่"
+            toLabel="กำหนดส่งถึง"
+            from={values.deadlineFrom}
+            to={values.deadlineTo}
+            disabled={deadlineDays !== ''}
+          />
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            กำหนดส่ง เทคโนโลยี และแพลตฟอร์มค้นจาก TOR ที่วิเคราะห์สำเร็จแล้วเท่านั้น
+            โปรดตรวจสอบวันปิดรับจากต้นฉบับ
+          </p>
+          <div className="border-border border-t pt-4">
+            <DateRangeFilter
+              label="ช่วงวันที่ประกาศ"
+              fromName="publishedFrom"
+              toName="publishedTo"
+              fromLabel="ประกาศตั้งแต่"
+              toLabel="ประกาศถึง"
+              from={values.publishedFrom}
+              to={values.publishedTo}
+            />
+          </div>
+          <BudgetRangeFilter minBudget={values.minBudget} maxBudget={values.maxBudget} />
+          <Field
+            id="agency"
+            name="deptName"
+            label="ชื่อหน่วยงาน (ตรงทั้งชื่อ)"
+            value={values.deptName}
+            placeholder="หน่วยงานเจ้าของประกาศ"
+          />
+          <Field
+            id="industry"
+            name="industry"
+            label="คำค้นในชื่อโครงการ / ชื่อหน่วยงาน"
+            value={values.industry}
+            placeholder="เช่น โรงพยาบาล, โรงเรียน"
+          />
+          <p className="text-muted-foreground text-xs">คำค้นไม่ใช่หมวดอุตสาหกรรมที่ยืนยันแล้ว</p>
+          <Field
+            id="fiscal-year"
+            name="year"
+            label="ปีงบประมาณ (พ.ศ.)"
+            type="number"
+            value={values.year}
+            placeholder="เช่น 2569"
+          />
+          <div className="border-border space-y-4 border-t pt-4">
+            <Field
+              id="tech-stack"
+              name="techStack"
+              label="เทคโนโลยี (ต้องตรงทุกคำ)"
+              value={values.techStack}
+              placeholder="React, PostgreSQL"
+            />
+            <fieldset>
               <legend className="text-sm font-medium">แพลตฟอร์มเป้าหมาย (ตรงอย่างน้อยหนึ่ง)</legend>
-              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+              <div className="mt-2 grid grid-cols-2 gap-x-3">
                 {PLATFORM_ORDER.map((platform: TargetPlatform) => (
-                  <label key={platform} className="inline-flex items-center gap-2 text-sm">
+                  <label key={platform} className="flex min-h-10 items-center gap-2 text-xs">
                     <input
                       type="checkbox"
                       name="targetPlatforms"
                       value={platform}
                       defaultChecked={values.targetPlatforms.includes(platform)}
-                      className="border-input accent-primary size-4 rounded border"
+                      className="accent-primary size-4 shrink-0"
                     />
                     {PLATFORM_LABELS[platform]}
                   </label>
                 ))}
               </div>
             </fieldset>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Field
-                id="industry"
-                name="industry"
-                label="คำค้นในชื่อโครงการ / ชื่อหน่วยงาน"
-                value={values.industry}
-                placeholder="เช่น โรงพยาบาล, โรงเรียน"
+            <label className="flex min-h-10 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="outcome"
+                value="tor_analysed"
+                defaultChecked={values.outcome === 'tor_analysed'}
+                className="accent-primary size-4"
               />
-              <Field
-                id="location"
-                name="location"
-                label="สถานที่ดำเนินงาน"
-                value={values.location}
-                placeholder="เช่น กรุงเทพมหานคร, คลองเตย"
-              />
-            </div>
-
-            <p className="text-muted-foreground mt-2 text-xs leading-relaxed">
-              คำค้นชื่อโครงการ/หน่วยงานไม่ใช่หมวดอุตสาหกรรมที่ยืนยันแล้ว ส่วนสถานที่ค้นจากจังหวัด
-              อำเภอ/เขต และตำบล/แขวงที่ประกาศระบุ
-            </p>
-            <p className="text-muted-foreground mt-2 text-xs leading-relaxed">
-              กำหนดส่ง เทคโนโลยี และแพลตฟอร์มค้นจาก TOR ที่วิเคราะห์สำเร็จแล้วเท่านั้น
-              ประกาศที่ยังไม่มีผลวิเคราะห์จะไม่ตรงกับตัวกรองเหล่านี้
-            </p>
-
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <button type="submit" className={buttonVariants()}>
-                ใช้ตัวกรอง
-              </button>
-              {count > 0 && (
-                <Link
-                  href={values.query ? `/search?q=${encodeURIComponent(values.query)}` : '/search'}
-                  className={cn(buttonVariants({ variant: 'ghost' }), 'gap-1.5')}
-                >
-                  <X aria-hidden="true" className="size-4" />
-                  ล้างตัวกรอง
-                </Link>
-              )}
-            </div>
-          </form>
-        </div>
+              มีสรุป TOR แล้ว
+            </label>
+          </div>
+          <div className="bg-card sticky bottom-0 -mx-5 -mb-5 border-t px-5 py-4">
+            <button type="submit" className={cn(buttonVariants(), 'h-11 w-full')}>
+              ใช้ตัวกรอง
+            </button>
+          </div>
+        </form>
       </div>
-    </div>
+    </aside>
   );
 }

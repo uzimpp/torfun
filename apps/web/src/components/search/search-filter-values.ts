@@ -1,7 +1,14 @@
-import type { ProcurementFilters, TargetPlatform } from '@torfun/types';
+import { ProcurementStatus, type ProcurementFilters, type TargetPlatform } from '@torfun/types';
 
 export interface SearchFilterValues {
   query: string;
+  status: ProcurementStatus | '';
+  eBidding: '' | 'true' | 'false';
+  deadlineDays: string;
+  deadlineMode: 'within' | 'exact';
+  deptName: string;
+  year: string;
+  outcome: '' | 'tor_analysed';
   minBudget: string;
   maxBudget: string;
   publishedFrom: string;
@@ -11,11 +18,17 @@ export interface SearchFilterValues {
   techStack: string;
   targetPlatforms: TargetPlatform[];
   industry: string;
-  location: string;
 }
 
 export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
   query: '',
+  status: '',
+  eBidding: '',
+  deadlineDays: '',
+  deadlineMode: 'within',
+  deptName: '',
+  year: '',
+  outcome: '',
   minBudget: '',
   maxBudget: '',
   publishedFrom: '',
@@ -25,7 +38,6 @@ export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
   techStack: '',
   targetPlatforms: [],
   industry: '',
-  location: '',
 };
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -45,6 +57,18 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
 
   return {
     query: first(params.q).trim(),
+    status: ProcurementStatus.safeParse(first(params.status)).data ?? '',
+    eBidding:
+      first(params.eBidding) === 'true'
+        ? 'true'
+        : first(params.eBidding) === 'false'
+          ? 'false'
+          : '',
+    deadlineDays: first(params.deadlineDays),
+    deadlineMode: first(params.deadlineMode) === 'exact' ? 'exact' : 'within',
+    deptName: first(params.deptName),
+    year: first(params.year),
+    outcome: first(params.outcome) === 'tor_analysed' ? 'tor_analysed' : '',
     minBudget: first(params.minBudget),
     maxBudget: first(params.maxBudget),
     publishedFrom: first(params.publishedFrom),
@@ -54,7 +78,6 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
     techStack: first(params.techStack),
     targetPlatforms: [...new Set(platforms)],
     industry: first(params.industry),
-    location: first(params.location),
   };
 }
 
@@ -65,13 +88,17 @@ export function parseSearchPage(params: RawSearchParams): number {
 
 export function activeFilterCount(values: SearchFilterValues): number {
   return [
+    values.status,
+    values.eBidding,
+    values.deptName,
+    values.year,
+    values.outcome,
     values.minBudget || values.maxBudget,
     values.publishedFrom || values.publishedTo,
-    values.deadlineFrom || values.deadlineTo,
+    values.deadlineDays || values.deadlineFrom || values.deadlineTo,
     values.techStack,
     values.targetPlatforms.length > 0,
     values.industry,
-    values.location,
   ].filter(Boolean).length;
 }
 
@@ -93,35 +120,53 @@ export function toProjectFilters(
   return {
     limit,
     offset,
+    ...(values.status ? { status: values.status } : {}),
+    ...(values.eBidding ? { eBidding: values.eBidding === 'true' } : {}),
+    ...(values.deptName ? { deptName: values.deptName } : {}),
+    ...(values.year ? { year: Number(values.year) } : {}),
+    ...(values.outcome ? { outcome: values.outcome } : {}),
+    ...(values.deadlineDays !== ''
+      ? { deadlineDays: Number(values.deadlineDays), deadlineMode: values.deadlineMode }
+      : {}),
     ...(values.query ? { q: values.query } : {}),
     ...(values.minBudget ? { minBudget: number(values.minBudget) } : {}),
     ...(values.maxBudget ? { maxBudget: number(values.maxBudget) } : {}),
     ...(values.publishedFrom ? { publishedFrom: values.publishedFrom } : {}),
     ...(values.publishedTo ? { publishedTo: values.publishedTo } : {}),
-    ...(values.deadlineFrom ? { deadlineFrom: values.deadlineFrom } : {}),
-    ...(values.deadlineTo ? { deadlineTo: values.deadlineTo } : {}),
+    ...(values.deadlineDays === '' && values.deadlineFrom
+      ? { deadlineFrom: values.deadlineFrom }
+      : {}),
+    ...(values.deadlineDays === '' && values.deadlineTo ? { deadlineTo: values.deadlineTo } : {}),
     ...(terms.length > 0 ? { techStack: terms } : {}),
     ...(values.targetPlatforms.length > 0 ? { targetPlatforms: values.targetPlatforms } : {}),
     ...(values.industry ? { industry: values.industry } : {}),
-    ...(values.location ? { location: values.location } : {}),
   };
 }
 
 export function searchHref(values: SearchFilterValues, page = 1): string {
   const params = new URLSearchParams();
+  if (values.status) params.set('status', values.status);
+  if (values.eBidding) params.set('eBidding', values.eBidding);
+  if (values.deptName) params.set('deptName', values.deptName);
+  if (values.year) params.set('year', values.year);
+  if (values.outcome) params.set('outcome', values.outcome);
+  if (values.deadlineDays !== '') {
+    params.set('deadlineDays', values.deadlineDays);
+    params.set('deadlineMode', values.deadlineMode);
+  }
   if (values.query) params.set('q', values.query);
   if (values.minBudget) params.set('minBudget', values.minBudget);
   if (values.maxBudget) params.set('maxBudget', values.maxBudget);
   if (values.publishedFrom) params.set('publishedFrom', values.publishedFrom);
   if (values.publishedTo) params.set('publishedTo', values.publishedTo);
-  if (values.deadlineFrom) params.set('deadlineFrom', values.deadlineFrom);
-  if (values.deadlineTo) params.set('deadlineTo', values.deadlineTo);
+  if (values.deadlineDays === '' && values.deadlineFrom)
+    params.set('deadlineFrom', values.deadlineFrom);
+  if (values.deadlineDays === '' && values.deadlineTo) params.set('deadlineTo', values.deadlineTo);
   if (values.techStack) params.set('techStack', values.techStack);
   if (values.targetPlatforms.length > 0) {
     params.set('targetPlatforms', values.targetPlatforms.join(','));
   }
   if (values.industry) params.set('industry', values.industry);
-  if (values.location) params.set('location', values.location);
   if (page > 1) params.set('page', String(page));
   const query = params.toString();
   return `/search${query ? `?${query}` : ''}`;
@@ -133,7 +178,17 @@ export function preservedSearchEntries(values: SearchFilterValues): Array<[strin
 }
 
 export type SearchFilterCriterion =
-  'budget' | 'published' | 'deadline' | 'techStack' | 'targetPlatforms' | 'industry' | 'location';
+  | 'status'
+  | 'eBidding'
+  | 'deptName'
+  | 'year'
+  | 'outcome'
+  | 'budget'
+  | 'published'
+  | 'deadline'
+  | 'techStack'
+  | 'targetPlatforms'
+  | 'industry';
 
 /** Clears one visible criterion while preserving the search words and every other filter. */
 export function withoutSearchFilter(
@@ -141,19 +196,29 @@ export function withoutSearchFilter(
   criterion: SearchFilterCriterion,
 ): SearchFilterValues {
   switch (criterion) {
+    case 'status':
+    case 'eBidding':
+    case 'deptName':
+    case 'year':
+    case 'outcome':
+      return { ...values, [criterion]: '' };
     case 'budget':
       return { ...values, minBudget: '', maxBudget: '' };
     case 'published':
       return { ...values, publishedFrom: '', publishedTo: '' };
     case 'deadline':
-      return { ...values, deadlineFrom: '', deadlineTo: '' };
+      return {
+        ...values,
+        deadlineFrom: '',
+        deadlineTo: '',
+        deadlineDays: '',
+        deadlineMode: 'within',
+      };
     case 'techStack':
       return { ...values, techStack: '' };
     case 'targetPlatforms':
       return { ...values, targetPlatforms: [] };
     case 'industry':
       return { ...values, industry: '' };
-    case 'location':
-      return { ...values, location: '' };
   }
 }

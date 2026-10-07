@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { thailandDay } from '@torfun/types';
 
 import { SearchExperience } from '@/components/search/search-experience';
 import { parseSearchFilters, parseSearchPage } from '@/components/search/search-filter-values';
@@ -23,8 +24,8 @@ export default async function SearchPage({ searchParams }: PageProps<'/search'>)
   const page = parseSearchPage(params);
 
   return (
-    <main className="page-fill mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
-      <SearchExperience initialFilters={filters} initialPage={page} />
+    <main className="page-fill mx-auto w-full max-w-7xl flex-1 px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+      <SearchExperience initialFilters={filters} initialPage={page} today={thailandDay()} />
     </main>
   );
 }

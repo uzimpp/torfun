@@ -43,9 +43,11 @@ function readSearchUrl(): { filters: SearchFilterValues; page: number } {
 export function SearchExperience({
   initialFilters,
   initialPage,
+  today,
 }: {
   initialFilters: SearchFilterValues;
   initialPage: number;
+  today: string;
 }) {
   const initialKey = searchHref(initialFilters, initialPage);
   const [serverKey, setServerKey] = useState(initialKey);
@@ -104,6 +106,19 @@ export function SearchExperience({
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  function applyFilters(nextFilters: SearchFilterValues) {
+    window.history.pushState(null, '', searchHref(nextFilters));
+    setBaseFilters(nextFilters);
+    setValue(nextFilters.query);
+    setQuery(nextFilters.query);
+    setPage(1);
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      window.requestAnimationFrame(() =>
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      );
+    }
+  }
+
   function goToPage(nextPage: number) {
     window.history.pushState(null, '', searchHref(filters, nextPage));
     setPage(nextPage);
@@ -115,6 +130,13 @@ export function SearchExperience({
 
   return (
     <>
+      <header>
+        <p className="text-primary text-sm font-medium">โอกาสงานภาครัฐ</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">ค้นหาประกาศ TOR</h1>
+        <p className="text-muted-foreground mt-2 text-sm">
+          เตรียมตัวตั้งแต่ร่าง TOR และติดตามกำหนดปิดรับข้อเสนอ
+        </p>
+      </header>
       <TorSearchField
         size="hero"
         value={value}
@@ -123,24 +145,21 @@ export function SearchExperience({
         preservedParams={preservedSearchEntries(filters)}
         autoFocus={initialFilters.query === ''}
         suggestions={value === '' ? exampleQueries : undefined}
-        className="mt-8"
+        className="mt-6"
       />
 
-      {/* The filter form uses native uncontrolled inputs. Remount it only when
-          filter criteria change so clear links reset the visible fields, while
-          live typing in the separate search box leaves an open panel alone. */}
-      <ProcurementFilters key={filterPanelKey} values={filters} />
-
-      <section ref={resultsRef} aria-label="ผลการค้นหา" className="mt-10 scroll-mt-20">
-        {/* Keyed on filters+page: each combination is a fresh instance of the
-            results hook, not a retarget of the old one — see use-tor-search.ts. */}
-        <SearchResults
-          key={`${searchHref(filters)}::${page}`}
-          filters={filters}
-          page={page}
-          onPageChange={goToPage}
-        />
-      </section>
+      <div className="mt-8 grid items-start gap-6 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-10">
+        <ProcurementFilters key={filterPanelKey} values={filters} onApply={applyFilters} />
+        <section ref={resultsRef} aria-label="ผลการค้นหา" className="min-w-0 scroll-mt-24">
+          <SearchResults
+            key={`${searchHref(filters)}::${page}`}
+            filters={filters}
+            page={page}
+            today={today}
+            onPageChange={goToPage}
+          />
+        </section>
+      </div>
 
       <ScrollButtons lastItemSelector={RESULT_ROW_SELECTOR} />
     </>

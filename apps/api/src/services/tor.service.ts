@@ -1,4 +1,5 @@
 import type { Procurement } from '@torfun/types';
+import { resolveProcurementListOptions } from './procurement-list-options';
 import { NotFoundError } from '../core/errors';
 import type {
   FindOptions,
@@ -17,10 +18,12 @@ export class TorService {
   constructor(
     private readonly procurements: ProcurementStore,
     private readonly download: (zipId: string) => Promise<Uint8Array> = downloadArchive,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   list(options: FindOptions): Promise<FindResult> {
-    return this.procurements.find(options);
+    const filters = resolveProcurementListOptions(options, this.now());
+    return filters ? this.procurements.find(filters) : Promise.resolve({ items: [], total: 0 });
   }
 
   async get(projectId: string): Promise<Procurement> {

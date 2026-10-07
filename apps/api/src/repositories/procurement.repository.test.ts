@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
 import type { ArchiveDocument, Procurement, ProcurementStatus, TorAnalysis } from '@torfun/types';
+import { TorService } from '../services/tor.service';
 import { ProcurementRepository } from './procurement.repository';
 
 /**
@@ -270,6 +271,78 @@ describeMongo('ProcurementRepository', () => {
     ).toEqual(['middle']);
   });
 
+  test('upcoming deadline windows include today and exclude past, unknown, closed and awarded records', async () => {
+    const row = (id: string, deadlineAt: string | null, overrides: Partial<Procurement> = {}) =>
+      procurement({ projectId: id, analysis: analysis({ deadlineAt }), ...overrides });
+    await Promise.all(
+      [
+        row('today', '2026-10-05'),
+        row('tomorrow', '2026-10-06'),
+        row('three', '2026-10-08'),
+        row('past', '2026-10-04'),
+        row('later', '2026-10-09'),
+        row('unknown', 'unreadable'),
+        row('missing', null),
+        row('draft', '2026-10-08', { status: 'drafting_tor' }),
+        row('cancelled', '2026-10-08', { status: 'cancelled' }),
+        row('awarded', '2026-10-08', { status: 'award_announced' }),
+        row('winner', '2026-10-08', {
+          winner: {
+            name: 'ผู้ชนะ',
+            taxId: '1234567890123',
+            contractNo: '1',
+            contractDate: null,
+            contractFinishDate: null,
+            priceAgree: 500000,
+          },
+        }),
+      ].map((record) => repository.upsert(record)),
+    );
+    // UTC is still Oct 4; Thai officers have already reached Oct 5.
+    const service = new TorService(repository, undefined, () => new Date('2026-10-04T18:00:00Z'));
+    const within = await service.list({ limit: 20, offset: 0, deadlineDays: 3 });
+    expect(within.items.map((item) => item.projectId).sort()).toEqual([
+      'three',
+      'today',
+      'tomorrow',
+    ]);
+    expect(within.total).toBe(3);
+    const exact = await service.list({
+      limit: 20,
+      offset: 0,
+      deadlineDays: 3,
+      deadlineMode: 'exact',
+    });
+    expect(exact.items.map((item) => item.projectId)).toEqual(['three']);
+    const today = await service.list({ limit: 20, offset: 0, deadlineDays: 0 });
+    expect(today.items.map((item) => item.projectId)).toEqual(['today']);
+    const page = await service.list({ limit: 1, offset: 1, deadlineDays: 3 });
+    expect(page.total).toBe(3);
+    expect(page.items).toHaveLength(1);
+    expect(
+      (await service.list({ limit: 20, offset: 0, deadlineDays: 3, status: 'drafting_tor' })).total,
+    ).toBe(0);
+  });
+
+  test('deadline calendar filters include offset timestamps on the correct Thai day', async () => {
+    await repository.upsert(
+      procurement({
+        projectId: 'thai-day',
+        analysis: analysis({ deadlineAt: '2026-10-07T18:00:00Z' }),
+      }),
+    );
+    const result = await repository.find({
+      limit: 20,
+      offset: 0,
+      deadlineFrom: '2026-10-08',
+      deadlineTo: '2026-10-08',
+    });
+    expect(result.items.map((item) => item.projectId)).toEqual(['thai-day']);
+    expect((await repository.find({ limit: 20, offset: 0, deadlineTo: '2026-10-07' })).total).toBe(
+      0,
+    );
+  });
+
   test('filters inclusive published and analysed deadline date ranges safely', async () => {
     await seed([
       procurement({
@@ -309,7 +382,11 @@ describeMongo('ProcurementRepository', () => {
         announceDate: '2026-08-10',
         analysis: analysis({ deadlineAt: '2026-10-15' }),
       }),
-      procurement({ projectId: 'undated', announceDate: null, analysis: analysis({ deadlineAt: null }) }),
+      procurement({
+        projectId: 'undated',
+        announceDate: null,
+        analysis: analysis({ deadlineAt: null }),
+      }),
     ]);
 
     const published = await repository.find({ limit: 20, offset: 0, publishedTo: '2026-12-31' });

@@ -16,6 +16,7 @@ import type { Procurement } from '@torfun/types';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { hasSearchCriteria, type SearchFilterValues } from './search-filter-values';
+import { ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
 
 const CLASS_LABELS: Record<Procurement['softwareClass'], string> = {
@@ -34,8 +35,10 @@ export function SearchResults({
   filters,
   page,
   onPageChange,
+  today,
 }: {
   filters: SearchFilterValues;
+  today: string;
   /** 1-indexed, matching what shows in the URL and in "หน้า X จาก Y". */
   page: number;
   onPageChange: (page: number) => void;
@@ -69,7 +72,7 @@ export function SearchResults({
 
       <ul className="divide-border mt-5 divide-y border-t border-b">
         {items.map((item) => (
-          <ResultRow key={item.projectId} item={item} />
+          <ResultRow key={item.projectId} item={item} today={today} />
         ))}
       </ul>
 
@@ -176,7 +179,7 @@ function SearchPagination({
 /** Selector for the last-rendered row — what "scroll to bottom" jumps to, not the page's actual end. */
 export const RESULT_ROW_SELECTOR = '[data-result-row]';
 
-function ResultRow({ item }: { item: Procurement }) {
+function ResultRow({ item, today }: { item: Procurement; today: string }) {
   return (
     <li
       data-result-row
@@ -186,15 +189,21 @@ function ResultRow({ item }: { item: Procurement }) {
         <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
           {CLASS_LABELS[item.softwareClass]}
         </span>
-        {item.eBidding && (
+        {item.eBidding ? (
           <span className="text-muted-foreground border-border rounded-full border px-2.5 py-1 text-xs">
             e-bidding
+          </span>
+        ) : (
+          <span className="text-muted-foreground text-xs">
+            {item.purchaseMethodName ?? 'วิธีอื่นที่ไม่ใช่ e-bidding'}
           </span>
         )}
         <span data-numeric className="text-muted-foreground font-mono text-xs">
           ปีงบประมาณ {item.year}
         </span>
       </div>
+
+      <ProcurementTiming item={item} today={today} />
 
       <h3 className="mt-3 text-lg font-medium text-balance">
         <Link

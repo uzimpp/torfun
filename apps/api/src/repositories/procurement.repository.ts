@@ -184,6 +184,10 @@ export interface FindOptions {
   publishedTo?: string;
   deadlineFrom?: string;
   deadlineTo?: string;
+  deadlineDays?: number;
+  deadlineMode?: 'within' | 'exact';
+  /** Service policy for upcoming deadlines, never applied to the discovery queue. */
+  excludeAwarded?: boolean;
   /** Every term must occur in at least one entry of analysis.techStack. */
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
@@ -343,6 +347,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     if (options.year) filter.year = options.year;
     if (options.softwareClass) filter.software_class = options.softwareClass;
     if (options.status) filter.status = options.status;
+    if (options.excludeAwarded) filter.winner = null;
     if (options.eBidding !== undefined) filter.e_bidding = options.eBidding;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
@@ -372,7 +377,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     }
 
     addDateRange(clauses, '$announce_date', options.publishedFrom, options.publishedTo);
-    addDateRange(clauses, '$analysis.deadlineAt', options.deadlineFrom, options.deadlineTo);
+    addDateRange(clauses, '$analysis.deadlineAt', options.deadlineFrom, options.deadlineTo, true);
     if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
@@ -513,12 +518,23 @@ function addDateRange(
   field: string,
   from?: string,
   to?: string,
+  thailandCalendar = false,
 ): void {
   if (!from && !to) return;
 
   const parsed = {
     $dateFromString: { dateString: field, onError: null, onNull: null },
   };
+  if (thailandCalendar) {
+    const day = {
+      $dateToString: { date: parsed, format: '%Y-%m-%d', timezone: 'Asia/Bangkok', onNull: null },
+    };
+    const comparisons: Record<string, unknown>[] = [{ $ne: [day, null] }];
+    if (from) comparisons.push({ $gte: [day, from] });
+    if (to) comparisons.push({ $lte: [day, to] });
+    clauses.push({ $expr: { $and: comparisons } });
+    return;
+  }
   // A missing or unreadable date is null, and null sorts below every date, so
   // without this guard an upper bound alone would match every undated record.
   const comparisons: Record<string, unknown>[] = [{ $ne: [parsed, null] }];

@@ -71,6 +71,20 @@ from its caller — the Company is read from the session user, so an id belongin
 to another vendor is a `404` rather than a leak. `/companies/:id/join` is the one
 exception, and naming another Company is the whole point of it.
 
+## Procurement deadline filters
+
+`GET /api/tors` and the admin procurement listing accept `status` (the e-GP
+lifecycle), `eBidding=true` to exclude other purchase methods, and the existing
+budget, agency, fiscal year, location, technology and platform criteria.
+
+`deadlineDays=3` selects unawarded invitations with a known TOR bid deadline from
+today through three days from today, inclusive. Add `deadlineMode=exact` to select
+only the day three days from today. Day counts allow 0 (today) through 365;
+all relative windows use the calendar in Asia/Bangkok and paginate after filtering.
+Choose either a relative window or `deadlineFrom`/`deadlineTo`, never both.
+Missing or unreadable deadlines do not match a date filter. The deadlines are AI
+extractions and must be verified against the original TOR before bidding.
+
 ## Health checks
 
 `/health` is the container probe. `/health/dependencies` makes real, billed calls

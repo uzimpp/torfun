@@ -1,3 +1,4 @@
+import { resolveProcurementListOptions } from './procurement-list-options';
 import type { FastifyBaseLogger } from 'fastify';
 import type { IngestionFailure, Procurement, IngestionSummary } from '@torfun/types';
 import type { Env } from '../config/env';
@@ -47,7 +48,8 @@ export class IngestionService {
   }
 
   list(options: FindOptions): Promise<{ items: Procurement[]; total: number }> {
-    return this.repository.find(options);
+    const filters = resolveProcurementListOptions(options);
+    return filters ? this.repository.find(filters) : Promise.resolve({ items: [], total: 0 });
   }
 
   /** Passthrough so the composition root's caller (`server.ts`) never touches a repository directly. */

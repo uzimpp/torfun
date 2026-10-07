@@ -144,6 +144,7 @@ export const TorAnalysisSchema = z.object({
   summary: z.string(),
   scopeOfWork: z.array(z.string()),
   budgetThb: z.number().nonnegative().nullable(),
+  /** Bid submission cutoff read from the TOR, never the work delivery deadline. */
   deadlineAt: z.string().nullable(),
   durationDays: z.number().int().positive().nullable(),
   techStack: z.array(z.string()),
@@ -277,8 +278,9 @@ export type Procurement = z.infer<typeof ProcurementSchema>;
  * Query contract for the existing Procurement listing endpoint.
  *
  * Dates are deliberately calendar dates rather than arbitrary timestamps: the
- * search UI uses date inputs and both `announceDate` and the analysed deadline
- * are compared as inclusive days. Multiple technology terms use ALL semantics
+ * search UI uses date inputs. Announcement dates are inclusive UTC days; bid
+ * deadlines are inclusive calendar days in Asia/Bangkok. Multiple technology
+ * terms use ALL semantics
  * so adding a term narrows a search; target platforms use ANY semantics because
  * an officer looking for either mobile or web work should see both.
  */
@@ -322,6 +324,9 @@ export const ProcurementListQuerySchema = z
     publishedTo: CalendarDate.optional(),
     deadlineFrom: CalendarDate.optional(),
     deadlineTo: CalendarDate.optional(),
+    /** Relative to today's calendar day in Asia/Bangkok; only unawarded invitations. */
+    deadlineDays: z.coerce.number().int().min(0).max(365).optional(),
+    deadlineMode: z.enum(['within', 'exact']).optional(),
     techStack: QueryList(z.string().trim().min(1).max(100)).optional(),
     targetPlatforms: QueryList(TargetPlatform).optional(),
     /** Keyword matched against existing project and agency names, not a classification. */
@@ -337,6 +342,21 @@ export const ProcurementListQuerySchema = z
       [query.publishedFrom, query.publishedTo, 'publishedTo'],
       [query.deadlineFrom, query.deadlineTo, 'deadlineTo'],
     ];
+
+    if (query.deadlineDays !== undefined && (query.deadlineFrom || query.deadlineTo)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deadlineDays'],
+        message: 'Choose a relative deadline or a calendar date range, not both',
+      });
+    }
+    if (query.deadlineMode && query.deadlineDays === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deadlineMode'],
+        message: 'Deadline mode requires a day count',
+      });
+    }
 
     for (const [minimum, maximum, path] of ranges) {
       if (minimum !== undefined && maximum !== undefined && minimum > maximum) {
