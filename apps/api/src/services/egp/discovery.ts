@@ -219,7 +219,7 @@ export async function discoverProjects(
         case 'tombstoned':
           tombstoned.add(item.projectId);
           break;
-        case 'admit':
+        case 'admit': {
           // Seen as both a draft and an invitation, the invitation dates it; seen
           // twice as the same type (a re-announcement), the newer one does.
           const seen = byProjectId.get(item.projectId);
@@ -233,6 +233,7 @@ export async function discoverProjects(
             byProjectId.set(item.projectId, { record, type: unit.type });
           }
           break;
+        }
         case 'not_registry':
           // Cannot happen: the agency is the one asked about.
           break;
