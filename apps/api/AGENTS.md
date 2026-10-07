@@ -85,6 +85,19 @@ Three behaviours in `pipeline.ts` are load-bearing:
   admin-visible log.
 - **Path-traversal members in an archive are surfaced, never dropped.**
 
+Discovery (`services/egp/discovery.ts`) reads the announcement feed
+(`announcement-feed.ts`, process3 RSS) for each `FEED_REGISTRY` agency × {B0, D0},
+one day per request. The Feed Cursor (a contiguous range of fully-read days per
+agency and type, in the ingestion meta collection) decides what to ask: first
+the days after each range up to today (today is re-read and never recorded), then
+history newest-first, at most `FEED_BACKFILL_REQUESTS_PER_RUN` requests, back
+`FEED_HISTORY_DAYS`. Its requests go through the same gate as retrieval's, and a
+refusal there ends the Run with nothing retrieved; the cursor is stored either
+way, and only a finished sweep counts for `DISCOVERY_MAX_AGE_MS`. The open-data
+client is kept for a future winner lookup and is not used for discovery. Never
+call the process5 search endpoints: they sit behind Cloudflare Turnstile
+(ADR-0018).
+
 Several records can be worked on at once (`EGP_RUNNERS`, default 2), but the
 upstream site is reached through one gate (`services/egp/site-gate.ts`): one
 request in flight across all runners, a pause after each, and a refusal latches it
@@ -108,9 +121,12 @@ An administrator's overrides (approve a held record, mark non-software, delete w
 or without a tombstone, remove or restore a tombstone) live in
 `services/procurement-admin.service.ts`, not in `IngestionService`, and sit outside
 the audience rule. Restoring is a Run like any other, asked for through
-`startRun({ onlyProject, forceDiscovery, beforeRun })`: it sweeps (the record and
-its feed fields are gone) but retrieves that one project, and the tombstone is
-lifted in `beforeRun`, once the lease is held.
+`startRun({ onlyProject, beforeRun })`, which retrieves that one project. In
+`beforeRun`, once the lease is held, the tombstone is lifted and the record
+rebuilt from the feed snapshot the tombstone keeps (`feed-record.ts`). A
+tombstone written before snapshots has nothing to rebuild from, so its restore
+also passes `forceDiscovery` and finds the project only if the sweep's days
+include it.
 
 All `/api/ingestion/*` routes are admin-only, enforced once for the plugin scope.
 
