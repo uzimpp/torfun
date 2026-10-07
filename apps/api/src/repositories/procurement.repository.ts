@@ -332,7 +332,19 @@ export interface ProcurementStore {
   recordOpenDataQuota(quota: OpenDataQuota): Promise<void>;
   /** When discovery last completed a sweep, or null if it never has. */
   lastDiscoveryAt(): Promise<string | null>;
+  /** How far the announcement feed has been read, per agency and type; empty before the first sweep. */
+  feedCursor(): Promise<FeedCursor>;
+  /** Store where these units of the feed now stand; units not named are left as they were. */
+  recordFeedCursor(cursor: FeedCursor): Promise<void>;
 }
+
+/**
+ * The days of the announcement feed already read in full, per unit (an agency
+ * and an announcement type, keyed `deptId:type`). Each range is contiguous and
+ * holds only finished days: `to` grows as new days are read, `from` shrinks as
+ * history is. Both are Bangkok calendar days, `YYYY-MM-DD`.
+ */
+export type FeedCursor = Record<string, { from: string; to: string }>;
 
 /**
  * The distinct agency names already ingested, read by the Client suggestion
@@ -359,6 +371,12 @@ export interface ProcurementDataSource extends ProcurementStore, AgencyNameSourc
 }
 
 const QUOTA_ID = 'open_data_quota';
+const FEED_CURSOR_ID = 'feed_cursor';
+
+interface FeedCursorDocument {
+  _id: string;
+  units: FeedCursor;
+}
 
 /** The persistence shape of a Tombstone; snake_case like the rest of what is in Atlas. */
 interface TombstoneDocument {
@@ -444,6 +462,10 @@ export class ProcurementRepository
 
   private async quotaDocuments(): Promise<Collection<QuotaDocument>> {
     return (await this.getDb()).collection<QuotaDocument>(INGESTION_META_COLLECTION);
+  }
+
+  private async feedCursorDocuments(): Promise<Collection<FeedCursorDocument>> {
+    return (await this.getDb()).collection<FeedCursorDocument>(INGESTION_META_COLLECTION);
   }
 
   private async meta(): Promise<Collection<{ _id: string; at: string }>> {
@@ -829,6 +851,23 @@ export class ProcurementRepository
 
   async lastDiscoveryAt(): Promise<string | null> {
     return (await (await this.meta()).findOne({ _id: 'last_run' }))?.at ?? null;
+  }
+
+  async feedCursor(): Promise<FeedCursor> {
+    return (await (await this.feedCursorDocuments()).findOne({ _id: FEED_CURSOR_ID }))?.units ?? {};
+  }
+
+  async recordFeedCursor(cursor: FeedCursor): Promise<void> {
+    const units = Object.entries(cursor);
+    if (units.length === 0) return;
+    await (
+      await this.feedCursorDocuments()
+    ).updateOne(
+      { _id: FEED_CURSOR_ID },
+      // One field per unit, so a unit this sweep did not reach keeps its range.
+      { $set: Object.fromEntries(units.map(([key, range]) => [`units.${key}`, range])) },
+      { upsert: true },
+    );
   }
 
   async agencies(): Promise<string[]> {

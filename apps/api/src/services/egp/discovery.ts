@@ -1,232 +1,125 @@
 import { EMPTY_MILESTONES } from '@torfun/types';
-import type { IngestionFailure, OpenDataQuota, Procurement } from '@torfun/types';
+import type { IngestionFailure, Procurement } from '@torfun/types';
+import type { FeedCursor } from '../../repositories/procurement.repository';
 import { admit } from './admission';
+import { createAnnouncementFeed, type AnnouncementFeed, type FeedItem } from './announcement-feed';
+import { RateLimitedError } from './client';
 import {
-  OpenDataForbiddenError,
-  openDataGet,
-  RateLimitedError,
-  sleep,
-  type QuotaReading,
-} from './client';
-import { convertDateToISO } from './dates';
-import { toWinner } from './winner';
-import {
-  CONTRACT_URL,
-  DEPT_URL,
-  FISCAL_YEARS,
-  OPEN_DATA_RESERVE,
-  PAGE_LIMIT,
-  POLITENESS,
-  SOFTWARE_KEYWORDS,
-  SOURCE_REGISTRY,
+  FEED_ANNOUNCEMENT_TYPES,
+  FEED_BACKFILL_REQUESTS_PER_RUN,
+  FEED_HISTORY_DAYS,
+  FEED_REGISTRY,
+  type FeedAnnouncementType,
 } from './constants';
+import { convertDateToISO } from './dates';
 
 /**
- * Stage 1 of the pipeline: scheduled retrieval from the EGP-CONTRACT open-data
- * API, filtered to the Source Registry, deduplicated by project id.
+ * Stage 1 of the pipeline: e-GP's announcement feed, asked agency by agency and
+ * day by day for e-bidding drafts and invitations (ADR-0018).
  *
- * Ported from the Python POC's fetch_egp_projects.py, since removed; see
- * docs/poc_fullflow/README.md for the reasoning behind each rule here.
+ * The feed answers for one agency, one announcement type and one day at a time,
+ * so a sweep is a grid of those, and the cursor remembers, per agency and type,
+ * the range of days already read in full. A sweep asks about the days after that
+ * range (and today, still filling), then a share of the year before it. Every
+ * request goes to gprocurement.go.th, the site the downloads use, so each is
+ * made through the SiteGate like theirs (`site`).
  */
-
-interface DeptRow {
-  dept_code?: string;
-  dept_name?: string;
-}
-
-export interface ContractRow {
-  project_id?: string;
-  project_name?: string;
-  dept_name?: string;
-  dept_sub_name?: string;
-  province?: string;
-  district?: string;
-  subdistrict?: string;
-  year?: number;
-  announce_date?: string;
-  project_type_name?: string;
-  purchase_method_name?: string;
-  project_money?: number;
-  price_build?: number;
-  contract?: unknown;
-}
 
 /** Which of these project ids have a tombstone. */
 export type TombstoneLookup = (projectIds: string[]) => Promise<Set<string>>;
 
-const NO_TOMBSTONES: ReadonlySet<string> = new Set();
-
-export interface DeptResolution {
-  registryName: string;
-  candidatesReturned: number;
-  matchedCodes: Array<{ deptCode: string; deptName: string }>;
-  status: 'resolved' | 'ambiguous' | 'unresolved';
+export interface SweepContext {
+  /**
+   * Make one request to the site: inside a gate hold, with the politeness pause
+   * after it. A refusal latches the gate on its way out.
+   */
+  site: <T>(call: () => Promise<T>) => Promise<T>;
+  /** The days already read in full, per agency and announcement type; see `cursorKey`. */
+  cursor: FeedCursor;
+  tombstonedIds: TombstoneLookup;
+  /** Today as a Bangkok calendar day, `YYYY-MM-DD`. */
+  today: string;
 }
 
 export interface DiscoveryResult {
   records: Procurement[];
-  /**
-   * Records fetched under a registry dept_code whose own dept_name did not
-   * match. Kept rather than dropped so the over-collection is auditable.
-   */
-  rejected: Array<{ projectId: string; projectName: string; deptName: string }>;
-  /**
-   * Rows by any purchase method other than e-bidding. Counted and not stored:
-   * the product is e-bidding tenders, so what a sweep keeps is limited to those.
-   */
+  /** Feed items by a method other than e-bidding (the feed is filtered, so this should stay 0). Counted, not stored. */
   notEBidding: number;
-  /**
-   * Registry e-bidding projects left out because they have a tombstone: the model
-   * or an administrator already ruled them out. Counted, not stored.
-   */
+  /** Items left out because they have a tombstone. Counted, not stored. */
   tombstoned: number;
-  resolutions: DeptResolution[];
+  /** Agency-days where the feed listed fewer announcements than it said were made. Each is also a failure. */
+  truncated: number;
+  /** Where the cursor now stands, for the units this sweep moved; the caller stores it. */
+  cursor: FeedCursor;
   failures: IngestionFailure[];
   /**
-   * The open-data API answered 429 (allowance spent) or 403 (blocked, or the key
-   * refused) and the sweep stopped there. What was
-   * found before that is kept; nothing further was asked for. The caller stops
-   * the Run — a site saying stop is not something to work around.
+   * The site refused (429/403) and the sweep stopped there. What was found before
+   * that is kept, and the cursor covers exactly the days read in full. The caller
+   * stops the Run: it is the same site the downloads would ask next.
    */
   rateLimited: boolean;
-  /**
-   * The sweep stopped because the day's allowance was down to its reserve, not
-   * because it was refused. Partial, and not a fault.
-   */
-  budgetReached: boolean;
-  /** The allowance as last reported during the sweep; null if no response said. */
-  quota: OpenDataQuota | null;
   ranAt: string;
+}
+
+/** One cell of the sweep's grid: an agency's announcements of one type. */
+interface Unit {
+  key: string;
+  agency: (typeof FEED_REGISTRY)[number];
+  type: FeedAnnouncementType;
+}
+
+export function cursorKey(deptId: string, type: FeedAnnouncementType): string {
+  return `${deptId}:${type}`;
+}
+
+/** `YYYY-MM-DD` shifted by whole days. */
+export function addDays(day: string, days: number): string {
+  const date = new Date(`${day}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Today in Bangkok, `YYYY-MM-DD`: the calendar the feed files announcements under. */
+export function bangkokToday(nowMs: number = Date.now()): string {
+  return new Date(nowMs + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * The Thai fiscal year (Buddhist era) a day falls in; it starts on 1 October.
+ * The feed does not say which year's budget a tender spends, so this is the
+ * year it was announced in, which is what it almost always is.
+ */
+export function fiscalYearOf(day: string): number {
+  const [year, month] = day.split('-').map(Number) as [number, number];
+  return year + 543 + (month >= 10 ? 1 : 0);
 }
 
 function now(): string {
   return new Date().toISOString();
 }
 
-/**
- * Watches the day's allowance as responses report it, so a sweep can stop with a
- * reserve in hand instead of finding out from a refusal.
- */
-class QuotaGauge {
-  private reading: QuotaReading | null = null;
-  private observedAt: string | null = null;
-
-  observe = (reading: QuotaReading): void => {
-    if (reading.remainingDay === null) return;
-    this.reading = reading;
-    this.observedAt = now();
-  };
-
-  get reserveReached(): boolean {
-    return this.reading !== null && (this.reading.remainingDay ?? Infinity) <= OPEN_DATA_RESERVE;
-  }
-
-  toQuota(): OpenDataQuota | null {
-    if (this.reading === null || this.reading.remainingDay === null || this.observedAt === null) {
-      return null;
-    }
-    return {
-      remainingDay: this.reading.remainingDay,
-      limitDay: this.reading.limitDay,
-      observedAt: this.observedAt,
-    };
-  }
-}
-
-/**
- * Resolve a registry name to its dept_code(s).
- *
- * This doubles as the name-correctness check the requirements ask for: a name
- * that resolves to nothing is a typo or a renamed agency, and is reported as
- * `unresolved` rather than silently yielding zero projects.
- *
- * egp-dept matches by substring, so a raw query returns noise — querying
- * "กรุงเทพมหานคร" also returns every hospital and school with that substring
- * in its name. Only two forms are accepted as a match: the exact name, and the
- * name plus the public-organisation suffix (DGA registers itself as
- * "สำนักงานพัฒนารัฐบาลดิจิทัล (องค์การมหาชน)" but nobody types that).
- */
-export async function resolveDeptCodes(
-  registryName: string,
-  apiKey: string,
-  onQuota?: (reading: QuotaReading) => void,
-): Promise<DeptResolution> {
-  const { rows, quota } = await openDataGet<DeptRow>(DEPT_URL, { dept_name: registryName }, apiKey);
-  onQuota?.(quota);
-
-  const exactWithSuffix = `${registryName} (องค์การมหาชน)`;
-  const matchedCodes = rows
-    .filter((row) => row.dept_name === registryName || row.dept_name === exactWithSuffix)
-    .map((row) => ({ deptCode: row.dept_code ?? '', deptName: row.dept_name ?? '' }))
-    .filter((match) => match.deptCode !== '');
-
-  const distinctNames = new Set(matchedCodes.map((match) => match.deptName));
-
-  return {
-    registryName,
-    candidatesReturned: rows.length,
-    matchedCodes,
-    // Several dept_codes sharing ONE name is expected, not ambiguous — DGA is
-    // split across 0136 and 1108 by fiscal year, and both are queried. Two
-    // different names both passing the match test is the genuinely ambiguous case.
-    status:
-      matchedCodes.length === 0 ? 'unresolved' : distinctNames.size > 1 ? 'ambiguous' : 'resolved',
-  };
-}
-
-/** Page through egp-contract until every record for one combination is collected. */
-async function fetchAllPages(
-  deptCode: string,
-  keyword: string,
-  year: number,
-  apiKey: string,
-  onQuota: (reading: QuotaReading) => void,
-  pause: (ms: number) => Promise<void>,
-): Promise<ContractRow[]> {
-  const records: ContractRow[] = [];
-  let offset = 0;
-  let total: number | null = null;
-
-  while (total === null || offset < total) {
-    const page = await openDataGet<ContractRow>(
-      CONTRACT_URL,
-      { dept_code: deptCode, keyword, year, offset, limit: PAGE_LIMIT },
-      apiKey,
-    );
-    onQuota(page.quota);
-    await pause(POLITENESS.openDataDelayMs);
-
-    total = page.total;
-    records.push(...page.rows);
-
-    // Defensive: a wrong `total` upstream must not spin this forever.
-    if (page.rows.length === 0) break;
-    offset += page.rows.length;
-  }
-
-  return records;
-}
-
-/** Maps one raw e-GP contract row at the upstream boundary. Exported for fixture-based contract tests. */
-export function toRecord(row: ContractRow, deptCode: string, year: number): Procurement {
+function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurement {
   const timestamp = now();
+  const announcedOn = item.announcedOn ?? day;
 
   return {
-    projectId: String(row.project_id),
-    projectName: row.project_name ?? '',
-    deptName: (row.dept_name ?? '').trim(),
-    deptSubName: row.dept_sub_name ?? null,
-    province: row.province?.trim() || null,
-    district: row.district?.trim() || null,
-    subdistrict: row.subdistrict?.trim() || null,
-    deptCode,
-    budgetYear: row.year ?? year,
-    announceDate: convertDateToISO(row.announce_date),
-    projectTypeName: row.project_type_name ?? null,
-    purchaseMethodName: row.purchase_method_name ?? null,
-    projectMoney: row.project_money ?? null,
-    priceBuild: row.price_build ?? null,
-    // The feed's one status value places a project in no stage; the timeline does.
+    projectId: item.projectId,
+    projectName: item.title,
+    // The feed is asked per agency, so the agency is the one asked about.
+    deptName: agency.deptName,
+    deptSubName: null,
+    // Not in the feed. Null says "not known", which is the truth.
+    province: null,
+    district: null,
+    subdistrict: null,
+    deptCode: agency.deptId,
+    budgetYear: fiscalYearOf(announcedOn),
+    announceDate: convertDateToISO(announcedOn),
+    projectTypeName: null,
+    purchaseMethodName: item.methodName,
+    projectMoney: null,
+    priceBuild: null,
+    // Set from the timeline, the first thing Retrieval reads (ADR-0017).
     status: 'unknown',
     milestones: EMPTY_MILESTONES,
     timelineCheckedAt: null,
@@ -244,7 +137,8 @@ export function toRecord(row: ContractRow, deptCode: string, year: number): Proc
     zipId: null,
     documents: [],
     analysis: null,
-    winner: toWinner(row.contract),
+    // Not known before an award; the feed is read before any is made.
+    winner: null,
     torAmbiguous: false,
 
     discoveredAt: timestamp,
@@ -254,196 +148,179 @@ export function toRecord(row: ContractRow, deptCode: string, year: number): Proc
 }
 
 /**
- * Run the full discovery sweep: registry → dept_code → paged contract records.
+ * Sweep the feed for every registry agency and announcement type.
  *
- * Every record is passed through a STRICT dept_name check on the way in. This
- * is not redundant with the dept_code filter: "กระทรวงดิจิทัลเพื่อเศรษฐกิจและ
- * สังคม" resolves to dept_code 11, which upstream is a MINISTRY-LEVEL
- * AGGREGATE. egp-contract accepts it and returns records for every subordinate
- * agency — ETDA, BDI, DEPA, DGA, the national statistics office — none of which
- * are in the registry. An unfiltered run had 124 of 214 records belonging to an
- * agency other than the one they were fetched under. Since dept_name cannot be
- * passed as a request filter, a post-fetch exact match is the only way to
- * enforce registry membership.
+ * Two passes, in this order, so the newest tenders arrive first however much
+ * history is still unread:
+ *
+ *  1. New days: from the day after each unit's range up to today, oldest first.
+ *     A unit never read asks only about today here; history covers the rest.
+ *  2. History: from the day before each unit's range back towards
+ *     `FEED_HISTORY_DAYS` ago, newest first, until `FEED_BACKFILL_REQUESTS_PER_RUN`
+ *     requests have been spent. The next sweep carries on where this one stopped.
+ *
+ * Within a day every unit is asked before the next day, so a refusal leaves the
+ * agencies at about the same place. A range only ever grows by a contiguous day:
+ * a unit whose day failed stops moving in that direction this sweep, and the
+ * next sweep asks that day again. Today is never added to a range, because it is
+ * still filling.
+ *
+ * Admission is the agency (the feed is asked per agency), the tender method and
+ * the tombstone. The title is not consulted (ADR-0014).
  */
 export async function discoverProjects(
-  apiKey: string,
-  tombstonedIds: TombstoneLookup,
-  // The politeness delay between open-data calls. Only a test replaces it.
-  pause: (ms: number) => Promise<void> = sleep,
+  context: SweepContext,
+  feed: AnnouncementFeed = createAnnouncementFeed(),
 ): Promise<DiscoveryResult> {
+  const { today } = context;
+  const yesterday = addDays(today, -1);
+  const oldest = addDays(today, -(FEED_HISTORY_DAYS - 1));
+
   const failures: IngestionFailure[] = [];
-  const resolutions: DeptResolution[] = [];
   const byProjectId = new Map<string, Procurement>();
-  const rejected = new Map<string, { projectId: string; projectName: string; deptName: string }>();
   const notEBidding = new Set<string>();
   const tombstoned = new Set<string>();
-
+  let truncated = 0;
   let rateLimited = false;
-  let budgetReached = false;
-  const gauge = new QuotaGauge();
 
-  for (const registryName of SOURCE_REGISTRY) {
-    if (gauge.reserveReached) {
-      budgetReached = true;
-      break;
-    }
+  const units: Unit[] = FEED_REGISTRY.flatMap((agency) =>
+    FEED_ANNOUNCEMENT_TYPES.map((type) => ({ key: cursorKey(agency.deptId, type), agency, type })),
+  );
+
+  // The working ranges. One that ends before the history window is too old to
+  // extend without a gap, so it is started again.
+  const ranges: FeedCursor = {};
+  for (const unit of units) {
+    const range = context.cursor[unit.key];
+    if (range && range.to >= addDays(oldest, -1)) ranges[unit.key] = { ...range };
+  }
+  const moved = new Set<string>();
+
+  const fail = (unit: Unit, day: string, error: string) =>
+    failures.push({
+      projectId: '-',
+      projectName: `${unit.agency.deptName} / ${unit.type} / ${day}`,
+      stage: 'discovery',
+      kind: 'fault',
+      error,
+      at: now(),
+    });
+
+  /** Ask the feed about one unit's day and admit what it lists. False where the day could not be read. */
+  const read = async (unit: Unit, day: string): Promise<boolean> => {
+    let answer;
     try {
-      resolutions.push(await resolveDeptCodes(registryName, apiKey, gauge.observe));
+      answer = await context.site(() => feed.day(unit.agency.deptId, unit.type, day));
     } catch (error) {
-      resolutions.push({
-        registryName,
-        candidatesReturned: 0,
-        matchedCodes: [],
-        status: 'unresolved',
-      });
-      failures.push({
-        projectId: '-',
-        projectName: registryName,
-        stage: 'dept',
-        kind: 'fault',
-        error: error instanceof Error ? error.message : String(error),
-        at: now(),
-      });
-      if (error instanceof OpenDataForbiddenError) {
-        // Blocked, not spent: the allowance is left as the last response said.
-        rateLimited = true;
-        break;
-      }
-      if (error instanceof RateLimitedError) {
-        // Refused: whatever it said, nothing is left today.
-        gauge.observe({ limitDay: error.quota?.limitDay ?? null, remainingDay: 0 });
-        rateLimited = true;
-        break;
+      fail(unit, day, error instanceof Error ? error.message : String(error));
+      if (error instanceof RateLimitedError) rateLimited = true;
+      return false;
+    }
+
+    const listed = answer.items.length + answer.withoutId;
+    if (answer.announced > listed) {
+      // Asking again gives the same twenty, so the day still counts as read.
+      truncated += 1;
+      fail(
+        unit,
+        day,
+        `The feed listed ${listed} of the ${answer.announced} announcements made that day; the rest cannot be reached through it.`,
+      );
+    }
+    if (answer.withoutId > 0) {
+      fail(unit, day, `${answer.withoutId} feed item(s) carried no project id and were skipped.`);
+    }
+
+    const registry = new Set([unit.agency.deptName]);
+    const ruledOut =
+      answer.items.length > 0
+        ? await context.tombstonedIds(answer.items.map((item) => item.projectId))
+        : new Set<string>();
+
+    for (const item of answer.items) {
+      const row = {
+        projectId: item.projectId,
+        deptName: unit.agency.deptName,
+        purchaseMethodName: item.methodName,
+      };
+      switch (admit(row, registry, ruledOut)) {
+        case 'not_e_bidding':
+          notEBidding.add(item.projectId);
+          break;
+        case 'tombstoned':
+          tombstoned.add(item.projectId);
+          break;
+        case 'admit':
+          // Seen as both a draft and an invitation: the invitation dates it.
+          if (!byProjectId.has(item.projectId) || unit.type === 'D0') {
+            byProjectId.set(item.projectId, toRecord(unit.agency, item, day));
+          }
+          break;
+        case 'not_registry':
+          // Cannot happen: the agency is the one asked about.
+          break;
       }
     }
-    await pause(POLITENESS.openDataDelayMs);
+    return true;
+  };
+
+  // 1. New days, oldest first.
+  const nextNew = (unit: Unit): string => {
+    const range = ranges[unit.key];
+    return range ? addDays(range.to, 1) : today;
+  };
+  const stalledNew = new Set<string>();
+  const firstNew = units.map(nextNew).reduce((a, b) => (a < b ? a : b), today);
+  newDays: for (let day = firstNew; day <= today; day = addDays(day, 1)) {
+    for (const unit of units) {
+      if (stalledNew.has(unit.key) || day < nextNew(unit)) continue;
+      const ok = await read(unit, day);
+      if (rateLimited) break newDays;
+      if (!ok) {
+        stalledNew.add(unit.key);
+        continue;
+      }
+      const range = ranges[unit.key];
+      if (day < today && range) {
+        range.to = day;
+        moved.add(unit.key);
+      }
+    }
   }
 
-  sweep: for (const resolution of resolutions) {
-    if (rateLimited || budgetReached) break;
-    const deptCodes = [...new Set(resolution.matchedCodes.map((match) => match.deptCode))].sort();
-
-    for (const deptCode of deptCodes) {
-      // The names this dept_code is allowed to answer with.
-      const expectedNames = new Set(
-        resolution.matchedCodes
-          .filter((match) => match.deptCode === deptCode)
-          .map((match) => match.deptName.trim()),
-      );
-
-      // What this agency returned in total, and whether any of it failed to be
-      // asked for. An agency that gave nothing under any keyword is more likely
-      // renamed or re-coded than empty, so it is reported rather than taken as
-      // having nothing — and nothing downstream may treat it as "gone".
-      let rowsSeen = 0;
-      let unitFailed = false;
-
-      for (const year of FISCAL_YEARS) {
-        for (const keyword of SOFTWARE_KEYWORDS) {
-          if (gauge.reserveReached) {
-            budgetReached = true;
-            break sweep;
-          }
-          let rows: ContractRow[];
-          try {
-            rows = await fetchAllPages(deptCode, keyword, year, apiKey, gauge.observe, pause);
-          } catch (error) {
-            failures.push({
-              projectId: '-',
-              projectName: `${resolution.registryName} / ${keyword} / ${year}`,
-              stage: 'discovery',
-              kind: 'fault',
-              error: error instanceof Error ? error.message : String(error),
-              at: now(),
-            });
-            if (error instanceof OpenDataForbiddenError) {
-              rateLimited = true;
-              break sweep;
-            }
-            if (error instanceof RateLimitedError) {
-              gauge.observe({ limitDay: error.quota?.limitDay ?? null, remainingDay: 0 });
-              rateLimited = true;
-              break sweep;
-            }
-            unitFailed = true;
-            continue;
-          }
-          rowsSeen += rows.length;
-
-          const toAdmissionRow = (row: ContractRow, projectId: string) => ({
-            projectId,
-            deptName: (row.dept_name ?? '').trim(),
-            purchaseMethodName: row.purchase_method_name,
-          });
-
-          // Ask about tombstones only for what would otherwise be admitted: the
-          // lookup is a database round trip, and most of a feed is turned away.
-          const wanted = rows.flatMap((row) => {
-            const projectId = row.project_id ? String(row.project_id) : '';
-            return projectId &&
-              admit(toAdmissionRow(row, projectId), expectedNames, NO_TOMBSTONES) === 'admit'
-              ? [projectId]
-              : [];
-          });
-          const ruledOut = wanted.length > 0 ? await tombstonedIds(wanted) : NO_TOMBSTONES;
-
-          for (const row of rows) {
-            const projectId = row.project_id ? String(row.project_id) : '';
-            if (!projectId) continue;
-
-            // Admission is the agency, the tender method and the tombstone. The
-            // title is not consulted: whether the work is software is for the
-            // document to say, once it is read.
-            switch (admit(toAdmissionRow(row, projectId), expectedNames, ruledOut)) {
-              case 'not_registry':
-                rejected.set(projectId, {
-                  projectId,
-                  projectName: row.project_name ?? '',
-                  deptName: (row.dept_name ?? '').trim(),
-                });
-                break;
-              case 'not_e_bidding':
-                notEBidding.add(projectId);
-                break;
-              case 'tombstoned':
-                tombstoned.add(projectId);
-                break;
-              case 'admit':
-                // Deduplicated by project id, the key the requirements name: the
-                // same project turns up under several keywords and years.
-                if (!byProjectId.has(projectId)) {
-                  byProjectId.set(projectId, toRecord(row, deptCode, year));
-                }
-                break;
-            }
-          }
-        }
+  // 2. History, newest first, within its share of the Run.
+  const nextOld = (unit: Unit): string => {
+    const range = ranges[unit.key];
+    return range ? addDays(range.from, -1) : yesterday;
+  };
+  const stalledOld = new Set<string>();
+  let spent = 0;
+  history: for (let day = yesterday; day >= oldest && !rateLimited; day = addDays(day, -1)) {
+    for (const unit of units) {
+      if (stalledOld.has(unit.key) || day !== nextOld(unit)) continue;
+      if (spent >= FEED_BACKFILL_REQUESTS_PER_RUN) break history;
+      spent += 1;
+      const ok = await read(unit, day);
+      if (rateLimited) break history;
+      if (!ok) {
+        stalledOld.add(unit.key);
+        continue;
       }
-
-      if (rowsSeen === 0 && !unitFailed) {
-        failures.push({
-          projectId: '-',
-          projectName: `${resolution.registryName} / ${deptCode}`,
-          stage: 'discovery',
-          kind: 'fault',
-          error: `Agency code ${deptCode} (${resolution.registryName}) returned no rows under any keyword or year — treated as a failed unit, not as having nothing. It may have been renamed or re-coded.`,
-          at: now(),
-        });
-      }
+      const range = ranges[unit.key];
+      if (range) range.from = day;
+      else ranges[unit.key] = { from: day, to: day };
+      moved.add(unit.key);
     }
   }
 
   return {
     records: [...byProjectId.values()],
-    rejected: [...rejected.values()],
     notEBidding: notEBidding.size,
     tombstoned: tombstoned.size,
-    resolutions,
+    truncated,
+    cursor: Object.fromEntries([...moved].map((key) => [key, ranges[key]!])),
     failures,
     rateLimited,
-    budgetReached,
-    quota: gauge.toQuota(),
     ranAt: now(),
   };
 }
