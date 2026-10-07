@@ -8,7 +8,7 @@ export type TorReviewData = {
   projectId: string;
   title: string;
   agency: string;
-  location: null;
+  location: string | null;
   budget: number | null;
   status: string;
   technologies: string[];
@@ -47,11 +47,14 @@ const STATUS_LABELS: Record<Procurement['status'], string> = {
 
 function toReviewData(procurement: Procurement): TorReviewData {
   const analysis = procurement.analysis;
+  const location = [procurement.subdistrict, procurement.district, procurement.province]
+    .filter((part): part is string => Boolean(part))
+    .join(', ');
   return {
     projectId: procurement.projectId,
     title: procurement.projectName,
     agency: procurement.deptName,
-    location: null,
+    location: location || null,
     budget: procurement.projectMoney,
     status: STATUS_LABELS[procurement.status],
     technologies: analysis?.techStack ?? [],

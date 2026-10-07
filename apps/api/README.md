@@ -45,6 +45,9 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/ingestion/projects/:projectId` | admin  | One procurement by its 11-digit id                |
 | GET    | `/ingestion/failures`            | admin  | The failure log                                   |
 | POST   | `/ingestion/run`                 | admin  | Starts a run; `202`, or `409` if one is live      |
+| GET    | `/tors`                          | user   | Search, filter and paginate procurements          |
+| GET    | `/tors/:projectId`               | user   | One procurement by its project id                 |
+| GET    | `/tors/:projectId/source`        | user   | Download the original TOR PDF                     |
 | GET    | `/companies/search?q=`           | user   | Typeahead over Thai company names                 |
 | POST   | `/companies`                     | user   | Creates a Company and joins the caller to it      |
 | GET    | `/companies/me`                  | user   | The caller's Company; `404` when they have none   |
@@ -67,6 +70,20 @@ No route under `/companies`, `/clients` or `/experiences` accepts a company id
 from its caller — the Company is read from the session user, so an id belonging
 to another vendor is a `404` rather than a leak. `/companies/:id/join` is the one
 exception, and naming another Company is the whole point of it.
+
+## Procurement deadline filters
+
+`GET /api/tors` and the admin procurement listing accept `status` (the e-GP
+lifecycle), `eBidding=true` to exclude other purchase methods, and the existing
+budget, agency, fiscal year, location, technology and platform criteria.
+
+`deadlineDays=3` selects unawarded invitations with a known TOR bid deadline from
+today through three days from today, inclusive. Add `deadlineMode=exact` to select
+only the day three days from today. Day counts allow 0 (today) through 365;
+all relative windows use the calendar in Asia/Bangkok and paginate after filtering.
+Choose either a relative window or `deadlineFrom`/`deadlineTo`, never both.
+Missing or unreadable deadlines do not match a date filter. The deadlines are AI
+extractions and must be verified against the original TOR before bidding.
 
 ## Health checks
 

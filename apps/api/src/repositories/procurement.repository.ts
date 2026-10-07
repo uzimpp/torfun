@@ -9,6 +9,7 @@ import type {
   ProcurementStatus,
   SoftwareClass,
   StatusChange,
+  TargetPlatform,
   TorAnalysis,
   Winner,
 } from '@torfun/types';
@@ -57,6 +58,9 @@ interface ProcurementDocument {
   project_name: string;
   dept_name: string;
   dept_sub_name: string | null;
+  province?: string | null;
+  district?: string | null;
+  subdistrict?: string | null;
   registry_name: string;
   dept_code: string;
   year: number;
@@ -92,6 +96,11 @@ function toDomain(document: ProcurementDocument): Procurement {
     projectName: document.project_name,
     deptName: document.dept_name,
     deptSubName: document.dept_sub_name,
+    // Older records predate location ingestion. Unknown is represented as
+    // null until a real discovery run refreshes the upstream-owned fields.
+    province: document.province ?? null,
+    district: document.district ?? null,
+    subdistrict: document.subdistrict ?? null,
     registryName: document.registry_name,
     deptCode: document.dept_code,
     year: document.year,
@@ -126,6 +135,9 @@ function toDocument(record: Procurement): ProcurementDocument {
     project_name: record.projectName,
     dept_name: record.deptName,
     dept_sub_name: record.deptSubName,
+    province: record.province,
+    district: record.district,
+    subdistrict: record.subdistrict,
     registry_name: record.registryName,
     dept_code: record.deptCode,
     year: record.year,
@@ -166,6 +178,24 @@ export interface FindOptions {
   eBidding?: boolean;
   /** Case-insensitive substring over project name and id. */
   query?: string;
+  minBudget?: number;
+  maxBudget?: number;
+  publishedFrom?: string;
+  publishedTo?: string;
+  deadlineFrom?: string;
+  deadlineTo?: string;
+  deadlineDays?: number;
+  deadlineMode?: 'within' | 'exact';
+  /** Service policy for upcoming deadlines, never applied to the discovery queue. */
+  excludeAwarded?: boolean;
+  /** Every term must occur in at least one entry of analysis.techStack. */
+  techStack?: string[];
+  /** At least one selected platform must occur in analysis.targetPlatforms. */
+  targetPlatforms?: TargetPlatform[];
+  /** Keyword over existing names only; this is not an authoritative classification. */
+  industry?: string;
+  /** Case-insensitive keyword over the upstream administrative location. */
+  location?: string;
   limit: number;
   offset: number;
 }
@@ -204,6 +234,13 @@ export interface ProcurementStore {
  */
 export interface AgencyNameSource {
   agencies(): Promise<string[]>;
+}
+
+/** All Procurement reads used above the persistence layer. */
+export interface ProcurementDataSource extends ProcurementStore, AgencyNameSource {
+  ensureIndexes(): Promise<void>;
+  summary(): Promise<IngestionSummary>;
+  listFailures(): Promise<IngestionFailure[]>;
 }
 
 interface FailureDocument extends IngestionFailure {
@@ -303,20 +340,45 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
 
   async find(options: FindOptions): Promise<FindResult> {
     const filter: Record<string, unknown> = {};
+    const clauses: Record<string, unknown>[] = [];
     if (options.state) filter.state = options.state;
     if (options.outcome) filter.outcome = options.outcome;
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.year) filter.year = options.year;
     if (options.softwareClass) filter.software_class = options.softwareClass;
     if (options.status) filter.status = options.status;
+    if (options.excludeAwarded) filter.winner = null;
     if (options.eBidding !== undefined) filter.e_bidding = options.eBidding;
-    if (options.query?.trim()) {
-      const escaped = options.query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      filter.$or = [
-        { project_name: { $regex: escaped, $options: 'i' } },
-        { _id: { $regex: escaped, $options: 'i' } },
-      ];
+    if (options.minBudget !== undefined || options.maxBudget !== undefined) {
+      filter.project_money = {
+        ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
+        ...(options.maxBudget !== undefined ? { $lte: options.maxBudget } : {}),
+      };
     }
+    if (options.query?.trim()) {
+      clauses.push(regexAny(['project_name', '_id', 'dept_name', 'dept_sub_name'], options.query));
+    }
+    if (options.industry?.trim()) {
+      clauses.push(regexAny(['project_name', 'dept_name', 'dept_sub_name'], options.industry));
+    }
+    if (options.location?.trim()) {
+      clauses.push(regexAny(['province', 'district', 'subdistrict'], options.location));
+    }
+    if (options.techStack?.length) {
+      // ALL semantics: each requested term must match at least one array entry.
+      clauses.push(
+        ...options.techStack.map((term) => ({
+          'analysis.techStack': { $elemMatch: { $regex: escapeRegex(term), $options: 'i' } },
+        })),
+      );
+    }
+    if (options.targetPlatforms?.length) {
+      filter['analysis.targetPlatforms'] = { $in: options.targetPlatforms };
+    }
+
+    addDateRange(clauses, '$announce_date', options.publishedFrom, options.publishedTo);
+    addDateRange(clauses, '$analysis.deadlineAt', options.deadlineFrom, options.deadlineTo, true);
+    if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
     // Most relevant first: a queue an admin works top-down, and the order a
@@ -435,4 +497,52 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       runInProgress: false,
     };
   }
+}
+
+function escapeRegex(value: string): string {
+  return value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function regexAny(fields: readonly string[], value: string): Record<string, unknown> {
+  const pattern = { $regex: escapeRegex(value), $options: 'i' };
+  return { $or: fields.map((field) => ({ [field]: pattern })) };
+}
+
+/**
+ * Stored dates are upstream/model strings, not BSON Dates. `$dateFromString`
+ * avoids unsafe lexical comparisons and makes an unparseable or missing value
+ * simply fail the range instead of aborting the whole query.
+ */
+function addDateRange(
+  clauses: Record<string, unknown>[],
+  field: string,
+  from?: string,
+  to?: string,
+  thailandCalendar = false,
+): void {
+  if (!from && !to) return;
+
+  const parsed = {
+    $dateFromString: { dateString: field, onError: null, onNull: null },
+  };
+  if (thailandCalendar) {
+    const day = {
+      $dateToString: { date: parsed, format: '%Y-%m-%d', timezone: 'Asia/Bangkok', onNull: null },
+    };
+    const comparisons: Record<string, unknown>[] = [{ $ne: [day, null] }];
+    if (from) comparisons.push({ $gte: [day, from] });
+    if (to) comparisons.push({ $lte: [day, to] });
+    clauses.push({ $expr: { $and: comparisons } });
+    return;
+  }
+  // A missing or unreadable date is null, and null sorts below every date, so
+  // without this guard an upper bound alone would match every undated record.
+  const comparisons: Record<string, unknown>[] = [{ $ne: [parsed, null] }];
+  if (from) comparisons.push({ $gte: [parsed, new Date(`${from}T00:00:00.000Z`)] });
+  if (to) {
+    const exclusiveEnd = new Date(`${to}T00:00:00.000Z`);
+    exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+    comparisons.push({ $lt: [parsed, exclusiveEnd] });
+  }
+  clauses.push({ $expr: { $and: comparisons } });
 }

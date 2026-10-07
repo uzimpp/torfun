@@ -87,7 +87,12 @@ const ANSWER_SCHEMA: Schema = {
         summary: { type: Type.STRING },
         scopeOfWork: stringList,
         budgetThb: { type: Type.NUMBER, nullable: true },
-        deadlineAt: { type: Type.STRING, nullable: true },
+        deadlineAt: {
+          type: Type.STRING,
+          nullable: true,
+          description:
+            'Bid submission cutoff as an ISO Gregorian date or timestamp with +07:00. Null if not explicitly stated. Never use contract signing or work delivery dates.',
+        },
         durationDays: { type: Type.INTEGER, nullable: true },
         techStack: stringList,
         targetPlatforms: {

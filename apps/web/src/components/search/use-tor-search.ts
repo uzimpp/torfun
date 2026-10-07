@@ -3,16 +3,16 @@
 import { useEffect, useState } from 'react';
 import type { Procurement } from '@torfun/types';
 import { ApiError, fetchProjects } from '@/lib/api';
+import { toProjectFilters, type SearchFilterValues } from './search-filter-values';
 
 export const RESULT_LIMIT = 20;
 
 /**
  * Why a search returned nothing, when the reason is not "no matches".
  *
- * `signed_out` and `no_access` are answers, not faults: the announcement index
- * is served by the ingestion API, which today admits administrators only. The
- * page has to say which of the two it hit, because one is fixed by signing in
- * and the other is not.
+ * `signed_out` and `no_access` are answers, not transport faults. The page has
+ * to say which of the two it hit, because one is fixed by signing in and the
+ * other requires an administrator to inspect the account or API policy.
  */
 export type SearchBlock = 'signed_out' | 'no_access' | 'unreachable' | 'failed';
 
@@ -44,22 +44,22 @@ function classify(caught: unknown): { block: SearchBlock; detail: string | null 
 
 /**
  * Fetches one page of `RESULT_LIMIT` matches against the announcement index.
- * An empty query lists everything the index holds, same as the admin ingestion
+ * No criteria lists everything the index holds, same as the admin ingestion
  * console does. `page` is 1-indexed, matching what shows in the URL.
  *
- * The caller keys its instance on `(query, page)` (`SearchResults` does, via
+ * The caller keys its instance on `(filters, page)` (`SearchResults` does, via
  * `key`) rather than asking this hook to re-target itself — a fresh instance
- * per page means no bookkeeping here for "which fetch is this answer for", and
- * the loading state is correct for free: it starts `null` on every new page.
+ * per request means no bookkeeping here for "which fetch is this answer for",
+ * and the loading state is correct for free: it starts `null` each time.
  */
-export function useTorSearch(query: string, page: number): TorSearchResult {
+export function useTorSearch(filters: SearchFilterValues, page: number): TorSearchResult {
   const [state, setState] = useState<Page | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const offset = (page - 1) * RESULT_LIMIT;
 
-    fetchProjects({ q: query, limit: RESULT_LIMIT, offset }).then(
+    fetchProjects(toProjectFilters(filters, RESULT_LIMIT, offset)).then(
       (response) => {
         if (cancelled) return;
         setState({ items: response.items, total: response.total, block: null, detail: null });
@@ -73,7 +73,7 @@ export function useTorSearch(query: string, page: number): TorSearchResult {
     return () => {
       cancelled = true;
     };
-  }, [query, page]);
+  }, [filters, page]);
 
   return {
     items: state?.items ?? [],

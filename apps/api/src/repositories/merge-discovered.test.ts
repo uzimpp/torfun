@@ -8,6 +8,9 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
+    province: 'กรุงเทพมหานคร',
+    district: 'คลองเตย',
+    subdistrict: 'คลองเตย',
     registryName: 'กรุงเทพมหานคร',
     deptCode: '0100',
     year: 2568,
@@ -47,6 +50,9 @@ describe('mergeDiscovered', () => {
       projectMoney: 2_500_000,
       priceBuild: 2_400_000,
       purchaseMethodName: 'วิธีเฉพาะเจาะจง',
+      province: 'เชียงใหม่',
+      district: 'เมืองเชียงใหม่',
+      subdistrict: 'สุเทพ',
       eBidding: false,
       status: 'contracted',
       softwareScore: 7,
@@ -58,6 +64,9 @@ describe('mergeDiscovered', () => {
     expect(merged.projectMoney).toBe(2_500_000);
     expect(merged.priceBuild).toBe(2_400_000);
     expect(merged.purchaseMethodName).toBe('วิธีเฉพาะเจาะจง');
+    expect(merged.province).toBe('เชียงใหม่');
+    expect(merged.district).toBe('เมืองเชียงใหม่');
+    expect(merged.subdistrict).toBe('สุเทพ');
     expect(merged.eBidding).toBe(false);
     expect(merged.status).toBe('contracted');
     expect(merged.softwareScore).toBe(7);

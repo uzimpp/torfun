@@ -1,4 +1,5 @@
 import { TorAnalysisSchema, type TorAnalysis } from '@torfun/types';
+import { convertDateToISO } from '../egp/dates';
 import { z } from 'zod';
 
 /**
@@ -53,6 +54,10 @@ const PROMPT = `คุณคือผู้ช่วยคัดกรองเ�
   หากไม่ใช่ TOR ให้ตอบ false อย่างตรงไปตรงมา ห้ามเดา
 - torKind เป็น "draft" เมื่อเอกสารระบุว่าเป็นร่าง มิฉะนั้นเป็น "final"
 - analysis ต้องมีค่าเมื่อ isTor เป็น true และเป็น null เมื่อไม่ใช่ TOR
+- deadlineAt คือวันและเวลาปิดรับข้อเสนอ/ยื่นเสนอราคาเท่านั้น ไม่ใช่กำหนดส่งมอบงาน
+  ถ้าเอกสารไม่ได้ระบุวันปิดรับข้อเสนอที่แน่นอน ให้เป็น null ห้ามใช้วันที่ทำสัญญาหรือส่งมอบงานแทน
+  ใช้รูปแบบ ISO ปี ค.ศ. หากมีเวลาให้ระบุเขตเวลา +07:00 หากไม่มีเวลาให้ระบุเฉพาะวันที่
+- durationDays คือระยะเวลาดำเนินงาน/ส่งมอบงาน ไม่ใช่จำนวนวันก่อนปิดรับข้อเสนอ
 - ค่าที่ไม่ปรากฏในเอกสารให้เป็น null หรือ [] ห้ามคาดเดา`;
 
 /** A PDF really starts with %PDF; an extension is not proof of anything. */
@@ -104,5 +109,11 @@ export async function classifyTorDocument(
     return unusable('Model reported a TOR but returned no analysis.');
   }
 
-  return answer.data;
+  // Stored as ISO so a deadline range filter can compare it; a deadline the
+  // model wrote in prose ("within 30 days") has no calendar date and becomes null.
+  const { analysis } = answer.data;
+  return {
+    ...answer.data,
+    analysis: analysis && { ...analysis, deadlineAt: convertDateToISO(analysis.deadlineAt) },
+  };
 }
