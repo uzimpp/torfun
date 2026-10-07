@@ -10,7 +10,8 @@
     "start": "bun run dist/server.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "print-test-env": "bun run src/testing/print-env.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
