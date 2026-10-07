@@ -6,7 +6,11 @@
  * docs/poc_fullflow/README.md for the full investigation.
  */
 
-/** Open-data API. The `/service/<name>` form is the working one. */
+/**
+ * Open-data API. Not a Discovery source any more (ADR-0018): it holds only
+ * projects that already have a signed contract. Kept for the winner lookup to
+ * come and the diagnostics check. The `/service/<name>` form is the working one.
+ */
 export const OPEN_DATA_BASE = 'https://opend.data.go.th/govspending/service';
 export const DEPT_URL = `${OPEN_DATA_BASE}/egp-dept`;
 export const CONTRACT_URL = `${OPEN_DATA_BASE}/egp-contract`;
@@ -17,8 +21,8 @@ export const CONTRACT_URL = `${OPEN_DATA_BASE}/egp-contract`;
  * These endpoints need no token, cookie or auth. We deliberately never
  * touch the announcement *search* endpoints, which sit behind a Cloudflare
  * Turnstile bot check, and implement none of the site's client-side
- * generateToken/RDCrypto scheme — discovery comes from the open-data API
- * instead, which is the supported route.
+ * generateToken/RDCrypto scheme — discovery comes from the announcement feed
+ * below instead, which answers without either.
  */
 export const TOR_INFO_URL =
   'https://process5.gprocurement.go.th/egp-approval-service/apv-common/infoProcureDocAnnounZip';
@@ -28,11 +32,8 @@ export const GREEN_BOOK_URL =
   'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/greenBook';
 
 /**
- * The Source Registry, keyed by the Thai name a human would query with.
- *
- * dept_code is resolved from these at runtime and used only as the internal
- * lookup key, because egp-contract silently ignores a dept_name filter —
- * passing one returns the unfiltered ~3.9M-row total across every agency.
+ * The Source Registry, keyed by the Thai name a human would query with. What
+ * each is asked for in the feed is `FEED_REGISTRY`.
  */
 export const SOURCE_REGISTRY = [
   'กรมศุลกากร',
@@ -42,39 +43,74 @@ export const SOURCE_REGISTRY = [
   'กรุงเทพมหานคร',
 ] as const;
 
-/** Thai Buddhist fiscal years in scope. */
-export const FISCAL_YEARS = [2567, 2568, 2569] as const;
+/**
+ * e-GP's announcement feed, the Discovery source (ADR-0018). One call answers
+ * for one agency, one announcement type and one day, and needs no token, cookie
+ * or captcha. Unlike the open-data API it lists tenders before they are
+ * awarded, which is the only stage anyone can bid in.
+ */
+export const ANNOUNCEMENT_FEED_URL =
+  'http://process3.gprocurement.go.th/EPROCRssFeedWeb/egpannouncerss.xml';
+
+/** The feed's `methodId` for e-bidding; it filters the feed, and is checked again per item. */
+export const FEED_E_BIDDING_METHOD_ID = '16';
 
 /**
- * Discovery keywords, sent to egp-contract one at a time.
- *
- * The upstream `keyword` filter is a CASE-SENSITIVE substring match on the
- * project name (measured 2026-09: "software" 2 hits, "Software" 8, "SOFTWARE" 0;
- * "application" 0, "Application" 6), so each English term is listed in the
- * capitalisations that actually occur in Thai titles.
- *
- * The broad Thai terms (พัฒนาระบบ, จัดทำระบบ) match road, drainage and hardware
- * titles as often as software. That is accepted: discovery favours recall, and
- * Gemini's reading of the TOR later holds or drops a non-software project
- * rather than this list guessing.
+ * What a sweep asks the feed for: the draft TOR put out for comment (B0), the
+ * earliest sign of a tender, and the invitation to bid (D0), when bidding opens.
+ * Both carry the project id; a cancellation or award is not asked for here,
+ * because the timeline (greenBook) is what keeps each project's status.
  */
-export const SOFTWARE_KEYWORDS = [
-  'ซอฟต์แวร์', // software
-  'แอปพลิเคชัน', // application
-  'ระบบสารสนเทศ', // information system
-  'เว็บไซต์', // website
-  'โปรแกรมคอมพิวเตอร์', // computer program
-  'จ้างพัฒนา', // hire-to-develop
-  'จ้างเหมาพัฒนา', // contract-to-develop; "จ้างพัฒนา" is not a substring of it
-  'พัฒนาระบบ', // develop a system
-  'จัดทำระบบ', // build a system
-  'software',
-  'Software',
-  'application',
-  'Application',
-  'website',
-  'Website',
-] as const;
+export const FEED_ANNOUNCEMENT_TYPES = ['B0', 'D0'] as const;
+export type FeedAnnouncementType = (typeof FEED_ANNOUNCEMENT_TYPES)[number];
+
+/** The most items the feed returns for one call; `countbyday` says how many there really were. */
+export const FEED_ITEM_CAP = 20;
+
+/**
+ * How far back, ending today, Discovery accumulates: a year, so the queue holds
+ * closed tenders as well as open ones (owner's decision, 2026-10-06). Each day
+ * costs one request per agency per type, so the year is read gradually; see
+ * `FEED_BACKFILL_REQUESTS_PER_RUN`.
+ */
+export const FEED_HISTORY_DAYS = 365;
+
+/**
+ * How many requests a Run may spend reading history, after the new days. The
+ * site refused after about 110 requests in one window (measured 2026-10-06), and
+ * the same Run still has archives to fetch from it, so history takes a share,
+ * not all: at this rate a year's history (~3,650 requests) takes about sixty
+ * Runs. Raise it once the site's real limit is known.
+ */
+export const FEED_BACKFILL_REQUESTS_PER_RUN = 60;
+
+/**
+ * The Source Registry as the feed knows it: each agency's e-GP department id,
+ * and the name stored for it. The open-data `dept_code` is not always the id
+ * the feed answers to (measured 2026-10-06): DGA answers as 1108, not 0136, and
+ * the ministry's `11` is an aggregate the feed gives nothing for, so it is read
+ * as its own office, 1102. Agencies under the ministry (ONDE, ETDA, DEPA…) are
+ * not in the registry, as before.
+ */
+export const FEED_REGISTRY: ReadonlyArray<{
+  registryName: (typeof SOURCE_REGISTRY)[number];
+  deptId: string;
+  deptName: string;
+}> = [
+  { registryName: 'กรมศุลกากร', deptId: '0305', deptName: 'กรมศุลกากร' },
+  {
+    registryName: 'สำนักงานพัฒนารัฐบาลดิจิทัล',
+    deptId: '1108',
+    deptName: 'สำนักงานพัฒนารัฐบาลดิจิทัล (องค์การมหาชน)',
+  },
+  {
+    registryName: 'กระทรวงดิจิทัลเพื่อเศรษฐกิจและสังคม',
+    deptId: '1102',
+    deptName: 'สำนักงานปลัดกระทรวงดิจิทัลเพื่อเศรษฐกิจและสังคม',
+  },
+  { registryName: 'กรมสรรพากร', deptId: '0307', deptName: 'กรมสรรพากร' },
+  { registryName: 'กรุงเทพมหานคร', deptId: '3100001', deptName: 'กรุงเทพมหานคร' },
+];
 
 /**
  * The competitive tender method. TOR availability tracks this almost perfectly
@@ -122,9 +158,6 @@ export { RECORD_DEADLINE_MS } from '@torfun/types';
  */
 export const STALE_PROCESSING_MS = 10 * 60_000;
 
-/** egp-contract accepts a limit of at least 500. */
-export const PAGE_LIMIT = 500;
-
 /**
  * The site rejects a bare fetch/undici User-Agent. An ordinary desktop browser
  * UA is sufficient — no cookies, no referer, no token.
@@ -147,20 +180,10 @@ export const TOR_MEMBER_PATTERNS = [
 ];
 
 /**
- * The open-data key's daily allowance is a hard cap (1,000 requests, read from
- * its `x-ratelimit-limit-day` header), shared by anything using the key. A sweep
- * stops with this many left rather than running until it is refused, so a second
- * caller of the same key, or a retry, is not left with nothing.
+ * A discovery sweep younger than this is not repeated. A sweep asks only about
+ * the days it has not read, plus today and a share of history, so repeating it
+ * spends requests on the same site the downloads use for little news. Six hours
+ * matches the shortest Schedule, so every scheduled Run sweeps; a full day would
+ * skip the next day's Run whenever it started a few seconds early.
  */
-export const OPEN_DATA_RESERVE = 50;
-
-/** What a full discovery sweep costs; the number lives in `@torfun/types`, where the admin page reads it too. */
-export { OPEN_DATA_SWEEP_CALLS } from '@torfun/types';
-
-/**
- * A discovery sweep younger than this is not repeated. It is ~270 open-data
- * queries for an answer that has not had time to change, and that API rate
- * limits them at 1,000 a day, and a sweep is ~300 of those, so a day allows about
- * three and one is plenty. Retrieval from the queue still happens on every Run.
- */
-export const DISCOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const DISCOVERY_MAX_AGE_MS = 6 * 60 * 60 * 1000;

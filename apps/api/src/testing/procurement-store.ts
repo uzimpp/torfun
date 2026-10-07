@@ -10,6 +10,7 @@ import {
 } from '@torfun/types';
 import {
   holdReasonFor,
+  type FeedCursor,
   type FindOptions,
   type FindResult,
   type ProcurementDataSource,
@@ -32,6 +33,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly tombstones = new Map<string, Tombstone>();
   private lastRunAt: string | null = null;
   private quota: OpenDataQuota | null = null;
+  private cursor: FeedCursor = {};
 
   async ensureIndexes(): Promise<void> {
     // The in-memory store has no indexes; this preserves the production
@@ -196,6 +198,14 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async lastDiscoveryAt(): Promise<string | null> {
     return this.lastRunAt;
+  }
+
+  async feedCursor(): Promise<FeedCursor> {
+    return structuredClone(this.cursor);
+  }
+
+  async recordFeedCursor(cursor: FeedCursor): Promise<void> {
+    Object.assign(this.cursor, structuredClone(cursor));
   }
 
   async listFailures(): Promise<IngestionFailure[]> {
