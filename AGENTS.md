@@ -81,7 +81,10 @@ Turnstile and is never called; do not add a captcha solver, a copied browser tok
 or a headless browser to reach it. They are not performance tuning. Do not parallelise
 around them or retry past a refusal. **No volume cap is applied** — a Run works
 through the whole queue — by the owner's decision (ADR-0015); if the site's owner
-ever states a limit, it belongs back in code, not in this paragraph.
+ever states a limit, it belongs back in code, not in this paragraph. The one
+exception is Discovery's history: reading the past year takes a fixed share of
+each Run (`FEED_BACKFILL_REQUESTS_PER_RUN`, ADR-0018), so the new days and the
+queue are not starved behind it. New days are always read in full.
 
 **Ingested data is evidence, not decoration.** A BD officer decides whether to
 spend days on a bid. Never seed, mock, or backfill records outside a real
