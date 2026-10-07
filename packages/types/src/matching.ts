@@ -1,20 +1,15 @@
 import { z } from 'zod';
 
 /**
- * Inputs from the "past experience" profile (USR-06/08 feature analysis) that feed
- * the matching score. Exact weighting is still an open decision — this shape
- * is the placeholder contract between the matching service and the rest of the app.
+ * The vendor side of a score now lives in `company.ts` as `Company` and its
+ * `Experience` records. The flat `CompanyProfile` placeholder that used to sit
+ * here was never imported and described the same thing differently — see
+ * ADR-0009.
+ *
+ * `MatchResult` is still keyed on `projectId` alone. It needs a company key
+ * before scoring is built, or one vendor's score would be shown to another;
+ * that change belongs to the matching feature (ADR-0007).
  */
-export const CompanyProfileSchema = z.object({
-  pastIndustries: z.array(z.string()).default([]),
-  techStackExpertise: z.array(z.string()).default([]),
-  preferredProjectSizeThb: z
-    .object({ min: z.number().nonnegative(), max: z.number().nonnegative() })
-    .optional(),
-  yearsOfExperience: z.number().nonnegative().optional(),
-});
-export type CompanyProfile = z.infer<typeof CompanyProfileSchema>;
-
 export const MatchScoreBreakdownSchema = z.object({
   techStackScore: z.number().min(0).max(1),
   deadlineScore: z.number().min(0).max(1),
@@ -25,7 +20,7 @@ export const MatchScoreBreakdownSchema = z.object({
 export type MatchScoreBreakdown = z.infer<typeof MatchScoreBreakdownSchema>;
 
 export const MatchResultSchema = z.object({
-  torId: z.string(),
+  projectId: z.string(),
   overallScore: z.number().min(0).max(1),
   breakdown: MatchScoreBreakdownSchema,
   computedAt: z.coerce.date(),
