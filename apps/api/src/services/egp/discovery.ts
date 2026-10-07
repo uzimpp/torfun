@@ -145,7 +145,8 @@ export async function discoverProjects(
   const oldest = addDays(today, -(FEED_HISTORY_DAYS - 1));
 
   const failures: IngestionFailure[] = [];
-  const byProjectId = new Map<string, Procurement>();
+  /** What each admitted project will be stored as, and which announcement type dated it. */
+  const byProjectId = new Map<string, { record: Procurement; type: FeedAnnouncementType }>();
   const notEBidding = new Set<string>();
   const tombstoned = new Set<string>();
   let truncated = 0;
@@ -219,9 +220,17 @@ export async function discoverProjects(
           tombstoned.add(item.projectId);
           break;
         case 'admit':
-          // Seen as both a draft and an invitation: the invitation dates it.
-          if (!byProjectId.has(item.projectId) || unit.type === 'D0') {
-            byProjectId.set(item.projectId, toRecord(unit.agency, item, day));
+          // Seen as both a draft and an invitation, the invitation dates it; seen
+          // twice as the same type (a re-announcement), the newer one does.
+          const seen = byProjectId.get(item.projectId);
+          const record = toRecord(unit.agency, item, day);
+          if (
+            !seen ||
+            (unit.type === 'D0' && seen.type === 'B0') ||
+            (unit.type === seen.type &&
+              (record.announceDate ?? '') > (seen.record.announceDate ?? ''))
+          ) {
+            byProjectId.set(item.projectId, { record, type: unit.type });
           }
           break;
         case 'not_registry':
@@ -282,7 +291,7 @@ export async function discoverProjects(
   }
 
   return {
-    records: [...byProjectId.values()],
+    records: [...byProjectId.values()].map((admitted) => admitted.record),
     notEBidding: notEBidding.size,
     tombstoned: tombstoned.size,
     truncated,

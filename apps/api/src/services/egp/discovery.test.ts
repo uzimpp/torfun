@@ -232,6 +232,19 @@ describe('discoverProjects: what it admits', () => {
     expect(result.records).toHaveLength(2);
   });
 
+  test('an invitation announced again keeps its newest date, whichever day is read first', async () => {
+    const { feed } = fakeFeed({
+      // New days are read before history, so the newer invitation is met first.
+      [`${CUSTOMS}:D0:${TODAY}`]: listing([item('69109044981', { announcedOn: TODAY })]),
+      [`${CUSTOMS}:D0:2026-10-03`]: listing([item('69109044981', { announcedOn: '2026-10-03' })]),
+    });
+
+    const result = await sweep(feed);
+
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]!.announceDate).toStartWith(TODAY);
+  });
+
   test('a day the feed cut short, and items with no project id, are logged as failures', async () => {
     const twenty = Array.from({ length: 20 }, (_, n) =>
       item(`691090450${String(n).padStart(2, '0')}`),
