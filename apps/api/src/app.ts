@@ -21,6 +21,7 @@ import { UserRepository, type UserStore } from './repositories/user.repository';
 import { CompanyRepository, type CompanyStore } from './repositories/company.repository';
 import { ClientRepository, type ClientStore } from './repositories/client.repository';
 import { ExperienceRepository, type ExperienceStore } from './repositories/experience.repository';
+import { FavoriteRepository, type FavoriteStore } from './repositories/favorite.repository';
 import type { ProcurementStore } from './repositories/procurement.repository';
 import { AuthService } from './services/auth.service';
 import { AdminUsersService } from './services/admin-users.service';
@@ -29,6 +30,7 @@ import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
 import { TorService } from './services/tor.service';
+import { FavoriteService } from './services/favorite.service';
 import { registerRoutes } from './routes';
 
 /**
@@ -53,6 +55,7 @@ export interface RepositoryOverrides {
   companies?: CompanyStore;
   clients?: ClientStore;
   experiences?: ExperienceStore;
+  favorites?: FavoriteStore;
   procurements?: ProcurementStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
@@ -105,6 +108,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const clientRepository = repositories.clients ?? new ClientRepository(app.mongo.getDb);
   const experienceRepository =
     repositories.experiences ?? new ExperienceRepository(app.mongo.getDb);
+  const favoriteRepository = repositories.favorites ?? new FavoriteRepository(app.mongo.getDb);
   const torProcurementStore = repositories.procurements ?? procurementRepository;
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
@@ -124,6 +128,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   );
   app.decorate('ingestionService', new IngestionService(procurementRepository, env, app.log));
   app.decorate('torService', new TorService(torProcurementStore));
+  app.decorate('favoriteService', new FavoriteService(favoriteRepository, torProcurementStore));
   app.decorate(
     'diagnosticsService',
     new DiagnosticsService(createDependencyProbes(env, app.mongo.getDb)),

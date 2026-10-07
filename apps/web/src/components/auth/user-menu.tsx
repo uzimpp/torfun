@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Bookmark, ChevronDown, UserRound } from 'lucide-react';
+import { ChevronDown, UserRound } from 'lucide-react';
 import type { CurrentUser } from '@/lib/auth';
 import { accountNav } from '@/components/layout/nav-config';
 import { Button } from '@/components/ui/button';
@@ -29,9 +29,10 @@ const ROW = 'min-h-11 gap-3 rounded-lg px-3';
  * rather than to the announcements.
  *
  * Its rows come from `accountNav`, which returns a different list per role: a
- * Business Development Officer gets their workspace and their Company record; a
- * Site Administrator gets the ingestion console, its failure log, and the other
- * accounts — and no Company, because an administrator holds none (ADR-0011).
+ * Business Development Officer gets their workspace, their Company record, and
+ * their favorited TORs; a Site Administrator gets the ingestion console, its
+ * failure log, and the other accounts — and neither Company nor favorites,
+ * because an administrator holds no Company (ADR-0011) and never bids.
  */
 export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'> }) {
   const isAdmin = user.role === 'admin';
@@ -84,16 +85,6 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
               {label}
             </DropdownMenuItem>
           ))}
-          {/* Listed and visibly not ready, rather than hidden: an officer who is
-              told the page is coming stops hunting for it. Admins never bid, so
-              they do not see it. */}
-          {!isAdmin && (
-            <DropdownMenuItem disabled className={ROW}>
-              <Bookmark aria-hidden="true" className="size-4" />
-              TOR ของฉัน
-              <span className="text-muted-foreground ms-auto text-xs">เร็ว ๆ นี้</span>
-            </DropdownMenuItem>
-          )}
         </DropdownMenuGroup>
 
         <DropdownMenuSeparator className="mx-0 my-2" />

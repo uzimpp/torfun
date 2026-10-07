@@ -307,6 +307,41 @@ export function deleteExperience(id: string): Promise<void> {
 }
 
 /* ------------------------------------------------------------------------- *
+ * Favorites — the Procurements an officer has set aside to reconsider later.
+ *
+ * Personal to the caller's account, like the rest of this section; no route
+ * below takes a user id either.
+ * ------------------------------------------------------------------------- */
+
+export interface FavoriteResponse {
+  project_id: string;
+  favorited_at: string;
+  procurement: Procurement;
+}
+
+export function fetchFavorites(): Promise<{ favorites: FavoriteResponse[] }> {
+  return request('/api/favorites');
+}
+
+export function checkFavorited(projectId: string): Promise<{ favorited: boolean }> {
+  return request(`/api/favorites/${encodeURIComponent(projectId)}`);
+}
+
+export function addFavorite(projectId: string): Promise<FavoriteResponse> {
+  return request('/api/favorites', {
+    method: 'POST',
+    body: JSON.stringify({ project_id: projectId }),
+  });
+}
+
+/** Removing a project that was never favorited answers 404. */
+export function removeFavorite(projectId: string): Promise<void> {
+  return requestNoContent(`/api/favorites/${encodeURIComponent(projectId)}`, {
+    method: 'DELETE',
+  });
+}
+
+/* ------------------------------------------------------------------------- *
  * Accounts — the Site Administrator's view of everyone else (USR-10).
  *
  * Admin-only on the API, enforced for the whole `/api/admin` scope. `credentials`
