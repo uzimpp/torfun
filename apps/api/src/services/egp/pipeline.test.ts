@@ -3,6 +3,7 @@ import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 import { fakeAnnouncements } from '../../testing/announcement-client';
 import { InMemoryProcurementStore } from '../../testing/procurement-store';
 import { RateLimitedError } from './client';
+import type { DiscoveryResult, SweepContext } from './discovery';
 import type { AnnouncementRow } from './milestones';
 import { runIngestion, type IngestionDeps } from './pipeline';
 import type { ExtractedPdf } from './tor-package';
@@ -83,19 +84,25 @@ const analysis = {
 /** What the model concluded about the work, beside the analysis it is stored with. */
 const judgement = { isSoftware: true, confidence: 'high' as const, reason: 'พัฒนาระบบ' };
 
+/** A sweep context for calling a stubbed `discoverProjects` directly. */
+const sweepContext: SweepContext = {
+  site: (call) => call(),
+  cursor: {},
+  tombstonedIds: async () => new Set(),
+  today: '2026-09-09',
+};
+
 /** Every stage stubbed to the happy path; each test overrides what it is about. */
 function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
   return {
     discoverProjects: async () => ({
       records: [procurement()],
-      rejected: [],
       notEBidding: 0,
       tombstoned: 0,
-      resolutions: [],
+      truncated: 0,
       failures: [],
       rateLimited: false,
-      budgetReached: false,
-      quota: null,
+      cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
     resolveZipId: async () => 'zip-1',
@@ -122,7 +129,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
 }
 
 const run = (repository: InMemoryProcurementStore, overrides: Partial<IngestionDeps> = {}) =>
-  runIngestion(repository, { apiKey: 'k', logger }, deps(overrides));
+  runIngestion(repository, { logger }, deps(overrides));
 
 describe('runIngestion', () => {
   test('a classified TOR is stored with its analysis', async () => {
@@ -253,14 +260,12 @@ describe('runIngestion', () => {
     const result = await run(repository, {
       discoverProjects: async () => ({
         records: [procurement(), second],
-        rejected: [],
         notEBidding: 0,
         tombstoned: 0,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: async () => {
@@ -282,14 +287,12 @@ describe('runIngestion', () => {
     const result = await run(repository, {
       discoverProjects: async () => ({
         records: [procurement(), procurement({ projectId: '66059313552' })],
-        rejected: [],
         notEBidding: 0,
         tombstoned: 0,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: failing,
@@ -377,14 +380,12 @@ describe('stages and the per-record deadline', () => {
       recordDeadlineMs: 20,
       discoverProjects: async () => ({
         records: [procurement(), procurement({ projectId: '66059313552' })],
-        rejected: [],
         notEBidding: 0,
         tombstoned: 0,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       classifyDocument: async () => {
@@ -415,129 +416,84 @@ describe('stages and the per-record deadline', () => {
   });
 });
 
-describe('the open-data daily quota', () => {
-  const HOUR = 60 * 60 * 1000;
-  const quotaAt = (remainingDay: number, hoursAgo = 0) => ({
-    remainingDay,
-    limitDay: 1000,
-    observedAt: new Date(Date.now() - hoursAgo * HOUR).toISOString(),
-  });
-
-  const sweepResult = (overrides: Record<string, unknown> = {}) => ({
+describe('a discovery sweep inside the Run', () => {
+  const sweepResult = (overrides: Partial<DiscoveryResult> = {}): DiscoveryResult => ({
     records: [],
-    rejected: [],
     notEBidding: 0,
     tombstoned: 0,
-    resolutions: [],
+    truncated: 0,
+    cursor: {},
     failures: [],
     rateLimited: false,
-    budgetReached: false,
-    quota: null,
     ranAt: new Date().toISOString(),
     ...overrides,
   });
 
-  /** A store with one queued record, and optionally a known allowance and a past sweep. */
-  async function setup(state: { quota?: ReturnType<typeof quotaAt>; lastSweepHoursAgo?: number }) {
+  /** A store with one record already queued, so retrieval has something to do. */
+  async function queued() {
     const repository = new InMemoryProcurementStore();
     await repository.upsert(procurement());
-    if (state.quota) await repository.recordOpenDataQuota(state.quota);
-    if (state.lastSweepHoursAgo !== undefined) {
-      await repository.markRun(new Date(Date.now() - state.lastSweepHoursAgo * HOUR).toISOString());
-    }
     return repository;
   }
 
-  const runWith = (
-    repository: InMemoryProcurementStore,
-    discover: () => Promise<ReturnType<typeof sweepResult>>,
-    options: { forceDiscovery?: boolean } = {},
-  ) =>
-    runIngestion(
-      repository,
-      { apiKey: 'k', logger, ...options },
-      deps({ discoverProjects: mock(discover) as unknown as IngestionDeps['discoverProjects'] }),
-    );
+  test('a refusal during discovery ends the Run: no record is retrieved', async () => {
+    const repository = await queued();
+    const resolveZipId = mock(async () => 'zip-1');
+    const timeline = mock(async () => []);
 
-  test('a refused sweep does not stop the run: the queue is still worked', async () => {
-    const repository = await setup({});
-
-    const result = await runWith(repository, async () =>
-      sweepResult({ rateLimited: true, quota: quotaAt(0) }),
-    );
+    const result = await run(repository, {
+      discoverProjects: async () => sweepResult({ rateLimited: true }),
+      resolveZipId,
+      announcements: { timeline },
+    });
 
     expect(result.discoveryStopped).toBe('rate_limited');
-    expect(result.aborted).toBe(false);
-    expect(result.attempted).toBe(1);
-    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+    expect(result.aborted).toBe(true);
+    expect(result.attempted).toBe(0);
+    expect(resolveZipId).not.toHaveBeenCalled();
+    expect(timeline).not.toHaveBeenCalled();
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Queued');
+    expect(record?.attempts).toBe(0);
   });
 
-  test('a sweep cut short is not counted as done, so the next run sweeps again', async () => {
-    const repository = await setup({});
+  test('the cursor a sweep reached is stored even when the site cut it short', async () => {
+    const repository = await queued();
 
-    await runWith(repository, async () => sweepResult({ rateLimited: true, quota: quotaAt(0) }));
+    await run(repository, {
+      discoverProjects: async () =>
+        sweepResult({
+          rateLimited: true,
+          cursor: { '0305:D0': { from: '2026-09-01', to: '2026-09-08' } },
+        }),
+    });
+
+    expect(await repository.feedCursor()).toEqual({
+      '0305:D0': { from: '2026-09-01', to: '2026-09-08' },
+    });
+  });
+
+  test('the sweep is handed the cursor stored by the last one', async () => {
+    const repository = await queued();
+    await repository.recordFeedCursor({ '1108:B0': { from: '2026-08-01', to: '2026-09-07' } });
+    const discover = mock(async (_context: SweepContext) => sweepResult());
+
+    await run(repository, { discoverProjects: discover });
+
+    expect(discover.mock.calls[0]![0].cursor).toEqual({
+      '1108:B0': { from: '2026-08-01', to: '2026-09-07' },
+    });
+  });
+
+  test('only a finished sweep is marked as done, so a cut-short one is tried again next Run', async () => {
+    const repository = await queued();
+
+    await run(repository, { discoverProjects: async () => sweepResult({ rateLimited: true }) });
     expect(await repository.lastDiscoveryAt()).toBeNull();
 
-    await runWith(repository, async () => sweepResult({ budgetReached: true, quota: quotaAt(40) }));
-    expect(await repository.lastDiscoveryAt()).toBeNull();
-  });
-
-  test('stopping at the reserve is reported as a budget stop, and the allowance is remembered', async () => {
-    const repository = await setup({});
-
-    const result = await runWith(repository, async () =>
-      sweepResult({ budgetReached: true, quota: quotaAt(40) }),
-    );
-
-    expect(result.discoveryStopped).toBe('budget');
-    expect((await repository.openDataQuota())?.remainingDay).toBe(40);
-  });
-
-  test('a finished sweep is marked done and remembers the allowance it left', async () => {
-    const repository = await setup({});
-
-    const result = await runWith(repository, async () => sweepResult({ quota: quotaAt(700) }));
-
+    const result = await run(repository, { discoverProjects: async () => sweepResult() });
     expect(result.discoveryStopped).toBeNull();
     expect(await repository.lastDiscoveryAt()).not.toBeNull();
-    expect((await repository.openDataQuota())?.remainingDay).toBe(700);
-  });
-
-  test('a sweep that reported nothing about the allowance leaves the known one alone', async () => {
-    const repository = await setup({ quota: quotaAt(900) });
-
-    await runWith(repository, async () => sweepResult());
-
-    expect((await repository.openDataQuota())?.remainingDay).toBe(900);
-  });
-
-  test('with too little left today, no sweep is attempted, and the queue is still worked', async () => {
-    const repository = await setup({ quota: quotaAt(120) });
-    const discover = mock(async () => sweepResult());
-
-    const result = await runWith(repository, discover);
-
-    expect(discover).not.toHaveBeenCalled();
-    expect(result.discoverySkipped).toBe(true);
-    expect(result.attempted).toBe(1);
-  });
-
-  test('forcing a sweep cannot conjure allowance that is not there', async () => {
-    const repository = await setup({ quota: quotaAt(0), lastSweepHoursAgo: 30 });
-    const discover = mock(async () => sweepResult());
-
-    await runWith(repository, discover, { forceDiscovery: true });
-
-    expect(discover).not.toHaveBeenCalled();
-  });
-
-  test('an allowance read on an earlier day is taken to have reset', async () => {
-    const repository = await setup({ quota: quotaAt(0, 36) });
-    const discover = mock(async () => sweepResult());
-
-    await runWith(repository, discover);
-
-    expect(discover).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -627,14 +583,12 @@ describe('a sweep that only re-sees what it already has', () => {
   const sweep = (overrides: Partial<Procurement> = {}) => ({
     discoverProjects: async () => ({
       records: [procurement(overrides)],
-      rejected: [],
       notEBidding: 0,
       tombstoned: 0,
-      resolutions: [],
+      truncated: 0,
       failures: [],
       rateLimited: false,
-      budgetReached: false,
-      quota: null,
+      cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -666,20 +620,18 @@ describe('when discovery runs', () => {
     if (lastSweepHoursAgo !== null) await repository.markRun(hoursAgo(lastSweepHoursAgo));
     const discover = mock(async () => ({
       records: [],
-      rejected: [],
       notEBidding: 0,
       tombstoned: 0,
-      resolutions: [],
+      truncated: 0,
       failures: [],
       rateLimited: false,
-      budgetReached: false,
-      quota: null,
+      cursor: {},
       ranAt: new Date().toISOString(),
     }));
 
     const result = await runIngestion(
       repository,
-      { apiKey: 'k', logger, ...options },
+      { logger, ...options },
       deps({ discoverProjects: discover }),
     );
     return { result, discover, repository };
@@ -736,21 +688,18 @@ describe('a run that is told to stop', () => {
     const result = await runIngestion(
       repository,
       {
-        apiKey: 'k',
         logger,
         shouldContinue: () => allowed,
       },
       deps({
         discoverProjects: async () => ({
           records: [procurement(), procurement({ projectId: '66059313552' })],
-          rejected: [],
           notEBidding: 0,
           tombstoned: 0,
-          resolutions: [],
+          truncated: 0,
           failures: [],
           rateLimited: false,
-          budgetReached: false,
-          quota: null,
+          cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
         resolveZipId: async (projectId) => {
@@ -775,14 +724,12 @@ describe('a deadline that fires while a site request is in flight', () => {
   const two = () => ({
     discoverProjects: async () => ({
       records: [procurement(), procurement({ projectId: '66059313552' })],
-      rejected: [],
       notEBidding: 0,
       tombstoned: 0,
-      resolutions: [],
+      truncated: 0,
       failures: [],
       rateLimited: false,
-      budgetReached: false,
-      quota: null,
+      cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -962,14 +909,12 @@ describe('the analysis pool', () => {
     await run(repository, {
       discoverProjects: async () => ({
         records: [1, 2, 3].map((n) => procurement({ projectId: `6605931355${n}` })),
-        rejected: [],
         notEBidding: 0,
         tombstoned: 0,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       downloadArchive: async () => {
@@ -1002,14 +947,12 @@ describe('the reaper', () => {
     await run(repository, {
       discoverProjects: async () => ({
         records: [],
-        rejected: [],
         notEBidding: 0,
         tombstoned: 0,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: async () => null,
@@ -1028,14 +971,12 @@ describe('the reaper', () => {
     await run(repository, {
       discoverProjects: async () => ({
         records: [],
-        rejected: [],
         notEBidding: 0,
         tombstoned: 0,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
     });
@@ -1120,18 +1061,16 @@ describe('a record the model drops', () => {
   /** A sweep that answers as discovery does: what has a tombstone is not admitted. */
   const admitting =
     (records: Procurement[]): IngestionDeps['discoverProjects'] =>
-    async (_apiKey, tombstonedIds) => {
+    async ({ tombstonedIds }) => {
       const ruledOut = await tombstonedIds(records.map((record) => record.projectId));
       return {
         records: records.filter((record) => !ruledOut.has(record.projectId)),
-        rejected: [],
         notEBidding: 0,
         tombstoned: ruledOut.size,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       };
     };
@@ -1204,14 +1143,12 @@ describe('a run for one project only', () => {
   const sweep = () =>
     mock(async () => ({
       records: ids.map((projectId) => procurement({ projectId })),
-      rejected: [],
       notEBidding: 0,
       tombstoned: 0,
-      resolutions: [],
+      truncated: 0,
       failures: [],
       rateLimited: false,
-      budgetReached: false,
-      quota: null,
+      cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }));
 
@@ -1221,7 +1158,7 @@ describe('a run for one project only', () => {
 
     const result = await runIngestion(
       repository,
-      { apiKey: 'k', logger, onlyProject: '66059313552' },
+      { logger, onlyProject: '66059313552' },
       deps({ discoverProjects: sweep(), resolveZipId }),
     );
 
@@ -1239,7 +1176,7 @@ describe('a run for one project only', () => {
 
     const result = await runIngestion(
       repository,
-      { apiKey: 'k', logger, onlyProject: '99999999999' },
+      { logger, onlyProject: '99999999999' },
       deps({ discoverProjects: sweep(), resolveZipId }),
     );
 
@@ -1257,14 +1194,12 @@ describe('two runners sharing the site', () => {
   const many = (): Partial<IngestionDeps> => ({
     discoverProjects: async () => ({
       records: ids.map((projectId) => procurement({ projectId })),
-      rejected: [],
       notEBidding: 0,
       tombstoned: 0,
-      resolutions: [],
+      truncated: 0,
       failures: [],
       rateLimited: false,
-      budgetReached: false,
-      quota: null,
+      cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -1273,7 +1208,7 @@ describe('two runners sharing the site', () => {
     runners: number,
     overrides: Partial<IngestionDeps>,
   ) =>
-    runIngestion(repository, { apiKey: 'k', logger, runners }, deps({ ...many(), ...overrides }));
+    runIngestion(repository, { logger, runners }, deps({ ...many(), ...overrides }));
   const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
   test('never has more than one request to the site in flight, while the model reads in parallel', async () => {
@@ -1350,19 +1285,17 @@ describe('a Run over a long queue', () => {
 
     const result = await runIngestion(
       repository,
-      { apiKey: 'k', logger },
+      { logger },
       deps({
         resolveZipId,
         discoverProjects: async () => ({
           records: [],
-          rejected: [],
           notEBidding: 0,
           tombstoned: 0,
-          resolutions: [],
+          truncated: 0,
           failures: [],
           rateLimited: false,
-          budgetReached: false,
-          quota: null,
+          cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
       }),
@@ -1382,7 +1315,7 @@ describe('a Run an administrator stops', () => {
 
     const result = await runIngestion(
       repository,
-      { apiKey: 'k', logger, stopRequested: () => stop },
+      { logger, stopRequested: () => stop },
       deps({
         resolveZipId: async (projectId: string) => {
           seen.push(projectId);
@@ -1391,14 +1324,12 @@ describe('a Run an administrator stops', () => {
         },
         discoverProjects: async () => ({
           records: [],
-          rejected: [],
           notEBidding: 0,
           tombstoned: 0,
-          resolutions: [],
+          truncated: 0,
           failures: [],
           rateLimited: false,
-          budgetReached: false,
-          quota: null,
+          cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
       }),
@@ -1453,7 +1384,7 @@ describe('runIngestion: the bid deadline', () => {
     const repository = new InMemoryProcurementStore();
     await run(repository, {
       discoverProjects: async () => ({
-        ...(await deps().discoverProjects('k', async () => new Set())),
+        ...(await deps().discoverProjects(sweepContext)),
         records: [
           procurement({ deadlineAt: '2026-10-20T09:30:00.000Z', deadlineSource: 'invitation' }),
         ],
@@ -1504,7 +1435,7 @@ describe('runIngestion: the timeline', () => {
     announceDate,
   });
   const noSweep = async () => ({
-    ...(await deps().discoverProjects('k', async () => new Set())),
+    ...(await deps().discoverProjects(sweepContext)),
     records: [],
   });
   const invitationDocument = {
@@ -1825,7 +1756,7 @@ describe('runIngestion: the timeline', () => {
 
       await runIngestion(
         repository,
-        { apiKey: 'k', logger, onlyProject: NEW },
+        { logger, onlyProject: NEW },
         deps({ announcements }),
       );
 
@@ -1887,7 +1818,6 @@ describe('progress reported while a run works', () => {
     await runIngestion(
       repository,
       {
-        apiKey: 'k',
         logger,
         onProgress: (progress) => {
           latest = progress;
@@ -1899,14 +1829,12 @@ describe('progress reported while a run works', () => {
             procurement({ projectId: 'a', announceDate: '2026-08-02' }),
             procurement({ projectId: 'b', projectName: 'ระบบบัญชี', announceDate: '2026-08-01' }),
           ],
-          rejected: [],
           notEBidding: 0,
           tombstoned: 0,
-          resolutions: [],
+          truncated: 0,
           failures: [],
           rateLimited: false,
-          budgetReached: false,
-          quota: null,
+          cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
         resolveZipId: async () => watched('zip-1')(),
