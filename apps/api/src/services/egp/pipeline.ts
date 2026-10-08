@@ -32,6 +32,7 @@ import {
   bangkokToday,
   discoverProjects,
   type DiscoveryResult,
+  type SweepBatch,
   type SweepContext,
 } from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
@@ -442,6 +443,19 @@ export async function runIngestion(
     };
   } else {
     logger.info('egp: starting discovery sweep');
+    let saved = false;
+    const save = async (batch: SweepBatch) => {
+      saved = true;
+      const summary = await repository.upsertMany(batch.records);
+      sync = {
+        created: sync.created + summary.created,
+        changed: sync.changed + summary.changed,
+        unchanged: sync.unchanged + summary.unchanged,
+      };
+      await repository.recordFailures(batch.failures);
+      // Covers exactly the days read in full, even if the sweep stops later.
+      await repository.recordFeedCursor(batch.cursor);
+    };
     discovery = await deps.discoverProjects({
       site: async (call) => {
         const hold = await gate.acquire();
@@ -461,11 +475,10 @@ export async function runIngestion(
       tombstonedIds: (ids) => repository.tombstonedIds(ids),
       storedRecords: (ids) => repository.getMany(ids),
       today: bangkokToday(),
+      save,
     });
-    sync = await repository.upsertMany(discovery.records);
-    await repository.recordFailures(discovery.failures);
-    // Kept even when the sweep was cut short: it covers exactly the days read.
-    await repository.recordFeedCursor(discovery.cursor);
+    // A sweep that handed nothing to `save` on the way is stored whole here.
+    if (!saved) await save(discovery);
 
     if (discovery.rateLimited) {
       // Cut short by a refusal. What it found is kept, but it is not a finished
