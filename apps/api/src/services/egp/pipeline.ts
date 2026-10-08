@@ -48,6 +48,7 @@ import { decideOutcome } from './decision';
 import { buildTombstone } from './tombstone';
 import { decideDeadline } from './deadline';
 import { reviewTimeline, type TimelinePatch, type TimelineReview } from './timeline';
+import { readProjectDetail } from './project-detail';
 
 /**
  * Orchestrates the two ingestion stages against the repository.
@@ -74,7 +75,7 @@ export interface IngestionDeps {
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   /** Reads the bid date off the archive's invitation announcement, if it carries one. */
   readInvitation: (archive: Uint8Array, projectId: string) => Promise<InvitationResult>;
-  /** The project's announcement timeline, always the first thing asked of the site about it. */
+  /** The project's timeline and detail; the detail is asked first, only where it was never read. */
   announcements: AnnouncementClient;
   sleep: (ms: number) => Promise<void>;
   /** Longest one record may take before it is treated as a transport failure. */
@@ -454,6 +455,7 @@ export async function runIngestion(
       // A project that has a tombstone is not admitted, whatever the feed says
       // about it: the tombstone is the decision, until an administrator lifts it.
       tombstonedIds: (ids) => repository.tombstonedIds(ids),
+      storedRecords: (ids) => repository.getMany(ids),
       today: bangkokToday(),
     });
     sync = await repository.upsertMany(discovery.records);
@@ -589,6 +591,28 @@ export async function runIngestion(
       );
     }
     return review;
+  };
+
+  /**
+   * A record stored before the project detail was read gets it now, in the
+   * same gate hold as its timeline. If it fails, the old year stays and the
+   * next Run asks again; a refusal is thrown on and stops the Run as usual.
+   */
+  const catchUpDetail = async (work: RecordWork): Promise<void> => {
+    const { record, guard } = work;
+    if (record.detailCheckedAt !== null) return;
+    const read = await work.site(() =>
+      readProjectDetail(deps.announcements, record.projectId, guard.controller.signal),
+    );
+    if (guard.expired) return;
+    if ('error' in read) return note(record, 'timeline', read.error);
+    // Only a change an officer can see counts as news.
+    const visible =
+      read.fields.budgetYear !== record.budgetYear ||
+      read.fields.deptSubName !== record.deptSubName;
+    await repository.amend(record.projectId, read.fields, visible);
+    // Later steps read this record (a tombstone keeps its year), so it must be current.
+    work.record = { ...record, ...read.fields };
   };
 
   /** A project already read: its timeline again, and the invitation only if that moved. */
@@ -910,7 +934,11 @@ export async function runIngestion(
       // it has the site to itself.
       hold = await gate.acquire();
       await withDeadline(
-        () => (fresh ? retrieve(work) : refresh(work)),
+        async () => {
+          await catchUpDetail(work);
+          if (guard.expired) return;
+          await (fresh ? retrieve(work) : refresh(work));
+        },
         deps.recordDeadlineMs,
         guard,
       );
