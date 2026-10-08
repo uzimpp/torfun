@@ -1,8 +1,11 @@
 import { resolveProcurementListOptions } from './procurement-list-options';
+import { randomUUID } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import type { IngestionFailure, Procurement, IngestionSummary } from '@torfun/types';
 import type { Env } from '../config/env';
 import { ConflictError, NotFoundError } from '../core/errors';
+import type { IngestionLeaseStore } from '../repositories/ingestion-lease.repository';
+import type { RunLog } from '../repositories/schedule.repository';
 import type { FindOptions, ProcurementDataSource } from '../repositories/procurement.repository';
 import { createIngestionDeps, runIngestion, type IngestionDeps } from './egp/pipeline';
 import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience';
@@ -10,10 +13,28 @@ import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, type Audience } from './audience'
 /**
  * Application-level policy over the e-GP ingestion pipeline.
  *
- * Owns the "one run at a time" rule and the run's lifecycle. That state used
- * to live in module scope in the route file, which meant the constraint was
- * invisible to anything that wanted to reuse it — and untestable.
+ * Owns the "one run at a time" rule and the run's lifecycle. The rule is held
+ * as a lease in the database rather than a flag in this process, so it is true
+ * of every runner: this API, a second instance, a script on a developer's
+ * machine. Each Run takes the lease under an id of its own — not the process's
+ * — so a second start from this same process is refused like any other.
  */
+
+/** How the lease is kept alive. Defaults suit production; a test shrinks them. */
+export interface RunCoordination {
+  lease: IngestionLeaseStore;
+  /** Told when a Run begins, so a Schedule counts from real starts. */
+  runLog: RunLog;
+  /** How often a live Run renews its lease. */
+  heartbeatMs?: number;
+  /** How long a lease outlives its last heartbeat — how long a crashed holder blocks everyone. */
+  leaseTtlMs?: number;
+  /** The clock the lease and the recorded start are read from; a test drives it. */
+  now?: () => Date;
+}
+
+const DEFAULT_HEARTBEAT_MS = 30_000;
+const DEFAULT_LEASE_TTL_MS = 2 * 60_000;
 
 export interface StartRunInput {
   eBiddingOnly: boolean;
@@ -23,8 +44,6 @@ export interface StartRunInput {
 export type SummaryView = IngestionSummary & { agencies: string[] };
 
 export class IngestionService {
-  private runInFlight = false;
-
   /**
    * The pipeline's side-effecting stages, built once from configuration.
    * Overridable so a test can drive a run without the network or a credential.
@@ -35,9 +54,14 @@ export class IngestionService {
     private readonly repository: ProcurementDataSource,
     private readonly env: Env,
     private readonly logger: FastifyBaseLogger,
+    private readonly coordination: RunCoordination,
     deps?: IngestionDeps,
   ) {
     this.deps = deps ?? createIngestionDeps(env);
+  }
+
+  private now(): Date {
+    return (this.coordination.now ?? (() => new Date()))();
   }
 
   async summary(): Promise<SummaryView> {
@@ -45,7 +69,10 @@ export class IngestionService {
       this.repository.summary(),
       this.repository.agencies(),
     ]);
-    return { ...summary, agencies, runInProgress: this.runInFlight };
+    // Read from the lease, not a field on this instance, so a Run started by
+    // anything else shows as running here too.
+    const runInProgress = await this.coordination.lease.isHeld(this.now());
+    return { ...summary, agencies, runInProgress };
   }
 
   /**
@@ -89,13 +116,46 @@ export class IngestionService {
    * upstream requests — far longer than a request should hold open — so the
    * work is deliberately not awaited. Progress is observable through the
    * per-project state the admin UI already polls.
+   *
+   * What is awaited is taking the lease: the caller learns synchronously-enough
+   * that a Run is already going (a ConflictError) and does not learn it from a
+   * pass that started and silently doubled up.
    */
-  startRun(input: StartRunInput): void {
-    if (this.runInFlight) {
+  async startRun(input: StartRunInput): Promise<void> {
+    const { lease } = this.coordination;
+    const leaseTtlMs = this.coordination.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+    const heartbeatMs = this.coordination.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+    const holder = randomUUID();
+
+    const startedAt = this.now();
+    if (!(await lease.acquire(holder, startedAt, leaseTtlMs))) {
       throw new ConflictError('An ingestion run is already in progress.');
     }
 
-    this.runInFlight = true;
+    // Noted only once the lease is ours, so a refused start records nothing. If
+    // the note cannot be written the Run does not begin: an unrecorded start
+    // would leave a schedule to fire again the moment this one finished.
+    try {
+      await this.coordination.runLog.markRunStarted(startedAt.toISOString());
+    } catch (error) {
+      await lease.release(holder).catch(() => undefined);
+      throw error;
+    }
+
+    // A live Run renews its lease so it outlives the ttl; a crashed one stops,
+    // and the lease lapses on its own. Renewal failing (Mongo briefly away, or
+    // the lease having been taken over) is logged, not fatal to the pass —
+    // aborting mid-download helps nobody.
+    const heartbeat = setInterval(() => {
+      lease.heartbeat(holder, this.now(), leaseTtlMs).then(
+        (kept) => {
+          if (!kept) this.logger.warn('egp: ingestion lease lost while a run was still going');
+        },
+        (error: unknown) =>
+          this.logger.warn({ err: error }, 'egp: ingestion lease heartbeat failed'),
+      );
+    }, heartbeatMs);
+    heartbeat.unref();
 
     void runIngestion(
       this.repository,
@@ -111,7 +171,12 @@ export class IngestionService {
         this.logger.error({ err: error }, 'egp: ingestion run failed');
       })
       .finally(() => {
-        this.runInFlight = false;
+        clearInterval(heartbeat);
+        // Whether the pass succeeded or threw, the lease is given back; if this
+        // release itself fails the ttl still frees it.
+        lease.release(holder).catch((error: unknown) => {
+          this.logger.warn({ err: error }, 'egp: could not release the ingestion lease');
+        });
       });
   }
 }

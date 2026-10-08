@@ -13,6 +13,11 @@ import {
   type AgencyNameSource,
   type ProcurementDataSource,
 } from './repositories/procurement.repository';
+import {
+  IngestionLeaseRepository,
+  type IngestionLeaseStore,
+} from './repositories/ingestion-lease.repository';
+import { ScheduleRepository, type ScheduleStore } from './repositories/schedule.repository';
 import { createDependencyProbes, DiagnosticsService } from './services/diagnostics.service';
 import {
   RefreshTokenRepository,
@@ -28,6 +33,8 @@ import { CompanyService } from './services/company.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
+import { ScheduleService } from './services/schedule.service';
+import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
 import { registerRoutes } from './routes';
 
@@ -54,6 +61,10 @@ export interface RepositoryOverrides {
   clients?: ClientStore;
   experiences?: ExperienceStore;
   procurements?: ProcurementDataSource;
+  /** The lock that keeps ingestion to one Run at a time, across processes. */
+  ingestionLease?: IngestionLeaseStore;
+  /** The setting for when Runs start on their own, and when the last one began. */
+  schedule?: ScheduleStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
 }
@@ -106,6 +117,9 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const clientRepository = repositories.clients ?? new ClientRepository(app.mongo.getDb);
   const experienceRepository =
     repositories.experiences ?? new ExperienceRepository(app.mongo.getDb);
+  const ingestionLease =
+    repositories.ingestionLease ?? new IngestionLeaseRepository(app.mongo.getDb);
+  const scheduleStore = repositories.schedule ?? new ScheduleRepository(app.mongo.getDb);
   const torProcurementStore = repositories.procurements ?? procurementRepository;
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
@@ -123,7 +137,23 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     'experienceService',
     new ExperienceService(experienceRepository, clientRepository, userRepository),
   );
-  app.decorate('ingestionService', new IngestionService(procurementRepository, env, app.log));
+  const ingestionService = new IngestionService(procurementRepository, env, app.log, {
+    lease: ingestionLease,
+    runLog: scheduleStore,
+  });
+  app.decorate('ingestionService', ingestionService);
+  app.decorate('scheduleService', new ScheduleService(scheduleStore));
+
+  // Built here, started by `server.ts`: a timer running behind every
+  // `buildApp()` would leak into each test that builds an app. Stopping on close
+  // is safe either way.
+  const schedulerService = new SchedulerService(
+    scheduleStore,
+    (input) => ingestionService.startRun(input),
+    app.log,
+  );
+  app.decorate('schedulerService', schedulerService);
+  app.addHook('onClose', async () => schedulerService.stop());
   app.decorate('torService', new TorService(torProcurementStore));
   app.decorate(
     'diagnosticsService',

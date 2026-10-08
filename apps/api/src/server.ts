@@ -21,6 +21,11 @@ try {
   process.exit(1);
 }
 
+// Only the real server ticks; `buildApp()` never starts the timer. It reads the
+// stored Schedule, which is off until an administrator turns it on, so on a
+// fresh database this is one cheap read a minute and nothing else.
+app.schedulerService.start();
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, async () => {
     await app.close();
