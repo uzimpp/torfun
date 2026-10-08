@@ -252,6 +252,10 @@ export interface RunResult {
   /** Retrievals whose TOR was read and dropped as not software; only a tombstone remains. */
   dropped: number;
   failed: number;
+  /**
+   * The site refused (429/403), in discovery or retrieval, and the Run stopped
+   * there. The run log shows it as failed. An administrator's stop is `stopped`.
+   */
   aborted: boolean;
   /** Why the Run ended before the queue did, where an administrator is the reason; else null. */
   stopped: 'admin' | null;
@@ -958,14 +962,12 @@ export async function runIngestion(
         // Nothing is taken from the queue: what is left stays Queued, no attempt spent.
         stoppedBy = 'admin';
         stopped = true;
-        aborted = true;
         logger.info('egp: run stopped by an administrator; the rest stay Queued');
         return;
       }
       const candidate = queue.shift();
       if (!candidate) return;
       if (options.shouldContinue && !options.shouldContinue()) {
-        aborted = true;
         stopped = true;
         logger.warn('egp: run stopped before its next record; the rest stay Queued');
         return;
