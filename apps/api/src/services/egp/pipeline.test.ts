@@ -727,7 +727,8 @@ describe('a run that is told to stop', () => {
       }),
     );
 
-    expect(result.aborted).toBe(true);
+    // Stopped, but not refused: the run log must not read it as the site saying no.
+    expect(result.aborted).toBe(false);
     expect(result.attempted).toBe(1);
     expect(resolved).toEqual(['66059313551']);
     expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
@@ -1466,6 +1467,7 @@ describe('a Run an administrator stops', () => {
 
     expect(seen).toHaveLength(1);
     expect(result.stopped).toBe('admin');
+    expect(result.aborted).toBe(false);
     expect((await repository.get(seen[0]!))?.outcome).toBe('no_tor_package');
     expect(result.attempted).toBe(1);
   });

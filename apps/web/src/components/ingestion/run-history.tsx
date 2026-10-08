@@ -8,7 +8,6 @@ import { RUN_HISTORY_EMPTY, runHistoryRows, type RunResultTone } from './run-his
 const TONE: Record<RunResultTone, string> = {
   ok: STATUS_STYLE.analysed.text,
   neutral: 'text-muted-foreground',
-  warn: STATUS_STYLE.needsReview.text,
   error: STATUS_STYLE.failed.text,
 };
 
