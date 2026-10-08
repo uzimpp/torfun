@@ -1,9 +1,11 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
-import { fakeAnnouncements } from '../../testing/announcement-client';
+import { fakeAnnouncements, SAMPLE_DETAIL } from '../../testing/announcement-client';
 import { InMemoryProcurementStore } from '../../testing/procurement-store';
-import { RateLimitedError } from './client';
-import type { DiscoveryResult, SweepContext } from './discovery';
+import { RateLimitedError, UpstreamError } from './client';
+import { E_BIDDING_METHOD } from './constants';
+import type { AnnouncementFeed } from './announcement-feed';
+import { discoverProjects, type DiscoveryResult, type SweepContext } from './discovery';
 import type { AnnouncementRow } from './milestones';
 import { runIngestion, type IngestionDeps } from './pipeline';
 import type { ExtractedPdf } from './tor-package';
@@ -88,6 +90,7 @@ const sweepContext: SweepContext = {
   site: (call) => call(),
   cursor: {},
   tombstonedIds: async () => new Set(),
+  storedRecords: async () => [],
   today: '2026-09-09',
 };
 
@@ -1158,6 +1161,110 @@ describe('a record the model drops', () => {
 
     await run(repository, { discoverProjects: hardware().discoverProjects });
     expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+  });
+});
+
+describe('the project detail (ADR-0019)', () => {
+  /** Stored before the detail was read: its year is a guess from the announcement date. */
+  const old = (overrides: Partial<Procurement> = {}) =>
+    procurement({ budgetYear: 2570, detailCheckedAt: null, ...overrides });
+
+  test('a record stored before it is read gets its detail first, then is retrieved as usual', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(old());
+    const order: string[] = [];
+    const announcements = fakeAnnouncements({}, []);
+    announcements.projectDetail = async () => {
+      order.push('detail');
+      return SAMPLE_DETAIL;
+    };
+    announcements.timeline = async () => {
+      order.push('timeline');
+      return [];
+    };
+
+    await run(repository, { announcements });
+
+    expect(order).toEqual(['detail', 'timeline']);
+    expect(await repository.get('66059313551')).toMatchObject({
+      budgetYear: 2569,
+      typeId: '03',
+      goodsId: '4016',
+      deptSubName: SAMPLE_DETAIL.deptSubName,
+      detailCheckedAt: expect.any(String),
+      outcome: 'tor_analysed',
+    });
+  });
+
+  test('a record whose detail was read is not asked again', async () => {
+    const repository = new InMemoryProcurementStore();
+    const announcements = fakeAnnouncements({}, []);
+
+    await run(repository, { announcements });
+
+    expect(announcements.detailCalls).toEqual([]);
+  });
+
+  test('a detail that cannot be read is logged, and the record goes on with its old year', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(old({ state: 'Completed', outcome: 'tor_analysed' }));
+    const announcements = fakeAnnouncements({}, []);
+    announcements.projectDetail = async () => {
+      throw new UpstreamError('HTTP 500');
+    };
+
+    const result = await run(repository, { announcements });
+
+    expect(result.refreshed).toBe(1);
+    expect(result.failures).toEqual([
+      expect.objectContaining({ projectId: '66059313551', error: 'HTTP 500' }),
+    ]);
+    expect(await repository.get('66059313551')).toMatchObject({
+      budgetYear: 2570,
+      detailCheckedAt: null,
+      timelineCheckedAt: expect.any(String),
+    });
+  });
+
+  test('a refusal on the detail stops the Run and puts the record back without spending an attempt', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(old());
+    const announcements = fakeAnnouncements({}, []);
+    announcements.projectDetail = async () => {
+      throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
+    };
+
+    const result = await run(repository, { announcements });
+
+    expect(result.aborted).toBe(true);
+    expect(announcements.calls).toEqual([]);
+    expect(await repository.get('66059313551')).toMatchObject({ outcome: 'queued', attempts: 0 });
+  });
+
+  test('a refusal on a new project’s detail during discovery marks the Run aborted', async () => {
+    const repository = new InMemoryProcurementStore();
+    const item = {
+      projectId: '69109044981',
+      title: 'ประกวดราคาจ้างพัฒนาระบบ',
+      methodName: E_BIDDING_METHOD,
+      announcementName: 'ประกาศเชิญชวน',
+      announcedOn: null,
+    };
+    const feed: AnnouncementFeed = {
+      day: async () => ({ announced: 1, items: [item], withoutId: 0 }),
+    };
+    const announcements = fakeAnnouncements({}, []);
+    announcements.projectDetail = async () => {
+      throw new RateLimitedError('https://process5.gprocurement.go.th/…', 403);
+    };
+
+    const result = await run(repository, {
+      discoverProjects: (context) => discoverProjects(context, feed, announcements),
+      announcements,
+    });
+
+    expect(result).toMatchObject({ aborted: true, discoveryStopped: 'rate_limited', attempted: 0 });
+    expect(await repository.get('69109044981')).toBeUndefined();
   });
 });
 

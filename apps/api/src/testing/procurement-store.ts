@@ -44,6 +44,10 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     return this.records.get(projectId);
   }
 
+  async getMany(projectIds: string[]): Promise<Procurement[]> {
+    return projectIds.flatMap((id) => this.records.get(id) ?? []);
+  }
+
   async upsert(record: Procurement): Promise<Procurement> {
     const existing = this.records.get(record.projectId);
     if (!existing) {

@@ -262,6 +262,8 @@ export interface FindResult {
  */
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
+  /** The stored records among these project ids; ids with none are left out. */
+  getMany(projectIds: string[]): Promise<Procurement[]>;
   upsert(record: Procurement): Promise<Procurement>;
   /**
    * Replace a record with its tombstone: the record and everything read from it
@@ -753,6 +755,12 @@ export class ProcurementRepository
   async get(projectId: string): Promise<Procurement | undefined> {
     const document = await (await this.records()).findOne({ _id: projectId });
     return document ? toDomain(document) : undefined;
+  }
+
+  async getMany(projectIds: string[]): Promise<Procurement[]> {
+    if (projectIds.length === 0) return [];
+    const documents = await (await this.records()).find({ _id: { $in: projectIds } }).toArray();
+    return documents.map(toDomain);
   }
 
   async find(options: FindOptions): Promise<FindResult> {

@@ -1,6 +1,7 @@
 import type { IngestionFailure, Procurement } from '@torfun/types';
 import type { FeedCursor } from '../../repositories/procurement.repository';
 import { admit } from './admission';
+import { createAnnouncementClient, type AnnouncementClient } from './announcement-client';
 import { createAnnouncementFeed, type AnnouncementFeed, type FeedItem } from './announcement-feed';
 import { RateLimitedError } from './client';
 import {
@@ -12,6 +13,7 @@ import {
 } from './constants';
 import { convertDateToISO } from './dates';
 import { queuedRecord } from './feed-record';
+import { detailOf, readProjectDetail, type DetailFields } from './project-detail';
 
 /**
  * Stage 1 of the pipeline: e-GP's announcement feed, asked agency by agency and
@@ -20,9 +22,11 @@ import { queuedRecord } from './feed-record';
  * The feed answers for one agency, one announcement type and one day at a time,
  * so a sweep is a grid of those, and the cursor remembers, per agency and type,
  * the range of days already read in full. A sweep asks about the days after that
- * range (and today, still filling), then a share of the year before it. Every
- * request goes to gprocurement.go.th, the site the downloads use, so each is
- * made through the SiteGate like theirs (`site`).
+ * range (and today, still filling), then a share of the year before it. A
+ * project not stored yet has its detail read before it is kept, because the
+ * feed does not say which year's budget it spends (ADR-0019). Every request
+ * goes to gprocurement.go.th, the site the downloads use, so each is made
+ * through the SiteGate like theirs (`site`).
  */
 
 /** Which of these project ids have a tombstone. */
@@ -37,6 +41,8 @@ export interface SweepContext {
   /** The days already read in full, per agency and announcement type; see `cursorKey`. */
   cursor: FeedCursor;
   tombstonedIds: TombstoneLookup;
+  /** The records already stored for these project ids; their detail is not read again. */
+  storedRecords: (projectIds: string[]) => Promise<Procurement[]>;
   /** Today as a Bangkok calendar day, `YYYY-MM-DD`. */
   today: string;
 }
@@ -84,35 +90,32 @@ export function bangkokToday(nowMs: number = Date.now()): string {
   return new Date(nowMs + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-/**
- * The Thai fiscal year (Buddhist era) a day falls in; it starts on 1 October.
- * The feed does not say which year's budget a tender spends, so this is the
- * year it was announced in, which is what it almost always is.
- */
-export function fiscalYearOf(day: string): number {
-  const [year, month] = day.split('-').map(Number) as [number, number];
-  return year + 543 + (month >= 10 ? 1 : 0);
-}
-
 function now(): string {
   return new Date().toISOString();
 }
 
-function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurement {
-  const announcedOn = item.announcedOn ?? day;
-  return queuedRecord(
-    item.projectId,
-    {
-      projectName: item.title,
-      // The feed is asked per agency, so the agency is the one asked about.
-      deptName: agency.deptName,
-      deptCode: agency.deptId,
-      announceDate: convertDateToISO(announcedOn),
-      budgetYear: fiscalYearOf(announcedOn),
-      purchaseMethodName: item.methodName,
-    },
-    new Date(),
-  );
+function toRecord(
+  agency: Unit['agency'],
+  item: FeedItem,
+  day: string,
+  detail: DetailFields,
+): Procurement {
+  return {
+    ...queuedRecord(
+      item.projectId,
+      {
+        projectName: item.title,
+        // The feed is asked per agency, so the agency is the one asked about.
+        deptName: agency.deptName,
+        deptCode: agency.deptId,
+        announceDate: convertDateToISO(item.announcedOn ?? day),
+        budgetYear: detail.budgetYear,
+        purchaseMethodName: item.methodName,
+      },
+      new Date(),
+    ),
+    ...detail,
+  };
 }
 
 /**
@@ -125,13 +128,15 @@ function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurem
  *     A unit never read asks only about today here; history covers the rest.
  *  2. History: from the day before each unit's range back towards
  *     `FEED_HISTORY_DAYS` ago, newest first, until `FEED_BACKFILL_REQUESTS_PER_RUN`
- *     requests have been spent. The next sweep carries on where this one stopped.
+ *     requests (feed and detail alike) have been spent. The next sweep carries
+ *     on where this one stopped.
  *
  * Within a day every unit is asked before the next day, so a refusal leaves the
  * agencies at about the same place. A range only ever grows by a contiguous day:
  * a unit whose day failed stops moving in that direction this sweep, and the
- * next sweep asks that day again. Today is never added to a range, because it is
- * still filling.
+ * next sweep asks that day again. A day where a new project's detail could not
+ * be read counts as failed too, so that project is found again. Today is never
+ * added to a range, because it is still filling.
  *
  * Admission is the agency (the feed is asked per agency), the tender method and
  * the tombstone. The title is not consulted (ADR-0014).
@@ -139,6 +144,7 @@ function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurem
 export async function discoverProjects(
   context: SweepContext,
   feed: AnnouncementFeed = createAnnouncementFeed(),
+  announcements: AnnouncementClient = createAnnouncementClient(),
 ): Promise<DiscoveryResult> {
   const { today } = context;
   const yesterday = addDays(today, -1);
@@ -151,6 +157,12 @@ export async function discoverProjects(
   const tombstoned = new Set<string>();
   let truncated = 0;
   let rateLimited = false;
+  /** Requests made so far, so history can be held to its share. */
+  let requests = 0;
+  const site: SweepContext['site'] = (call) => {
+    requests += 1;
+    return context.site(call);
+  };
 
   const units: Unit[] = FEED_REGISTRY.flatMap((agency) =>
     FEED_ANNOUNCEMENT_TYPES.map((type) => ({ key: cursorKey(agency.deptId, type), agency, type })),
@@ -165,24 +177,38 @@ export async function discoverProjects(
   }
   const moved = new Set<string>();
 
+  const log = (projectId: string, projectName: string, error: string) =>
+    failures.push({ projectId, projectName, stage: 'discovery', kind: 'fault', error, at: now() });
   const fail = (unit: Unit, day: string, error: string) =>
-    failures.push({
-      projectId: '-',
-      projectName: `${unit.agency.deptName} / ${unit.type} / ${day}`,
-      stage: 'discovery',
-      kind: 'fault',
-      error,
-      at: now(),
-    });
+    log('-', `${unit.agency.deptName} / ${unit.type} / ${day}`, error);
+  const failWith = (unit: Unit, day: string, error: unknown) => {
+    fail(unit, day, error instanceof Error ? error.message : String(error));
+    if (error instanceof RateLimitedError) rateLimited = true;
+  };
+
+  /** A new project's detail, or null where it could not be read (logged). */
+  const readDetail = async (unit: Unit, day: string, item: FeedItem) => {
+    try {
+      const result = await site(() => readProjectDetail(announcements, item.projectId));
+      if ('fields' in result) return result.fields;
+      log(
+        item.projectId,
+        item.title,
+        `Not stored, and ${unit.type} / ${day} will be read again next Run: ${result.error}`,
+      );
+    } catch (error) {
+      failWith(unit, day, error);
+    }
+    return null;
+  };
 
   /** Ask the feed about one unit's day and admit what it lists. False where the day could not be read. */
   const read = async (unit: Unit, day: string): Promise<boolean> => {
     let answer;
     try {
-      answer = await context.site(() => feed.day(unit.agency.deptId, unit.type, day));
+      answer = await site(() => feed.day(unit.agency.deptId, unit.type, day));
     } catch (error) {
-      fail(unit, day, error instanceof Error ? error.message : String(error));
-      if (error instanceof RateLimitedError) rateLimited = true;
+      failWith(unit, day, error);
       return false;
     }
 
@@ -201,10 +227,15 @@ export async function discoverProjects(
     }
 
     const registry = new Set([unit.agency.deptName]);
-    const ruledOut =
-      answer.items.length > 0
-        ? await context.tombstonedIds(answer.items.map((item) => item.projectId))
-        : new Set<string>();
+    const ids = answer.items.map((item) => item.projectId);
+    const ruledOut = ids.length > 0 ? await context.tombstonedIds(ids) : new Set<string>();
+    const stored = new Map(
+      (ids.length > 0 ? await context.storedRecords(ids) : []).map((record) => [
+        record.projectId,
+        detailOf(record),
+      ]),
+    );
+    let complete = true;
 
     for (const item of answer.items) {
       const row = {
@@ -220,10 +251,18 @@ export async function discoverProjects(
           tombstoned.add(item.projectId);
           break;
         case 'admit': {
+          const seen = byProjectId.get(item.projectId);
+          const detail = seen
+            ? detailOf(seen.record)
+            : (stored.get(item.projectId) ?? (await readDetail(unit, day, item)));
+          if (detail === null) {
+            if (rateLimited) return false;
+            complete = false;
+            break;
+          }
+          const record = toRecord(unit.agency, item, day, detail);
           // Seen as both a draft and an invitation, the invitation dates it; seen
           // twice as the same type (a re-announcement), the newer one does.
-          const seen = byProjectId.get(item.projectId);
-          const record = toRecord(unit.agency, item, day);
           if (
             !seen ||
             (unit.type === 'D0' && seen.type === 'B0') ||
@@ -239,7 +278,7 @@ export async function discoverProjects(
           break;
       }
     }
-    return true;
+    return complete;
   };
 
   // 1. New days, oldest first.
@@ -272,12 +311,13 @@ export async function discoverProjects(
     return range ? addDays(range.from, -1) : yesterday;
   };
   const stalledOld = new Set<string>();
-  let spent = 0;
+  const historyStart = requests;
   history: for (let day = yesterday; day >= oldest && !rateLimited; day = addDays(day, -1)) {
     for (const unit of units) {
       if (stalledOld.has(unit.key) || day !== nextOld(unit)) continue;
-      if (spent >= FEED_BACKFILL_REQUESTS_PER_RUN) break history;
-      spent += 1;
+      // Checked before each day, not each request: a day begun is finished, so
+      // its new projects can take the share a little past the limit.
+      if (requests - historyStart >= FEED_BACKFILL_REQUESTS_PER_RUN) break history;
       const ok = await read(unit, day);
       if (rateLimited) break history;
       if (!ok) {
