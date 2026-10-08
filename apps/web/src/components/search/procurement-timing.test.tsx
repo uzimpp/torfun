@@ -12,7 +12,8 @@ const row = (
   ({
     projectId: 'test-tor',
     status,
-    analysis: { deadlineAt },
+    deadlineAt,
+    deadlineSource: deadlineAt ? 'tor' : null,
     winner,
     announceDate: '2026-10-01',
   }) as Procurement;

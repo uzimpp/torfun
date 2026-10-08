@@ -12,7 +12,7 @@ const dateFormat = new Intl.DateTimeFormat('th-TH', {
 const formatDate = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z`));
 
 export function ProcurementTiming({ item, today }: { item: Procurement; today: string }) {
-  const deadline = procurementDay(item.analysis?.deadlineAt);
+  const deadline = procurementDay(item.deadlineAt);
   const remaining = deadline ? daysUntil(deadline, today) : null;
   const invitation = item.status === 'open' && item.winner === null;
   const upcoming = invitation && remaining !== null && remaining >= 0;
@@ -63,7 +63,7 @@ export function ProcurementTiming({ item, today }: { item: Procurement; today: s
         <span>
           {deadline ? `กำหนดส่งตาม TOR ${formatDate(deadline)}` : 'ยังไม่ทราบวันปิดรับข้อเสนอ'}
         </span>
-        {deadline && (
+        {deadline && item.deadlineSource === 'tor' && (
           <span>
             วันที่สกัดโดย AI ·{' '}
             <Link
