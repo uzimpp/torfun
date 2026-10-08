@@ -23,13 +23,13 @@ export class TorService {
 
   /**
    * An officer's query is narrowed to analysed TORs here, after whatever they
-   * sent, so no `outcome` in the request can widen it back out.
+   * sent, so no `outcome` in the request can widen it back out. Search shows
+   * the tenders with the most days left first.
    */
   async list(options: FindOptions, audience: Audience): Promise<FindResult> {
-    const filters = resolveProcurementListOptions(
-      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME },
-      this.now(),
-    );
+    const narrowed =
+      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME };
+    const filters = resolveProcurementListOptions({ ...narrowed, order: 'daysLeft' }, this.now());
     if (!filters) return { items: [], total: 0 };
     const { items, total } = await this.procurements.find(filters);
     return { items: items.map((item) => presentTo(audience, item)), total };

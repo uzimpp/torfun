@@ -512,9 +512,8 @@ export const ProcurementListQuerySchema = z
     publishedTo: CalendarDate.optional(),
     deadlineFrom: CalendarDate.optional(),
     deadlineTo: CalendarDate.optional(),
-    /** Relative to today's calendar day in Asia/Bangkok; only unawarded invitations. */
-    deadlineDays: z.coerce.number().int().min(0).max(365).optional(),
-    deadlineMode: z.enum(['within', 'exact']).optional(),
+    /** Open tenders with at least this many days left, counted in Thai calendar days. */
+    minDaysLeft: z.coerce.number().int().min(0).max(365).optional(),
     techStack: QueryList(z.string().trim().min(1).max(100)).optional(),
     targetPlatforms: QueryList(TargetPlatform).optional(),
     /** Keyword matched against existing project and agency names, not a classification. */
@@ -529,18 +528,11 @@ export const ProcurementListQuerySchema = z
       [query.deadlineFrom, query.deadlineTo, 'deadlineTo'],
     ];
 
-    if (query.deadlineDays !== undefined && (query.deadlineFrom || query.deadlineTo)) {
+    if (query.minDaysLeft !== undefined && (query.deadlineFrom || query.deadlineTo)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['deadlineDays'],
-        message: 'Choose a relative deadline or a calendar date range, not both',
-      });
-    }
-    if (query.deadlineMode && query.deadlineDays === undefined) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['deadlineMode'],
-        message: 'Deadline mode requires a day count',
+        path: ['minDaysLeft'],
+        message: 'Choose days left or a calendar date range, not both',
       });
     }
 

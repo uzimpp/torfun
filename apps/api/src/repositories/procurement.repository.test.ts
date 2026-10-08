@@ -11,7 +11,7 @@ import type {
   Tombstone,
 } from '@torfun/types';
 import { TorService } from '../services/tor.service';
-import { ProcurementRepository } from './procurement.repository';
+import { ProcurementRepository, type FindOptions } from './procurement.repository';
 
 /**
  * Runs against a real MongoDB, because what these tests are for is the query
@@ -465,9 +465,14 @@ describeMongo('ProcurementRepository', () => {
     ).toEqual(['middle']);
   });
 
-  test('upcoming deadline windows include today and exclude past, unknown, closed and awarded records', async () => {
+  test('days left keeps open tenders at least N Thai days away, most days left first', async () => {
     const row = (id: string, deadlineAt: string | null, overrides: Partial<Procurement> = {}) =>
-      procurement({ projectId: id, analysis: analysis({ deadlineAt }), ...overrides });
+      procurement({
+        projectId: id,
+        deadlineAt,
+        deadlineSource: deadlineAt ? 'tor' : null,
+        ...overrides,
+      });
     await Promise.all(
       [
         row('today', '2026-10-05'),
@@ -484,39 +489,32 @@ describeMongo('ProcurementRepository', () => {
     );
     // UTC is still Oct 4; Thai officers have already reached Oct 5.
     const service = new TorService(repository, undefined, () => new Date('2026-10-04T18:00:00Z'));
-    const within = await service.list({ limit: 20, offset: 0, deadlineDays: 3 }, 'admin');
-    expect(within.items.map((item) => item.projectId).sort()).toEqual([
-      'three',
-      'today',
-      'tomorrow',
-    ]);
-    expect(within.total).toBe(3);
-    const exact = await service.list(
-      {
-        limit: 20,
-        offset: 0,
-        deadlineDays: 3,
-        deadlineMode: 'exact',
-      },
-      'admin',
-    );
-    expect(exact.items.map((item) => item.projectId)).toEqual(['three']);
-    const today = await service.list({ limit: 20, offset: 0, deadlineDays: 0 }, 'admin');
-    expect(today.items.map((item) => item.projectId)).toEqual(['today']);
-    const page = await service.list({ limit: 1, offset: 1, deadlineDays: 3 }, 'admin');
-    expect(page.total).toBe(3);
-    expect(page.items).toHaveLength(1);
-    expect(
-      (await service.list({ limit: 20, offset: 0, deadlineDays: 3, status: 'drafting' }, 'admin'))
-        .total,
-    ).toBe(0);
+    const ids = async (query: Partial<FindOptions>) =>
+      (await service.list({ limit: 20, offset: 0, ...query }, 'admin')).items.map(
+        (item) => item.projectId,
+      );
+
+    expect(await ids({ minDaysLeft: 3 })).toEqual(['later', 'three']);
+    expect(await ids({ minDaysLeft: 0 })).toEqual(['later', 'three', 'tomorrow', 'today']);
+    expect(await ids({ minDaysLeft: 3, status: 'drafting' })).toEqual([]);
+    const page = await service.list({ limit: 1, offset: 1, minDaysLeft: 0 }, 'admin');
+    expect(page.total).toBe(4);
+    expect(page.items.map((item) => item.projectId)).toEqual(['three']);
+    // With no filter: most days left, then open with no readable deadline,
+    // drafts, the past deadline, and closed projects last.
+    const all = await ids({});
+    expect(all.slice(0, 4)).toEqual(['later', 'three', 'tomorrow', 'today']);
+    expect(all.slice(4, 6).sort()).toEqual(['missing', 'unknown']);
+    expect(all.slice(6, 8)).toEqual(['draft', 'past']);
+    expect(all.slice(8).sort()).toEqual(['awarded', 'cancelled']);
   });
 
   test('deadline calendar filters include offset timestamps on the correct Thai day', async () => {
     await repository.upsert(
       procurement({
         projectId: 'thai-day',
-        analysis: analysis({ deadlineAt: '2026-10-07T18:00:00Z' }),
+        deadlineAt: '2026-10-07T18:00:00Z',
+        deadlineSource: 'tor',
       }),
     );
     const result = await repository.find({

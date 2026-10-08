@@ -220,8 +220,8 @@ export interface FindOptions {
   publishedTo?: string;
   deadlineFrom?: string;
   deadlineTo?: string;
-  deadlineDays?: number;
-  deadlineMode?: 'within' | 'exact';
+  /** Open tenders whose deadline is at least this many days away (Thai calendar). */
+  minDaysLeft?: number;
   /** Every term must occur in at least one entry of analysis.techStack. */
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
@@ -232,9 +232,14 @@ export interface FindOptions {
    * `announced` (the default): newest announcement first. `urgency`: a tender
    * still `open` first, nearest deadline first and undated after; then
    * `unknown`; then drafting, evaluating and cancelled; awarded and contracted
-   * last. Within a rank, newest announcement first.
+   * last. Within a rank, newest announcement first. `daysLeft`: open tenders
+   * with the most days left first (needs `today`), then open with no deadline,
+   * drafting, unknown, past deadlines and evaluating, and awarded, contracted
+   * or cancelled last.
    */
-  order?: 'announced' | 'urgency';
+  order?: 'announced' | 'urgency' | 'daysLeft';
+  /** Today in Thailand, `YYYY-MM-DD`. The `daysLeft` order counts from it. */
+  today?: string;
   limit: number;
   offset: number;
 }
@@ -807,15 +812,21 @@ export class ProcurementRepository
     if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
-    if (options.order === 'urgency') {
+    const ranked =
+      options.order === 'urgency'
+        ? { stages: URGENCY_ORDER, fields: URGENCY_FIELDS }
+        : options.order === 'daysLeft' && options.today
+          ? { stages: daysLeftOrder(options.today), fields: DAYS_LEFT_FIELDS }
+          : null;
+    if (ranked) {
       const [items, total] = await Promise.all([
         collection
           .aggregate<ProcurementDocument>([
             { $match: filter },
-            ...URGENCY_ORDER,
+            ...ranked.stages,
             { $skip: options.offset },
             { $limit: options.limit },
-            { $unset: URGENCY_FIELDS },
+            { $unset: ranked.fields },
           ])
           .toArray(),
         collection.countDocuments(filter),
@@ -1049,13 +1060,65 @@ export class ProcurementRepository
 
 const URGENCY_FIELDS = ['urgency_rank', 'urgency_undated', 'urgency_deadline'];
 
-/** Stored status values, legacy spellings included (see `LEGACY_STATUSES`), by urgency rank. */
+/** The statuses as stored, old spellings included (see `LEGACY_STATUSES`). */
+function storedStatuses(...statuses: ProcurementStatus[]): string[] {
+  const legacy = Object.keys(LEGACY_STATUSES).filter((old) =>
+    statuses.includes(LEGACY_STATUSES[old]!),
+  );
+  return [...statuses, ...legacy];
+}
+
+const OPEN = storedStatuses('open');
+const DRAFTING = storedStatuses('drafting');
+const CLOSED = storedStatuses('awarded', 'contracted', 'cancelled');
+
+/** Stored status values by urgency rank. */
 const URGENCY_RANKS: [number, string[]][] = [
-  [0, ['open', 'invitation']],
-  [1, ['unknown']],
-  [2, ['drafting', 'evaluating', 'cancelled', 'drafting_tor', 'requisition']],
-  [3, ['awarded', 'contracted', 'award_announced']],
+  [0, OPEN],
+  [1, storedStatuses('unknown')],
+  [2, storedStatuses('drafting', 'evaluating', 'cancelled')],
+  [3, storedStatuses('awarded', 'contracted')],
 ];
+
+const DAYS_LEFT_FIELDS = ['days_left_rank', 'days_left_day'];
+
+/** Most days left first. `today` and the deadline are both Thai calendar days. */
+function daysLeftOrder(today: string) {
+  const isOpen = { $in: ['$status', OPEN] };
+  return [
+    {
+      $addFields: {
+        days_left_day: {
+          $dateToString: {
+            date: { $dateFromString: { dateString: '$deadline_at', onError: null, onNull: null } },
+            format: '%Y-%m-%d',
+            timezone: 'Asia/Bangkok',
+            onNull: null,
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        days_left_rank: {
+          $switch: {
+            branches: [
+              // A null day compares below any date, so it never counts as upcoming.
+              { case: { $and: [isOpen, { $gte: ['$days_left_day', today] }] }, then: 0 },
+              { case: { $and: [isOpen, { $eq: ['$days_left_day', null] }] }, then: 1 },
+              { case: { $in: ['$status', DRAFTING] }, then: 2 },
+              { case: { $eq: ['$status', 'unknown'] }, then: 3 },
+              { case: { $in: ['$status', CLOSED] }, then: 5 },
+            ],
+            // Open with a past deadline, and evaluating.
+            default: 4,
+          },
+        },
+      },
+    },
+    { $sort: { days_left_rank: 1, days_left_day: -1, announce_date: -1, _id: 1 } },
+  ];
+}
 
 const URGENCY_ORDER = [
   {

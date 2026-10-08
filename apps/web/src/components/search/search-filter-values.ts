@@ -4,8 +4,7 @@ export interface SearchFilterValues {
   query: string;
   status: ProcurementStatus | '';
   eBidding: '' | 'true' | 'false';
-  deadlineDays: string;
-  deadlineMode: 'within' | 'exact';
+  minDaysLeft: string;
   deptName: string;
   year: string;
   outcome: '' | 'tor_analysed';
@@ -24,8 +23,7 @@ export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
   query: '',
   status: '',
   eBidding: '',
-  deadlineDays: '',
-  deadlineMode: 'within',
+  minDaysLeft: '',
   deptName: '',
   year: '',
   outcome: '',
@@ -64,8 +62,7 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
         : first(params.eBidding) === 'false'
           ? 'false'
           : '',
-    deadlineDays: first(params.deadlineDays),
-    deadlineMode: first(params.deadlineMode) === 'exact' ? 'exact' : 'within',
+    minDaysLeft: first(params.minDaysLeft),
     deptName: first(params.deptName),
     year: first(params.year),
     outcome: first(params.outcome) === 'tor_analysed' ? 'tor_analysed' : '',
@@ -95,7 +92,7 @@ export function activeFilterCount(values: SearchFilterValues): number {
     values.outcome,
     values.minBudget || values.maxBudget,
     values.publishedFrom || values.publishedTo,
-    values.deadlineDays || values.deadlineFrom || values.deadlineTo,
+    values.minDaysLeft || values.deadlineFrom || values.deadlineTo,
     values.techStack,
     values.targetPlatforms.length > 0,
     values.industry,
@@ -125,18 +122,16 @@ export function toProjectFilters(
     ...(values.deptName ? { deptName: values.deptName } : {}),
     ...(values.year ? { year: Number(values.year) } : {}),
     ...(values.outcome ? { outcome: values.outcome } : {}),
-    ...(values.deadlineDays !== ''
-      ? { deadlineDays: Number(values.deadlineDays), deadlineMode: values.deadlineMode }
-      : {}),
+    ...(values.minDaysLeft !== '' ? { minDaysLeft: Number(values.minDaysLeft) } : {}),
     ...(values.query ? { q: values.query } : {}),
     ...(values.minBudget ? { minBudget: number(values.minBudget) } : {}),
     ...(values.maxBudget ? { maxBudget: number(values.maxBudget) } : {}),
     ...(values.publishedFrom ? { publishedFrom: values.publishedFrom } : {}),
     ...(values.publishedTo ? { publishedTo: values.publishedTo } : {}),
-    ...(values.deadlineDays === '' && values.deadlineFrom
+    ...(values.minDaysLeft === '' && values.deadlineFrom
       ? { deadlineFrom: values.deadlineFrom }
       : {}),
-    ...(values.deadlineDays === '' && values.deadlineTo ? { deadlineTo: values.deadlineTo } : {}),
+    ...(values.minDaysLeft === '' && values.deadlineTo ? { deadlineTo: values.deadlineTo } : {}),
     ...(terms.length > 0 ? { techStack: terms } : {}),
     ...(values.targetPlatforms.length > 0 ? { targetPlatforms: values.targetPlatforms } : {}),
     ...(values.industry ? { industry: values.industry } : {}),
@@ -150,18 +145,15 @@ export function searchHref(values: SearchFilterValues, page = 1): string {
   if (values.deptName) params.set('deptName', values.deptName);
   if (values.year) params.set('year', values.year);
   if (values.outcome) params.set('outcome', values.outcome);
-  if (values.deadlineDays !== '') {
-    params.set('deadlineDays', values.deadlineDays);
-    params.set('deadlineMode', values.deadlineMode);
-  }
+  if (values.minDaysLeft !== '') params.set('minDaysLeft', values.minDaysLeft);
   if (values.query) params.set('q', values.query);
   if (values.minBudget) params.set('minBudget', values.minBudget);
   if (values.maxBudget) params.set('maxBudget', values.maxBudget);
   if (values.publishedFrom) params.set('publishedFrom', values.publishedFrom);
   if (values.publishedTo) params.set('publishedTo', values.publishedTo);
-  if (values.deadlineDays === '' && values.deadlineFrom)
+  if (values.minDaysLeft === '' && values.deadlineFrom)
     params.set('deadlineFrom', values.deadlineFrom);
-  if (values.deadlineDays === '' && values.deadlineTo) params.set('deadlineTo', values.deadlineTo);
+  if (values.minDaysLeft === '' && values.deadlineTo) params.set('deadlineTo', values.deadlineTo);
   if (values.techStack) params.set('techStack', values.techStack);
   if (values.targetPlatforms.length > 0) {
     params.set('targetPlatforms', values.targetPlatforms.join(','));
@@ -211,8 +203,7 @@ export function withoutSearchFilter(
         ...values,
         deadlineFrom: '',
         deadlineTo: '',
-        deadlineDays: '',
-        deadlineMode: 'within',
+        minDaysLeft: '',
       };
     case 'techStack':
       return { ...values, techStack: '' };
