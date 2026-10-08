@@ -1,13 +1,17 @@
-import { FileSearch, ArrowUpRight } from 'lucide-react';
-import Link from 'next/link';
+import { FileSearch } from 'lucide-react';
+import { AdminDashboard } from '@/components/admin-dashboard/admin-dashboard';
 import { requireCompany } from '@/lib/auth';
-import { buttonVariants } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+
 export default async function DashboardPage() {
   // `requireCompany`, not `requireUser`: an officer with no Company is sent to
   // the page that records one, because everything here compares tenders against
   // a record they do not have yet. Administrators are exempt and stay null.
   const user = await requireCompany();
+
+  // Administrators run the ingestion pipeline rather than search its output, so
+  // the workspace they land on is the operations overview, not the officer's.
+  if (user.role === 'admin') return <AdminDashboard />;
+
   return (
     <main className="page-fill mx-auto w-full max-w-6xl px-5 py-10 sm:px-10">
       <p className="text-primary text-sm font-medium">พื้นที่ทำงาน / แดชบอร์ด</p>
@@ -27,14 +31,6 @@ export default async function DashboardPage() {
           เริ่มต้นจากเมนูด้านข้างเพื่อใช้งานส่วนที่พร้อมให้บริการ การค้นหา TOR และ TOR
           ของฉันกำลังอยู่ระหว่างการพัฒนา
         </p>
-        {user.role === 'admin' && (
-          <Link
-            href="/admin/ingestion"
-            className={cn(buttonVariants({ variant: 'outline' }), 'mt-6 min-h-12 px-5')}
-          >
-            ติดตามการดึงข้อมูล TOR <ArrowUpRight aria-hidden="true" />
-          </Link>
-        )}
       </section>
     </main>
   );

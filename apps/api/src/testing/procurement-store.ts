@@ -140,4 +140,10 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       runInProgress: false,
     };
   }
+
+  async recent(limit: number): Promise<Procurement[]> {
+    return [...this.records.values()]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.projectId.localeCompare(b.projectId))
+      .slice(0, limit);
+  }
 }

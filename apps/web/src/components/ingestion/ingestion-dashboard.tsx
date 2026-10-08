@@ -9,7 +9,9 @@ import { cn } from '@/lib/utils';
 import { FailureLog } from './failure-log';
 import { FilterBar } from './filter-bar';
 import { ProjectTable } from './project-table';
+import { runBanner } from './status-tracking';
 import { SummaryCards } from './summary-cards';
+import { useNow } from './use-now';
 import {
   EMPTY_FILTERS,
   PAGE_SIZE,
@@ -18,19 +20,10 @@ import {
 } from './use-ingestion-data';
 
 /**
- * A quiet line under the heading that answers "is anything happening right
- * now?" — a pulsing dot while a run is in flight, otherwise when the last one
- * finished. The polling that keeps `running` current already lives in the hook.
+ * A quiet line under the heading: when the last run finished. While a run is in
+ * flight the banner below says so, in more detail, so this stays out of its way.
  */
-function RunStatus({ running, lastRunAt }: { running: boolean; lastRunAt: string | null }) {
-  if (running) {
-    return (
-      <span className="text-primary inline-flex items-center gap-2 text-sm font-medium">
-        <span className="bg-primary size-2 animate-pulse rounded-full" aria-hidden="true" />
-        กำลังดึงข้อมูลอยู่
-      </span>
-    );
-  }
+function RunStatus({ lastRunAt }: { lastRunAt: string | null }) {
   return (
     <span className="text-muted-foreground inline-flex items-center gap-2 text-sm">
       <span className="bg-muted-foreground/40 size-2 rounded-full" aria-hidden="true" />
@@ -38,6 +31,30 @@ function RunStatus({ running, lastRunAt }: { running: boolean; lastRunAt: string
         ? `รอบล่าสุด ${new Date(lastRunAt).toLocaleString('th-TH')}`
         : 'ยังไม่เคยเริ่มรอบดึงข้อมูล'}
     </span>
+  );
+}
+
+/**
+ * Shown only while a run is in flight: which stage the work is in and how much
+ * is left. A polite live region, so a screen reader hears the change without
+ * being interrupted, and the dot pulses only for people who allow motion.
+ */
+function RunBanner({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div
+      role="status"
+      aria-label={title}
+      className="border-primary/30 bg-primary/5 flex items-center gap-3 rounded-xl border px-4 py-3"
+    >
+      <span
+        className="bg-primary size-2.5 shrink-0 rounded-full motion-safe:animate-pulse"
+        aria-hidden="true"
+      />
+      <div className="flex flex-col">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-muted-foreground text-xs">{detail}</p>
+      </div>
+    </div>
   );
 }
 
@@ -75,6 +92,10 @@ export function IngestionDashboard() {
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // Moves while the console is open, so "in this stage for N minutes" keeps counting.
+  const now = useNow(30_000);
+  const banner = summary ? runBanner(summary) : null;
+
   return (
     <main className="page-fill mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-10">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -83,12 +104,14 @@ export function IngestionDashboard() {
           <p className="text-muted-foreground text-sm">
             ติดตามสถานะการประมวลผลของประกาศจัดซื้อจัดจ้างที่ดึงจากระบบ e-GP
           </p>
-          <RunStatus running={running} lastRunAt={summary?.lastRunAt ?? null} />
+          {banner ? null : <RunStatus lastRunAt={summary?.lastRunAt ?? null} />}
         </div>
         <Button onClick={() => void startRun()} disabled={running}>
           {running ? 'กำลังดึงข้อมูล…' : 'เริ่มรอบดึงข้อมูล'}
         </Button>
       </header>
+
+      {banner ? <RunBanner title={banner.title} detail={banner.detail} /> : null}
 
       {error ? (
         <Card className="border-destructive/50" role="alert">
@@ -121,7 +144,13 @@ export function IngestionDashboard() {
         years={(summary?.byYear ?? []).map((entry) => entry.year)}
       />
 
-      <ProjectTable projects={projects} total={total} loading={loading} />
+      <ProjectTable
+        projects={projects}
+        total={total}
+        loading={loading}
+        now={now}
+        onClearFilters={() => applyFilters(EMPTY_FILTERS)}
+      />
 
       <div className="flex items-center justify-between">
         <p className="text-muted-foreground text-sm">

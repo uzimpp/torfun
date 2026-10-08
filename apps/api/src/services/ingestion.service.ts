@@ -73,6 +73,11 @@ export class IngestionService {
     return record;
   }
 
+  /** Admin-only, so it takes no audience: nothing here is filtered by role. */
+  recent(limit: number): Promise<Procurement[]> {
+    return this.repository.recent(limit);
+  }
+
   failures(): Promise<IngestionFailure[]> {
     return this.repository.listFailures();
   }
