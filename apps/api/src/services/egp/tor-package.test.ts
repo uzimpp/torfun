@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { unzipSync, zipSync } from 'fflate';
 import { extractTorPdfs } from './tor-package';
 
 /** A zip of the given member names, each holding a few bytes. */
-const zip = (names: string[]) => () =>
-  Object.fromEntries(names.map((name) => [name, new Uint8Array([0x25, 0x50, 0x44, 0x46])]));
-const extract = (names: string[]) => extractTorPdfs(new Uint8Array(), zip(names));
+const zip = (names: string[]) =>
+  zipSync(
+    Object.fromEntries(names.map((name) => [name, new Uint8Array([0x25, 0x50, 0x44, 0x46])])),
+  );
+const extract = (names: string[]) => extractTorPdfs(zip(names));
 
 /** What every archive carries, whether or not it has a TOR — seen in six real ones. */
 const BOILERPLATE = [
@@ -79,5 +82,33 @@ describe('extractTorPdfs', () => {
 
   test('every member name is returned, so an administrator can see what was there', () => {
     expect(extract([...BOILERPLATE, 'sit.pdf']).members).toHaveLength(BOILERPLATE.length + 1);
+  });
+});
+
+describe('extractTorPdfs on a real archive', () => {
+  /** A zip whose `name` entry has had its compressed bytes ruined, so inflating it throws. */
+  function withRuinedEntry(files: Record<string, Uint8Array>, name: string): Uint8Array {
+    const archive = zipSync(files);
+    const nameAt = Buffer.from(archive).indexOf(Buffer.from(name));
+    const view = new DataView(archive.buffer, archive.byteOffset);
+    const dataAt = nameAt + view.getUint16(nameAt - 4, true) + view.getUint16(nameAt - 2, true);
+    archive.fill(0xff, dataAt, dataAt + 16);
+    return archive;
+  }
+
+  test('only the members it will use are inflated; the rest are listed, not read', () => {
+    const tor = new Uint8Array(2000).fill(0x41);
+    const archive = withRuinedEntry(
+      { 'Attach_TOR_1.pdf': tor, 'bulk_data.bin': new Uint8Array(5000).fill(0x42) },
+      'bulk_data.bin',
+    );
+    expect(() => unzipSync(archive)).toThrow();
+
+    const { torFiles, members } = extractTorPdfs(archive);
+
+    expect(members).toEqual(['Attach_TOR_1.pdf', 'bulk_data.bin']);
+    expect(torFiles.map((file) => [file.filename, file.bytes])).toEqual([
+      ['Attach_TOR_1.pdf', 2000],
+    ]);
   });
 });

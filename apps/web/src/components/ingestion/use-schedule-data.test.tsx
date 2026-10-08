@@ -13,8 +13,19 @@ vi.mock('@/lib/api-schedule', () => ({
 const api = await import('@/lib/api-schedule');
 const mocked = vi.mocked(api);
 
-const off: ScheduleView = { ...DEFAULT_SCHEDULE, lastRunAt: null, nextRunAt: null };
-const values = { enabled: true, mode: 'daily', timeOfDay: '02:00', everyHours: 24 } as const;
+const off: ScheduleView = {
+  ...DEFAULT_SCHEDULE,
+  lastRunAt: null,
+  nextRunAt: null,
+  upcomingRunAts: [],
+};
+const values = {
+  enabled: true,
+  mode: 'weekly' as const,
+  timeOfDay: '02:00',
+  weekdays: [0, 1, 2, 3, 4, 5, 6],
+  everyHours: 24,
+};
 const on: ScheduleView = {
   ...off,
   ...values,

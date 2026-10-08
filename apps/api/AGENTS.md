@@ -85,6 +85,24 @@ Three behaviours in `pipeline.ts` are load-bearing:
   admin-visible log.
 - **Path-traversal members in an archive are surfaced, never dropped.**
 
+Several records can be worked on at once (`EGP_RUNNERS`, default 2), but the
+upstream site is reached through one gate (`services/egp/site-gate.ts`): one
+request in flight across all runners, a pause after each, and a refusal latches it
+so every runner stops. Only the model's reading of a TOR overlaps. Do not call the
+site from anywhere that bypasses the gate.
+
+What the model's verdict may do is decided in `services/egp/decision.ts`: only a
+confident, whole-document answer shows a record to officers or drops it (leaving a
+tombstone); everything else is held (`needs_review`) for an administrator.
+
+An administrator's overrides (approve a held record, mark non-software, delete with
+or without a tombstone, remove or restore a tombstone) live in
+`services/procurement-admin.service.ts`, not in `IngestionService`, and sit outside
+the audience rule. Restoring is a Run like any other, asked for through
+`startRun({ onlyProject, forceDiscovery, beforeRun })`: it sweeps (the record and
+its feed fields are gone) but retrieves that one project, and the tombstone is
+lifted in `beforeRun`, once the lease is held.
+
 All `/api/ingestion/*` routes are admin-only, enforced once for the plugin scope.
 
 ## Conventions

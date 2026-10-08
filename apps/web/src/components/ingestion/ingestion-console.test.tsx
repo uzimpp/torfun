@@ -20,7 +20,6 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     province: null,
     district: null,
     subdistrict: null,
-    registryName: 'กรุงเทพมหานคร',
     deptCode: '3100001',
     year: 2568,
     announceDate: null,
@@ -30,31 +29,24 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     priceBuild: null,
     status: 'unknown',
     statusSource: null,
-    upstreamStatus: null,
-    matchedKeywords: [],
-    softwareClass: 'new_build',
-    softwareScore: 1,
-    eBidding: true,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
+    holdReason: null,
+    approvedBy: null,
+    approvedAt: null,
     statusHistory: [
       { state: 'Queued', outcome: 'queued', at: minutesAgo(600) },
       { state: 'Processing', outcome: 'downloading', at: minutesAgo(30) },
       { state: 'Completed', outcome: 'tor_analysed', at: minutesAgo(10) },
     ],
     zipId: null,
-    zipBytes: null,
-    archiveMemberCount: null,
-    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
     torAmbiguous: false,
     discoveredAt: minutesAgo(700),
     sourceHash: null,
-    lastSeenAt: null,
-    changedAt: null,
     updatedAt: minutesAgo(10),
     ...overrides,
   };
@@ -71,6 +63,7 @@ const renderTable = (
       loading={extra.loading ?? false}
       now={NOW}
       onClearFilters={extra.onClearFilters ?? (() => {})}
+      onChanged={() => {}}
     />,
   );
 
@@ -79,9 +72,9 @@ describe('ProjectTable columns', () => {
     renderTable([record()]);
 
     const headers = screen.getAllByRole('columnheader').map((header) => header.textContent);
-    expect(headers).toContain('สถานะการประมวลผล');
+    expect(headers).toContain('การประมวลผล');
     expect(headers).toContain('ผลการประมวลผล');
-    expect(headers).toContain('สถานะโครงการ');
+    expect(headers).toContain('สถานะ');
   });
 
   test('shows each value in Thai, with no English enum name anywhere in the row', () => {
@@ -181,7 +174,7 @@ describe('ProjectTable history', () => {
   test('a row opens on its title button and reports that with aria-expanded', () => {
     renderTable([record()]);
 
-    const toggle = screen.getByRole('button', { name: /ประกวดราคาจ้างพัฒนาระบบสารสนเทศ/ });
+    const toggle = screen.getByRole('button', { name: 'แสดงรายละเอียด' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -201,7 +194,7 @@ describe('ProjectTable history', () => {
       }),
     ]);
 
-    fireEvent.click(screen.getByRole('button', { name: /ประกวดราคาจ้างพัฒนาระบบสารสนเทศ/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'แสดงรายละเอียด' }));
 
     const timeline = screen.getByRole('list', { name: 'ประวัติสถานะ' });
     const entries = within(timeline).getAllByRole('listitem');
@@ -251,9 +244,7 @@ describe('FilterBar', () => {
 
     const outcome = screen.getByLabelText('ผลการประมวลผล');
     expect(within(outcome).getByRole('option', { name: 'กำลังประมวลผล' })).toBeInTheDocument();
-    expect(
-      within(outcome).getByRole('option', { name: 'AI: ไม่ใช่งานซอฟต์แวร์' }),
-    ).toBeInTheDocument();
+    expect(within(outcome).getByRole('option', { name: 'รอผู้ดูแลตรวจสอบ' })).toBeInTheDocument();
     const state = screen.getByLabelText('สถานะการประมวลผล');
     expect(within(state).getByRole('option', { name: 'รอคิว' })).toBeInTheDocument();
     expect(within(state).queryByRole('option', { name: 'Queued' })).not.toBeInTheDocument();
@@ -293,6 +284,8 @@ describe('SummaryCards', () => {
     lastRunAt: null,
     openDataQuota: null,
     runInProgress: false,
+    runStartedAt: null,
+    stopRequested: false,
     agencies: [],
   };
 

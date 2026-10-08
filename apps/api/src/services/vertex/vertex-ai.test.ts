@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { Type } from '@google/genai';
 import { ModelStatus } from './classify-document';
 import { ANSWER_SCHEMA, contentParts, textFromResponse } from './vertex-ai';
 
@@ -14,6 +15,17 @@ describe('ANSWER_SCHEMA', () => {
     expect(field?.enum).toEqual([...ModelStatus.options]);
     expect(field?.nullable).toBe(true);
     expect(ANSWER_SCHEMA.required).toContain('procurementStatus');
+  });
+
+  test('asks for the software judgement as three required fields of the analysis', () => {
+    const analysis = ANSWER_SCHEMA.properties?.analysis;
+
+    expect(analysis?.properties?.isSoftware?.type).toBe(Type.BOOLEAN);
+    expect(analysis?.properties?.confidence?.enum).toEqual(['high', 'low']);
+    expect(analysis?.properties?.reason?.type).toBe(Type.STRING);
+    expect(analysis?.required).toEqual(
+      expect.arrayContaining(['isSoftware', 'confidence', 'reason']),
+    );
   });
 });
 

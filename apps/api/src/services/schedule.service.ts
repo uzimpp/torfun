@@ -1,6 +1,9 @@
 import type { ScheduleUpdate, ScheduleView } from '@torfun/types';
 import type { ScheduleStore } from '../repositories/schedule.repository';
-import { nextDueAt } from './schedule';
+import { nextDueAt, upcomingRuns } from './schedule';
+
+/** How many coming runs the view lists. */
+const UPCOMING_RUNS = 3;
 
 /**
  * The Schedule an administrator reads and sets: the setting, plus what it
@@ -22,6 +25,7 @@ export class ScheduleService {
       ...schedule,
       lastRunAt: lastRunStartedAt,
       nextRunAt: nextDueAt(schedule, lastRunStartedAt),
+      upcomingRunAts: upcomingRuns(schedule, lastRunStartedAt, UPCOMING_RUNS),
     };
   }
 

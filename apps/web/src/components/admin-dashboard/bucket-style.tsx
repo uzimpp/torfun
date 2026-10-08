@@ -1,4 +1,12 @@
-import { Bot, CheckCircle2, Clock, FileX2, Loader2, XCircle, type LucideIcon } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock,
+  FileX2,
+  Loader2,
+  SearchCheck,
+  XCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import type { BucketKey } from './outcome-buckets';
 
 /**
@@ -26,10 +34,10 @@ export const BUCKET_STYLE: Record<BucketKey, BucketStyle> = {
     swatch: 'bg-emerald-600 dark:bg-emerald-400',
     icon: CheckCircle2,
   },
-  notSoftware: {
-    stroke: 'stroke-pink-600 dark:stroke-pink-400',
-    swatch: 'bg-pink-600 dark:bg-pink-400',
-    icon: Bot,
+  needsReview: {
+    stroke: 'stroke-violet-600 dark:stroke-violet-400',
+    swatch: 'bg-violet-600 dark:bg-violet-400',
+    icon: SearchCheck,
   },
   noTor: {
     stroke: 'stroke-amber-500 dark:stroke-amber-400',

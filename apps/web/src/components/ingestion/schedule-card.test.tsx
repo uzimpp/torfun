@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { DEFAULT_SCHEDULE, type ScheduleView } from '@torfun/types';
@@ -20,14 +20,25 @@ vi.mock('@/lib/api-schedule', () => ({
 const api = await import('@/lib/api-schedule');
 const mocked = vi.mocked(api);
 
-const off: ScheduleView = { ...DEFAULT_SCHEDULE, lastRunAt: null, nextRunAt: null };
+const off: ScheduleView = {
+  ...DEFAULT_SCHEDULE,
+  lastRunAt: null,
+  nextRunAt: null,
+  upcomingRunAts: [],
+};
 const on: ScheduleView = {
   ...off,
   enabled: true,
+  mode: 'weekly',
   updatedAt: '2026-10-01T05:00:00.000Z',
   updatedBy: 'admin-1',
   lastRunAt: '2026-10-01T02:00:00.000Z',
   nextRunAt: '2026-10-01T19:00:00.000Z', // 02:00 on 2 Oct in Bangkok
+  upcomingRunAts: [
+    '2026-10-01T19:00:00.000Z', // 02:00 on 2 Oct
+    '2026-10-02T19:00:00.000Z', // 02:00 on 3 Oct
+    '2026-10-03T19:00:00.000Z', // 02:00 on 4 Oct
+  ],
 };
 
 beforeEach(() => vi.clearAllMocks());
@@ -103,50 +114,124 @@ describe('reading the schedule', () => {
 });
 
 describe('choosing when', () => {
-  test('daily asks for a time and no interval; interval asks for hours and no time', async () => {
+  test('an interval asks for hours, with presets, and for no days or time', async () => {
     await renderLoaded(off);
 
-    expect(screen.getByLabelText(/เวลาเริ่มรอบ/)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/เว้นระยะ/)).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('radio', { name: 'ทุก N ชั่วโมง' }));
-
+    expect(screen.getByRole('radio', { name: 'ทุก N ชั่วโมง' })).toBeChecked();
+    expect(screen.getByLabelText(/เว้นระยะ/)).toHaveValue(24);
+    for (const hours of [24, 48, 72, 168]) {
+      expect(screen.getByRole('button', { name: `${hours} ชั่วโมง` })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: '24 ชั่วโมง' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(screen.queryByLabelText(/เวลาเริ่มรอบ/)).not.toBeInTheDocument();
-    const hours = screen.getByLabelText(/เว้นระยะ/);
-    const offered = Array.from(hours.querySelectorAll('option')).map((option) => option.value);
-    expect(offered).toEqual(['6', '8', '12', '24', '48']);
+    expect(screen.queryByRole('group', { name: /วันที่เริ่มรอบ/ })).not.toBeInTheDocument();
   });
 
-  test('there is no way to pick fewer than six hours', async () => {
+  test('a preset fills in the hours, and any other number can be typed', async () => {
     await renderLoaded(off);
-    await userEvent.click(screen.getByRole('radio', { name: 'ทุก N ชั่วโมง' }));
 
-    const values = Array.from(screen.getByLabelText(/เว้นระยะ/).querySelectorAll('option')).map(
-      (option) => Number(option.value),
+    await userEvent.click(screen.getByRole('button', { name: '72 ชั่วโมง' }));
+    expect(screen.getByLabelText(/เว้นระยะ/)).toHaveValue(72);
+    expect(screen.getByRole('button', { name: '72 ชั่วโมง' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     );
-    expect(Math.min(...values)).toBe(6);
+
+    await userEvent.clear(screen.getByLabelText(/เว้นระยะ/));
+    await userEvent.type(screen.getByLabelText(/เว้นระยะ/), '36');
+    expect(screen.getByLabelText(/เว้นระยะ/)).toHaveValue(36);
+    expect(screen.getByRole('button', { name: '72 ชั่วโมง' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  test('weekly asks for days, with all seven ticked to begin with, and a time, and for no hours', async () => {
+    await renderLoaded(off);
+
+    await userEvent.click(screen.getByRole('radio', { name: 'ตามวันในสัปดาห์' }));
+
+    const days = within(screen.getByRole('group', { name: /วันที่เริ่มรอบ/ }));
+    expect(days.getAllByRole('checkbox')).toHaveLength(7);
+    for (const day of days.getAllByRole('checkbox')) expect(day).toBeChecked();
+    expect(screen.getByLabelText(/เวลาเริ่มรอบ/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/เว้นระยะ/)).not.toBeInTheDocument();
+  });
+
+  test('"every day" is not a mode of its own: there are two choices', async () => {
+    await renderLoaded(off);
+
+    expect(screen.getAllByRole('radio')).toHaveLength(2);
+    expect(screen.queryByRole('radio', { name: 'ทุกวัน' })).not.toBeInTheDocument();
+  });
+});
+
+describe('what the schedule means', () => {
+  test('lists the next three runs in Bangkok time', async () => {
+    await renderLoaded(on);
+
+    const list = screen.getByRole('list', { name: /สามรอบถัดไป/ });
+    const items = within(list).getAllByRole('listitem');
+    expect(items).toHaveLength(3);
+    expect(items[0]).toHaveTextContent('02:00');
   });
 });
 
 describe('saving', () => {
   test('sends what was chosen, and confirms it in words', async () => {
-    mocked.updateSchedule.mockResolvedValue({ ...on, mode: 'interval', everyHours: 12 });
+    mocked.updateSchedule.mockResolvedValue({ ...on, mode: 'weekly', weekdays: [1, 3, 5] });
     await renderLoaded(off);
 
     await userEvent.click(screen.getByRole('switch', { name: /เปิดใช้งาน/ }));
-    await userEvent.click(screen.getByRole('radio', { name: 'ทุก N ชั่วโมง' }));
-    await userEvent.selectOptions(screen.getByLabelText(/เว้นระยะ/), '12');
+    await userEvent.click(screen.getByRole('radio', { name: 'ตามวันในสัปดาห์' }));
+    const days = within(screen.getByRole('group', { name: /วันที่เริ่มรอบ/ }));
+    for (const day of ['อาทิตย์', 'อังคาร', 'พฤหัสบดี', 'เสาร์']) {
+      await userEvent.click(days.getByRole('checkbox', { name: day }));
+    }
     await userEvent.click(screen.getByRole('button', { name: 'บันทึกตารางเวลา' }));
 
     expect(mocked.updateSchedule).toHaveBeenCalledWith({
       enabled: true,
-      mode: 'interval',
+      mode: 'weekly',
       timeOfDay: '02:00',
-      everyHours: 12,
+      weekdays: [1, 3, 5],
+      everyHours: 24,
     });
     expect(await screen.findByRole('status', { name: /บันทึก/ })).toHaveTextContent(
       'บันทึกตารางเวลาแล้ว',
     );
+  });
+
+  test('an interval under six hours is refused in Thai beside the field, and nothing is sent', async () => {
+    await renderLoaded(on);
+    await userEvent.click(screen.getByRole('radio', { name: 'ทุก N ชั่วโมง' }));
+
+    await userEvent.clear(screen.getByLabelText(/เว้นระยะ/));
+    await userEvent.type(screen.getByLabelText(/เว้นระยะ/), '4');
+    await userEvent.click(screen.getByRole('button', { name: 'บันทึกตารางเวลา' }));
+
+    const field = screen.getByLabelText(/เว้นระยะ/);
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    const message = screen.getByText(/อย่างน้อย 6 ชั่วโมง/);
+    expect(field.getAttribute('aria-describedby')).toContain(message.id);
+    expect(mocked.updateSchedule).not.toHaveBeenCalled();
+  });
+
+  test('weekly with every day cleared is refused beside the days, and nothing is sent', async () => {
+    await renderLoaded(on);
+    const days = within(screen.getByRole('group', { name: /วันที่เริ่มรอบ/ }));
+    for (const day of days.getAllByRole('checkbox')) await userEvent.click(day);
+
+    await userEvent.click(screen.getByRole('button', { name: 'บันทึกตารางเวลา' }));
+
+    const message = screen.getByText('กรุณาเลือกอย่างน้อยหนึ่งวัน');
+    expect(
+      screen.getByRole('group', { name: /วันที่เริ่มรอบ/ }).getAttribute('aria-describedby'),
+    ).toContain(message.id);
+    expect(mocked.updateSchedule).not.toHaveBeenCalled();
   });
 
   test('a cleared time is refused in Thai beside the field, and nothing is sent', async () => {

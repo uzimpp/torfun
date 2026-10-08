@@ -1,61 +1,76 @@
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_SCHEDULE, type ScheduleView } from '@torfun/types';
 import {
-  HOUR_CHOICES,
+  INTERVAL_PRESETS,
+  WEEKDAY_LABELS,
   formatBangkok,
-  hourChoicesFor,
+  isPreset,
   toFormValues,
   toUpdate,
   validateSchedule,
   type ScheduleFormValues,
 } from './schedule-form';
 
-const daily: ScheduleFormValues = {
+const weekly: ScheduleFormValues = {
   enabled: true,
-  mode: 'daily',
+  mode: 'weekly',
   timeOfDay: '02:00',
+  weekdays: [1, 3, 5],
   everyHours: 24,
 };
 
 describe('validateSchedule', () => {
-  test('a daily time of day and a standard interval are fine', () => {
-    expect(validateSchedule(daily)).toEqual({});
-    expect(validateSchedule({ ...daily, mode: 'interval', everyHours: 6 })).toEqual({});
+  test('chosen weekdays at a time of day, and a standard interval, are fine', () => {
+    expect(validateSchedule(weekly)).toEqual({});
+    expect(validateSchedule({ ...weekly, mode: 'interval', everyHours: 6 })).toEqual({});
   });
 
-  test('a missing or malformed time of day is refused in Thai, only in daily mode', () => {
+  test('a missing or malformed time of day is refused in Thai, only in weekly mode', () => {
     for (const timeOfDay of ['', '2:00', '24:00', '12:60', 'noon']) {
-      expect(validateSchedule({ ...daily, timeOfDay }).timeOfDay).toMatch(/[฀-๿]/);
+      expect(validateSchedule({ ...weekly, timeOfDay }).timeOfDay).toMatch(/[฀-๿]/);
     }
     // Hidden in interval mode, so it cannot block a save the person can't see a reason for.
-    expect(validateSchedule({ ...daily, mode: 'interval', timeOfDay: '' })).toEqual({});
+    expect(validateSchedule({ ...weekly, mode: 'interval', timeOfDay: '' })).toEqual({});
+  });
+
+  test('weekly with no day ticked is refused in Thai, beside the days', () => {
+    expect(validateSchedule({ ...weekly, weekdays: [] }).weekdays).toMatch(/[฀-๿]/);
+    expect(validateSchedule({ ...weekly, mode: 'interval', weekdays: [] })).toEqual({});
   });
 
   test('an interval under six hours, or past a week, or fractional, is refused in Thai', () => {
     for (const everyHours of [0, 1, 5, 169, 7.5, Number.NaN]) {
-      const errors = validateSchedule({ ...daily, mode: 'interval', everyHours });
+      const errors = validateSchedule({ ...weekly, mode: 'interval', everyHours });
       expect(errors.everyHours).toMatch(/[฀-๿]/);
     }
   });
 
-  test('the interval is not checked in daily mode', () => {
-    expect(validateSchedule({ ...daily, everyHours: 1 })).toEqual({});
+  test('the interval is not checked in weekly mode', () => {
+    expect(validateSchedule({ ...weekly, everyHours: 1 })).toEqual({});
   });
 });
 
 describe('toUpdate', () => {
-  test('sends the four fields the API accepts, and nothing else', () => {
-    expect(toUpdate(daily)).toEqual({
+  test('sends the five fields the API accepts, and nothing else', () => {
+    expect(toUpdate(weekly)).toEqual({
       enabled: true,
-      mode: 'daily',
+      mode: 'weekly',
       timeOfDay: '02:00',
+      weekdays: [1, 3, 5],
       everyHours: 24,
     });
   });
 
-  test('in interval mode an unusable hidden time falls back to the default preset', () => {
+  test('sends the days in week order whatever order they were ticked in', () => {
+    expect(toUpdate({ ...weekly, weekdays: [5, 1, 3] }).weekdays).toEqual([1, 3, 5]);
+  });
+
+  test('in interval mode an unusable hidden time or day list falls back to the defaults', () => {
     // The API validates every field whatever the mode, so a blank one must not go up.
-    expect(toUpdate({ ...daily, mode: 'interval', timeOfDay: '' }).timeOfDay).toBe('02:00');
+    const update = toUpdate({ ...weekly, mode: 'interval', timeOfDay: '', weekdays: [] });
+
+    expect(update.timeOfDay).toBe('02:00');
+    expect(update.weekdays).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 });
 
@@ -64,29 +79,38 @@ describe('toFormValues', () => {
     const view: ScheduleView = {
       ...DEFAULT_SCHEDULE,
       enabled: true,
-      mode: 'interval',
+      mode: 'weekly',
       timeOfDay: '03:30',
+      weekdays: [2, 4],
       everyHours: 12,
       lastRunAt: null,
       nextRunAt: null,
+      upcomingRunAts: [],
     };
     expect(toFormValues(view)).toEqual({
       enabled: true,
-      mode: 'interval',
+      mode: 'weekly',
       timeOfDay: '03:30',
+      weekdays: [2, 4],
       everyHours: 12,
     });
   });
 });
 
-describe('hourChoicesFor', () => {
-  test('offers 6, 8, 12, 24 and 48 hours', () => {
-    expect([...HOUR_CHOICES]).toEqual([6, 8, 12, 24, 48]);
-    expect(hourChoicesFor(24)).toEqual([6, 8, 12, 24, 48]);
+describe('the interval presets', () => {
+  test('are a day, two, three and a week, with a custom value beside them', () => {
+    expect([...INTERVAL_PRESETS]).toEqual([24, 48, 72, 168]);
+    expect(isPreset(72)).toBe(true);
+    expect(isPreset(36)).toBe(false);
   });
+});
 
-  test('keeps an already-stored value the list does not offer, so it is not silently changed', () => {
-    expect(hourChoicesFor(36)).toEqual([6, 8, 12, 24, 36, 48]);
+describe('WEEKDAY_LABELS', () => {
+  test('names the seven days in Thai, Sunday first, matching the stored numbers', () => {
+    expect(WEEKDAY_LABELS).toHaveLength(7);
+    expect(WEEKDAY_LABELS[0]).toBe('อาทิตย์');
+    expect(WEEKDAY_LABELS[1]).toBe('จันทร์');
+    expect(new Set(WEEKDAY_LABELS).size).toBe(7);
   });
 });
 

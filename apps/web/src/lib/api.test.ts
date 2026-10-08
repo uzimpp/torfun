@@ -6,6 +6,7 @@ import {
   fetchClients,
   fetchProjects,
   joinCompany,
+  stopIngestionRun,
 } from './api';
 
 /**
@@ -31,6 +32,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('a request that sends no body', () => {
   test.each([
     ['joining a company', () => joinCompany('68b1f0c2a1b2c3d4e5f60718')],
+    ['stopping a run', () => stopIngestionRun()],
     ['deleting a client', () => deleteClient('68b1f0c2a1b2c3d4e5f60719')],
     ['deleting an experience', () => deleteExperience('68b1f0c2a1b2c3d4e5f6071a')],
     ['reading the client list', () => fetchClients()],

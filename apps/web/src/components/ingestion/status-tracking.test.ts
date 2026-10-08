@@ -5,6 +5,7 @@ import {
   attemptsLabel,
   describeChange,
   describeQuota,
+  formatElapsed,
   runBanner,
   stageDuration,
 } from './status-tracking';
@@ -83,27 +84,78 @@ describe('runBanner', () => {
     lastRunAt: null,
     openDataQuota: null,
     runInProgress: true,
+    runStartedAt: null,
+    stopRequested: false,
     agencies: [],
     ...overrides,
   });
 
   test('is null while no run is in flight', () => {
-    expect(runBanner(summary({ runInProgress: false }))).toBeNull();
+    expect(runBanner(summary({ runInProgress: false }), NOW)).toBeNull();
   });
 
   test('says which stage the work is in and how much is left', () => {
-    expect(
-      runBanner(summary({ byOutcome: { downloading: 1, analysing: 2, queued: 240, error: 3 } })),
-    ).toEqual({
+    const banner = runBanner(
+      summary({ byOutcome: { downloading: 1, analysing: 2, queued: 240, error: 3 } }),
+      NOW,
+    );
+
+    expect(banner).toMatchObject({
       title: 'กำลังรันรอบดึงข้อมูล',
       detail: 'ดึงข้อมูล 1 · ประมวลผล 2 · รอคิว 243',
+      stopping: false,
     });
   });
 
   test('a run that has only just started, with nothing in a stage yet, is still shown', () => {
-    expect(runBanner(summary({ byOutcome: { queued: 10 } }))?.detail).toBe(
+    expect(runBanner(summary({ byOutcome: { queued: 10 } }), NOW)?.detail).toBe(
       'ดึงข้อมูล 0 · ประมวลผล 0 · รอคิว 10',
     );
+  });
+
+  test('says how long the run has been going, from the time the server recorded', () => {
+    const started = new Date(NOW.getTime() - (12 * 60 + 30) * 1000).toISOString();
+
+    expect(runBanner(summary({ runStartedAt: started }), NOW)?.elapsed).toBe(
+      'รันมาแล้ว 12 นาที 30 วิ',
+    );
+  });
+
+  test('says nothing of elapsed time when the server did not say when it began', () => {
+    expect(runBanner(summary({ runStartedAt: null }), NOW)?.elapsed).toBeNull();
+  });
+
+  test('once an administrator has asked it to stop, says it is stopping and waiting for the record in hand', () => {
+    const banner = runBanner(summary({ stopRequested: true }), NOW);
+
+    expect(banner?.stopping).toBe(true);
+    expect(banner?.title).toBe('กำลังหยุด… รอรายการที่ทำอยู่ให้เสร็จ');
+  });
+});
+
+describe('formatElapsed', () => {
+  const seconds = (n: number) => n * 1000;
+
+  test('is seconds under a minute', () => {
+    expect(formatElapsed(seconds(0))).toBe('0 วิ');
+    expect(formatElapsed(seconds(45))).toBe('45 วิ');
+    expect(formatElapsed(seconds(59))).toBe('59 วิ');
+  });
+
+  test('is minutes and seconds under an hour', () => {
+    expect(formatElapsed(seconds(61))).toBe('1 นาที 1 วิ');
+    expect(formatElapsed(seconds(12 * 60 + 30))).toBe('12 นาที 30 วิ');
+    expect(formatElapsed(seconds(3599))).toBe('59 นาที 59 วิ');
+  });
+
+  test('is hours and minutes from an hour on, with no seconds', () => {
+    expect(formatElapsed(seconds(3600))).toBe('1 ชม. 0 นาที');
+    expect(formatElapsed(seconds(3600 + 12 * 60 + 40))).toBe('1 ชม. 12 นาที');
+    expect(formatElapsed(seconds(25 * 3600))).toBe('25 ชม. 0 นาที');
+  });
+
+  test('a clock a little behind the server never shows a negative time', () => {
+    expect(formatElapsed(seconds(-5))).toBe('0 วิ');
   });
 });
 

@@ -19,6 +19,24 @@ export interface IngestionLeaseStore {
   release(holder: string): Promise<void>;
   /** Whether any holder currently has an unexpired lease. */
   isHeld(now: Date): Promise<boolean>;
+  /** The live lease, if any: who holds it, since when, and whether it has been asked to stop. */
+  current(now: Date): Promise<LeaseState | null>;
+  /**
+   * Ask the live holder to stop, naming who asked. It lives on the lease so any
+   * API instance can ask and the holder, wherever it runs, sees it at its next
+   * heartbeat. The first request stands; asking again changes nothing. False
+   * where no Run is in progress.
+   */
+  requestStop(by: string, now: Date): Promise<boolean>;
+  /** Whether this holder has been asked to stop. */
+  stopRequested(holder: string): Promise<boolean>;
+}
+
+export interface LeaseState {
+  holder: string;
+  acquiredAt: string;
+  stopRequestedAt: string | null;
+  stopRequestedBy: string | null;
 }
 
 interface LeaseDocument {
@@ -27,6 +45,8 @@ interface LeaseDocument {
   acquired_at: string;
   heartbeat_at: string;
   expires_at: string;
+  stop_requested_at?: string;
+  stop_requested_by?: string;
 }
 
 const LEASE_ID = 'run_lease';
@@ -65,6 +85,9 @@ export class IngestionLeaseRepository implements IngestionLeaseStore {
             heartbeat_at: at,
             expires_at: new Date(now.getTime() + ttlMs).toISOString(),
           },
+          // A new Run starts clean: a request aimed at the one before is not
+          // for this one, whether that lease was released or simply lapsed.
+          $unset: { stop_requested_at: '', stop_requested_by: '' },
         },
         { upsert: true },
       );
@@ -97,5 +120,37 @@ export class IngestionLeaseRepository implements IngestionLeaseStore {
       await this.leases()
     ).findOne({ _id: LEASE_ID, expires_at: { $gt: now.toISOString() } });
     return found !== null;
+  }
+
+  async current(now: Date): Promise<LeaseState | null> {
+    const found = await (
+      await this.leases()
+    ).findOne({ _id: LEASE_ID, expires_at: { $gt: now.toISOString() } });
+    return found
+      ? {
+          holder: found.holder,
+          acquiredAt: found.acquired_at,
+          stopRequestedAt: found.stop_requested_at ?? null,
+          stopRequestedBy: found.stop_requested_by ?? null,
+        }
+      : null;
+  }
+
+  async requestStop(by: string, now: Date): Promise<boolean> {
+    const at = now.toISOString();
+    const collection = await this.leases();
+    // Only a live lease that has not been asked yet, so the first request stands.
+    const result = await collection.updateOne(
+      { _id: LEASE_ID, expires_at: { $gt: at }, stop_requested_at: { $exists: false } },
+      { $set: { stop_requested_at: at, stop_requested_by: by } },
+    );
+    if (result.matchedCount === 1) return true;
+    // Not matched: either nothing is running, or it was already asked.
+    return (await collection.findOne({ _id: LEASE_ID, expires_at: { $gt: at } })) !== null;
+  }
+
+  async stopRequested(holder: string): Promise<boolean> {
+    const found = await (await this.leases()).findOne({ _id: LEASE_ID, holder });
+    return found?.stop_requested_at !== undefined;
   }
 }
