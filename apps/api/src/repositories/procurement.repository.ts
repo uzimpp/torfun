@@ -1,10 +1,11 @@
-import type { Collection, Db } from 'mongodb';
+import type { AnyBulkWriteOperation, Collection, Db } from 'mongodb';
 import type {
   ArchiveDocument,
   IngestionFailure,
   IngestionOutcome,
   IngestionState,
   IngestionSummary,
+  OpenDataQuota,
   Procurement,
   ProcurementStatus,
   SoftwareClass,
@@ -16,6 +17,8 @@ import type {
 } from '@torfun/types';
 import { OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
+import { hashSource, hasUpstreamChange } from './source-hash';
+import { INGESTION_META_COLLECTION } from './ingestion-meta';
 
 /**
  * Data access for ingested procurement records.
@@ -49,6 +52,32 @@ const BIDDABILITY_ORDER: ProcurementStatus[] = [
 function biddabilityRank(status: ProcurementStatus): number {
   const rank = BIDDABILITY_ORDER.indexOf(status);
   return rank === -1 ? BIDDABILITY_ORDER.indexOf('unknown') : rank;
+}
+
+/**
+ * Values this system stored before the status and outcome vocabulary changed.
+ *
+ * Read as their new equivalents so a record written before the migration ran
+ * (`docs/migrations/2026-09-30-status-outcome-vocabulary.js`) is served rather
+ * than failing the whole response it appears in — the API validates every
+ * response against the schema, so one stale value would 500 a page or the
+ * summary. The migration rewrites them for good; this only covers the gap
+ * between deploying the code and running it.
+ */
+const LEGACY_OUTCOMES: Record<string, IngestionOutcome> = { processing: 'downloading' };
+const LEGACY_STATUSES: Record<string, ProcurementStatus> = {
+  drafting_tor: 'drafting',
+  requisition: 'drafting',
+  invitation: 'open',
+  award_announced: 'awarded',
+};
+
+function outcomeFromStored(stored: string): IngestionOutcome {
+  return LEGACY_OUTCOMES[stored] ?? (stored as IngestionOutcome);
+}
+
+function statusFromStored(stored: string): ProcurementStatus {
+  return LEGACY_STATUSES[stored] ?? (stored as ProcurementStatus);
 }
 
 /**
@@ -89,11 +118,17 @@ interface ProcurementDocument {
   zip_id: string | null;
   zip_bytes: number | null;
   archive_member_count: number | null;
+  /** Absent on records written before member names were kept. */
+  archive_members?: string[];
   documents: ArchiveDocument[];
   analysis: TorAnalysis | null;
   winner: Winner | null;
   tor_ambiguous: boolean;
   discovered_at: string;
+  /** Absent on records written before sweeps were fingerprinted. */
+  source_hash?: string | null;
+  last_seen_at?: string | null;
+  changed_at?: string | null;
   updated_at: string;
 }
 
@@ -116,7 +151,7 @@ function toDomain(document: ProcurementDocument): Procurement {
     purchaseMethodName: document.purchase_method_name,
     projectMoney: document.project_money,
     priceBuild: document.price_build,
-    status: document.status,
+    status: statusFromStored(document.status),
     statusSource: document.status_source ?? null,
     upstreamStatus: document.upstream_status ?? null,
     matchedKeywords: document.matched_keywords,
@@ -124,17 +159,24 @@ function toDomain(document: ProcurementDocument): Procurement {
     softwareScore: document.software_score,
     eBidding: document.e_bidding,
     state: document.state,
-    outcome: document.outcome,
+    outcome: outcomeFromStored(document.outcome),
     attempts: document.attempts ?? 0,
-    statusHistory: document.status_history,
+    statusHistory: document.status_history.map((entry) => ({
+      ...entry,
+      outcome: outcomeFromStored(entry.outcome),
+    })),
     zipId: document.zip_id,
     zipBytes: document.zip_bytes,
     archiveMemberCount: document.archive_member_count,
+    archiveMembers: document.archive_members ?? [],
     documents: document.documents,
     analysis: document.analysis,
     winner: document.winner,
     torAmbiguous: document.tor_ambiguous,
     discoveredAt: document.discovered_at,
+    sourceHash: document.source_hash ?? null,
+    lastSeenAt: document.last_seen_at ?? null,
+    changedAt: document.changed_at ?? null,
     updatedAt: document.updated_at,
   };
 }
@@ -171,11 +213,15 @@ function toDocument(record: Procurement): ProcurementDocument {
     zip_id: record.zipId,
     zip_bytes: record.zipBytes,
     archive_member_count: record.archiveMemberCount,
+    archive_members: record.archiveMembers,
     documents: record.documents,
     analysis: record.analysis,
     winner: record.winner,
     tor_ambiguous: record.torAmbiguous,
     discovered_at: record.discoveredAt,
+    source_hash: record.sourceHash,
+    last_seen_at: record.lastSeenAt,
+    changed_at: record.changedAt,
     updated_at: record.updatedAt,
   };
 }
@@ -218,6 +264,15 @@ export interface FindOptions {
   offset: number;
 }
 
+/** What one sweep did to the store. */
+export interface UpsertSummary {
+  created: number;
+  /** Seen before, and the agency's data for it is different now. */
+  changed: number;
+  /** Seen before, and nothing the agency owns moved. */
+  unchanged: number;
+}
+
 export interface FindResult {
   items: Procurement[];
   total: number;
@@ -233,6 +288,8 @@ export interface FindResult {
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
   upsert(record: Procurement): Promise<Procurement>;
+  /** What a sweep writes: every discovered record at once, reporting what was new and what moved. */
+  upsertMany(records: Procurement[]): Promise<UpsertSummary>;
   /**
    * Move a record to an Outcome. The State is not an argument: it is looked up
    * from `OUTCOME_STATE`, so the two fields cannot be written out of step.
@@ -255,6 +312,11 @@ export interface ProcurementStore {
   requeueStale(cutoff: string): Promise<number>;
   recordFailures(failures: IngestionFailure[]): Promise<void>;
   markRun(at: string): Promise<void>;
+  /** The open-data API's daily allowance as last read, or null if never read. */
+  openDataQuota(): Promise<OpenDataQuota | null>;
+  recordOpenDataQuota(quota: OpenDataQuota): Promise<void>;
+  /** When discovery last completed a sweep, or null if it never has. */
+  lastDiscoveryAt(): Promise<string | null>;
 }
 
 /**
@@ -275,6 +337,15 @@ export interface ProcurementDataSource extends ProcurementStore, AgencyNameSourc
   listFailures(): Promise<IngestionFailure[]>;
 }
 
+const QUOTA_ID = 'open_data_quota';
+
+interface QuotaDocument {
+  _id: string;
+  remaining_day: number;
+  limit_day: number | null;
+  observed_at: string;
+}
+
 interface FailureDocument extends IngestionFailure {
   _id?: unknown;
 }
@@ -290,8 +361,12 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     return (await this.getDb()).collection<FailureDocument>('ingestion_failures');
   }
 
+  private async quotaDocuments(): Promise<Collection<QuotaDocument>> {
+    return (await this.getDb()).collection<QuotaDocument>(INGESTION_META_COLLECTION);
+  }
+
   private async meta(): Promise<Collection<{ _id: string; at: string }>> {
-    return (await this.getDb()).collection<{ _id: string; at: string }>('ingestion_meta');
+    return (await this.getDb()).collection<{ _id: string; at: string }>(INGESTION_META_COLLECTION);
   }
 
   /**
@@ -326,7 +401,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const existing = await collection.findOne({ _id: record.projectId });
 
     if (!existing) {
-      const document = toDocument(record);
+      const document = toDocument({
+        ...record,
+        sourceHash: record.sourceHash ?? hashSource(record),
+      });
       await collection.insertOne(document);
       return toDomain(document);
     }
@@ -334,6 +412,50 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const merged = toDocument(mergeDiscovered(toDomain(existing), record));
     await collection.replaceOne({ _id: record.projectId }, merged);
     return toDomain(merged);
+  }
+
+  async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
+    const summary: UpsertSummary = { created: 0, changed: 0, unchanged: 0 };
+    if (records.length === 0) return summary;
+
+    const collection = await this.records();
+    // One read for the whole sweep, not one per record.
+    const stored = new Map(
+      (await collection.find({ _id: { $in: records.map((r) => r.projectId) } }).toArray()).map(
+        (document) => [document._id, document],
+      ),
+    );
+
+    const operations: AnyBulkWriteOperation<ProcurementDocument>[] = [];
+    for (const record of records) {
+      const existing = stored.get(record.projectId);
+      if (!existing) {
+        summary.created += 1;
+        operations.push({
+          insertOne: {
+            document: toDocument({
+              ...record,
+              sourceHash: record.sourceHash ?? hashSource(record),
+            }),
+          },
+        });
+        continue;
+      }
+
+      const current = toDomain(existing);
+      if (hasUpstreamChange(current, record)) summary.changed += 1;
+      else summary.unchanged += 1;
+      operations.push({
+        replaceOne: {
+          filter: { _id: record.projectId },
+          replacement: toDocument(mergeDiscovered(current, record)),
+        },
+      });
+    }
+
+    // Unordered: one bad document must not stop the rest of a sweep being stored.
+    await collection.bulkWrite(operations, { ordered: false });
+    return summary;
   }
 
   async transition(
@@ -488,6 +610,37 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     await (await this.meta()).updateOne({ _id: 'last_run' }, { $set: { at } }, { upsert: true });
   }
 
+  async openDataQuota(): Promise<OpenDataQuota | null> {
+    const document = await (await this.quotaDocuments()).findOne({ _id: QUOTA_ID });
+    return document
+      ? {
+          remainingDay: document.remaining_day,
+          limitDay: document.limit_day,
+          observedAt: document.observed_at,
+        }
+      : null;
+  }
+
+  async recordOpenDataQuota(quota: OpenDataQuota): Promise<void> {
+    await (
+      await this.quotaDocuments()
+    ).updateOne(
+      { _id: QUOTA_ID },
+      {
+        $set: {
+          remaining_day: quota.remainingDay,
+          limit_day: quota.limitDay,
+          observed_at: quota.observedAt,
+        },
+      },
+      { upsert: true },
+    );
+  }
+
+  async lastDiscoveryAt(): Promise<string | null> {
+    return (await (await this.meta()).findOne({ _id: 'last_run' }))?.at ?? null;
+  }
+
   async agencies(): Promise<string[]> {
     const names = await (await this.records()).distinct('dept_name');
     return names.sort();
@@ -546,7 +699,11 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const byState = {} as Record<IngestionState, number>;
     for (const row of byStateRows) byState[row._id] = row.count;
     const byOutcome = {} as Record<IngestionOutcome, number>;
-    for (const row of byOutcomeRows) byOutcome[row._id] = row.count;
+    // Old and new spellings of one outcome are added together, not overwritten.
+    for (const row of byOutcomeRows) {
+      const outcome = outcomeFromStored(row._id);
+      byOutcome[outcome] = (byOutcome[outcome] ?? 0) + row.count;
+    }
 
     return {
       total,
@@ -558,13 +715,16 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       totalTorBytes: torRows[0]?.bytes ?? 0,
       failureCount,
       lastRunAt: lastRun?.at ?? null,
+      openDataQuota: await this.openDataQuota(),
       // Owned by the service layer, which is what actually starts a run.
       runInProgress: false,
     };
   }
 
   async recent(limit: number): Promise<Procurement[]> {
-    const documents = await (await this.records())
+    const documents = await (
+      await this.records()
+    )
       .find({})
       .sort({ updated_at: -1, _id: 1 })
       .limit(limit)

@@ -24,9 +24,13 @@ bun install
 cp apps/api/.env.example apps/api/.env   # the comments there explain every value
 cp apps/web/.env.example apps/web/.env
 docker compose up -d mongodb
-gcloud auth application-default login    # how the API reaches Vertex AI in development
+gcloud auth application-default login \
+  --impersonate-service-account=torfun-api-runtime@torfun-676767.iam.gserviceaccount.com
 bun run dev
 ```
+
+The `gcloud` line is how the API reaches Vertex AI; it needs a one-time grant
+first — see [Vertex AI access](#vertex-ai-access).
 
 Web on <http://localhost:3000>, API on <http://localhost:8080>.
 
@@ -48,6 +52,31 @@ it without needing `mongosh` installed on the host.
 
 To run the whole stack in containers instead, fill both `.env` files and use
 `bun run docker:up`.
+
+## Vertex AI access
+
+In development the API calls Vertex AI by impersonating the `torfun-api-runtime`
+service account: short-lived tokens, nothing to leak, and one IAM change revokes
+it. (The org blocks service-account keys, so there is no key file to hand out.)
+
+An owner grants each developer access once, on that service account only:
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  torfun-api-runtime@torfun-676767.iam.gserviceaccount.com \
+  --member="user:<your-email>" --role="roles/iam.serviceAccountTokenCreator"
+```
+
+Then log in as shown above and restart `bun run dev`. IAM changes take a minute or
+two. Records that failed analysis keep their stored archives, so a retry does not
+re-download.
+
+| Error in the failure log                    | Fix                                                                          |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `invalid_grant`, `reauth related error`     | Re-run the login                                                             |
+| `iam.serviceAccounts.getAccessToken` denied | The grant above is missing, or you logged in with a different Google account |
+| `aiplatform.endpoints.predict` denied       | You logged in without `--impersonate-service-account`; log in again with it  |
+| `Invalid JWT`, or a bad key path            | Blank `GOOGLE_APPLICATION_CREDENTIALS` and `GOOGLE_SERVICE_ACCOUNT_JSON`     |
 
 ## Commands
 

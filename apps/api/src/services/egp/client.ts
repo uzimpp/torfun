@@ -8,9 +8,41 @@ import { POLITENESS } from './constants';
  * rather than trusting the shape.
  */
 
+/**
+ * A URL as it may be shown to a person or stored in the failure log.
+ *
+ * The open-data API takes its key as a query parameter, so the raw URL is a
+ * credential. An error message is copied into Mongo and onto the admin page, so
+ * every message that names a URL goes through this first.
+ */
+export function redactUrl(url: string): string {
+  return url.replace(/([?&](?:api[-_]?key|apikey|token|key|secret)=)[^&\s]*/gi, '$1[redacted]');
+}
+
+/** The day's allowance as an open-data response reports it; null where it did not say. */
+export interface QuotaReading {
+  limitDay: number | null;
+  remainingDay: number | null;
+}
+
+function quotaFrom(headers: Headers): QuotaReading {
+  const read = (name: string): number | null => {
+    const value = Number(headers.get(name));
+    return headers.get(name) !== null && Number.isFinite(value) ? value : null;
+  };
+  return {
+    limitDay: read('x-ratelimit-limit-day'),
+    remainingDay: read('x-ratelimit-remaining-day'),
+  };
+}
+
 export class RateLimitedError extends Error {
-  constructor(url: string, status: number) {
-    super(`HTTP ${status} from ${url} — treating as rate limited`);
+  /** What the refusal said about the allowance, where it said anything. */
+  readonly quota: QuotaReading | null;
+
+  constructor(url: string, status: number, quota: QuotaReading | null = null) {
+    super(`HTTP ${status} from ${redactUrl(url)} — treating as rate limited`);
+    this.quota = quota;
     this.name = 'RateLimitedError';
   }
 }
@@ -46,34 +78,43 @@ function buildUrl(base: string, params: Record<string, string | number>): string
  * 429/403 throws RateLimitedError immediately and is never retried: the whole
  * point is to back off the site rather than hammer it. 5xx is retried, since
  * that's the upstream having a bad moment rather than refusing us.
+ *
+ * `signal` lets the caller call the whole thing off — the pipeline does at a
+ * record's deadline, so an abandoned request cannot linger and overlap the next
+ * record's. An aborted request is final: it is neither retried nor backed off.
  */
 async function fetchWithRetry(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<Response> {
   let lastError = 'unknown failure';
 
   for (let attempt = 0; attempt <= POLITENESS.maxRetries; attempt += 1) {
+    if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
+
     try {
+      const timeout = AbortSignal.timeout(timeoutMs);
       const response = await fetch(url, {
         ...init,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       });
 
       if (response.status === 429 || response.status === 403) {
-        throw new RateLimitedError(url, response.status);
+        throw new RateLimitedError(url, response.status, quotaFrom(response.headers));
       }
       if (response.status >= 500) {
         lastError = `HTTP ${response.status}`;
       } else if (!response.ok) {
-        throw new UpstreamError(`HTTP ${response.status} from ${url}`);
+        throw new UpstreamError(`HTTP ${response.status} from ${redactUrl(url)}`);
       } else {
         return response;
       }
     } catch (error) {
       if (error instanceof RateLimitedError || error instanceof UpstreamError) throw error;
-      lastError = `transport error: ${error instanceof Error ? error.message : String(error)}`;
+      if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
+      lastError = `transport error: ${redactUrl(error instanceof Error ? error.message : String(error))}`;
     }
 
     if (attempt < POLITENESS.maxRetries) {
@@ -103,7 +144,7 @@ export async function openDataGet<T>(
   endpoint: string,
   params: Record<string, string | number>,
   apiKey: string,
-): Promise<{ rows: T[]; total: number }> {
+): Promise<{ rows: T[]; total: number; quota: QuotaReading }> {
   const url = buildUrl(endpoint, { ...params, 'api-key': apiKey });
   const response = await fetchWithRetry(url, {}, POLITENESS.openDataTimeoutMs);
 
@@ -120,7 +161,7 @@ export async function openDataGet<T>(
     throw new UpstreamError(`API returned success=false: ${body.message ?? '(no message)'}`);
   }
 
-  return { rows: body.data ?? [], total: body.total ?? 0 };
+  return { rows: body.data ?? [], total: body.total ?? 0, quota: quotaFrom(response.headers) };
 }
 
 /** GET against the e-GP procurement app, which needs a browser-shaped UA. */
@@ -128,6 +169,7 @@ export async function egpGet(
   endpoint: string,
   params: Record<string, string | number>,
   headers: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<Response> {
-  return fetchWithRetry(buildUrl(endpoint, params), { headers }, POLITENESS.torTimeoutMs);
+  return fetchWithRetry(buildUrl(endpoint, params), { headers }, POLITENESS.torTimeoutMs, signal);
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Procurement } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
+import { hashSource } from './source-hash';
 
 function procurement(overrides: Partial<Procurement> = {}): Procurement {
   return {
@@ -33,11 +34,15 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
+    sourceHash: null,
+    lastSeenAt: null,
+    changedAt: null,
     updatedAt: '2026-09-01T00:00:00.000Z',
     ...overrides,
   };
@@ -85,6 +90,7 @@ describe('mergeDiscovered', () => {
       zipId: 'ZIP-1',
       zipBytes: 30_000_000,
       archiveMemberCount: 12,
+      archiveMembers: [],
       documents: [
         {
           member: 'Attach_TOR_1.pdf',
@@ -144,13 +150,89 @@ describe('mergeDiscovered', () => {
     expect(merged.attempts).toBe(2);
   });
 
-  test('unions the keywords a project has ever matched and stamps the merge time', () => {
+  test('unions the keywords a project has ever matched', () => {
     const existing = procurement({ matchedKeywords: ['จ้างพัฒนา', 'ซอฟต์แวร์'] });
     const incoming = procurement({ matchedKeywords: ['ซอฟต์แวร์', 'เว็บไซต์'] });
 
     const merged = mergeDiscovered(existing, incoming, AT);
 
     expect(merged.matchedKeywords).toEqual(['จ้างพัฒนา', 'ซอฟต์แวร์', 'เว็บไซต์']);
+  });
+});
+
+describe('telling a real change from a record that was only seen again', () => {
+  const STORED = '2026-09-01T00:00:00.000Z';
+  /** A stored record, as a sweep would have left it: fingerprinted and last updated at STORED. */
+  const stored = (overrides: Partial<Procurement> = {}) => {
+    const record = procurement({ updatedAt: STORED, ...overrides });
+    return { ...record, sourceHash: hashSource(record), lastSeenAt: STORED };
+  };
+
+  test('nothing the agency owns changed: updatedAt stays, only lastSeenAt moves', () => {
+    const existing = stored();
+
+    const merged = mergeDiscovered(existing, procurement(), AT);
+
+    expect(merged.updatedAt).toBe(STORED);
+    expect(merged.changedAt).toBeNull();
+    expect(merged.lastSeenAt).toBe(AT);
+    expect(merged.sourceHash).toBe(existing.sourceHash);
+  });
+
+  test('a changed budget is a change: updatedAt and changedAt move, and the fingerprint follows', () => {
+    const existing = stored();
+
+    const merged = mergeDiscovered(existing, procurement({ projectMoney: 2_000_000 }), AT);
+
     expect(merged.updatedAt).toBe(AT);
+    expect(merged.changedAt).toBe(AT);
+    expect(merged.sourceHash).not.toBe(existing.sourceHash);
+  });
+
+  test('a new winner is a change', () => {
+    const winner = {
+      name: 'บริษัท ตัวอย่าง จำกัด',
+      taxId: '0105500000001',
+      contractNo: '1/2569',
+      contractDate: null,
+      contractFinishDate: null,
+      priceAgree: 900_000,
+    };
+
+    const merged = mergeDiscovered(stored(), procurement({ winner }), AT);
+
+    expect(merged.updatedAt).toBe(AT);
+  });
+
+  test('a new keyword alone is not a change, though it is kept', () => {
+    const merged = mergeDiscovered(
+      stored({ matchedKeywords: ['จ้างพัฒนา'] }),
+      procurement({ matchedKeywords: ['จ้างพัฒนา', 'เว็บไซต์'] }),
+      AT,
+    );
+
+    expect(merged.matchedKeywords).toEqual(['จ้างพัฒนา', 'เว็บไซต์']);
+    expect(merged.updatedAt).toBe(STORED);
+    expect(merged.changedAt).toBeNull();
+  });
+
+  test('a record stored before fingerprints existed is compared on its own fields, not assumed changed', () => {
+    const before = { ...procurement({ updatedAt: STORED }), sourceHash: null, lastSeenAt: null };
+
+    const same = mergeDiscovered(before, procurement(), AT);
+    const different = mergeDiscovered(before, procurement({ projectMoney: 2_000_000 }), AT);
+
+    expect(same.updatedAt).toBe(STORED);
+    expect(same.sourceHash).toBe(hashSource(procurement()));
+    expect(different.updatedAt).toBe(AT);
+  });
+
+  test('the fingerprint ignores what this system owns, so its own work is never mistaken for an upstream change', () => {
+    const base = procurement();
+
+    expect(hashSource({ ...base, state: 'Completed', outcome: 'tor_analysed', attempts: 2 })).toBe(
+      hashSource(base),
+    );
+    expect(hashSource({ ...base, status: 'drafting', statusSource: 'ai' })).toBe(hashSource(base));
   });
 });

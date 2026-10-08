@@ -70,7 +70,7 @@ describe('a daily schedule', () => {
 
 describe('an interval schedule', () => {
   test('is due that many hours after the last run started', () => {
-    const schedule = every(8);
+    const schedule = every(8, { updatedAt: '2026-09-30T00:00:00.000Z' }); // saved before the run
     const lastRun = '2026-10-01T00:00:00.000Z';
 
     expect(nextDueAt(schedule, lastRun)).toBe('2026-10-01T08:00:00.000Z');
@@ -91,6 +91,32 @@ describe('an interval schedule', () => {
 
     expect(isDue(schedule, '2026-10-01T00:00:00.000Z', backUp)).toBe(true);
     expect(isDue(schedule, backUp.toISOString(), backUp)).toBe(false);
+  });
+});
+
+describe('a schedule saved after the last run', () => {
+  // Left off for days, then switched on (or given a new time): every save
+  // stamps updatedAt, and that later moment is what the next run counts from.
+  const longAgo = '2026-09-20T19:00:00.000Z';
+
+  test('daily: switching it on again starts nothing, the first run is the next slot', () => {
+    const schedule = daily(); // saved 12:00 on 1 Oct in Bangkok
+
+    expect(isDue(schedule, longAgo, new Date('2026-10-01T05:00:01.000Z'))).toBe(false);
+    expect(nextDueAt(schedule, longAgo)).toBe('2026-10-01T19:00:00.000Z');
+  });
+
+  test('interval: a new interval counts from the save, not from a run days ago', () => {
+    const schedule = every(6); // saved 05:00 UTC
+
+    expect(isDue(schedule, longAgo, new Date('2026-10-01T05:00:01.000Z'))).toBe(false);
+    expect(nextDueAt(schedule, longAgo)).toBe('2026-10-01T11:00:00.000Z');
+  });
+
+  test('a run that started after the save still decides the next one', () => {
+    const schedule = every(6);
+
+    expect(nextDueAt(schedule, '2026-10-01T08:00:00.000Z')).toBe('2026-10-01T14:00:00.000Z');
   });
 });
 

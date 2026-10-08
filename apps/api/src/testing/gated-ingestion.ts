@@ -15,12 +15,15 @@ export const silentLogger = {
  * With `fail`, discovery throws once the gate opens.
  */
 export function gatedDeps(fail = false) {
+  /** How many times a Run actually swept upstream, for tests about skipping a sweep. */
+  const calls = { discover: 0 };
   let open: () => void = () => {};
   const gate = new Promise<void>((resolve) => {
     open = resolve;
   });
   const deps: IngestionDeps = {
     discoverProjects: async () => {
+      calls.discover += 1;
       await gate;
       if (fail) throw new Error('upstream exploded');
       return {
@@ -28,6 +31,9 @@ export function gatedDeps(fail = false) {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: new Date().toISOString(),
       };
     },
@@ -38,5 +44,5 @@ export function gatedDeps(fail = false) {
     sleep: async () => {},
     recordDeadlineMs: 60_000,
   };
-  return { deps, open };
+  return { deps, open, calls };
 }

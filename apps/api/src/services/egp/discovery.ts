@@ -1,6 +1,6 @@
-import type { IngestionFailure, Procurement } from '@torfun/types';
+import type { IngestionFailure, OpenDataQuota, Procurement } from '@torfun/types';
 import { classifyProject, softwareScore } from './classify';
-import { openDataGet, sleep } from './client';
+import { openDataGet, RateLimitedError, sleep, type QuotaReading } from './client';
 import { convertDateToISO } from './dates';
 import { readUpstreamStatus } from './status';
 import { toWinner } from './winner';
@@ -9,6 +9,7 @@ import {
   DEPT_URL,
   E_BIDDING_METHOD,
   FISCAL_YEARS,
+  OPEN_DATA_RESERVE,
   PAGE_LIMIT,
   POLITENESS,
   SOFTWARE_KEYWORDS,
@@ -62,11 +63,54 @@ export interface DiscoveryResult {
   rejected: Array<{ projectId: string; projectName: string; deptName: string }>;
   resolutions: DeptResolution[];
   failures: IngestionFailure[];
+  /**
+   * The open-data API answered 429/403 and the sweep stopped there. What was
+   * found before that is kept; nothing further was asked for. The caller stops
+   * the Run — a site saying stop is not something to work around.
+   */
+  rateLimited: boolean;
+  /**
+   * The sweep stopped because the day's allowance was down to its reserve, not
+   * because it was refused. Partial, and not a fault.
+   */
+  budgetReached: boolean;
+  /** The allowance as last reported during the sweep; null if no response said. */
+  quota: OpenDataQuota | null;
   ranAt: string;
 }
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Watches the day's allowance as responses report it, so a sweep can stop with a
+ * reserve in hand instead of finding out from a refusal.
+ */
+class QuotaGauge {
+  private reading: QuotaReading | null = null;
+  private observedAt: string | null = null;
+
+  observe = (reading: QuotaReading): void => {
+    if (reading.remainingDay === null) return;
+    this.reading = reading;
+    this.observedAt = now();
+  };
+
+  get reserveReached(): boolean {
+    return this.reading !== null && (this.reading.remainingDay ?? Infinity) <= OPEN_DATA_RESERVE;
+  }
+
+  toQuota(): OpenDataQuota | null {
+    if (this.reading === null || this.reading.remainingDay === null || this.observedAt === null) {
+      return null;
+    }
+    return {
+      remainingDay: this.reading.remainingDay,
+      limitDay: this.reading.limitDay,
+      observedAt: this.observedAt,
+    };
+  }
 }
 
 /**
@@ -85,8 +129,10 @@ function now(): string {
 export async function resolveDeptCodes(
   registryName: string,
   apiKey: string,
+  onQuota?: (reading: QuotaReading) => void,
 ): Promise<DeptResolution> {
-  const { rows } = await openDataGet<DeptRow>(DEPT_URL, { dept_name: registryName }, apiKey);
+  const { rows, quota } = await openDataGet<DeptRow>(DEPT_URL, { dept_name: registryName }, apiKey);
+  onQuota?.(quota);
 
   const exactWithSuffix = `${registryName} (องค์การมหาชน)`;
   const matchedCodes = rows
@@ -114,6 +160,7 @@ async function fetchAllPages(
   keyword: string,
   year: number,
   apiKey: string,
+  onQuota: (reading: QuotaReading) => void,
 ): Promise<ContractRow[]> {
   const records: ContractRow[] = [];
   let offset = 0;
@@ -125,6 +172,7 @@ async function fetchAllPages(
       { dept_code: deptCode, keyword, year, offset, limit: PAGE_LIMIT },
       apiKey,
     );
+    onQuota(page.quota);
     await sleep(POLITENESS.openDataDelayMs);
 
     total = page.total;
@@ -183,12 +231,16 @@ export function toRecord(
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: toWinner(row.contract),
     torAmbiguous: false,
 
     discoveredAt: timestamp,
+    sourceHash: null, // fingerprinted by the store as it writes
+    lastSeenAt: timestamp,
+    changedAt: null,
     updatedAt: timestamp,
   };
 }
@@ -212,9 +264,17 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
   const byProjectId = new Map<string, Procurement>();
   const rejected = new Map<string, { projectId: string; projectName: string; deptName: string }>();
 
+  let rateLimited = false;
+  let budgetReached = false;
+  const gauge = new QuotaGauge();
+
   for (const registryName of SOURCE_REGISTRY) {
+    if (gauge.reserveReached) {
+      budgetReached = true;
+      break;
+    }
     try {
-      resolutions.push(await resolveDeptCodes(registryName, apiKey));
+      resolutions.push(await resolveDeptCodes(registryName, apiKey, gauge.observe));
     } catch (error) {
       resolutions.push({
         registryName,
@@ -229,11 +289,18 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
         error: error instanceof Error ? error.message : String(error),
         at: now(),
       });
+      if (error instanceof RateLimitedError) {
+        // Refused: whatever it said, nothing is left today.
+        gauge.observe({ limitDay: error.quota?.limitDay ?? null, remainingDay: 0 });
+        rateLimited = true;
+        break;
+      }
     }
     await sleep(POLITENESS.openDataDelayMs);
   }
 
-  for (const resolution of resolutions) {
+  sweep: for (const resolution of resolutions) {
+    if (rateLimited || budgetReached) break;
     const deptCodes = [...new Set(resolution.matchedCodes.map((match) => match.deptCode))].sort();
 
     for (const deptCode of deptCodes) {
@@ -246,9 +313,13 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
 
       for (const year of FISCAL_YEARS) {
         for (const keyword of SOFTWARE_KEYWORDS) {
+          if (gauge.reserveReached) {
+            budgetReached = true;
+            break sweep;
+          }
           let rows: ContractRow[];
           try {
-            rows = await fetchAllPages(deptCode, keyword, year, apiKey);
+            rows = await fetchAllPages(deptCode, keyword, year, apiKey, gauge.observe);
           } catch (error) {
             failures.push({
               projectId: '-',
@@ -257,6 +328,11 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
               error: error instanceof Error ? error.message : String(error),
               at: now(),
             });
+            if (error instanceof RateLimitedError) {
+              gauge.observe({ limitDay: error.quota?.limitDay ?? null, remainingDay: 0 });
+              rateLimited = true;
+              break sweep;
+            }
             continue;
           }
 
@@ -298,6 +374,9 @@ export async function discoverProjects(apiKey: string): Promise<DiscoveryResult>
     rejected: [...rejected.values()],
     resolutions,
     failures,
+    rateLimited,
+    budgetReached,
+    quota: gauge.toQuota(),
     ranAt: now(),
   };
 }

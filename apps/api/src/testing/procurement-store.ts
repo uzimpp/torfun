@@ -3,14 +3,17 @@ import {
   type IngestionFailure,
   type IngestionOutcome,
   type IngestionSummary,
+  type OpenDataQuota,
   type Procurement,
 } from '@torfun/types';
 import type {
   FindOptions,
   FindResult,
   ProcurementDataSource,
+  UpsertSummary,
 } from '../repositories/procurement.repository';
 import { mergeDiscovered } from '../repositories/merge-discovered';
+import { hashSource, hasUpstreamChange } from '../repositories/source-hash';
 
 /**
  * An in-memory `ProcurementStore` for driving an ingestion run in a test.
@@ -24,6 +27,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly records = new Map<string, Procurement>();
   private readonly failures: IngestionFailure[] = [];
   private lastRunAt: string | null = null;
+  private quota: OpenDataQuota | null = null;
 
   async ensureIndexes(): Promise<void> {
     // The in-memory store has no indexes; this preserves the production
@@ -45,6 +49,21 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     const merged = mergeDiscovered(existing, record);
     this.records.set(merged.projectId, merged);
     return merged;
+  }
+
+  async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
+    // The same counting rule as the real repository's bulk write.
+    const summary: UpsertSummary = { created: 0, changed: 0, unchanged: 0 };
+    for (const record of records) {
+      const existing = this.records.get(record.projectId);
+      if (!existing) summary.created += 1;
+      else if (hasUpstreamChange(existing, record)) summary.changed += 1;
+      else summary.unchanged += 1;
+      await this.upsert(
+        existing ? record : { ...record, sourceHash: record.sourceHash ?? hashSource(record) },
+      );
+    }
+    return summary;
   }
 
   async transition(
@@ -111,6 +130,18 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     this.lastRunAt = at;
   }
 
+  async openDataQuota(): Promise<OpenDataQuota | null> {
+    return this.quota;
+  }
+
+  async recordOpenDataQuota(quota: OpenDataQuota): Promise<void> {
+    this.quota = quota;
+  }
+
+  async lastDiscoveryAt(): Promise<string | null> {
+    return this.lastRunAt;
+  }
+
   async listFailures(): Promise<IngestionFailure[]> {
     return this.failures;
   }
@@ -137,13 +168,16 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       totalTorBytes: 0,
       failureCount: this.failures.length,
       lastRunAt: this.lastRunAt,
+      openDataQuota: this.quota,
       runInProgress: false,
     };
   }
 
   async recent(limit: number): Promise<Procurement[]> {
     return [...this.records.values()]
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.projectId.localeCompare(b.projectId))
+      .sort(
+        (a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.projectId.localeCompare(b.projectId),
+      )
       .slice(0, limit);
   }
 }

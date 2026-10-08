@@ -43,11 +43,15 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
+    sourceHash: null,
+    lastSeenAt: null,
+    changedAt: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -87,6 +91,9 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       rejected: [],
       resolutions: [],
       failures: [],
+      rateLimited: false,
+      budgetReached: false,
+      quota: null,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
     resolveZipId: async () => 'zip-1',
@@ -198,6 +205,9 @@ describe('runIngestion', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: async () => {
@@ -222,6 +232,9 @@ describe('runIngestion', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: failing,
@@ -311,6 +324,9 @@ describe('stages and the per-record deadline', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       classifyDocument: async () => {
@@ -332,6 +348,447 @@ describe('stages and the per-record deadline', () => {
     release();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect((await repository.get('66059313551'))?.outcome).toBe('error');
+  });
+});
+
+describe('the open-data daily quota', () => {
+  const HOUR = 60 * 60 * 1000;
+  const quotaAt = (remainingDay: number, hoursAgo = 0) => ({
+    remainingDay,
+    limitDay: 1000,
+    observedAt: new Date(Date.now() - hoursAgo * HOUR).toISOString(),
+  });
+
+  const sweepResult = (overrides: Record<string, unknown> = {}) => ({
+    records: [],
+    rejected: [],
+    resolutions: [],
+    failures: [],
+    rateLimited: false,
+    budgetReached: false,
+    quota: null,
+    ranAt: new Date().toISOString(),
+    ...overrides,
+  });
+
+  /** A store with one queued record, and optionally a known allowance and a past sweep. */
+  async function setup(state: { quota?: ReturnType<typeof quotaAt>; lastSweepHoursAgo?: number }) {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement());
+    if (state.quota) await repository.recordOpenDataQuota(state.quota);
+    if (state.lastSweepHoursAgo !== undefined) {
+      await repository.markRun(new Date(Date.now() - state.lastSweepHoursAgo * HOUR).toISOString());
+    }
+    return repository;
+  }
+
+  const runWith = (
+    repository: InMemoryProcurementStore,
+    discover: () => Promise<ReturnType<typeof sweepResult>>,
+    options: { forceDiscovery?: boolean } = {},
+  ) =>
+    runIngestion(
+      repository,
+      { apiKey: 'k', maxDownloads: 5, eBiddingOnly: true, logger, ...options },
+      deps({ discoverProjects: mock(discover) as unknown as IngestionDeps['discoverProjects'] }),
+    );
+
+  test('a refused sweep does not stop the run: the queue is still worked', async () => {
+    const repository = await setup({});
+
+    const result = await runWith(repository, async () =>
+      sweepResult({ rateLimited: true, quota: quotaAt(0) }),
+    );
+
+    expect(result.discoveryStopped).toBe('rate_limited');
+    expect(result.aborted).toBe(false);
+    expect(result.attempted).toBe(1);
+    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+  });
+
+  test('a sweep cut short is not counted as done, so the next run sweeps again', async () => {
+    const repository = await setup({});
+
+    await runWith(repository, async () => sweepResult({ rateLimited: true, quota: quotaAt(0) }));
+    expect(await repository.lastDiscoveryAt()).toBeNull();
+
+    await runWith(repository, async () => sweepResult({ budgetReached: true, quota: quotaAt(40) }));
+    expect(await repository.lastDiscoveryAt()).toBeNull();
+  });
+
+  test('stopping at the reserve is reported as a budget stop, and the allowance is remembered', async () => {
+    const repository = await setup({});
+
+    const result = await runWith(repository, async () =>
+      sweepResult({ budgetReached: true, quota: quotaAt(40) }),
+    );
+
+    expect(result.discoveryStopped).toBe('budget');
+    expect((await repository.openDataQuota())?.remainingDay).toBe(40);
+  });
+
+  test('a finished sweep is marked done and remembers the allowance it left', async () => {
+    const repository = await setup({});
+
+    const result = await runWith(repository, async () => sweepResult({ quota: quotaAt(700) }));
+
+    expect(result.discoveryStopped).toBeNull();
+    expect(await repository.lastDiscoveryAt()).not.toBeNull();
+    expect((await repository.openDataQuota())?.remainingDay).toBe(700);
+  });
+
+  test('a sweep that reported nothing about the allowance leaves the known one alone', async () => {
+    const repository = await setup({ quota: quotaAt(900) });
+
+    await runWith(repository, async () => sweepResult());
+
+    expect((await repository.openDataQuota())?.remainingDay).toBe(900);
+  });
+
+  test('with too little left today, no sweep is attempted, and the queue is still worked', async () => {
+    const repository = await setup({ quota: quotaAt(120) });
+    const discover = mock(async () => sweepResult());
+
+    const result = await runWith(repository, discover);
+
+    expect(discover).not.toHaveBeenCalled();
+    expect(result.discoverySkipped).toBe(true);
+    expect(result.attempted).toBe(1);
+  });
+
+  test('forcing a sweep cannot conjure allowance that is not there', async () => {
+    const repository = await setup({ quota: quotaAt(0), lastSweepHoursAgo: 30 });
+    const discover = mock(async () => sweepResult());
+
+    await runWith(repository, discover, { forceDiscovery: true });
+
+    expect(discover).not.toHaveBeenCalled();
+  });
+
+  test('an allowance read on an earlier day is taken to have reset', async () => {
+    const repository = await setup({ quota: quotaAt(0, 36) });
+    const discover = mock(async () => sweepResult());
+
+    await runWith(repository, discover);
+
+    expect(discover).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('which stage a failure is logged against', () => {
+  const failures = async (overrides: Partial<IngestionDeps>) => {
+    const repository = new InMemoryProcurementStore();
+    const result = await run(repository, overrides);
+    return result.failures.map((failure) => failure.stage);
+  };
+
+  test('a failed announcement lookup is an info failure', async () => {
+    expect(
+      await failures({
+        resolveZipId: async () => {
+          throw new Error('bad gateway');
+        },
+      }),
+    ).toEqual(['info']);
+  });
+
+  test('a failed download is a download failure', async () => {
+    expect(
+      await failures({
+        downloadArchive: async () => {
+          throw new Error('connection reset');
+        },
+      }),
+    ).toEqual(['download']);
+  });
+
+  test('an archive that cannot be opened is an extract failure, not a download one', async () => {
+    expect(
+      await failures({
+        extractTorPdfs: () => {
+          throw new Error('corrupt zip');
+        },
+      }),
+    ).toEqual(['extract']);
+  });
+});
+
+describe('what a retrieval remembers about the archive', () => {
+  test('keeps every member name, so an administrator can see what a no-TOR archive held', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      extractTorPdfs: () => ({
+        torFiles: [],
+        members: ['quotation.pdf', 'sit.pdf', 'action_plan.xlsx'],
+        unsafeSkipped: [],
+      }),
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.outcome).toBe('no_tor_in_archive');
+    expect(record?.archiveMembers).toEqual(['quotation.pdf', 'sit.pdf', 'action_plan.xlsx']);
+  });
+
+  test('a file the model judges to be a TOR despite its name is analysed like any other', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      extractTorPdfs: () => ({
+        torFiles: [
+          { ...extracted(), filename: '20240823082250355.pdf', namePattern: 'unlabelled' },
+        ],
+        members: ['quotation.pdf', '20240823082250355.pdf'],
+        unsafeSkipped: [],
+      }),
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.documents[0]?.namePattern).toBe('unlabelled');
+  });
+});
+
+describe('a document that was only partly read', () => {
+  test('the record says how it was read, so a person knows to check the source', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      classifyDocument: async () => ({
+        isTor: true,
+        torKind: 'final' as const,
+        whatThisIs: 'ขอบเขตของงาน',
+        analysis: { ...analysis, confidence: 'low' as const },
+        readMode: 'first_pages' as const,
+        readNote: 'อ่านเฉพาะ 30 หน้าแรกจากทั้งหมด 120 หน้า',
+      }),
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.documents[0]?.readMode).toBe('first_pages');
+    expect(record?.documents[0]?.readNote).toMatch(/30/);
+    expect(record?.analysis?.confidence).toBe('low');
+  });
+});
+
+describe('a sweep that only re-sees what it already has', () => {
+  const sweep = (overrides: Partial<Procurement> = {}) => ({
+    discoverProjects: async () => ({
+      records: [procurement(overrides)],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      budgetReached: false,
+      quota: null,
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+  });
+
+  test('reports what was new, what moved and what did not', async () => {
+    const repository = new InMemoryProcurementStore();
+
+    const first = await run(repository, sweep());
+    const again = await run(repository, sweep());
+    const moved = await run(repository, sweep({ projectMoney: 9_999_999 }));
+
+    expect([first.newRecords, first.changedRecords, first.unchangedRecords]).toEqual([1, 0, 0]);
+    expect([again.newRecords, again.changedRecords, again.unchangedRecords]).toEqual([0, 0, 1]);
+    expect([moved.newRecords, moved.changedRecords, moved.unchangedRecords]).toEqual([0, 1, 0]);
+  });
+});
+
+describe('when discovery runs', () => {
+  const HOUR = 60 * 60 * 1000;
+  const hoursAgo = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString();
+
+  /** A run against a store that was last swept `lastSweepHoursAgo` ago, with one queued record. */
+  async function runWith(
+    lastSweepHoursAgo: number | null,
+    options: { discoveryMaxAgeMs?: number; forceDiscovery?: boolean },
+  ) {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement());
+    if (lastSweepHoursAgo !== null) await repository.markRun(hoursAgo(lastSweepHoursAgo));
+    const discover = mock(async () => ({
+      records: [],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      budgetReached: false,
+      quota: null,
+      ranAt: new Date().toISOString(),
+    }));
+
+    const result = await runIngestion(
+      repository,
+      { apiKey: 'k', maxDownloads: 5, eBiddingOnly: true, logger, ...options },
+      deps({ discoverProjects: discover }),
+    );
+    return { result, discover, repository };
+  }
+
+  test('a recent sweep is not repeated, but queued records are still retrieved', async () => {
+    const { result, discover, repository } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR });
+
+    expect(discover).not.toHaveBeenCalled();
+    expect(result.discoverySkipped).toBe(true);
+    expect(result.attempted).toBe(1);
+    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+  });
+
+  test('skipping a sweep does not pretend one happened', async () => {
+    const { repository } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR });
+
+    const last = (await repository.summary()).lastRunAt;
+    expect(Date.now() - Date.parse(last!)).toBeGreaterThan(0.9 * HOUR);
+  });
+
+  test('a stale sweep is repeated', async () => {
+    const { result, discover } = await runWith(7, { discoveryMaxAgeMs: 6 * HOUR });
+
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(result.discoverySkipped).toBe(false);
+  });
+
+  test('a sweep that was never made is made', async () => {
+    const { discover } = await runWith(null, { discoveryMaxAgeMs: 6 * HOUR });
+
+    expect(discover).toHaveBeenCalledTimes(1);
+  });
+
+  test('an administrator can force a sweep however recent the last was', async () => {
+    const { discover } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR, forceDiscovery: true });
+
+    expect(discover).toHaveBeenCalledTimes(1);
+  });
+
+  test('with no age limit configured it always sweeps, as before', async () => {
+    const { discover } = await runWith(0.01, {});
+
+    expect(discover).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a run that is told to stop', () => {
+  test('stops before the next record and leaves the rest Queued', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolved: string[] = [];
+    let allowed = true;
+
+    const result = await runIngestion(
+      repository,
+      {
+        apiKey: 'k',
+        maxDownloads: 5,
+        eBiddingOnly: true,
+        logger,
+        shouldContinue: () => allowed,
+      },
+      deps({
+        discoverProjects: async () => ({
+          records: [procurement(), procurement({ projectId: '66059313552' })],
+          rejected: [],
+          resolutions: [],
+          failures: [],
+          rateLimited: false,
+          budgetReached: false,
+          quota: null,
+          ranAt: '2026-09-09T00:00:00.000Z',
+        }),
+        resolveZipId: async (projectId) => {
+          resolved.push(projectId);
+          allowed = false; // e.g. the lease was lost while the first record was working
+          return 'zip-1';
+        },
+      }),
+    );
+
+    expect(result.aborted).toBe(true);
+    expect(result.attempted).toBe(1);
+    expect(resolved).toEqual(['66059313551']);
+    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+    const second = await repository.get('66059313552');
+    expect(second?.state).toBe('Queued');
+    expect(second?.attempts).toBe(0);
+  });
+});
+
+describe('a deadline that fires while a site request is in flight', () => {
+  const two = () => ({
+    discoverProjects: async () => ({
+      records: [procurement(), procurement({ projectId: '66059313552' })],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      budgetReached: false,
+      quota: null,
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+  });
+
+  test('cancels the request and lets it end before the next record starts, so downloads stay single-file', async () => {
+    const repository = new InMemoryProcurementStore();
+    const events: string[] = [];
+    let cancelled = 0;
+
+    await run(repository, {
+      ...two(),
+      recordDeadlineMs: 20,
+      resolveZipId: async (projectId) => {
+        events.push(`resolve ${projectId}`);
+        return 'zip-1';
+      },
+      downloadArchive: (_zipId, signal) =>
+        new Promise((_resolve, reject) => {
+          events.push('download start');
+          signal?.addEventListener('abort', () => {
+            cancelled += 1;
+            // A cancelled request takes a moment to wind down.
+            setTimeout(() => {
+              events.push('download ended');
+              reject(new Error('cancelled'));
+            }, 15);
+          });
+        }),
+    });
+
+    expect(cancelled).toBe(2);
+    expect(events).toEqual([
+      'resolve 66059313551',
+      'download start',
+      'download ended',
+      'resolve 66059313552',
+      'download start',
+      'download ended',
+    ]);
+  });
+
+  test('a rate limit that beats the cancellation still stops the run, and costs no attempt', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolved: string[] = [];
+
+    const result = await run(repository, {
+      ...two(),
+      recordDeadlineMs: 20,
+      resolveZipId: async (projectId) => {
+        resolved.push(projectId);
+        return 'zip-1';
+      },
+      downloadArchive: (_zipId, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            setTimeout(() => reject(new RateLimitedError('https://site.test/x', 429)), 5);
+          });
+        }),
+    });
+
+    expect(result.aborted).toBe(true);
+    expect(resolved).toEqual(['66059313551']); // the second record was never started
+    const first = await repository.get('66059313551');
+    expect(first?.outcome).toBe('queued');
+    expect(first?.attempts).toBe(0);
+    expect((await repository.get('66059313552'))?.outcome).toBe('queued');
   });
 });
 
@@ -363,6 +820,9 @@ describe('what Gemini reads from the TOR', () => {
       rejected: [],
       resolutions: [],
       failures: [],
+      rateLimited: false,
+      budgetReached: false,
+      quota: null,
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
@@ -463,6 +923,9 @@ describe('the analysis pool', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       downloadArchive: async () => {
@@ -498,6 +961,9 @@ describe('the reaper', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
       resolveZipId: async () => null,
@@ -519,6 +985,9 @@ describe('the reaper', () => {
         rejected: [],
         resolutions: [],
         failures: [],
+        rateLimited: false,
+        budgetReached: false,
+        quota: null,
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
     });

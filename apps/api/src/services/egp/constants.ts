@@ -110,14 +110,8 @@ export { MAX_RETRIEVAL_ATTEMPTS as MAX_ATTEMPTS } from '@torfun/types';
  */
 export const ANALYSIS_CONCURRENCY = 2;
 
-/**
- * Ceiling on one record's whole retrieval, download and analysis together. A
- * hung call otherwise freezes the serial run for good, and the record stays
- * Processing forever. Generous on purpose — archives run to ~30 MB and several
- * PDFs are read one after another — because it exists to catch a hang, not to
- * hurry a slow one.
- */
-export const RECORD_DEADLINE_MS = 5 * 60_000;
+/** Longest one record may take before it is requeued; the number lives in `@torfun/types`. */
+export { RECORD_DEADLINE_MS } from '@torfun/types';
 
 /**
  * How long a record may sit in Processing with no status change before the next
@@ -149,3 +143,22 @@ export const TOR_MEMBER_PATTERNS = [
   { label: 'canonical' as const, pattern: /(^|\/)Attach_TOR_[^/]*\.pdf$/i },
   { label: 'loose' as const, pattern: /(^|\/)[^/]*TOR[^/]*\.pdf$/i },
 ];
+
+/**
+ * The open-data key's daily allowance is a hard cap (1,000 requests, read from
+ * its `x-ratelimit-limit-day` header), shared by anything using the key. A sweep
+ * stops with this many left rather than running until it is refused, so a second
+ * caller of the same key, or a retry, is not left with nothing.
+ */
+export const OPEN_DATA_RESERVE = 50;
+
+/** What a full discovery sweep costs; the number lives in `@torfun/types`, where the admin page reads it too. */
+export { OPEN_DATA_SWEEP_CALLS } from '@torfun/types';
+
+/**
+ * A discovery sweep younger than this is not repeated. It is ~270 open-data
+ * queries for an answer that has not had time to change, and that API rate
+ * limits them at 1,000 a day, and a sweep is ~300 of those, so a day allows about
+ * three and one is plenty. Retrieval from the queue still happens on every Run.
+ */
+export const DISCOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000;

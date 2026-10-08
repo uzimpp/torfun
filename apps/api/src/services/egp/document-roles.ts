@@ -16,7 +16,7 @@ export interface ClassifiedDocument {
   filename: string;
   bytes: number;
   /** What the filename heuristic thought. Provenance and tie-breaker only. */
-  namePattern: 'canonical' | 'loose';
+  namePattern: 'canonical' | 'loose' | 'unlabelled';
   isTor: boolean;
   /** `final` where the document presents itself as the issued TOR, `draft` for a ร่าง. */
   torKind: 'final' | 'draft' | null;
@@ -24,6 +24,9 @@ export interface ClassifiedDocument {
   whatThisIs: string;
   /** Set when the document could not be read at all; the reason why. */
   unreadable?: string;
+  /** How the model was given the document; see `ArchiveDocument.readMode`. */
+  readMode?: 'pdf' | 'text' | 'first_pages';
+  readNote?: string;
 }
 
 export interface RoleAssignment {
@@ -75,6 +78,10 @@ export function assignDocumentRoles(candidates: ClassifiedDocument[]): RoleAssig
     namePattern: document.namePattern,
     role: roleFor(document, main),
     note: noteFor(document, main),
+    // Only when present: the driver stores an undefined property as null, which
+    // the manifest schema then refuses on the way back out.
+    ...(document.readMode ? { readMode: document.readMode } : {}),
+    ...(document.readNote ? { readNote: document.readNote } : {}),
   }));
 
   return {

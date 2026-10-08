@@ -92,6 +92,22 @@ export const IngestionOutcome = z.enum([
 ]);
 export type IngestionOutcome = z.infer<typeof IngestionOutcome>;
 
+/**
+ * Transport failures a Procurement may accumulate before it is abandoned
+ * (ADR-0006). A policy, not a finding: it bounds how much of a capped Run a
+ * permanently broken project can consume. Shared so the console counts against
+ * the same number the pipeline enforces.
+ */
+export const MAX_RETRIEVAL_ATTEMPTS = 3;
+
+/**
+ * Longest one Procurement may take in a Run before it is treated as a transport
+ * failure and requeued. Generous on purpose — it exists to catch a hang, not to
+ * hurry a slow archive. Shared so the console flags a record as overdue at the
+ * same moment the pipeline gives up on it.
+ */
+export const RECORD_DEADLINE_MS = 5 * 60_000;
+
 /** Thai display labels, colocated with the enum so the UI can't drift from it. */
 export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
   queued: 'รอดำเนินการ',
@@ -103,16 +119,8 @@ export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
   no_tor_in_archive: 'ไม่มี TOR ในไฟล์บีบอัด',
   no_tor_package: 'ไม่มีชุดเอกสาร TOR',
   error: 'ดึงข้อมูลผิดพลาด (จะลองใหม่)',
-  abandoned: 'ลองครบ 3 ครั้งแล้ว',
+  abandoned: `ลองครบ ${MAX_RETRIEVAL_ATTEMPTS} ครั้งแล้ว`,
 };
-
-/**
- * Transport failures a Procurement may accumulate before it is abandoned
- * (ADR-0006). A policy, not a finding: it bounds how much of a capped Run a
- * permanently broken project can consume. Shared so the console counts against
- * the same number the pipeline enforces.
- */
-export const MAX_RETRIEVAL_ATTEMPTS = 3;
 
 /**
  * The one State each Outcome belongs to. Storing both is deliberate (State is
@@ -169,11 +177,22 @@ export const ArchiveDocumentSchema = z.object({
   member: z.string(),
   filename: z.string(),
   bytes: z.number().int().nonnegative(),
-  /** What the filename heuristic thought. Provenance and tie-breaker only. */
-  namePattern: z.enum(['canonical', 'loose']),
+  /**
+   * What the filename heuristic thought. Provenance and tie-breaker only;
+   * `unlabelled` means nothing in the name said TOR and the model was asked anyway.
+   */
+  namePattern: z.enum(['canonical', 'loose', 'unlabelled']),
   role: DocumentRole,
   /** Why this document has that role, in the model's words. */
   note: z.string(),
+  /**
+   * How the model was given the document. Absent on records from before this was
+   * kept, and means `pdf`. Anything else is a partial reading: a person should
+   * check the source for what was left out.
+   */
+  readMode: z.enum(['pdf', 'text', 'first_pages']).optional(),
+  /** For a partial reading, what was lost. */
+  readNote: z.string().optional(),
 });
 export type ArchiveDocument = z.infer<typeof ArchiveDocumentSchema>;
 
@@ -318,6 +337,12 @@ export const ProcurementSchema = z.object({
   zipBytes: z.number().int().nonnegative().nullable(),
   archiveMemberCount: z.number().int().nonnegative().nullable(),
   /**
+   * Every member name in the archive, so an administrator can see what a
+   * no-TOR archive actually held and judge whether the filename gate missed
+   * something. Names only; the files themselves are never kept (ADR-0002).
+   */
+  archiveMembers: z.array(z.string()),
+  /**
    * Every candidate document found in the archive and what it turned out to
    * be. A manifest, not files: the bytes are never persisted (ADR-0002).
    */
@@ -334,6 +359,21 @@ export const ProcurementSchema = z.object({
   torAmbiguous: z.boolean(),
 
   discoveredAt: z.string(),
+  /**
+   * A fingerprint of everything the agency owns on this record (name, dates,
+   * money, stage, winner). A sweep compares it to tell a real change from a
+   * record that was merely seen again. Null on records from before it existed.
+   */
+  sourceHash: z.string().nullable(),
+  /** The last sweep that returned this record, changed or not. */
+  lastSeenAt: z.string().nullable(),
+  /** The last time a sweep found the agency's data changed; null if it never has. */
+  changedAt: z.string().nullable(),
+  /**
+   * When anything about this record last changed: upstream data, or this
+   * system's own work on it. Not bumped by a sweep that saw nothing new, so it
+   * is a true "recently updated", not "recently looked at".
+   */
   updatedAt: z.string(),
 });
 export type Procurement = z.infer<typeof ProcurementSchema>;
@@ -458,6 +498,22 @@ export const IngestionFailureSchema = z.object({
 });
 export type IngestionFailure = z.infer<typeof IngestionFailureSchema>;
 
+/**
+ * What the open-data API last said about this key's daily allowance. It is a
+ * hard cap (1,000 requests a day, observed), shared by everything using the key,
+ * so the pipeline plans a sweep against it and an administrator can see it.
+ */
+/** What a full discovery sweep costs in open-data requests (~270 queries plus lookups). For planning and display. */
+export const OPEN_DATA_SWEEP_CALLS = 300;
+
+export const OpenDataQuotaSchema = z.object({
+  /** Requests left today as of `observedAt`; 0 means refused until the day turns over. */
+  remainingDay: z.number().int().nonnegative(),
+  limitDay: z.number().int().positive().nullable(),
+  observedAt: z.string(),
+});
+export type OpenDataQuota = z.infer<typeof OpenDataQuotaSchema>;
+
 export const IngestionSummarySchema = z.object({
   total: z.number().int(),
   byState: z.record(IngestionState, z.number().int()),
@@ -468,6 +524,8 @@ export const IngestionSummarySchema = z.object({
   totalTorBytes: z.number().int(),
   failureCount: z.number().int(),
   lastRunAt: z.string().nullable(),
+  /** The open-data API's daily allowance as last seen; null until a sweep has read it. */
+  openDataQuota: OpenDataQuotaSchema.nullable(),
   /**
    * Whether a retrieval run is executing right now. Authoritative, so the UI
    * never has to infer "still running" from the absence of Processing rows —

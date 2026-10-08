@@ -10,7 +10,7 @@ import { FailureLog } from './failure-log';
 import { FilterBar } from './filter-bar';
 import { ProjectTable } from './project-table';
 import { ScheduleCard } from './schedule-card';
-import { runBanner } from './status-tracking';
+import { describeQuota, runBanner } from './status-tracking';
 import { SummaryCards } from './summary-cards';
 import { useNow } from './use-now';
 import {
@@ -31,6 +31,29 @@ function RunStatus({ lastRunAt }: { lastRunAt: string | null }) {
       {lastRunAt
         ? `รอบล่าสุด ${new Date(lastRunAt).toLocaleString('th-TH')}`
         : 'ยังไม่เคยเริ่มรอบดึงข้อมูล'}
+    </span>
+  );
+}
+
+/**
+ * How much of the open-data API's daily allowance is left. Discovery is gated on
+ * it, so an administrator wondering why a Run found nothing new can see it here.
+ * The wording carries the warning as well as the colour.
+ */
+function QuotaNote({
+  quota,
+  nowMs,
+}: {
+  quota: Parameters<typeof describeQuota>[0];
+  nowMs: number;
+}) {
+  const { label, low } = describeQuota(quota, nowMs);
+  return (
+    <span
+      className={cn('text-sm', low ? 'text-destructive font-medium' : 'text-muted-foreground')}
+      data-low={low || undefined}
+    >
+      {label}
     </span>
   );
 }
@@ -106,6 +129,7 @@ export function IngestionDashboard() {
             ติดตามสถานะการประมวลผลของประกาศจัดซื้อจัดจ้างที่ดึงจากระบบ e-GP
           </p>
           {banner ? null : <RunStatus lastRunAt={summary?.lastRunAt ?? null} />}
+          {summary ? <QuotaNote quota={summary.openDataQuota} nowMs={now.getTime()} /> : null}
         </div>
         <Button onClick={() => void startRun()} disabled={running}>
           {running ? 'กำลังดึงข้อมูล…' : 'เริ่มรอบดึงข้อมูล'}

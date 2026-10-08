@@ -1,5 +1,8 @@
 import {
   MAX_RETRIEVAL_ATTEMPTS,
+  OPEN_DATA_SWEEP_CALLS,
+  type OpenDataQuota,
+  RECORD_DEADLINE_MS,
   OUTCOME_LABELS,
   STATE_LABELS,
   type Procurement,
@@ -12,8 +15,8 @@ import type { IngestionSummaryResponse } from '@/lib/api';
  * so the wording and the thresholds can be tested without a DOM or a clock.
  */
 
-/** A record that has sat in one Processing stage longer than this is worth a look. */
-const OVERDUE_AFTER_MS = 5 * 60_000;
+/** A record past the pipeline's own deadline is worth a look. */
+const OVERDUE_AFTER_MS = RECORD_DEADLINE_MS;
 
 export interface StageDuration {
   label: string;
@@ -89,4 +92,39 @@ export function describeChange(change: StatusChange): ChangeDescription {
     time: new Date(change.at).toLocaleString('th-TH'),
     ...(change.detail ? { detail: change.detail } : {}),
   };
+}
+
+/**
+ * What the page says about the open-data API's daily allowance.
+ *
+ * `low` is true when what is left cannot pay for a full discovery sweep, which
+ * is when the pipeline stops trying one. A reading from an earlier UTC day is no
+ * longer true — the allowance resets daily — so it is shown as unknown rather
+ * than as a stale zero that would make the page look broken.
+ */
+export function describeQuota(
+  quota: OpenDataQuota | null,
+  nowMs: number,
+): { label: string; low: boolean } {
+  const unknown = { label: 'โควตา open-data: ยังไม่ทราบ', low: false };
+  if (quota === null) return unknown;
+  if (quota.observedAt.slice(0, 10) !== new Date(nowMs).toISOString().slice(0, 10)) return unknown;
+
+  const left = quota.remainingDay.toLocaleString('en-US');
+  const limit = quota.limitDay?.toLocaleString('en-US');
+  const of = limit ? `/${limit}` : '';
+
+  if (quota.remainingDay === 0) {
+    return {
+      label: `โควตา open-data วันนี้หมดแล้ว (0${of}) — สแกนใหม่ได้หลังโควตารีเซ็ต`,
+      low: true,
+    };
+  }
+  if (quota.remainingDay < OPEN_DATA_SWEEP_CALLS) {
+    return {
+      label: `โควตา open-data วันนี้เหลือ ${left}${of} — ไม่พอสำหรับสแกนเต็มรอบ`,
+      low: true,
+    };
+  }
+  return { label: `โควตา open-data วันนี้เหลือ ${left}${of}`, low: false };
 }

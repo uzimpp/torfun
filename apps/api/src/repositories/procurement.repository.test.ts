@@ -61,11 +61,15 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     zipBytes: null,
     archiveMemberCount: null,
+    archiveMembers: [],
     documents: [],
     analysis: null,
     winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
+    sourceHash: null,
+    lastSeenAt: null,
+    changedAt: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -126,7 +130,11 @@ describeMongo('ProcurementRepository', () => {
     });
     await repository.upsert(record);
 
-    expect(await repository.get('66059313551')).toEqual(record);
+    // The store fingerprints a record as it writes it; everything else is unchanged.
+    expect(await repository.get('66059313551')).toEqual({
+      ...record,
+      sourceHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
   });
 
   test('nothing above the repository ever sees a snake_case field or _id', async () => {
@@ -634,5 +642,140 @@ describeMongo('ProcurementRepository', () => {
     // value it was given, which is what orders these three.
     expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['new', 'mid']);
     expect(await repository.recent(10)).toHaveLength(3);
+  });
+
+  describe('records written before the status and outcome vocabulary changed', () => {
+    // What the real database held until the migration ran: `processing` for the
+    // outcome and history, the old stage names for status, and none of the newer
+    // fields. Reading such a record must not fail a whole response.
+    const storeLegacy = async () => {
+      await repository.upsert(procurement({ projectId: 'legacy' }));
+      await repository.transition('legacy', 'downloading');
+      await (await getDb()).collection('procurements').updateOne(
+        { _id: 'legacy' as never },
+        {
+          $set: {
+            state: 'Processing',
+            outcome: 'processing',
+            'status_history.$[entry].outcome': 'processing',
+            status: 'invitation',
+          },
+          $unset: { attempts: '', status_source: '', upstream_status: '' },
+        },
+        { arrayFilters: [{ 'entry.outcome': 'downloading' }] },
+      );
+    };
+
+    test('are read in the new vocabulary', async () => {
+      await storeLegacy();
+
+      const record = await repository.get('legacy');
+
+      expect(record?.outcome).toBe('downloading');
+      expect(record?.status).toBe('open');
+      expect(record?.statusHistory.map((entry) => entry.outcome)).toEqual(['downloading']);
+      expect(record?.attempts).toBe(0);
+      expect(record?.statusSource).toBeNull();
+    });
+
+    test('are counted under the new outcome in the summary', async () => {
+      await storeLegacy();
+
+      const { byOutcome } = await repository.summary();
+
+      expect(byOutcome).toEqual({ downloading: 1 });
+    });
+
+    test('appear in a listing and in the recent list', async () => {
+      await storeLegacy();
+
+      expect((await repository.find({ limit: 10, offset: 0 })).items[0]?.outcome).toBe(
+        'downloading',
+      );
+      expect((await repository.recent(5))[0]?.outcome).toBe('downloading');
+    });
+  });
+
+  describe('upsertMany, the way a sweep writes', () => {
+    const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
+
+    test('inserts new records and fingerprints them', async () => {
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a' }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({ created: 2, changed: 0, unchanged: 0 });
+      expect((await repository.get('a'))?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    test('a second sweep that sees the same data changes nothing, including updatedAt', async () => {
+      await repository.upsertMany([
+        procurement({ projectId: 'a', updatedAt: at(1) }),
+        procurement({ projectId: 'b', updatedAt: at(2) }),
+      ]);
+
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a' }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({ created: 0, changed: 0, unchanged: 2 });
+      expect((await repository.get('a'))?.updatedAt).toBe(at(1));
+      expect((await repository.get('b'))?.updatedAt).toBe(at(2));
+      expect((await repository.get('a'))?.lastSeenAt).not.toBeNull();
+    });
+
+    test('only the record whose data moved is changed, and it becomes the most recently updated', async () => {
+      await repository.upsertMany([
+        procurement({ projectId: 'a', updatedAt: at(1) }),
+        procurement({ projectId: 'b', updatedAt: at(2) }),
+      ]);
+
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a', projectMoney: 9_999_999 }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({ created: 0, changed: 1, unchanged: 1 });
+      expect((await repository.get('a'))?.changedAt).not.toBeNull();
+      expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['a', 'b']);
+    });
+
+    test('a record the pipeline has worked on keeps that work when it is seen again', async () => {
+      await repository.upsertMany([procurement({ projectId: 'a' })]);
+      await repository.transition('a', 'no_tor_package', {}, 'no package');
+
+      await repository.upsertMany([procurement({ projectId: 'a' })]);
+
+      expect((await repository.get('a'))?.outcome).toBe('no_tor_package');
+    });
+
+    test('an empty sweep is a no-op', async () => {
+      expect(await repository.upsertMany([])).toEqual({ created: 0, changed: 0, unchanged: 0 });
+    });
+  });
+
+  describe('the open-data daily quota', () => {
+    const quota = { remainingDay: 640, limitDay: 1000, observedAt: '2026-09-30T18:00:00.000Z' };
+
+    test('is unknown until a sweep has read it', async () => {
+      expect(await repository.openDataQuota()).toBeNull();
+      expect((await repository.summary()).openDataQuota).toBeNull();
+    });
+
+    test('is remembered, and shown in the summary', async () => {
+      await repository.recordOpenDataQuota(quota);
+
+      expect(await repository.openDataQuota()).toEqual(quota);
+      expect((await repository.summary()).openDataQuota).toEqual(quota);
+    });
+
+    test('the latest reading replaces the last', async () => {
+      await repository.recordOpenDataQuota(quota);
+      await repository.recordOpenDataQuota({ ...quota, remainingDay: 0 });
+
+      expect((await repository.openDataQuota())?.remainingDay).toBe(0);
+    });
   });
 });

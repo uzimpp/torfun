@@ -8,12 +8,14 @@ import {
   type DocumentClassification,
   type ModelStatus,
 } from '../vertex/classify-document';
+import { createOversizeReaders } from '../vertex/oversize-readers';
 import { createModelCall } from '../vertex/vertex-ai';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
 import { mapWithConcurrency } from './concurrency';
 import {
   ANALYSIS_CONCURRENCY,
   MAX_ATTEMPTS,
+  OPEN_DATA_SWEEP_CALLS,
   RECORD_DEADLINE_MS,
   STALE_PROCESSING_MS,
 } from './constants';
@@ -43,8 +45,9 @@ import {
  */
 export interface IngestionDeps {
   discoverProjects: (apiKey: string) => Promise<DiscoveryResult>;
-  resolveZipId: (projectId: string) => Promise<string | null>;
-  downloadArchive: (zipId: string) => Promise<Uint8Array>;
+  /** `signal` is aborted at the record's deadline, which cancels the site request. */
+  resolveZipId: (projectId: string, signal?: AbortSignal) => Promise<string | null>;
+  downloadArchive: (zipId: string, signal?: AbortSignal) => Promise<Uint8Array>;
   extractTorPdfs: (archive: Uint8Array) => ExtractionResult;
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   sleep: (ms: number) => Promise<void>;
@@ -54,12 +57,13 @@ export interface IngestionDeps {
 
 export function createIngestionDeps(env: Env): IngestionDeps {
   const callModel = createModelCall(env);
+  const oversizeReaders = createOversizeReaders();
   return {
     discoverProjects,
     resolveZipId,
     downloadArchive,
     extractTorPdfs: (archive) => extractTorPdfs(archive, unzipSync),
-    classifyDocument: (pdf) => classifyTorDocument(callModel, pdf),
+    classifyDocument: (pdf) => classifyTorDocument(callModel, pdf, oversizeReaders),
     sleep,
     recordDeadlineMs: RECORD_DEADLINE_MS,
   };
@@ -73,17 +77,35 @@ class DeadlineExceededError extends Error {
 }
 
 /**
+ * What a record's work can tell the deadline about itself.
+ *
+ * `expired` is how work that outlives its record finds out: it checks it before
+ * every write, so a call that finally returns after the record was requeued
+ * cannot overwrite that requeue. `siteRequest` is true only while a request to
+ * the upstream site is in flight, because that is the one thing that must never
+ * be left running.
+ */
+interface RecordGuard {
+  expired: boolean;
+  siteRequest: boolean;
+  readonly controller: AbortController;
+}
+
+/**
  * Run one record's work against a deadline.
  *
- * The work cannot be cancelled, so when the deadline wins it keeps running in
- * the background. `guard.expired` is how it finds out: the work checks it before
- * every write, so a call that finally returns after the record was requeued
- * cannot overwrite that requeue.
+ * The work cannot be cancelled in general, so when the deadline wins it keeps
+ * running in the background — except for a site request, which is aborted and
+ * then waited for. Upstream access is single-file (AGENTS.md), so an abandoned
+ * request must not linger into the next record's; and a rate-limit response that
+ * beat the abort is still the site saying stop, so it is raised, not swallowed.
+ * Waiting is bounded because an aborted request ends promptly. Work stuck
+ * anywhere else (the model, say) is not waited for: it touches no upstream site.
  */
 async function withDeadline(
   work: () => Promise<void>,
   ms: number,
-  guard: { expired: boolean },
+  guard: RecordGuard,
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
@@ -92,8 +114,22 @@ async function withDeadline(
       reject(new DeadlineExceededError(ms));
     }, ms);
   });
+  const running = work();
   try {
-    await Promise.race([work(), deadline]);
+    await Promise.race([running, deadline]);
+  } catch (error) {
+    if (!(error instanceof DeadlineExceededError)) throw error;
+
+    const requestInFlight = guard.siteRequest;
+    guard.controller.abort();
+    if (requestInFlight) {
+      let late: unknown;
+      await running.catch((caught: unknown) => {
+        late = caught;
+      });
+      if (late instanceof RateLimitedError) throw late;
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -114,11 +150,36 @@ export interface RunOptions {
    */
   eBiddingOnly: boolean;
   logger: FastifyBaseLogger;
+  /**
+   * Asked before each record. A Run cannot be cancelled mid-record, so this is
+   * where one that no longer holds the right to run — its lease was taken
+   * over — stops rather than overlap another Run's requests to the site.
+   */
+  shouldContinue?: () => boolean;
+  /**
+   * A discovery sweep younger than this is not repeated: it is the same ~270
+   * queries for the same answer, and the open-data API rate limits them. Unset
+   * means always sweep.
+   */
+  discoveryMaxAgeMs?: number;
+  /** Sweep regardless of how recent the last one was. */
+  forceDiscovery?: boolean;
 }
 
 export interface RunResult {
   discovered: number;
   newRecords: number;
+  /** Seen before, and the agency's data for them is different now. */
+  changedRecords: number;
+  /** Seen again with nothing the agency owns moved. */
+  unchangedRecords: number;
+  /** This Run made no discovery sweep (the last was recent, or the day's allowance is too low). */
+  discoverySkipped: boolean;
+  /**
+   * Why a sweep that began did not finish: the open-data API refused it, or it
+   * stopped with the day's reserve in hand. Null when it finished or never began.
+   */
+  discoveryStopped: 'rate_limited' | 'budget' | null;
   rejectedNonRegistry: number;
   attempted: number;
   /** Announcement archives successfully retrieved, whatever was in them. */
@@ -129,6 +190,10 @@ export interface RunResult {
   aborted: boolean;
   failures: IngestionFailure[];
   ranAt: string;
+}
+
+function sameUtcDay(iso: string, nowMs: number): boolean {
+  return iso.slice(0, 10) === new Date(nowMs).toISOString().slice(0, 10);
 }
 
 /** Which records are worth spending an upstream request on, best first. */
@@ -191,6 +256,8 @@ async function analyseArchive(
         torKind: classification.torKind,
         whatThisIs: classification.whatThisIs,
         unreadable: classification.unreadable,
+        readMode: classification.readMode,
+        readNote: classification.readNote,
       };
     },
   );
@@ -229,21 +296,76 @@ export async function runIngestion(
   );
   if (requeued > 0) logger.warn({ requeued }, 'egp: requeued records stuck in Processing');
 
-  logger.info('egp: starting discovery sweep');
-  const discovery = await deps.discoverProjects(options.apiKey);
+  const lastSweep = await repository.lastDiscoveryAt();
+  const sweepIsRecent =
+    options.discoveryMaxAgeMs !== undefined &&
+    !options.forceDiscovery &&
+    lastSweep !== null &&
+    Date.now() - Date.parse(lastSweep) < options.discoveryMaxAgeMs;
 
-  let newRecords = 0;
-  for (const record of discovery.records) {
-    if (!(await repository.get(record.projectId))) newRecords += 1;
-    await repository.upsert(record);
+  // The open-data key has a hard daily allowance. If what it last reported, today,
+  // is less than a sweep costs, a sweep would only be refused part-way — so none
+  // is tried, whatever an administrator asked for. A reading from an earlier day
+  // is taken to have reset.
+  const knownQuota = await repository.openDataQuota();
+  const quotaTooLow =
+    knownQuota !== null &&
+    sameUtcDay(knownQuota.observedAt, Date.now()) &&
+    knownQuota.remainingDay < OPEN_DATA_SWEEP_CALLS;
+
+  const skipSweep = sweepIsRecent || quotaTooLow;
+
+  let discovery: DiscoveryResult;
+  let sync = { created: 0, changed: 0, unchanged: 0 };
+  let discoveryStopped: RunResult['discoveryStopped'] = null;
+
+  if (skipSweep) {
+    // Either the answer has not had time to change, or there is no allowance left
+    // to ask again with. The queue already holds what the last sweep found, so go
+    // straight to retrieving from it.
+    logger.info(
+      { lastSweep, remainingToday: quotaTooLow ? knownQuota?.remainingDay : undefined },
+      quotaTooLow
+        ? 'egp: open-data allowance too low for a sweep today, skipping it'
+        : 'egp: last discovery sweep is recent, skipping it',
+    );
+    discovery = {
+      records: [],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      rateLimited: false,
+      budgetReached: false,
+      quota: null,
+      ranAt: lastSweep ?? new Date().toISOString(),
+    };
+  } else {
+    logger.info('egp: starting discovery sweep');
+    discovery = await deps.discoverProjects(options.apiKey);
+    sync = await repository.upsertMany(discovery.records);
+    await repository.recordFailures(discovery.failures);
+    if (discovery.quota) await repository.recordOpenDataQuota(discovery.quota);
+
+    if (discovery.rateLimited || discovery.budgetReached) {
+      // Cut short. What it found is kept, but it is not a finished sweep: marking
+      // it done would make the next Run skip the agencies it never reached.
+      discoveryStopped = discovery.rateLimited ? 'rate_limited' : 'budget';
+      logger.warn(
+        { stopped: discoveryStopped, remainingToday: discovery.quota?.remainingDay },
+        'egp: discovery sweep stopped early; retrieval from the queue carries on',
+      );
+    } else {
+      await repository.markRun(discovery.ranAt);
+    }
   }
-  await repository.recordFailures(discovery.failures);
-  await repository.markRun(discovery.ranAt);
+  const newRecords = sync.created;
 
   logger.info(
     {
       discovered: discovery.records.length,
       newRecords,
+      changed: sync.changed,
+      unchanged: sync.unchanged,
       rejected: discovery.rejected.length,
       failures: discovery.failures.length,
     },
@@ -251,6 +373,15 @@ export async function runIngestion(
   );
 
   const failures: IngestionFailure[] = [...discovery.failures];
+
+  const syncCounts = {
+    newRecords,
+    changedRecords: sync.changed,
+    unchangedRecords: sync.unchanged,
+    discoverySkipped: skipSweep,
+    discoveryStopped,
+  };
+
   const candidates = await selectForRetrieval(repository, options);
 
   let archivesRetrieved = 0;
@@ -265,15 +396,40 @@ export async function runIngestion(
   };
 
   for (const [index, record] of candidates.entries()) {
+    if (options.shouldContinue && !options.shouldContinue()) {
+      aborted = true;
+      logger.warn('egp: run stopped before its next record; the rest stay Queued');
+      break;
+    }
+
     attempted += 1;
     await repository.transition(record.projectId, 'downloading');
 
-    const guard = { expired: false };
+    // Where the record had got to, so a failure is logged against the step that
+    // actually failed rather than always the download.
+    let stage: IngestionFailure['stage'] = 'info';
+    const guard: RecordGuard = {
+      expired: false,
+      siteRequest: false,
+      controller: new AbortController(),
+    };
+    // Marks the span of a call to the upstream site, so a deadline knows whether
+    // there is a request it must cancel and wait for.
+    const site = async <T>(call: () => Promise<T>): Promise<T> => {
+      guard.siteRequest = true;
+      try {
+        return await call();
+      } finally {
+        guard.siteRequest = false;
+      }
+    };
 
     try {
       await withDeadline(
         async () => {
-          const zipId = await deps.resolveZipId(record.projectId);
+          const zipId = await site(() =>
+            deps.resolveZipId(record.projectId, guard.controller.signal),
+          );
           if (guard.expired) return;
 
           if (zipId === null) {
@@ -291,8 +447,10 @@ export async function runIngestion(
             await repository.transition(record.projectId, 'no_tor_package', {}, error);
             failed += 1;
           } else {
-            const archive = await deps.downloadArchive(zipId);
+            stage = 'download';
+            const archive = await site(() => deps.downloadArchive(zipId, guard.controller.signal));
             if (guard.expired) return;
+            stage = 'extract';
             const extraction = deps.extractTorPdfs(archive);
             archivesRetrieved += 1;
 
@@ -313,6 +471,7 @@ export async function runIngestion(
               await repository.transition(record.projectId, 'analysing');
             }
 
+            stage = 'analysis';
             const analysed = await analyseArchive(extraction, deps.classifyDocument);
             if (guard.expired) return;
 
@@ -322,6 +481,7 @@ export async function runIngestion(
               zipId,
               zipBytes: archive.length,
               archiveMemberCount: extraction.members.length,
+              archiveMembers: extraction.members,
               documents: analysed.documents,
               analysis: analysed.analysis,
               torAmbiguous: analysed.torAmbiguous,
@@ -383,7 +543,7 @@ export async function runIngestion(
         await note({
           projectId: record.projectId,
           projectName: record.projectName,
-          stage: 'download',
+          stage,
           error: message,
           at: new Date().toISOString(),
         });
@@ -396,7 +556,7 @@ export async function runIngestion(
       await note({
         projectId: record.projectId,
         projectName: record.projectName,
-        stage: 'download',
+        stage,
         error: message,
         at: new Date().toISOString(),
       });
@@ -422,7 +582,7 @@ export async function runIngestion(
 
   return {
     discovered: discovery.records.length,
-    newRecords,
+    ...syncCounts,
     rejectedNonRegistry: discovery.rejected.length,
     attempted,
     archivesRetrieved,

@@ -6,7 +6,7 @@ import { gatedDeps, silentLogger } from '../testing/gated-ingestion';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
 import { InMemoryScheduleStore } from '../testing/schedule-store';
 import type { RunLog } from '../repositories/schedule.repository';
-import { IngestionService } from './ingestion.service';
+import { IngestionService, runMayContinue } from './ingestion.service';
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -20,7 +20,7 @@ function build(
 ) {
   const lease = new InMemoryIngestionLease();
   const schedule = new InMemoryScheduleStore();
-  const { deps, open } = gatedDeps(options.fail);
+  const { deps, open, calls } = gatedDeps(options.fail);
   const service = new IngestionService(
     new InMemoryProcurementStore(),
     testEnv(),
@@ -33,7 +33,7 @@ function build(
     },
     deps,
   );
-  return { service, lease, schedule, open };
+  return { service, lease, schedule, open, calls };
 }
 
 describe('IngestionService.startRun', () => {
@@ -145,5 +145,47 @@ describe('IngestionService.startRun', () => {
 
     expect((await service.summary()).runInProgress).toBe(false);
     await service.startRun({ eBiddingOnly: true });
+  });
+});
+
+describe('runMayContinue', () => {
+  const TTL = 120_000;
+
+  test('a run whose lease was confirmed recently may continue', () => {
+    expect(runMayContinue({ lost: false, confirmedAt: 1_000 }, 1_000 + TTL - 1, TTL)).toBe(true);
+  });
+
+  test('a run whose lease was taken over must stop', () => {
+    expect(runMayContinue({ lost: true, confirmedAt: 1_000 }, 1_001, TTL)).toBe(false);
+  });
+
+  test('a run that could not reach the lease for a whole ttl must stop, since another may hold it now', () => {
+    expect(runMayContinue({ lost: false, confirmedAt: 1_000 }, 1_000 + TTL, TTL)).toBe(false);
+  });
+});
+
+describe('IngestionService and the discovery sweep', () => {
+  const finish = async (service: IngestionService, open: () => void, force = false) => {
+    await service.startRun({ eBiddingOnly: true, ...(force ? { forceDiscovery: true } : {}) });
+    open();
+    await settle();
+  };
+
+  test('a second run soon after the first does not sweep upstream again', async () => {
+    const { service, open, calls } = build();
+
+    await finish(service, open);
+    await finish(service, open);
+
+    expect(calls.discover).toBe(1);
+  });
+
+  test('an administrator can force the sweep', async () => {
+    const { service, open, calls } = build();
+
+    await finish(service, open);
+    await finish(service, open, true);
+
+    expect(calls.discover).toBe(2);
   });
 });

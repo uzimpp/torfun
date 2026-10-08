@@ -29,8 +29,11 @@ interface InfoResponse {
  * Step 1. Returns null when the project simply has no published TOR package —
  * the common case for direct awards, which have no bidders to publish a spec for.
  */
-export async function resolveZipId(projectId: string): Promise<string | null> {
-  const response = await egpGet(TOR_INFO_URL, { projectId }, BROWSER_HEADERS);
+export async function resolveZipId(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const response = await egpGet(TOR_INFO_URL, { projectId }, BROWSER_HEADERS, signal);
 
   let body: InfoResponse;
   try {
@@ -49,8 +52,8 @@ export async function resolveZipId(projectId: string): Promise<string | null> {
  * type and the PK magic number are both checked — trusting the status code
  * alone would write an error message to disk as though it were an archive.
  */
-export async function downloadArchive(zipId: string): Promise<Uint8Array> {
-  const response = await egpGet(TOR_DOWNLOAD_URL, { fileId: zipId }, BROWSER_HEADERS);
+export async function downloadArchive(zipId: string, signal?: AbortSignal): Promise<Uint8Array> {
+  const response = await egpGet(TOR_DOWNLOAD_URL, { fileId: zipId }, BROWSER_HEADERS, signal);
   const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
   const bytes = new Uint8Array(await response.arrayBuffer());
 
@@ -88,7 +91,11 @@ export interface ExtractedPdf {
   member: string;
   filename: string;
   bytes: number;
-  namePattern: 'canonical' | 'loose';
+  /**
+   * `unlabelled` is a PDF whose name says nothing either way, sent only because
+   * the archive had no TOR-named file. The model, not the name, decides what it is.
+   */
+  namePattern: 'canonical' | 'loose' | 'unlabelled';
   /** The PDF itself. Held in memory only for the length of one retrieval. */
   payload: Uint8Array;
 }
@@ -97,6 +104,38 @@ export interface ExtractedPdf {
 export function matchTorMember(name: string): ExtractedPdf['namePattern'] | null {
   const normalized = name.replace(/\\/g, '/');
   return TOR_MEMBER_PATTERNS.find((entry) => entry.pattern.test(normalized))?.label ?? null;
+}
+
+/**
+ * Members every announcement archive carries whether or not it has a TOR: the
+ * quotation and bond forms, the bidding document and its definitions, the
+ * contract template, the announcement itself, and the project's own `doc_*`
+ * record. Six real archives shared exactly this set. They are never worth a
+ * model call, so they are what "unlabelled" is measured against.
+ */
+const BOILERPLATE_MEMBER_PATTERNS = [
+  /^quotation/i,
+  /bond\.pdf$/i,
+  /^definition_\d+/i,
+  /^document part\s*\d+/i,
+  /^bidding no[a-z]*tice/i,
+  /^domestic material/i,
+  /^contract_\d+/i,
+  /^annoudoc_/i,
+  /^attach_pub_/i,
+  /^doc_\d+_\d+/i,
+];
+
+/** Each unlabelled candidate costs a model call, so only a few are ever sent. */
+export const MAX_UNLABELLED_CANDIDATES = 4;
+
+function basename(member: string): string {
+  return member.replace(/\\/g, '/').split('/').pop() ?? member;
+}
+
+function isUnlabelledPdf(member: string): boolean {
+  const name = basename(member);
+  return /\.pdf$/i.test(name) && !BOILERPLATE_MEMBER_PATTERNS.some((pattern) => pattern.test(name));
 }
 
 export interface ExtractionResult {
@@ -128,26 +167,36 @@ export function extractTorPdfs(
   const torFiles: ExtractedPdf[] = [];
   const unsafeSkipped: string[] = [];
 
-  for (const member of members) {
-    const namePattern = matchTorMember(member);
-    if (namePattern === null) continue;
-
+  const take = (member: string, namePattern: ExtractedPdf['namePattern']) => {
     if (!isSafeMember(member)) {
       unsafeSkipped.push(member);
-      continue;
+      return;
     }
-
     const payload = entries[member];
-    if (!payload) continue;
+    if (!payload) return;
 
-    const filename = member.replace(/\\/g, '/').split('/').pop() ?? member;
     torFiles.push({
       member,
-      filename,
+      filename: basename(member),
       bytes: payload.length,
       namePattern,
       payload,
     });
+  };
+
+  for (const member of members) {
+    const namePattern = matchTorMember(member);
+    if (namePattern !== null) take(member, namePattern);
+  }
+
+  // A TOR is not always named like one: real archives have held it as
+  // `20240823082250355.pdf` or `sit.pdf`. With no TOR-named file, send the PDFs
+  // that are not the usual boilerplate and let the model say what they are.
+  // Not done when a TOR-named file exists — that is what the name patterns are for.
+  if (torFiles.length === 0 && unsafeSkipped.length === 0) {
+    for (const member of members.filter(isUnlabelledPdf).slice(0, MAX_UNLABELLED_CANDIDATES)) {
+      take(member, 'unlabelled');
+    }
   }
 
   return { torFiles, members, unsafeSkipped };
