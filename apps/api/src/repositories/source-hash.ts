@@ -15,16 +15,12 @@ export function hashSource(record: Procurement): string {
     record.projectName,
     record.deptName,
     record.deptSubName,
-    record.province,
-    record.district,
-    record.subdistrict,
     record.budgetYear,
     record.announceDate,
     record.projectTypeName,
     record.purchaseMethodName,
     record.projectMoney,
     record.priceBuild,
-    record.winner,
   ];
   return createHash('sha256').update(JSON.stringify(owned)).digest('hex');
 }

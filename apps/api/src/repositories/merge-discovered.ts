@@ -32,16 +32,12 @@ export function mergeDiscovered(
     projectName: incoming.projectName,
     deptName: incoming.deptName,
     deptSubName: incoming.deptSubName,
-    province: incoming.province,
-    district: incoming.district,
-    subdistrict: incoming.subdistrict,
     budgetYear: incoming.budgetYear,
     announceDate: incoming.announceDate,
     projectTypeName: incoming.projectTypeName,
     purchaseMethodName: incoming.purchaseMethodName,
     projectMoney: incoming.projectMoney,
     priceBuild: incoming.priceBuild,
-    winner: incoming.winner,
 
     // Where this sweep found it, which can move between fiscal years.
     deptCode: incoming.deptCode,

@@ -1,18 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  type DeadlineSource,
-  type Procurement,
-  type ProcurementStatus,
-} from '@torfun/types';
+import { type DeadlineSource, type Procurement, type ProcurementStatus } from '@torfun/types';
 import { ApiError, fetchTor } from '@/lib/api';
 
 export type TorReviewData = {
   projectId: string;
   title: string;
   agency: string;
-  location: string | null;
   budget: number | null;
   status: ProcurementStatus;
   technologies: string[];
@@ -41,14 +36,10 @@ export interface TorReviewState {
 
 function toReviewData(procurement: Procurement): TorReviewData {
   const analysis = procurement.analysis;
-  const location = [procurement.subdistrict, procurement.district, procurement.province]
-    .filter((part): part is string => Boolean(part))
-    .join(', ');
   return {
     projectId: procurement.projectId,
     title: procurement.projectName,
     agency: procurement.deptName,
-    location: location || null,
     budget: procurement.projectMoney,
     status: procurement.status,
     technologies: analysis?.techStack ?? [],
@@ -99,7 +90,11 @@ export function useTorReviewData(projectId: string): TorReviewState {
           data: null,
           loading: false,
           notFound,
-          error: notFound ? null : caught instanceof ApiError ? caught.message : 'โหลดข้อมูล TOR ไม่สำเร็จ',
+          error: notFound
+            ? null
+            : caught instanceof ApiError
+              ? caught.message
+              : 'โหลดข้อมูล TOR ไม่สำเร็จ',
         });
       },
     );

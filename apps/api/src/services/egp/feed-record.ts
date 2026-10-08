@@ -13,9 +13,6 @@ export function queuedRecord(projectId: string, feed: FeedSnapshot, now: Date): 
     ...feed,
     deptSubName: null,
     // Not in the feed. Null says "not known", which is the truth.
-    province: null,
-    district: null,
-    subdistrict: null,
     projectTypeName: null,
     projectMoney: null,
     priceBuild: null,
@@ -37,8 +34,6 @@ export function queuedRecord(projectId: string, feed: FeedSnapshot, now: Date): 
     zipId: null,
     documents: [],
     analysis: null,
-    // Not known before an award; the feed is read before any is made.
-    winner: null,
     torAmbiguous: false,
 
     discoveredAt: timestamp,

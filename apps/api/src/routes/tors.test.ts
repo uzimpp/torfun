@@ -10,9 +10,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'โครงการพัฒนาระบบสารสนเทศ',
     deptName: 'หน่วยงานรัฐ',
     deptSubName: null,
-    province: 'กรุงเทพมหานคร',
-    district: 'คลองเตย',
-    subdistrict: 'คลองเตย',
     deptCode: '1234567890',
     budgetYear: 2569,
     announceDate: '1 ตุลาคม 2569',
@@ -35,7 +32,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: 'zip-1',
     documents: [],
     analysis: null,
-    winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-16T00:00:00.000Z',
     sourceHash: null,
@@ -94,7 +90,7 @@ describe('TOR detail routes', () => {
   test('lists and filters procurements for an authenticated officer', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/api/tors?limit=20&minBudget=500000&location=กรุงเทพมหานคร',
+      url: '/api/tors?limit=20&minBudget=500000',
       cookies: session(),
     });
 

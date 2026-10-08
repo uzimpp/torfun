@@ -15,7 +15,6 @@ export function resolveProcurementListOptions(
   return {
     ...filters,
     status: 'open',
-    excludeAwarded: true,
     deadlineFrom: deadlineMode === 'exact' ? end : today,
     deadlineTo: end,
   };

@@ -4,17 +4,12 @@ import { procurementDay, thailandDay, type Procurement } from '@torfun/types';
 import { ProcurementTiming } from './procurement-timing';
 
 // This component reads only these fields; fixtures never touch the ingested database.
-const row = (
-  status: Procurement['status'],
-  deadlineAt: string | null,
-  winner: Procurement['winner'] = null,
-) =>
+const row = (status: Procurement['status'], deadlineAt: string | null) =>
   ({
     projectId: 'test-tor',
     status,
     deadlineAt,
     deadlineSource: deadlineAt ? 'tor' : null,
-    winner,
     announceDate: '2026-10-01',
   }) as Procurement;
 
@@ -53,14 +48,6 @@ describe('procurement timing', () => {
       expect(screen.queryByText('เหลืออีก 2 วัน')).not.toBeInTheDocument();
       cleanup();
     }
-    render(
-      <ProcurementTiming
-        item={row('open', '2026-10-07', { name: 'ผู้ชนะ' } as Procurement['winner'])}
-        today="2026-10-05"
-      />,
-    );
-    expect(screen.getByText('มีผู้ชนะแล้ว')).toBeInTheDocument();
-    expect(screen.queryByText('เหลืออีก 2 วัน')).not.toBeInTheDocument();
   });
 
   test('uses Thailand calendar dates across UTC midnight and rejects unreadable dates', () => {
