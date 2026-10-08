@@ -49,14 +49,16 @@ Two stages, deliberately separate. **Discovery** reads e-GP's announcement feed,
 one Source Registry agency and one day at a time, for e-bidding draft TORs and
 invitations, and admits those not tombstoned; the title is never consulted. It
 asks about the days since the last Run first, then a share of the past year
-(ADR-0018). The open-data API is not read: it holds only signed contracts
-(ADR-0004). Both stages reach `gprocurement.go.th`. **Retrieval** downloads the
-announcement archive for each admitted one, newest first, and extracts TOR PDFs.
-Each project's status and bid deadline come from its e-GP announcement timeline
+(ADR-0018). A project not yet stored has its e-GP project detail read first,
+for its real budget year, and is stored only once that succeeds (ADR-0019). The
+open-data API is not read: it holds only signed contracts (ADR-0004). Both
+stages reach `gprocurement.go.th`. **Retrieval** downloads the announcement
+archive for each admitted one, newest first, and extracts TOR PDFs. Each
+project's status and bid deadline come from its e-GP announcement timeline
 (greenBook), read first; projects already read have the timeline read again on
 later Runs, oldest check first, and are retrieved again only if the invitation
-moved. Discovery is one request per agency per day; retrieval is several per
-project and the model's reading on top. A record
+moved. Discovery is one request per agency per day, plus one per new project;
+retrieval is several per project and the model's reading on top. A record
 carries both a coarse `state` (Queued → Processing → Completed/Failed) and a finer `outcome`, because "no TOR was ever published" is a
 legitimate upstream answer rather than a failure, and an admin needs to tell them
 apart.
@@ -74,7 +76,8 @@ whose own limits are not recorded in this repository. What the code does to stay
 within the spirit of it: requests are single-file through one gate, the politeness
 delay follows each, a rate-limit or forbidden response stops every runner at once,
 and only one Run goes at a time. Every request to the site is one of these: the
-announcement feed Discovery reads (one agency, one type, one day), and for each
+announcement feed Discovery reads (one agency, one type, one day), the project
+detail (one per project, when it is first stored or was never read), and for each
 project its announcement timeline (greenBook), the archive lookup and the download,
 all inside one gate hold. The process5 project search sits behind Cloudflare
 Turnstile and is never called; do not add a captcha solver, a copied browser token
