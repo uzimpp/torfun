@@ -443,7 +443,7 @@ describe('a discovery sweep inside the Run', () => {
     const result = await run(repository, {
       discoverProjects: async () => sweepResult({ rateLimited: true }),
       resolveZipId,
-      announcements: { timeline },
+      announcements: { ...fakeAnnouncements(), timeline },
     });
 
     expect(result.discoveryStopped).toBe('rate_limited');
