@@ -30,6 +30,9 @@ export const TOR_DOWNLOAD_URL =
   'https://process5.gprocurement.go.th/egp-upload-service/v1/downloadFileTest';
 export const GREEN_BOOK_URL =
   'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/greenBook';
+/** One project's detail on the same service as greenBook: its real budget year, codes and sub-agency (ADR-0019). */
+export const PROJECT_DETAIL_URL =
+  'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getProjectDetail';
 
 /**
  * The Source Registry, keyed by the Thai name a human would query with. What
