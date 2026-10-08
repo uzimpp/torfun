@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
+import type { IngestionFailure } from '@torfun/types';
 import type { IngestionSummaryResponse } from '@/lib/api';
 import { countTiles, outcomeBuckets } from '@/lib/outcome-buckets';
-import { donutSegments, kpiTiles, timeAgoTh } from './view-models';
+import { attentionChips, donutSegments, kpiTiles, runState, timeAgoTh } from './view-models';
 
 function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSummaryResponse {
   return {
@@ -114,5 +115,117 @@ describe('kpiTiles', () => {
 
   test('a run in flight is shown on the last-run tile', () => {
     expect(tile('lastRun', summary({ runInProgress: true }))?.value).toBe('กำลังรันอยู่');
+  });
+
+  test('each tile links to the records it counts; failures to the failure log', () => {
+    expect(Object.fromEntries(tiles().map((t) => [t.key, t.href]))).toEqual({
+      total: '/admin/procurements',
+      queued: '/admin/procurements?outcome=queued',
+      running: '/admin/procurements?state=Processing',
+      analysed: '/admin/procurements?outcome=tor_analysed',
+      failed: '/admin/ingestion#failures',
+      lastRun: '/admin/ingestion',
+    });
+  });
+});
+
+const NOW = new Date('2026-09-30T10:05:00.000Z');
+
+function failure(overrides: Partial<IngestionFailure> = {}): IngestionFailure {
+  return {
+    projectId: 'p1',
+    projectName: null,
+    stage: 'download',
+    kind: 'fault',
+    error: 'socket hang up',
+    at: '2026-09-30T10:01:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('runState', () => {
+  test('a run in flight says so, and when it began', () => {
+    expect(
+      runState(summary({ runInProgress: true, runStartedAt: '2026-09-30T10:00:00.000Z' }), NOW),
+    ).toEqual({ running: true, label: 'กำลังดึงข้อมูล…', detail: 'เริ่ม 5 นาทีที่แล้ว' });
+  });
+
+  test('a stop that was asked for is named', () => {
+    expect(runState(summary({ runInProgress: true, stopRequested: true }), NOW).label).toBe(
+      'กำลังหยุดรอบดึงข้อมูล',
+    );
+  });
+
+  test('otherwise it says when the last run was, or that there has been none', () => {
+    expect(runState(summary(), NOW)).toEqual({
+      running: false,
+      label: 'รอบล่าสุด 5 นาทีที่แล้ว',
+      detail: null,
+    });
+    expect(runState(summary({ lastRunAt: null }), NOW).label).toBe('ยังไม่เคยดึงข้อมูล');
+  });
+});
+
+describe('attentionChips', () => {
+  const keys = (s: IngestionSummaryResponse, f: IngestionFailure[] = []) =>
+    attentionChips(s, f, NOW).map((chip) => chip.key);
+
+  test('nothing to look at is an empty row', () => {
+    expect(keys(summary({ byOutcome: { queued: 10, tor_analysed: 5 } }))).toEqual([]);
+  });
+
+  test('held and failed records show with their counts and filtered links', () => {
+    const chips = attentionChips(
+      summary({ byOutcome: { needs_review: 3, analysis_failed: 1, abandoned: 1 } }),
+      [],
+      NOW,
+    );
+    expect(chips).toEqual([
+      expect.objectContaining({
+        key: 'needsReview',
+        label: 'รอตรวจสอบ',
+        count: 3,
+        href: '/admin/procurements?outcome=needs_review',
+      }),
+      expect.objectContaining({
+        key: 'failed',
+        label: 'ล้มเหลว',
+        count: 2,
+        href: '/admin/procurements?state=Failed',
+      }),
+    ]);
+  });
+
+  test('a refusal from the site during the last run is flagged; one from an older run is not', () => {
+    const s = summary({ byOutcome: {} });
+    const refused = failure({
+      error: 'HTTP 429 from https://process5.gprocurement.go.th/x — treating as rate limited',
+    });
+    expect(keys(s, [refused])).toEqual(['refused']);
+    expect(keys(s, [{ ...refused, at: '2026-09-29T08:00:00.000Z' }])).toEqual([]);
+    expect(attentionChips(s, [refused], NOW)[0]?.label).toBe('รอบหยุดเพราะเว็บปฏิเสธ (429)');
+  });
+
+  test('unknown timeline codes in the last run are counted once per code', () => {
+    const code = (announceType: string) =>
+      failure({
+        stage: 'timeline',
+        error: `Unrecognised announcement code "${announceType}" (2026-09-01); the status was not changed by it.`,
+      });
+    const chips = attentionChips(
+      summary({ byOutcome: {} }),
+      [code('X1'), code('X1'), code('X2')],
+      NOW,
+    );
+    expect(chips).toEqual([expect.objectContaining({ key: 'unknownCodes', count: 2 })]);
+  });
+
+  test('a low open-data quota is flagged only when the quota is known', () => {
+    const low = summary({
+      byOutcome: {},
+      openDataQuota: { remainingDay: 50, limitDay: 1000, observedAt: '2026-09-30T09:00:00.000Z' },
+    });
+    expect(keys(low)).toEqual(['quota']);
+    expect(keys(summary({ byOutcome: {}, openDataQuota: null }))).toEqual([]);
   });
 });

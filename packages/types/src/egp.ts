@@ -594,6 +594,13 @@ export const IngestionFailureSchema = z.object({
   projectName: z.string().nullable(),
   /** Which step failed: registry resolution, discovery, timeline, info lookup, download, extract, analysis. */
   stage: z.enum(['dept', 'discovery', 'timeline', 'info', 'download', 'extract', 'analysis']),
+  /**
+   * `no_tor`: upstream answered that the project published no TOR (no package, or
+   * an archive with none in it) — logged, but nothing to fix. `fault`: anything
+   * else. Set by the pipeline when it logs the failure; one logged before this
+   * field existed reads as `fault`.
+   */
+  kind: z.enum(['fault', 'no_tor']),
   error: z.string(),
   at: z.string(),
 });

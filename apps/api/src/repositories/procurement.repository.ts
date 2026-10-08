@@ -1,10 +1,13 @@
 import type { AnyBulkWriteOperation, Collection, Db } from 'mongodb';
 import type {
   ArchiveDocument,
+  DailyDiscovered,
+  DailyThroughput,
   HoldReason,
   IngestionFailure,
   IngestionOutcome,
   IngestionState,
+  IngestionStats,
   IngestionSummary,
   OpenDataQuota,
   Procurement,
@@ -234,6 +237,13 @@ export interface FindOptions {
   industry?: string;
   /** Case-insensitive keyword over the upstream administrative location. */
   location?: string;
+  /**
+   * `announced` (the default): newest announcement first. `urgency`: a tender
+   * still `open` first, nearest deadline first and undated after; then
+   * `unknown`; then drafting, evaluating and cancelled; awarded and contracted
+   * last. Within a rank, newest announcement first.
+   */
+  order?: 'announced' | 'urgency';
   limit: number;
   offset: number;
 }
@@ -333,6 +343,12 @@ export interface AgencyNameSource {
   agencies(): Promise<string[]>;
 }
 
+/** Stored history the operations view reads. */
+export interface IngestionStatsSource {
+  /** Over the `days` Asia/Bangkok days ending on the one `now` falls in. */
+  stats(now: string, days: number): Promise<IngestionStats>;
+}
+
 /** All Procurement reads used above the persistence layer. */
 export interface ProcurementDataSource extends ProcurementStore, AgencyNameSource {
   ensureIndexes(): Promise<void>;
@@ -361,11 +377,61 @@ interface QuotaDocument {
   observed_at: string;
 }
 
-interface FailureDocument extends IngestionFailure {
+/** `kind` is absent on failures logged before it existed. */
+interface FailureDocument extends Omit<IngestionFailure, 'kind'> {
   _id?: unknown;
+  kind?: IngestionFailure['kind'];
 }
 
-export class ProcurementRepository implements ProcurementStore, AgencyNameSource {
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function bangkokDate(at: string): string {
+  return new Date(Date.parse(at) + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** The window's days, oldest first, and the instant the first one began. */
+function bangkokWindow(now: string, days: number): { since: string; dates: string[] } {
+  const lastMidnight = Date.parse(`${bangkokDate(now)}T00:00:00.000Z`);
+  const dates = Array.from({ length: days }, (_, index) =>
+    new Date(lastMidnight - (days - 1 - index) * DAY_MS).toISOString().slice(0, 10),
+  );
+  const since = new Date(lastMidnight - (days - 1) * DAY_MS - BANGKOK_OFFSET_MS).toISOString();
+  return { since, dates };
+}
+
+/** Where the record's last pass through retrieval ended: the first end after its last `downloading`. */
+function lastPassEnd(history: readonly StatusChange[]): StatusChange | null {
+  let start = history.length - 1;
+  while (start >= 0 && history[start]?.outcome !== 'downloading') start -= 1;
+  if (start === -1) return null;
+  for (const entry of history.slice(start + 1)) {
+    if (entry.state === 'Completed' || entry.state === 'Failed') return entry;
+    if (entry.outcome !== 'analysing') return null;
+  }
+  return null;
+}
+
+const THROUGHPUT_BUCKET: Partial<Record<IngestionOutcome, keyof Omit<DailyThroughput, 'date'>>> = {
+  tor_analysed: 'completed',
+  needs_review: 'held',
+  analysis_failed: 'failed',
+  abandoned: 'failed',
+};
+
+function throughputOf(ends: StatusChange[], dates: string[]): DailyThroughput[] {
+  const byDay = new Map(dates.map((date) => [date, { date, completed: 0, held: 0, failed: 0 }]));
+  for (const end of ends) {
+    const bucket = THROUGHPUT_BUCKET[outcomeFromStored(end.outcome)];
+    const day = byDay.get(bangkokDate(end.at));
+    if (bucket && day) day[bucket] += 1;
+  }
+  return [...byDay.values()];
+}
+
+export class ProcurementRepository
+  implements ProcurementStore, AgencyNameSource, IngestionStatsSource
+{
   constructor(private readonly getDb: () => Promise<Db>) {}
 
   private async records(): Promise<Collection<ProcurementDocument>> {
@@ -399,7 +465,11 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       },
       { key: { dept_name: 1 } },
       { key: { budget_year: 1 } },
+      // What the operations view reads: records that finished recently.
+      { key: { state: 1, updated_at: -1 } },
+      { key: { discovered_at: -1 } },
     ]);
+    await (await this.failuresCollection()).createIndex({ at: -1 });
   }
 
   private async tombstoneCollection(): Promise<Collection<TombstoneDocument>> {
@@ -671,6 +741,21 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
+    if (options.order === 'urgency') {
+      const [items, total] = await Promise.all([
+        collection
+          .aggregate<ProcurementDocument>([
+            { $match: filter },
+            ...URGENCY_ORDER,
+            { $skip: options.offset },
+            { $limit: options.limit },
+            { $unset: URGENCY_FIELDS },
+          ])
+          .toArray(),
+        collection.countDocuments(filter),
+      ]);
+      return { items: items.map(toDomain), total };
+    }
     // Newest announcement first: a queue an administrator works top-down, and the
     // order a Run works through it in, so one stopped early has done the most
     // recent part. A deterministic order and nothing more — no stage or title
@@ -700,7 +785,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       .find({}, { projection: { _id: 0 } })
       .sort({ at: -1 })
       .toArray();
-    return documents as IngestionFailure[];
+    return documents.map(({ _id: _ignored, kind, ...failure }) => ({
+      ...failure,
+      kind: kind ?? 'fault',
+    }));
   }
 
   async recordFailures(failures: IngestionFailure[]): Promise<void> {
@@ -825,6 +913,45 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     };
   }
 
+  async stats(now: string, days: number): Promise<IngestionStats> {
+    const { since, dates } = bangkokWindow(now, days);
+    const [finished, discovered] = await Promise.all([
+      (await this.records())
+        .find(
+          { state: { $in: ['Completed', 'Failed'] }, updated_at: { $gte: since } },
+          { projection: { status_history: 1 } },
+        )
+        .toArray(),
+      (await this.records())
+        .aggregate<DailyDiscovered>([
+          { $match: { discovered_at: { $gte: since } } },
+          {
+            $group: {
+              _id: {
+                $dateToString: {
+                  date: { $dateFromString: { dateString: '$discovered_at' } },
+                  format: '%Y-%m-%d',
+                  timezone: 'Asia/Bangkok',
+                },
+              },
+              discovered: { $sum: 1 },
+            },
+          },
+          { $project: { _id: 0, date: '$_id', discovered: 1 } },
+        ])
+        .toArray(),
+    ]);
+    const ends = finished
+      .map((document) => lastPassEnd(document.status_history))
+      .filter((end): end is StatusChange => end !== null && end.at >= since);
+    const discoveredOn = new Map(discovered.map((day) => [day.date, day.discovered]));
+
+    return {
+      throughputDaily: throughputOf(ends, dates),
+      discoveredDaily: dates.map((date) => ({ date, discovered: discoveredOn.get(date) ?? 0 })),
+    };
+  }
+
   async recent(limit: number): Promise<Procurement[]> {
     const documents = await (
       await this.records()
@@ -836,6 +963,54 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     return documents.map(toDomain);
   }
 }
+
+const URGENCY_FIELDS = ['urgency_rank', 'urgency_undated', 'urgency_deadline'];
+
+/** Stored status values, legacy spellings included (see `LEGACY_STATUSES`), by urgency rank. */
+const URGENCY_RANKS: [number, string[]][] = [
+  [0, ['open', 'invitation']],
+  [1, ['unknown']],
+  [2, ['drafting', 'evaluating', 'cancelled', 'drafting_tor', 'requisition']],
+  [3, ['awarded', 'contracted', 'award_announced']],
+];
+
+const URGENCY_ORDER = [
+  {
+    $addFields: {
+      urgency_rank: {
+        $switch: {
+          branches: URGENCY_RANKS.map(([rank, statuses]) => ({
+            case: { $in: ['$status', statuses] },
+            then: rank,
+          })),
+          default: 2,
+        },
+      },
+    },
+  },
+  {
+    $addFields: {
+      // Only an open tender is ordered by its deadline; an unreadable one is undated.
+      urgency_deadline: {
+        $cond: [
+          { $eq: ['$urgency_rank', 0] },
+          { $dateFromString: { dateString: '$deadline_at', onError: null, onNull: null } },
+          null,
+        ],
+      },
+    },
+  },
+  { $addFields: { urgency_undated: { $cond: [{ $eq: ['$urgency_deadline', null] }, 1, 0] } } },
+  {
+    $sort: {
+      urgency_rank: 1,
+      urgency_undated: 1,
+      urgency_deadline: 1,
+      announce_date: -1,
+      _id: 1,
+    },
+  },
+];
 
 function escapeRegex(value: string): string {
   return value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

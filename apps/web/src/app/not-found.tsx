@@ -43,7 +43,7 @@ export default async function NotFound() {
             404
           </p>
 
-          <h1 className="mt-6 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+          <h1 className="mt-6 text-2xl font-medium tracking-tight text-balance">
             ไม่พบหน้าที่ต้องการ
           </h1>
           <p className="text-muted-foreground mt-4 max-w-lg">

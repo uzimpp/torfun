@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   IngestionFailureSchema,
+  IngestionOpsSchema,
   ProcurementListQuerySchema,
   ProcurementListResponseSchema,
   ProcurementSchema,
@@ -80,6 +81,15 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async () => ({ items: await app.ingestionService.failures() }),
+  );
+
+  app.get(
+    '/ingestion/ops',
+    {
+      onRequest: requireAdmin,
+      schema: { response: { 200: IngestionOpsSchema } },
+    },
+    async () => app.ingestionService.ops(),
   );
 
   app.post(

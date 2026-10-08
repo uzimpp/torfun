@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { LogIn, type LucideIcon } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Dialog,
@@ -25,6 +26,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  confirmIcon: ConfirmIcon,
   destructive = false,
   action,
   onConfirm,
@@ -34,6 +36,7 @@ export function ConfirmDialog({
   title: string;
   description: ReactNode;
   confirmLabel: string;
+  confirmIcon?: LucideIcon;
   destructive?: boolean;
   action: Pick<AdminAction, 'pending' | 'error' | 'sessionEnded'>;
   onConfirm: () => void;
@@ -61,6 +64,7 @@ export function ConfirmDialog({
           </Button>
           {sessionEnded ? (
             <Link href="/login" className={cn(buttonVariants())}>
+              <LogIn className="size-4" aria-hidden="true" />
               เข้าสู่ระบบอีกครั้ง
             </Link>
           ) : (
@@ -70,6 +74,7 @@ export function ConfirmDialog({
               aria-busy={pending || undefined}
               onClick={onConfirm}
             >
+              {ConfirmIcon ? <ConfirmIcon className="size-4" aria-hidden="true" /> : null}
               {pending ? 'กำลังดำเนินการ…' : confirmLabel}
             </Button>
           )}

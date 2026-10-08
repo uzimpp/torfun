@@ -1,15 +1,8 @@
-import { cn } from '@/lib/utils';
-
-/** A grey block that pulses — but only for people who have not asked for less motion. */
-function Block({ className }: { className?: string }) {
-  return <div className={cn('bg-muted rounded-md motion-safe:animate-pulse', className)} />;
-}
+import { Skeleton as Block } from '@/components/ui/skeleton';
 
 /**
- * The dashboard's shape, drawn empty while it loads.
- *
- * Sized like the content it stands in for — six tiles, a ring, five rows — so
- * nothing jumps when the data arrives.
+ * The dashboard's shape, drawn empty while it loads, sized like the content it
+ * stands in for so nothing jumps when the data arrives.
  */
 export function DashboardSkeleton() {
   return (
@@ -17,32 +10,43 @@ export function DashboardSkeleton() {
       role="status"
       aria-busy="true"
       aria-label="กำลังโหลดข้อมูลแดชบอร์ด"
-      className="flex flex-col gap-6"
+      className="grid gap-10 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)]"
     >
-      <div className="bg-border grid grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-3 lg:grid-cols-6">
-        {Array.from({ length: 6 }, (_, index) => (
-          <div key={index} className="bg-card flex flex-col gap-2 p-4">
-            <Block className="h-3 w-16" />
-            <Block className="h-8 w-20" />
-            <Block className="h-3 w-24" />
+      <div className="flex flex-col gap-10">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-2">
+            <Block className="h-8 w-32 rounded-full" />
+            <Block className="h-8 w-24 rounded-full" />
           </div>
-        ))}
-      </div>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <div className="bg-card flex items-center gap-6 rounded-xl border p-6">
-          <Block className="size-44 shrink-0 rounded-full" />
-          <div className="flex w-full flex-col gap-3">
+          <div className="bg-border grid grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-3">
             {Array.from({ length: 6 }, (_, index) => (
-              <Block key={index} className="h-4 w-full" />
+              <div key={index} className="bg-card flex flex-col gap-2 p-4">
+                <Block className="h-3 w-16" />
+                <Block className="h-8 w-20" />
+                <Block className="h-3 w-24" />
+              </div>
             ))}
           </div>
         </div>
-        <div className="bg-card flex flex-col gap-4 rounded-xl border p-6">
-          {Array.from({ length: 5 }, (_, index) => (
-            <div key={index} className="flex flex-col gap-2">
-              <Block className="h-4 w-4/5" />
-              <Block className="h-3 w-1/2" />
-            </div>
+        <div className="flex flex-col gap-4">
+          <Block className="h-5 w-28" />
+          <div className="bg-card divide-y rounded-xl border">
+            {Array.from({ length: 3 }, (_, index) => (
+              <div key={index} className="flex flex-col gap-3 px-5 py-4">
+                <Block className="h-4 w-3/5" />
+                <Block className="h-3 w-2/5" />
+                <Block className="h-7 w-64" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <Block className="h-80 w-full rounded-xl" />
+      </div>
+      <div className="flex flex-col gap-10 border-t pt-10 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-10">
+        <Block className="mx-auto size-44 rounded-full" />
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <Block key={index} className="h-4 w-full" />
           ))}
         </div>
       </div>

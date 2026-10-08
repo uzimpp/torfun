@@ -1,13 +1,4 @@
-import {
-  MAX_RETRIEVAL_ATTEMPTS,
-  OPEN_DATA_SWEEP_CALLS,
-  type OpenDataQuota,
-  RECORD_DEADLINE_MS,
-  OUTCOME_LABELS,
-  STATE_LABELS,
-  type Procurement,
-  type StatusChange,
-} from '@torfun/types';
+import { MAX_RETRIEVAL_ATTEMPTS, RECORD_DEADLINE_MS, type Procurement } from '@torfun/types';
 import type { IngestionSummaryResponse } from '@/lib/api';
 
 /**
@@ -55,13 +46,13 @@ export function attemptsLabel(attempts: number): string | null {
   return attempts > 0 ? `ลองแล้ว ${attempts}/${MAX_RETRIEVAL_ATTEMPTS}` : null;
 }
 
-export interface RunBanner {
-  title: string;
-  detail: string;
-  /** "รันมาแล้ว …", or null when the server did not say when the run began. */
+export type RunPhase = 'idle' | 'running' | 'stopping';
+
+export interface RunStatus {
+  phase: RunPhase;
+  label: string;
+  /** A clock such as "09:06" while a run is going, or null when none is or its start is unknown. */
   elapsed: string | null;
-  /** An administrator has asked it to stop and it is finishing the record in hand. */
-  stopping: boolean;
 }
 
 /**
@@ -76,77 +67,28 @@ export function formatElapsed(ms: number): string {
   return `${Math.floor(total / 3600)} ชม. ${Math.floor((total % 3600) / 60)} นาที`;
 }
 
-/**
- * The live banner's text, or null when no run is in flight.
- *
- * "Queued" counts the retryable errors too: they are waiting for the next
- * attempt just as untouched records are. How long it has run is measured from
- * the start time the server recorded on the lease, not from anything this page
- * remembers, so a reload, a scheduled run, or another browser all agree.
- */
-export function runBanner(summary: IngestionSummaryResponse, now: Date): RunBanner | null {
-  if (!summary.runInProgress) return null;
+/** Elapsed time as a clock: "09:06" under an hour, "1:02:03" after. */
+export function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const hours = Math.floor(total / 3600);
+  const rest = `${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+  return hours > 0 ? `${hours}:${rest}` : rest;
+}
 
-  const outcome = (key: keyof IngestionSummaryResponse['byOutcome']) => summary.byOutcome[key] ?? 0;
+/**
+ * What the status bar says. Elapsed time is measured from the start the server
+ * recorded on the lease, so a reload, a scheduled run, or another browser all agree.
+ */
+export function runStatus(summary: IngestionSummaryResponse, now: Date): RunStatus {
+  if (!summary.runInProgress) {
+    return { phase: 'idle', label: 'ไม่มีรอบที่กำลังทำงาน', elapsed: null };
+  }
   return {
-    title: summary.stopRequested ? 'กำลังหยุด… รอรายการที่ทำอยู่ให้เสร็จ' : 'กำลังรันรอบดึงข้อมูล',
-    detail: `ดึงข้อมูล ${outcome('downloading')} · ประมวลผล ${outcome('analysing')} · รอคิว ${outcome('queued') + outcome('error')}`,
+    phase: summary.stopRequested ? 'stopping' : 'running',
+    label: summary.stopRequested ? 'กำลังหยุด' : 'กำลังดึงข้อมูล',
     elapsed: summary.runStartedAt
-      ? `รันมาแล้ว ${formatElapsed(now.getTime() - Date.parse(summary.runStartedAt))}`
+      ? formatClock(now.getTime() - Date.parse(summary.runStartedAt))
       : null,
-    stopping: summary.stopRequested,
   };
-}
-
-export interface ChangeDescription {
-  state: string;
-  outcome: string;
-  time: string;
-  /** Present only on a failure, so the reason sits beside the step that failed. */
-  detail?: string;
-}
-
-/** One history entry, in the console's Thai vocabulary. */
-export function describeChange(change: StatusChange): ChangeDescription {
-  return {
-    state: STATE_LABELS[change.state],
-    outcome: OUTCOME_LABELS[change.outcome],
-    time: new Date(change.at).toLocaleString('th-TH'),
-    ...(change.detail ? { detail: change.detail } : {}),
-  };
-}
-
-/**
- * What the page says about the open-data API's daily allowance.
- *
- * `low` is true when what is left cannot pay for a full discovery sweep, which
- * is when the pipeline stops trying one. A reading from an earlier UTC day is no
- * longer true — the allowance resets daily — so it is shown as unknown rather
- * than as a stale zero that would make the page look broken.
- */
-export function describeQuota(
-  quota: OpenDataQuota | null,
-  nowMs: number,
-): { label: string; low: boolean } {
-  const unknown = { label: 'โควตา open-data: ยังไม่ทราบ', low: false };
-  if (quota === null) return unknown;
-  if (quota.observedAt.slice(0, 10) !== new Date(nowMs).toISOString().slice(0, 10)) return unknown;
-
-  const left = quota.remainingDay.toLocaleString('en-US');
-  const limit = quota.limitDay?.toLocaleString('en-US');
-  const of = limit ? `/${limit}` : '';
-
-  if (quota.remainingDay === 0) {
-    return {
-      label: `โควตา open-data วันนี้หมดแล้ว (0${of}) — สแกนใหม่ได้หลังโควตารีเซ็ต`,
-      low: true,
-    };
-  }
-  if (quota.remainingDay < OPEN_DATA_SWEEP_CALLS) {
-    return {
-      label: `โควตา open-data วันนี้เหลือ ${left}${of} — ไม่พอสำหรับสแกนเต็มรอบ`,
-      low: true,
-    };
-  }
-  return { label: `โควตา open-data วันนี้เหลือ ${left}${of}`, low: false };
 }

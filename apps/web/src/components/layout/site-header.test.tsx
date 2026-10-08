@@ -62,12 +62,16 @@ test('the officer menu is the workspace and the company record', async () => {
   expect(screen.queryByRole('menuitem', { name: 'จัดการบัญชีผู้ใช้' })).not.toBeInTheDocument();
 });
 
-test('the administrator menu is the console, its failure log, and the accounts', async () => {
+test('the administrator menu reaches every admin page', async () => {
   render(<SiteHeader user={{ username: 'tester', role: 'admin' }} />);
   fireEvent.click(screen.getByRole('button', { name: 'บัญชี tester · Admin' }));
   await screen.findByRole('menuitem', { name: 'ออกจากระบบ' });
 
-  expect(screen.getByRole('menuitem', { name: 'การดึงข้อมูล TOR' })).toHaveAttribute(
+  expect(screen.getByRole('menuitem', { name: 'ประกาศที่ดึงเข้าระบบ' })).toHaveAttribute(
+    'href',
+    '/admin/procurements',
+  );
+  expect(screen.getByRole('menuitem', { name: 'ระบบดึงข้อมูล' })).toHaveAttribute(
     'href',
     '/admin/ingestion',
   );

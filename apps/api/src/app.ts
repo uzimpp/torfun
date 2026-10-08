@@ -11,8 +11,13 @@ import { registerGoogleOAuth } from './plugins/google-oauth';
 import {
   ProcurementRepository,
   type AgencyNameSource,
+  type IngestionStatsSource,
   type ProcurementDataSource,
 } from './repositories/procurement.repository';
+import {
+  IngestionRunRepository,
+  type IngestionRunStore,
+} from './repositories/ingestion-run.repository';
 import {
   IngestionLeaseRepository,
   type IngestionLeaseStore,
@@ -64,6 +69,10 @@ export interface RepositoryOverrides {
   procurements?: ProcurementDataSource;
   /** The lock that keeps ingestion to one Run at a time, across processes. */
   ingestionLease?: IngestionLeaseStore;
+  /** The log of finished Runs. */
+  ingestionRuns?: IngestionRunStore;
+  /** Stored history the operations view reads. */
+  ingestionStats?: IngestionStatsSource;
   /** The setting for when Runs start on their own, and when the last one began. */
   schedule?: ScheduleStore;
   /** Only the distinct agency names are read, for the client typeahead. */
@@ -109,8 +118,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   // Constructing a repository is offline — Mongo connects lazily on the first
   // query — so building the real ones costs nothing even when a substitute
   // replaces them.
-  const procurementRepository =
-    repositories.procurements ?? new ProcurementRepository(app.mongo.getDb);
+  const mongoProcurements = new ProcurementRepository(app.mongo.getDb);
+  const procurementRepository = repositories.procurements ?? mongoProcurements;
   const userRepository = repositories.users ?? new UserRepository(app.mongo.getDb);
   const refreshTokenRepository =
     repositories.refreshTokens ?? new RefreshTokenRepository(app.mongo.getDb);
@@ -121,7 +130,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const ingestionLease =
     repositories.ingestionLease ?? new IngestionLeaseRepository(app.mongo.getDb);
   const scheduleStore = repositories.schedule ?? new ScheduleRepository(app.mongo.getDb);
-  const torProcurementStore = repositories.procurements ?? procurementRepository;
+  const ingestionRuns = repositories.ingestionRuns ?? new IngestionRunRepository(app.mongo.getDb);
+  const ingestionStats = repositories.ingestionStats ?? mongoProcurements;
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
   app.decorate(
@@ -141,6 +151,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const ingestionService = new IngestionService(procurementRepository, env, app.log, {
     lease: ingestionLease,
     runLog: scheduleStore,
+    runs: ingestionRuns,
+    stats: ingestionStats,
   });
   app.decorate('ingestionService', ingestionService);
   app.decorate(
@@ -163,7 +175,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   );
   app.decorate('schedulerService', schedulerService);
   app.addHook('onClose', async () => schedulerService.stop());
-  app.decorate('torService', new TorService(torProcurementStore));
+  app.decorate('torService', new TorService(procurementRepository));
   app.decorate(
     'diagnosticsService',
     new DiagnosticsService(createDependencyProbes(env, app.mongo.getDb)),

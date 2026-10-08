@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useId, useRef, useState, type FormEvent } from 'react';
+import { LogIn, RotateCw, Save } from 'lucide-react';
 import type { ScheduleView } from '@torfun/types';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -26,7 +26,7 @@ function ScheduleSkeleton() {
       role="status"
       aria-busy="true"
       aria-label="กำลังโหลดตารางเวลา"
-      className="grid gap-6 md:grid-cols-[3fr_2fr]"
+      className="grid gap-6 @2xl:grid-cols-[3fr_2fr]"
     >
       <div className="flex flex-col gap-4">
         <div className="bg-muted h-11 w-2/3 animate-pulse rounded-md motion-reduce:animate-none" />
@@ -77,6 +77,7 @@ function Switch({
 function SessionEnded() {
   return (
     <Link href="/login" className={cn(buttonVariants({ variant: 'outline' }), 'min-h-11')}>
+      <LogIn className="size-4" aria-hidden="true" />
       เข้าสู่ระบบอีกครั้ง
     </Link>
   );
@@ -132,12 +133,10 @@ function ScheduleForm({
     });
 
   const { saving, saveError, saved, sessionEnded } = data;
-  const control =
-    'border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive h-11 w-full rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px]';
 
   return (
-    <form onSubmit={submit} noValidate className="grid gap-8 md:grid-cols-[3fr_2fr] md:gap-0">
-      <div className="flex flex-col gap-6 md:pr-8">
+    <form onSubmit={submit} noValidate className="grid gap-8 @2xl:grid-cols-[3fr_2fr] @2xl:gap-0">
+      <div className="flex flex-col gap-6 @2xl:pr-8">
         <div className="flex items-center gap-4">
           <Switch
             checked={values.enabled}
@@ -156,12 +155,12 @@ function ScheduleForm({
         </div>
 
         <fieldset className="flex flex-col gap-2">
-          <legend className="text-muted-foreground mb-2 text-xs font-medium">ความถี่</legend>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <legend className="text-muted-foreground mb-2 text-xs">ความถี่</legend>
+          <div className="grid gap-2 @md:grid-cols-2">
             {(
               [
-                { mode: 'interval', label: 'ทุก N ชั่วโมง' },
                 { mode: 'weekly', label: 'ตามวันในสัปดาห์' },
+                { mode: 'interval', label: 'ทุก N ชั่วโมง' },
               ] as const
             ).map((option) => (
               <label
@@ -190,14 +189,12 @@ function ScheduleForm({
               aria-describedby={errors.weekdays ? daysErrorId : undefined}
               className="flex flex-col gap-2"
             >
-              <legend className="text-muted-foreground mb-2 text-xs font-medium">
-                วันที่เริ่มรอบ
-              </legend>
+              <legend className="text-muted-foreground mb-2 text-xs">วันที่เริ่มรอบ</legend>
               <div className="flex flex-wrap gap-2">
                 {WEEKDAY_LABELS.map((label, day) => (
                   <label
                     key={label}
-                    className="border-input has-[:checked]:border-primary has-[:focus-visible]:ring-ring/50 flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 text-sm has-[:focus-visible]:ring-[3px]"
+                    className="border-input has-[:checked]:border-primary has-[:checked]:bg-primary/10 has-[:focus-visible]:ring-ring/50 flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 text-sm has-[:checked]:font-medium has-[:focus-visible]:ring-[3px]"
                   >
                     <input
                       type="checkbox"
@@ -228,7 +225,7 @@ function ScheduleForm({
                 onChange={(event) => change({ timeOfDay: event.target.value })}
                 aria-invalid={errors.timeOfDay ? true : undefined}
                 aria-describedby={errors.timeOfDay ? timeErrorId : undefined}
-                className="h-11 sm:max-w-40"
+                className="h-11 @md:max-w-40"
               />
               {errors.timeOfDay ? (
                 <p id={timeErrorId} className="text-destructive text-sm">
@@ -285,7 +282,7 @@ function ScheduleForm({
           </div>
         )}
 
-        <p className="text-muted-foreground max-w-[65ch] text-sm leading-relaxed">
+        <p className="text-muted-foreground max-w-prose text-sm">
           รอบอัตโนมัติใช้เวลาประเทศไทย (UTC+7) และตั้งได้ไม่ถี่กว่าทุก 6 ชั่วโมง
           เพื่อไม่ให้ขอข้อมูลจากระบบต้นทางมากเกินไป เมื่อเปิดใช้งานแล้วจะไม่เริ่มรอบทันที
           รอบแรกคือเวลาถัดไปที่ตั้งไว้
@@ -293,6 +290,7 @@ function ScheduleForm({
 
         <div className="flex flex-wrap items-center gap-4">
           <Button type="submit" disabled={saving} className="min-h-11 px-5">
+            <Save data-icon="inline-start" className="size-4" aria-hidden="true" />
             {saving ? 'กำลังบันทึก…' : 'บันทึกตารางเวลา'}
           </Button>
           <p role="status" aria-label="ผลการบันทึก" className="text-sm">
@@ -311,10 +309,10 @@ function ScheduleForm({
         ) : null}
       </div>
 
-      <dl className="border-border flex flex-col gap-5 border-t pt-6 md:border-t-0 md:border-l md:pt-0 md:pl-8">
+      <dl className="border-border flex flex-col gap-5 border-t pt-6 @2xl:border-t-0 @2xl:border-l @2xl:pt-0 @2xl:pl-8">
         <div className="flex flex-col gap-1">
-          <dt className="text-muted-foreground text-xs font-medium">รอบถัดไป</dt>
-          <dd className="text-lg font-semibold tabular-nums">
+          <dt className="text-muted-foreground text-xs">รอบถัดไป</dt>
+          <dd className="text-base font-medium tabular-nums">
             {schedule.enabled && schedule.nextRunAt
               ? formatBangkok(schedule.nextRunAt)
               : 'ยังไม่ได้กำหนด'}
@@ -322,7 +320,7 @@ function ScheduleForm({
         </div>
         {schedule.enabled && schedule.upcomingRunAts.length > 0 ? (
           <div className="flex flex-col gap-1">
-            <dt className="text-muted-foreground text-xs font-medium">สามรอบถัดไป</dt>
+            <dt className="text-muted-foreground text-xs">สามรอบถัดไป</dt>
             <dd>
               <ul aria-label="สามรอบถัดไป" className="flex flex-col gap-0.5 text-sm tabular-nums">
                 {schedule.upcomingRunAts.map((at) => (
@@ -333,7 +331,7 @@ function ScheduleForm({
           </div>
         ) : null}
         <div className="flex flex-col gap-1">
-          <dt className="text-muted-foreground text-xs font-medium">รอบล่าสุด</dt>
+          <dt className="text-muted-foreground text-xs">รอบล่าสุด</dt>
           <dd className="text-base tabular-nums">
             {schedule.lastRunAt ? formatBangkok(schedule.lastRunAt) : 'ยังไม่เคยเริ่มรอบ'}
           </dd>
@@ -344,50 +342,38 @@ function ScheduleForm({
 }
 
 /**
- * When Runs start on their own — a Site Administrator's control, beside the
- * button that starts one by hand. Off until someone turns it on.
+ * When Runs start on their own — a Site Administrator's control. Off until
+ * someone turns it on. The caller supplies the title (the ingestion page shows
+ * it in a dialog behind the status bar's gear).
  */
-export function ScheduleCard() {
+export function ScheduleSettings() {
   const data = useScheduleData();
   const { schedule, loading, error, sessionEnded, retry } = data;
 
   return (
-    <section aria-labelledby="schedule-heading">
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            <h2 id="schedule-heading" className="text-base font-semibold">
-              ตารางเวลาดึงข้อมูลอัตโนมัติ
-            </h2>
-          </CardTitle>
-          <CardDescription>
-            ตั้งให้เริ่มรอบดึงข้อมูลเองตามเวลา โดยไม่ต้องกดปุ่มเริ่มรอบ
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <ScheduleSkeleton />
-          ) : error || !schedule ? (
-            <div
-              role="alert"
-              className="border-destructive/50 flex flex-col gap-3 rounded-md border p-4"
-            >
-              <p className="text-destructive text-sm">{sessionEnded ? 'เซสชันหมดอายุ' : error}</p>
-              {sessionEnded ? (
-                <SessionEnded />
-              ) : (
-                <div>
-                  <Button variant="outline" onClick={retry} className="min-h-11">
-                    ลองอีกครั้ง
-                  </Button>
-                </div>
-              )}
-            </div>
+    <div className="@container">
+      {loading ? (
+        <ScheduleSkeleton />
+      ) : error || !schedule ? (
+        <div
+          role="alert"
+          className="border-destructive/50 flex flex-col gap-3 rounded-md border p-4"
+        >
+          <p className="text-destructive text-sm">{sessionEnded ? 'เซสชันหมดอายุ' : error}</p>
+          {sessionEnded ? (
+            <SessionEnded />
           ) : (
-            <ScheduleForm key={schedule.updatedAt ?? 'unsaved'} schedule={schedule} data={data} />
+            <div>
+              <Button variant="outline" onClick={retry} className="min-h-11">
+                <RotateCw className="size-4" aria-hidden="true" />
+                ลองอีกครั้ง
+              </Button>
+            </div>
           )}
-        </CardContent>
-      </Card>
-    </section>
+        </div>
+      ) : (
+        <ScheduleForm key={schedule.updatedAt ?? 'unsaved'} schedule={schedule} data={data} />
+      )}
+    </div>
   );
 }

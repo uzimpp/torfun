@@ -6,6 +6,7 @@ import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
 import { InMemoryScheduleStore } from '../testing/schedule-store';
+import { InMemoryIngestionRunStore, noStats } from '../testing/ingestion-run-store';
 import { IngestionService } from './ingestion.service';
 import { SchedulerService } from './scheduler.service';
 
@@ -35,8 +36,14 @@ function build() {
     new InMemoryProcurementStore(),
     testEnv(),
     silentLogger,
-    { lease, runLog: schedule, now: () => clock.now },
-    deps,
+    {
+      lease,
+      runLog: schedule,
+      runs: new InMemoryIngestionRunStore(),
+      stats: noStats,
+      now: () => clock.now,
+    },
+    () => deps,
   );
   const scheduler = new SchedulerService(
     schedule,
@@ -117,7 +124,7 @@ describe('SchedulerService.tick', () => {
     await new SchedulerService(schedule, startRun, silentLogger).tick(SLOT);
 
     expect(startRun).toHaveBeenCalledTimes(1);
-    expect(startRun).toHaveBeenCalledWith({});
+    expect(startRun).toHaveBeenCalledWith({ trigger: 'scheduled' });
   });
 
   test('a failure to start is reported, not thrown into the timer', async () => {

@@ -1,40 +1,53 @@
+import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
+import { StatValue } from '@/components/admin/admin-ui';
 import { cn } from '@/lib/utils';
 import type { KpiTile } from './view-models';
 
 /**
- * The six numbers an administrator reads first, as one ruled strip rather than
- * six separate cards: they belong together, and a hairline between them costs
- * less attention than six raised boxes.
+ * The numbers an administrator reads first, as one ruled strip rather than
+ * separate cards. Each tile opens the records it counts.
  *
  * A tile turns red only when there is something to act on, and then says so in
  * words too, so the warning survives without colour.
  */
-export function KpiStrip({ tiles }: { tiles: KpiTile[] }) {
+export function KpiStrip({
+  tiles,
+  label = 'ตัวเลขหลัก',
+  className,
+}: {
+  tiles: KpiTile[];
+  label?: string;
+  className?: string;
+}) {
   return (
-    <dl className="bg-border grid grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-3 lg:grid-cols-6">
+    <ul
+      aria-label={label}
+      className={cn(
+        'bg-border grid grid-cols-2 gap-px overflow-hidden rounded-xl border sm:grid-cols-3',
+        className,
+      )}
+    >
       {tiles.map((tile) => (
-        <div key={tile.key} className="bg-card flex flex-col gap-1 p-4">
-          <dt className="text-muted-foreground flex items-center gap-1.5 text-xs">
-            {tile.label}
-            {tile.alert ? (
-              <>
-                <AlertTriangle className="text-destructive size-3.5" aria-hidden="true" />
-                <span className="sr-only">ต้องตรวจสอบ</span>
-              </>
-            ) : null}
-          </dt>
-          <dd
-            className={cn(
-              'text-xl font-semibold break-words tabular-nums sm:text-2xl',
-              tile.alert && 'text-destructive',
-            )}
+        <li key={tile.key} className="bg-card flex">
+          <Link
+            href={tile.href}
+            className="hover:bg-muted/60 active:bg-muted focus-visible:ring-ring/50 flex w-full flex-col gap-1 p-4 outline-none focus-visible:ring-[3px] focus-visible:ring-inset motion-safe:transition-colors"
           >
-            {tile.value}
-          </dd>
-          <dd className="text-muted-foreground text-xs">{tile.hint}</dd>
-        </div>
+            <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              {tile.label}
+              {tile.alert ? (
+                <>
+                  <AlertTriangle className="text-destructive size-4" aria-hidden="true" />
+                  <span className="sr-only">ต้องตรวจสอบ</span>
+                </>
+              ) : null}
+            </span>
+            <StatValue className={cn(tile.alert && 'text-destructive')}>{tile.value}</StatValue>
+            <span className="text-muted-foreground text-xs">{tile.hint}</span>
+          </Link>
+        </li>
       ))}
-    </dl>
+    </ul>
   );
 }

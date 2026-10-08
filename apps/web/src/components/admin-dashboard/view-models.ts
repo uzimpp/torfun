@@ -1,10 +1,15 @@
+import type { IngestionFailure } from '@torfun/types';
 import type { IngestionSummaryResponse } from '@/lib/api';
+import { formatThaiDate } from '@/lib/format-date';
+import { quotaIsLow } from '@/lib/open-data-quota';
 import {
   countTiles,
+  outcomeBuckets,
   type BucketKey,
   type CountTile,
   type OutcomeBucket,
 } from '@/lib/outcome-buckets';
+import { procurementsHref } from '@/components/procurements/procurement-filter-values';
 
 /**
  * Plain functions from API data to what the dashboard draws. Kept apart from
@@ -70,7 +75,7 @@ export function timeAgoTh(iso: string, now: Date = new Date()): string {
   if (elapsed < HOUR) return `${Math.floor(elapsed / MINUTE)} นาทีที่แล้ว`;
   if (elapsed < DAY) return `${Math.floor(elapsed / HOUR)} ชั่วโมงที่แล้ว`;
   if (elapsed < 30 * DAY) return `${Math.floor(elapsed / DAY)} วันที่แล้ว`;
-  return at.toLocaleDateString('th-TH', { dateStyle: 'medium' });
+  return formatThaiDate(iso);
 }
 
 /* ------------------------------------------------------------------------- *
@@ -79,9 +84,33 @@ export function timeAgoTh(iso: string, now: Date = new Date()): string {
 
 export interface KpiTile extends Omit<CountTile, 'key'> {
   key: CountTile['key'] | 'lastRun';
+  href: string;
 }
 
+const FAILURE_LOG = '/admin/ingestion#failures';
+const INGESTION = '/admin/ingestion';
+
+const KPI_HREF: Partial<Record<KpiTile['key'], string>> = {
+  total: procurementsHref(),
+  queued: procurementsHref({ outcome: 'queued' }),
+  running: procurementsHref({ state: 'Processing' }),
+  analysed: procurementsHref({ outcome: 'tor_analysed' }),
+  needsReview: procurementsHref({ outcome: 'needs_review' }),
+  failed: FAILURE_LOG,
+  lastRun: INGESTION,
+};
+
 const KPI_COUNTS: CountTile['key'][] = ['total', 'queued', 'running', 'analysed', 'failed'];
+
+const countKpis = (summary: IngestionSummaryResponse, keys: CountTile['key'][]): KpiTile[] =>
+  countTiles(summary)
+    .filter((tile) => keys.includes(tile.key))
+    .map((tile) => ({ ...tile, href: KPI_HREF[tile.key] ?? INGESTION }));
+
+/** The ingestion page's tiles: where every record stands, across all runs, failed last. */
+export function recordTiles(summary: IngestionSummaryResponse): KpiTile[] {
+  return countKpis(summary, ['queued', 'running', 'analysed', 'needsReview', 'failed']);
+}
 
 export function kpiTiles(summary: IngestionSummaryResponse, now: Date = new Date()): KpiTile[] {
   const lastRun = summary.runInProgress
@@ -91,15 +120,128 @@ export function kpiTiles(summary: IngestionSummaryResponse, now: Date = new Date
       : 'ยังไม่เคยรัน';
 
   return [
-    ...countTiles(summary).filter((tile) => KPI_COUNTS.includes(tile.key)),
+    ...countKpis(summary, KPI_COUNTS),
     {
       key: 'lastRun',
+      href: INGESTION,
       label: 'รอบล่าสุด',
       value: lastRun,
       hint: summary.lastRunAt
-        ? new Date(summary.lastRunAt).toLocaleString('th-TH')
+        ? formatThaiDate(summary.lastRunAt, { withTime: true })
         : 'กดเริ่มรอบดึงข้อมูลได้ที่หน้าติดตาม',
       alert: false,
     },
   ];
+}
+
+/* ------------------------------------------------------------------------- *
+ * Run state
+ * ------------------------------------------------------------------------- */
+
+export interface RunState {
+  running: boolean;
+  label: string;
+  detail: string | null;
+}
+
+export function runState(summary: IngestionSummaryResponse, now: Date): RunState {
+  if (summary.runInProgress) {
+    return {
+      running: true,
+      label: summary.stopRequested ? 'กำลังหยุดรอบดึงข้อมูล' : 'กำลังดึงข้อมูล…',
+      detail: summary.runStartedAt ? `เริ่ม ${timeAgoTh(summary.runStartedAt, now)}` : null,
+    };
+  }
+  return {
+    running: false,
+    label: summary.lastRunAt
+      ? `รอบล่าสุด ${timeAgoTh(summary.lastRunAt, now)}`
+      : 'ยังไม่เคยดึงข้อมูล',
+    detail: null,
+  };
+}
+
+/* ------------------------------------------------------------------------- *
+ * What needs attention
+ * ------------------------------------------------------------------------- */
+
+export type AttentionKey = 'needsReview' | 'failed' | 'refused' | 'quota' | 'unknownCodes';
+
+export interface AttentionChip {
+  key: AttentionKey;
+  label: string;
+  /** Absent where the chip names a condition rather than a number of things. */
+  count?: number;
+  href: string;
+}
+
+const REFUSAL = /HTTP (429|403)\b/;
+const UNKNOWN_CODE = /^Unrecognised announcement code "([^"]*)"/;
+
+/** Failures logged since the last run began; none before any run. */
+function lastRunFailures(
+  summary: IngestionSummaryResponse,
+  failures: readonly IngestionFailure[],
+): IngestionFailure[] {
+  if (!summary.lastRunAt) return [];
+  const since = new Date(summary.lastRunAt).getTime();
+  return failures.filter((failure) => new Date(failure.at).getTime() >= since);
+}
+
+/**
+ * The "ต้องดูแล" row, built only from what the summary and the failure log say.
+ * A chip with nothing behind it is left out, so an empty list means all is well.
+ */
+export function attentionChips(
+  summary: IngestionSummaryResponse,
+  failures: readonly IngestionFailure[],
+  now: Date,
+): AttentionChip[] {
+  const buckets = outcomeBuckets(summary.byOutcome);
+  const count = (key: BucketKey) => buckets.find((bucket) => bucket.key === key)!.count;
+  const recent = lastRunFailures(summary, failures);
+
+  const refusedCodes = [
+    ...new Set(recent.flatMap((failure) => REFUSAL.exec(failure.error)?.[1] ?? [])),
+  ].sort();
+  const unknownCodes = new Set(
+    recent.flatMap((failure) =>
+      failure.stage === 'timeline' ? (UNKNOWN_CODE.exec(failure.error)?.[1] ?? []) : [],
+    ),
+  );
+
+  const chips: Array<AttentionChip | null> = [
+    {
+      key: 'needsReview',
+      label: 'รอตรวจสอบ',
+      count: count('needsReview'),
+      href: procurementsHref({ outcome: 'needs_review' }),
+    },
+    {
+      key: 'failed',
+      label: 'ล้มเหลว',
+      count: count('failed'),
+      href: procurementsHref({ state: 'Failed' }),
+    },
+    refusedCodes.length > 0
+      ? {
+          key: 'refused',
+          label: `รอบหยุดเพราะเว็บปฏิเสธ (${refusedCodes.join('/')})`,
+          href: FAILURE_LOG,
+        }
+      : null,
+    quotaIsLow(summary.openDataQuota, now)
+      ? { key: 'quota', label: 'โควตา open-data ใกล้หมด', href: INGESTION }
+      : null,
+    {
+      key: 'unknownCodes',
+      label: 'รหัสไทม์ไลน์ที่ไม่รู้จัก',
+      count: unknownCodes.size,
+      href: FAILURE_LOG,
+    },
+  ];
+
+  return chips.filter(
+    (chip): chip is AttentionChip => chip !== null && (chip.count === undefined || chip.count > 0),
+  );
 }

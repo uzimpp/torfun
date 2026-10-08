@@ -4,6 +4,8 @@ import { ConflictError } from '../core/errors';
 import { testEnv } from '../testing/env';
 import { ACCESS_COOKIE } from '@torfun/types';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
+import { InMemoryIngestionLease } from '../testing/ingestion-lease';
+import { InMemoryIngestionRunStore, noStats } from '../testing/ingestion-run-store';
 
 /**
  * `/ingestion/run` spends the project's rate-limited allowance against an
@@ -42,6 +44,7 @@ describe('ingestion route access and procurement query validation', () => {
     { method: 'GET' as const, url: '/api/ingestion/projects' },
     { method: 'GET' as const, url: '/api/ingestion/projects/abc' },
     { method: 'GET' as const, url: '/api/ingestion/failures' },
+    { method: 'GET' as const, url: '/api/ingestion/ops' },
     { method: 'POST' as const, url: '/api/ingestion/run' },
     { method: 'POST' as const, url: '/api/ingestion/run/stop' },
   ];
@@ -179,6 +182,88 @@ describe('ingestion route access and procurement query validation', () => {
       const { startRun } = await start({});
 
       expect(startRun).toHaveBeenCalledWith(expect.not.objectContaining({ forceDiscovery: true }));
+    });
+  });
+
+  describe('the operations view', () => {
+    let opsApp: Awaited<ReturnType<typeof buildApp>>;
+    const runs = new InMemoryIngestionRunStore();
+
+    beforeAll(async () => {
+      opsApp = await buildApp(testEnv(), {
+        procurements: new InMemoryProcurementStore(),
+        ingestionLease: new InMemoryIngestionLease(),
+        ingestionRuns: runs,
+        ingestionStats: noStats,
+      });
+      await runs.record({
+        id: 'r1',
+        startedAt: '2026-10-03T00:00:00.000Z',
+        endedAt: '2026-10-03T00:10:00.000Z',
+        durationMs: 600_000,
+        trigger: 'scheduled',
+        runners: 2,
+        counts: null,
+        error: 'boom',
+        tokens: { prompt: 1, output: 2, thoughts: 3, total: 6, calls: 1 },
+      });
+    });
+
+    afterAll(async () => {
+      await opsApp.close();
+    });
+
+    const as = (role: 'admin' | 'business_development_officer') => ({
+      [ACCESS_COOKIE]: opsApp.jwt.sign({
+        user_id: '68b1f0c2a1b2c3d4e5f60719',
+        username: 'u',
+        role,
+      }),
+    });
+
+    test('is for administrators only', async () => {
+      const response = await opsApp.inject({
+        method: 'GET',
+        url: '/api/ingestion/ops',
+        cookies: as('business_development_officer'),
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
+    test('shows an administrator the live run, stored history and the run log', async () => {
+      const response = await opsApp.inject({
+        method: 'GET',
+        url: '/api/ingestion/ops',
+        cookies: as('admin'),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json() as unknown).toEqual({
+        live: {
+          runInProgress: false,
+          runStartedAt: null,
+          elapsedMs: null,
+          stopRequested: false,
+          inFlight: null,
+          queueRemaining: null,
+        },
+        throughputDaily: [],
+        discoveredDaily: [],
+        runs: [
+          {
+            id: 'r1',
+            startedAt: '2026-10-03T00:00:00.000Z',
+            endedAt: '2026-10-03T00:10:00.000Z',
+            durationMs: 600_000,
+            trigger: 'scheduled',
+            runners: 2,
+            counts: null,
+            error: 'boom',
+            tokens: { prompt: 1, output: 2, thoughts: 3, total: 6, calls: 1 },
+          },
+        ],
+      });
     });
   });
 });

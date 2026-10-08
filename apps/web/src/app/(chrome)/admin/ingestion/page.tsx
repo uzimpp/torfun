@@ -3,8 +3,8 @@ import { IngestionDashboard } from '@/components/ingestion/ingestion-dashboard';
 import { requireAdmin } from '@/lib/auth';
 
 export const metadata: Metadata = {
-  title: 'สถานะการดึงข้อมูล TOR | TOR Finder',
-  description: 'หน้าสำหรับผู้ดูแลระบบ ติดตามสถานะการดึงประกาศ TOR จากระบบ e-GP',
+  title: 'ระบบดึงข้อมูล | TOR Finder',
+  description: 'หน้าสำหรับผู้ดูแลระบบ ควบคุมและติดตามการดึงประกาศ TOR จากระบบ e-GP',
 };
 
 export default async function IngestionPage() {

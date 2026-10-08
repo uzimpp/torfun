@@ -1,8 +1,10 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type {
   ArchiveDocument,
+  InFlightWork,
   IngestionFailure,
   Procurement,
+  RunProgress,
   SoftwareJudgement,
   TorAnalysis,
 } from '@torfun/types';
@@ -15,7 +17,7 @@ import {
 } from '../vertex/classify-document';
 import { readInvitationPdf } from '../vertex/invitation-reader';
 import { createOversizeReaders } from '../vertex/oversize-readers';
-import { createModelCall } from '../vertex/vertex-ai';
+import { createModelCall, type ModelUsage } from '../vertex/vertex-ai';
 import type { AnnouncementClient } from './announcement-client';
 import { createAnnouncementClient } from './announcement-client';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
@@ -74,8 +76,11 @@ export interface IngestionDeps {
   recordDeadlineMs: number;
 }
 
-export function createIngestionDeps(env: Env): IngestionDeps {
-  const callModel = createModelCall(env);
+export function createIngestionDeps(
+  env: Env,
+  onUsage?: (usage: ModelUsage) => void,
+): IngestionDeps {
+  const callModel = createModelCall(env, onUsage);
   const oversizeReaders = createOversizeReaders();
   return {
     discoverProjects,
@@ -210,6 +215,8 @@ export interface RunOptions {
    * and nothing further is taken.
    */
   stopRequested?: () => boolean;
+  /** Told whenever a record is taken up, changes stage, or is done with. */
+  onProgress?: (progress: RunProgress) => void;
 }
 
 export interface RunResult {
@@ -511,11 +518,13 @@ export async function runIngestion(
     about: Pick<Procurement, 'projectId' | 'projectName'>,
     stage: IngestionFailure['stage'],
     error: string,
+    kind: IngestionFailure['kind'] = 'fault',
   ) => {
     const failure = {
       projectId: about.projectId,
       projectName: about.projectName,
       stage,
+      kind,
       error,
       at: new Date().toISOString(),
     };
@@ -537,6 +546,13 @@ export async function runIngestion(
   const gate = createSiteGate({ pause: () => deps.sleep(politeTorDelayMs()) });
   let stopped = false;
   let stoppedBy: 'admin' | null = null;
+
+  const inFlight = new Map<number, InFlightWork>();
+  const report = () =>
+    options.onProgress?.({
+      inFlight: [...inFlight.values()].sort((a, b) => a.slot - b.slot),
+      queueRemaining: queue.length,
+    });
 
   /**
    * The project's timeline, with any code not seen before logged. Null where
@@ -667,7 +683,7 @@ export async function runIngestion(
       // left with nothing to read, but distinguished by its outcome.
       const error = 'No zipId in the announcement response — no TOR package published.';
       await work.endSiteSection();
-      await note(record, 'info', error);
+      await note(record, 'info', error, 'no_tor');
       await repository.transition(record.projectId, 'no_tor_package', {}, error);
       failed += 1;
       return;
@@ -779,6 +795,7 @@ export async function runIngestion(
         record,
         'extract',
         `Archive downloaded (${extraction.members.length} members) but none of its documents is a TOR.`,
+        'no_tor',
       );
       await repository.transition(record.projectId, 'no_tor_in_archive', patch);
     }
@@ -832,7 +849,7 @@ export async function runIngestion(
   };
 
   /** One record, from its site requests to its stored outcome. Never throws. */
-  const processRecord = async ({ record, fresh }: Candidate): Promise<void> => {
+  const processRecord = async ({ record, fresh }: Candidate, slot: number): Promise<void> => {
     if (fresh) {
       attempted += 1;
       await repository.transition(record.projectId, 'downloading');
@@ -844,9 +861,28 @@ export async function runIngestion(
       siteRequest: false,
       controller: new AbortController(),
     };
+    const enter = (stage: IngestionFailure['stage']) => {
+      inFlight.set(slot, {
+        slot,
+        projectId: record.projectId,
+        projectName: record.projectName,
+        stage,
+        fresh,
+        since: new Date().toISOString(),
+      });
+      report();
+    };
+    let stage: IngestionFailure['stage'] = 'timeline';
+    enter(stage);
     const work: RecordWork = {
       record,
-      stage: 'timeline',
+      get stage() {
+        return stage;
+      },
+      set stage(next) {
+        stage = next;
+        enter(next);
+      },
       guard,
       site: async (call) => {
         guard.siteRequest = true;
@@ -876,10 +912,12 @@ export async function runIngestion(
     } finally {
       // Whatever ended the record, the gate is not left held.
       await hold?.release();
+      inFlight.delete(slot);
+      report();
     }
   };
 
-  const runner = async (): Promise<void> => {
+  const runner = async (slot: number): Promise<void> => {
     while (!stopped) {
       if (options.stopRequested?.()) {
         // Nothing is taken from the queue: what is left stays Queued, no attempt spent.
@@ -897,12 +935,13 @@ export async function runIngestion(
         logger.warn('egp: run stopped before its next record; the rest stay Queued');
         return;
       }
-      await processRecord(candidate);
+      await processRecord(candidate, slot);
     }
   };
 
   const runners = Math.max(1, Math.min(options.runners ?? 1, queue.length));
-  await Promise.all(Array.from({ length: runners }, runner));
+  report();
+  await Promise.all(Array.from({ length: runners }, (_, slot) => runner(slot)));
 
   logger.info(
     { attempted, refreshed, archivesRetrieved, torAnalysed, held, dropped, failed, aborted },

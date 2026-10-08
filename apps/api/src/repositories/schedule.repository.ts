@@ -59,8 +59,11 @@ export class ScheduleRepository implements ScheduleStore {
         enabled: document?.enabled ?? DEFAULT_SCHEDULE.enabled,
         mode: document?.mode === 'daily' ? 'weekly' : (document?.mode ?? DEFAULT_SCHEDULE.mode),
         timeOfDay: document?.time_of_day ?? DEFAULT_SCHEDULE.timeOfDay,
-        // A daily schedule was every day, as was one saved before days were chosen.
-        weekdays: document?.weekdays ?? [...ALL_WEEKDAYS],
+        // Never saved (every save writes `updated_at`): the default. Anything saved
+        // before days were chosen — daily, or older than modes — was every day.
+        weekdays:
+          document?.weekdays ??
+          (document?.updated_at === undefined ? [...DEFAULT_SCHEDULE.weekdays] : [...ALL_WEEKDAYS]),
         everyHours: document?.every_hours ?? DEFAULT_SCHEDULE.everyHours,
         updatedAt: document?.updated_at ?? null,
         updatedBy: document?.updated_by ?? null,

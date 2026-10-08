@@ -6,6 +6,7 @@ import { testEnv } from '../testing/env';
 import { gatedDeps, silentLogger } from '../testing/gated-ingestion';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
 import { InMemoryScheduleStore } from '../testing/schedule-store';
+import { InMemoryIngestionRunStore, noStats } from '../testing/ingestion-run-store';
 import { IngestionService } from './ingestion.service';
 
 /**
@@ -74,9 +75,11 @@ async function build(options: { records?: number; heartbeatMs?: number } = {}) {
     {
       lease,
       runLog: new InMemoryScheduleStore(),
+      runs: new InMemoryIngestionRunStore(),
+      stats: noStats,
       ...(options.heartbeatMs !== undefined ? { heartbeatMs: options.heartbeatMs } : {}),
     },
-    {
+    () => ({
       ...deps,
       discoverProjects: async () => ({
         records: [],
@@ -95,7 +98,7 @@ async function build(options: { records?: number; heartbeatMs?: number } = {}) {
         if (asked.length === 1) await blocked;
         return null;
       },
-    },
+    }),
   );
   return { service, store, lease, release: () => release(), asked };
 }

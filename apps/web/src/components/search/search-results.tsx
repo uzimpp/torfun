@@ -149,7 +149,7 @@ function SearchPagination({
               className={cn(
                 'grid size-9 place-items-center rounded-full text-sm font-medium transition-colors',
                 item === page
-                  ? 'bg-primary text-primary-foreground font-semibold'
+                  ? 'bg-primary text-primary-foreground font-medium'
                   : 'text-foreground hover:bg-muted',
               )}
             >

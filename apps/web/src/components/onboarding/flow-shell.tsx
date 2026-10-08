@@ -47,9 +47,7 @@ export function FlowShell({
           )}
         >
           <header className="mb-8">
-            <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
-              {title}
-            </h1>
+            <h1 className="text-foreground text-2xl font-medium tracking-tight">{title}</h1>
             <p className="text-muted-foreground mt-2 max-w-[60ch] text-sm leading-relaxed">
               {description}
             </p>

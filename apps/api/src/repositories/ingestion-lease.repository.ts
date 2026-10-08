@@ -1,4 +1,5 @@
 import type { Collection, Db } from 'mongodb';
+import type { InFlightWork, LeaseLive } from '@torfun/types';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
 
 /**
@@ -13,8 +14,8 @@ import { INGESTION_META_COLLECTION } from './ingestion-meta';
 export interface IngestionLeaseStore {
   /** Take the lease if it is free, expired, or already this holder's. */
   acquire(holder: string, now: Date, ttlMs: number): Promise<boolean>;
-  /** Extend the lease. False means it is no longer this holder's. */
-  heartbeat(holder: string, now: Date, ttlMs: number): Promise<boolean>;
+  /** Extend the lease, and with `live` replace what the Run last reported. False means it is no longer this holder's. */
+  heartbeat(holder: string, now: Date, ttlMs: number, live?: LeaseLive): Promise<boolean>;
   /** Give the lease up. A no-op for anyone who does not hold it. */
   release(holder: string): Promise<void>;
   /** Whether any holder currently has an unexpired lease. */
@@ -37,8 +38,29 @@ export interface LeaseState {
   acquiredAt: string;
   stopRequestedAt: string | null;
   stopRequestedBy: string | null;
+  /** What the Run last reported through its heartbeat; null until its first. */
+  live: LeaseLive | null;
 }
 
+interface InFlightDocument {
+  slot: number;
+  project_id: string;
+  project_name: string;
+  stage: InFlightWork['stage'];
+  fresh: boolean;
+  since: string;
+}
+
+/** One written by an older build may also carry memory fields; they are not read. */
+interface LiveDocument {
+  in_flight: InFlightDocument[];
+  queue_remaining: number | null;
+}
+
+/**
+ * Leases are transient (deleted on release, reset on takeover), so one an older
+ * build left with live fields flat at its root is simply not read as live.
+ */
 interface LeaseDocument {
   _id: string;
   holder: string;
@@ -47,6 +69,36 @@ interface LeaseDocument {
   expires_at: string;
   stop_requested_at?: string;
   stop_requested_by?: string;
+  live?: LiveDocument;
+}
+
+function liveToDocument(live: LeaseLive): LiveDocument {
+  return {
+    in_flight: live.inFlight.map((work) => ({
+      slot: work.slot,
+      project_id: work.projectId,
+      project_name: work.projectName,
+      stage: work.stage,
+      fresh: work.fresh,
+      since: work.since,
+    })),
+    queue_remaining: live.queueRemaining,
+  };
+}
+
+function liveFromDocument(document: LiveDocument | undefined): LeaseLive | null {
+  if (!document) return null;
+  return {
+    inFlight: document.in_flight.map((work) => ({
+      slot: work.slot,
+      projectId: work.project_id,
+      projectName: work.project_name,
+      stage: work.stage,
+      fresh: work.fresh,
+      since: work.since,
+    })),
+    queueRemaining: document.queue_remaining,
+  };
 }
 
 const LEASE_ID = 'run_lease';
@@ -87,7 +139,7 @@ export class IngestionLeaseRepository implements IngestionLeaseStore {
           },
           // A new Run starts clean: a request aimed at the one before is not
           // for this one, whether that lease was released or simply lapsed.
-          $unset: { stop_requested_at: '', stop_requested_by: '' },
+          $unset: { stop_requested_at: '', stop_requested_by: '', live: '' },
         },
         { upsert: true },
       );
@@ -98,7 +150,7 @@ export class IngestionLeaseRepository implements IngestionLeaseStore {
     }
   }
 
-  async heartbeat(holder: string, now: Date, ttlMs: number): Promise<boolean> {
+  async heartbeat(holder: string, now: Date, ttlMs: number, live?: LeaseLive): Promise<boolean> {
     const at = now.toISOString();
     const result = await (
       await this.leases()
@@ -106,7 +158,13 @@ export class IngestionLeaseRepository implements IngestionLeaseStore {
       // Not expired: a holder whose lease lapsed may already have been replaced,
       // and must find out rather than quietly resume.
       { _id: LEASE_ID, holder, expires_at: { $gt: at } },
-      { $set: { heartbeat_at: at, expires_at: new Date(now.getTime() + ttlMs).toISOString() } },
+      {
+        $set: {
+          heartbeat_at: at,
+          expires_at: new Date(now.getTime() + ttlMs).toISOString(),
+          ...(live ? { live: liveToDocument(live) } : {}),
+        },
+      },
     );
     return result.matchedCount === 1;
   }
@@ -132,6 +190,7 @@ export class IngestionLeaseRepository implements IngestionLeaseStore {
           acquiredAt: found.acquired_at,
           stopRequestedAt: found.stop_requested_at ?? null,
           stopRequestedBy: found.stop_requested_by ?? null,
+          live: liveFromDocument(found.live),
         }
       : null;
   }
