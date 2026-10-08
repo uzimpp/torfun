@@ -10,14 +10,15 @@ import type {
   Procurement,
   ProcurementStatus,
   StatusChange,
-  StatusSource,
+  DeadlineSource,
+  Milestones,
   TargetPlatform,
   TorAnalysis,
   Tombstone,
   TombstoneReason,
   Winner,
 } from '@torfun/types';
-import { appendStatusChange, OUTCOME_STATE } from '@torfun/types';
+import { appendStatusChange, EMPTY_MILESTONES, OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 import { hashSource, hasUpstreamChange } from './source-hash';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
@@ -72,15 +73,19 @@ interface ProcurementDocument {
   district?: string | null;
   subdistrict?: string | null;
   dept_code: string;
-  year: number;
+  budget_year: number;
   announce_date: string | null;
   project_type_name: string | null;
   purchase_method_name: string | null;
   project_money: number | null;
   price_build: number | null;
   status: ProcurementStatus;
-  /** Absent on records written before the reading was attributed. */
-  status_source?: StatusSource | null;
+  /** Absent on records written before the timeline was read. */
+  milestones?: Milestones;
+  timeline_checked_at?: string | null;
+  /** Absent on records written before the deadline was kept. */
+  deadline_at?: string | null;
+  deadline_source?: DeadlineSource | null;
   state: IngestionState;
   outcome: IngestionOutcome;
   /** Absent on records written before retries were counted. */
@@ -126,14 +131,17 @@ function toDomain(document: ProcurementDocument): Procurement {
     district: document.district ?? null,
     subdistrict: document.subdistrict ?? null,
     deptCode: document.dept_code,
-    year: document.year,
+    budgetYear: document.budget_year,
     announceDate: document.announce_date,
     projectTypeName: document.project_type_name,
     purchaseMethodName: document.purchase_method_name,
     projectMoney: document.project_money,
     priceBuild: document.price_build,
     status: statusFromStored(document.status),
-    statusSource: document.status_source ?? null,
+    milestones: document.milestones ?? EMPTY_MILESTONES,
+    timelineCheckedAt: document.timeline_checked_at ?? null,
+    deadlineAt: document.deadline_at ?? null,
+    deadlineSource: document.deadline_source ?? null,
     state: document.state,
     outcome: outcomeFromStored(document.outcome),
     attempts: document.attempts ?? 0,
@@ -165,14 +173,17 @@ function toDocument(record: Procurement): ProcurementDocument {
     district: record.district,
     subdistrict: record.subdistrict,
     dept_code: record.deptCode,
-    year: record.year,
+    budget_year: record.budgetYear,
     announce_date: record.announceDate,
     project_type_name: record.projectTypeName,
     purchase_method_name: record.purchaseMethodName,
     project_money: record.projectMoney,
     price_build: record.priceBuild,
     status: record.status,
-    status_source: record.statusSource,
+    milestones: record.milestones,
+    timeline_checked_at: record.timelineCheckedAt,
+    deadline_at: record.deadlineAt,
+    deadline_source: record.deadlineSource,
     state: record.state,
     outcome: record.outcome,
     attempts: record.attempts,
@@ -200,7 +211,7 @@ export interface FindOptions {
    */
   attemptsBelow?: number;
   deptName?: string;
-  year?: number;
+  budgetYear?: number;
   /** Filter to one stage of the agency's own lifecycle. */
   status?: ProcurementStatus;
   /** Case-insensitive substring over project name and id. */
@@ -279,6 +290,22 @@ export interface ProcurementStore {
     detail?: string,
   ): Promise<Procurement | undefined>;
   find(options: FindOptions): Promise<FindResult>;
+  /**
+   * Write fields onto a record without moving it to another Outcome. `updatedAt`
+   * moves only when `touch` says something about the record changed, so a
+   * timeline read that found nothing new does not look like news.
+   */
+  amend(
+    projectId: string,
+    patch: Partial<Procurement>,
+    touch: boolean,
+  ): Promise<Procurement | undefined>;
+  /**
+   * One page of the records whose timeline is due a fresh read: those already
+   * read (not Queued or Processing) and not yet contracted, the longest
+   * unchecked first. A contracted project is final and never comes back.
+   */
+  dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]>;
   /**
    * Return records stuck in Processing to the queue.
    *
@@ -371,7 +398,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
         key: { state: 1, announce_date: -1, _id: 1 },
       },
       { key: { dept_name: 1 } },
-      { key: { year: 1 } },
+      { key: { budget_year: 1 } },
     ]);
   }
 
@@ -535,6 +562,37 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     return toDomain(updated);
   }
 
+  async amend(
+    projectId: string,
+    patch: Partial<Procurement>,
+    touch: boolean,
+  ): Promise<Procurement | undefined> {
+    const collection = await this.records();
+    const existing = await collection.findOne({ _id: projectId });
+    if (!existing) return undefined;
+
+    const updated = toDocument({
+      ...toDomain(existing),
+      ...patch,
+      updatedAt: touch ? new Date().toISOString() : existing.updated_at,
+    });
+    await collection.replaceOne({ _id: projectId }, updated);
+    return toDomain(updated);
+  }
+
+  async dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]> {
+    const documents = await (
+      await this.records()
+    )
+      .find({ state: { $in: ['Completed', 'Failed'] }, status: { $ne: 'contracted' } })
+      // Never checked sorts first, since a missing field sorts as null.
+      .sort({ timeline_checked_at: 1, _id: 1 })
+      .skip(page.offset)
+      .limit(page.limit)
+      .toArray();
+    return documents.map(toDomain);
+  }
+
   async requeueStale(cutoff: string): Promise<number> {
     const collection = await this.records();
     // Timestamps are `toISOString()` output throughout, so string order is time
@@ -578,7 +636,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       });
     }
     if (options.deptName) filter.dept_name = options.deptName;
-    if (options.year) filter.year = options.year;
+    if (options.budgetYear) filter.budget_year = options.budgetYear;
     if (options.status) filter.status = options.status;
     if (options.excludeAwarded) filter.winner = null;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
@@ -609,7 +667,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     }
 
     addDateRange(clauses, '$announce_date', options.publishedFrom, options.publishedTo);
-    addDateRange(clauses, '$analysis.deadlineAt', options.deadlineFrom, options.deadlineTo, true);
+    addDateRange(clauses, '$deadline_at', options.deadlineFrom, options.deadlineTo, true);
     if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
@@ -722,7 +780,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
         .toArray(),
       collection
         .aggregate<{ _id: number; count: number }>([
-          { $group: { _id: '$year', count: { $sum: 1 } } },
+          { $group: { _id: '$budget_year', count: { $sum: 1 } } },
           { $sort: { _id: 1 } },
         ])
         .toArray(),
@@ -754,7 +812,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       byState,
       byOutcome,
       byAgency: byAgencyRows.map((row) => ({ deptName: row._id, count: row.count })),
-      byYear: byYearRows.map((row) => ({ year: row._id, count: row.count })),
+      byYear: byYearRows.map((row) => ({ budgetYear: row._id, count: row.count })),
       torDocumentsRetrieved: torRows[0]?.count ?? 0,
       totalTorBytes: torRows[0]?.bytes ?? 0,
       failureCount,

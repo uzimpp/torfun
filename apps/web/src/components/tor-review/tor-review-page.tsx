@@ -9,8 +9,10 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DEADLINE_SOURCE_LABELS } from '@torfun/types';
+import { deadlineText } from '@/lib/deadline-display';
 import { formatThaiDate } from '@/lib/format-date';
-import { cn } from '@/lib/utils';
+import { ProcurementStatusBadge } from '@/components/search/procurement-status-badge';
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { TorDownloadButton } from './tor-download-button';
@@ -42,7 +44,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               )}
               <span className="inline-flex items-center gap-2">
                 <CalendarDays aria-hidden="true" className="size-4" />
-                ปีงบประมาณ {tor.fiscalYear}
+                ปีงบประมาณ {tor.budgetYear}
               </span>
               {tor.procurementMethod && (
                 <span className="inline-flex items-center gap-2">
@@ -50,10 +52,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
                   วิธีการจัดซื้อจัดจ้าง: {tor.procurementMethod}
                 </span>
               )}
-              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
-                {tor.status}
-              </Badge>
+              <ProcurementStatusBadge status={tor.status} />
             </div>
           </div>
 
@@ -65,6 +64,24 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
             <p data-numeric className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
               {tor.budget === null ? 'ยังไม่มีข้อมูลงบประมาณ' : `${bahtFormat.format(tor.budget)} บาท`}
             </p>
+            <div
+              role="group"
+              aria-label="กำหนดยื่นข้อเสนอ"
+              className="border-border mt-5 border-t pt-4"
+            >
+              <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
+                <Clock3 aria-hidden="true" className="size-4 text-amber-600" />
+                กำหนดยื่นข้อเสนอ
+              </p>
+              <p data-numeric className="mt-2 text-lg font-semibold">
+                {deadlineText(tor.submissionDeadline, tor.status)}
+              </p>
+              {tor.deadlineSource && (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  ที่มา: {DEADLINE_SOURCE_LABELS[tor.deadlineSource]} — โปรดตรวจสอบกับเอกสารต้นฉบับก่อนตัดสินใจ
+                </p>
+              )}
+            </div>
             <div className="mt-6 grid grid-cols-2 gap-2">
               <Button type="button" variant="outline" size="lg" className="w-full min-w-0" aria-label="บันทึก TOR นี้">
                 <Bookmark aria-hidden="true" />
@@ -147,15 +164,6 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
         <SectionHeading id="dates-heading" eyebrow="อย่าพลาดกำหนดการ" title="กำหนดการสำคัญ" />
         <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
           <DateItem label="วันที่ประกาศ" value={tor.announcementDate ? formatThaiDate(tor.announcementDate) : 'ยังไม่มีข้อมูลวันที่ประกาศ'} />
-          <DateItem
-            label="ปิดรับข้อเสนอ"
-            value={
-              tor.submissionDeadline
-                ? formatThaiDate(tor.submissionDeadline, { withTime: true })
-                : 'ยังไม่มีข้อมูลวันปิดรับข้อเสนอ'
-            }
-            urgent
-          />
         </div>
       </section>
     </main>
@@ -197,10 +205,10 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function DateItem({ label, value, urgent = false }: { label: string; value: string; urgent?: boolean }) {
+function DateItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className={cn('bg-muted/60 flex items-center gap-3 rounded-xl px-4 py-3', urgent && 'border border-amber-200 dark:border-amber-900')}>
-      {urgent ? <Clock3 aria-hidden="true" className="text-amber-600 size-5 shrink-0" /> : <CalendarDays aria-hidden="true" className="text-primary size-5 shrink-0" />}
+    <div className="bg-muted/60 flex items-center gap-3 rounded-xl px-4 py-3">
+      <CalendarDays aria-hidden="true" className="text-primary size-5 shrink-0" />
       <span>
         <span className="text-muted-foreground block text-xs">{label}</span>
         <span className="mt-0.5 block font-medium">{value}</span>

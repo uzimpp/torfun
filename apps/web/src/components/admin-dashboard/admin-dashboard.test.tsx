@@ -1,12 +1,12 @@
 import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { OUTCOME_LABELS, type Procurement } from '@torfun/types';
+import { EMPTY_MILESTONES, OUTCOME_LABELS, type Procurement } from '@torfun/types';
 
 import type { IngestionSummaryResponse } from '@/lib/api';
 import { AdminDashboard } from './admin-dashboard';
 import { OutcomeDonut } from './outcome-donut';
 import { RecentActivity } from './recent-activity';
-import { outcomeBuckets } from './outcome-buckets';
+import { outcomeBuckets } from '@/lib/outcome-buckets';
 import type { AdminDashboardData } from './use-admin-dashboard-data';
 
 vi.mock('./use-admin-dashboard-data', () => ({ useAdminDashboardData: vi.fn() }));
@@ -48,14 +48,17 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     district: null,
     subdistrict: null,
     deptCode: '3100001',
-    year: 2568,
+    budgetYear: 2568,
     announceDate: null,
     projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
     status: 'unknown',
-    statusSource: null,
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
@@ -198,9 +201,9 @@ describe('AdminDashboard', () => {
 
     for (const label of [
       'ประกาศทั้งหมด',
-      'รอดำเนินการ',
-      'กำลังประมวลผล',
-      'สำเร็จ',
+      'รอ',
+      'กำลังทำ',
+      'วิเคราะห์แล้ว',
       'ล้มเหลว',
       'รอบล่าสุด',
     ]) {

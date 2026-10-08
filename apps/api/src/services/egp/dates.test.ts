@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { convertDateToISO } from './dates';
+import { convertDateToISO, convertTimelineDate } from './dates';
 
 describe('convertDateToISO', () => {
   test('reads the upstream Thai display date with a two-digit Buddhist-era year', () => {
@@ -45,6 +45,11 @@ describe('convertDateToISO', () => {
     expect(convertDateToISO('2026-10-15T16:30:00+0700')).toBe('2026-10-15T09:30:00.000Z');
   });
 
+  test('converts a Buddhist-era year and keeps a stated time, as the invitation prints them', () => {
+    expect(convertDateToISO('2569-10-20 16:30')).toBe('2026-10-20T09:30:00.000Z');
+    expect(convertDateToISO('2569-10-20')).toBe('2026-10-20T00:00:00.000Z');
+  });
+
   test('reads a timestamp with no offset as Thailand time', () => {
     expect(convertDateToISO('2026-10-15T16:30:00')).toBe('2026-10-15T09:30:00.000Z');
     expect(convertDateToISO('2026-10-15 16:30')).toBe('2026-10-15T09:30:00.000Z');
@@ -68,5 +73,22 @@ describe('convertDateToISO', () => {
     expect(convertDateToISO('31 ก.พ. 69')).toBeNull();
     expect(convertDateToISO('2026-02-30')).toBeNull();
     expect(convertDateToISO('2026-10-15T25:00:00Z')).toBeNull();
+  });
+});
+
+describe('convertTimelineDate', () => {
+  test('is the Bangkok calendar day of a UTC timestamp, as midnight UTC', () => {
+    expect(convertTimelineDate('2026-10-01T05:00:00.000Z')).toBe('2026-10-01T00:00:00.000Z');
+  });
+
+  test('rolls into the next day once Bangkok is past midnight', () => {
+    expect(convertTimelineDate('2026-09-30T16:59:59.000Z')).toBe('2026-09-30T00:00:00.000Z');
+    expect(convertTimelineDate('2026-09-30T17:00:00.000Z')).toBe('2026-10-01T00:00:00.000Z');
+  });
+
+  test('is null where e-GP gave no date or an unreadable one', () => {
+    expect(convertTimelineDate(null)).toBeNull();
+    expect(convertTimelineDate('')).toBeNull();
+    expect(convertTimelineDate('yesterday')).toBeNull();
   });
 });

@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'vitest';
 import { IngestionOutcome } from '@torfun/types';
-import { bucketOfOutcome, outcomeBuckets, shareOf } from './outcome-buckets';
+import type { IngestionSummaryResponse } from './api';
+import { bucketOfOutcome, countTiles, outcomeBuckets, shareOf } from './outcome-buckets';
 
 describe('outcomeBuckets', () => {
   test('groups the ten outcomes into six Thai buckets in a fixed order', () => {
     const buckets = outcomeBuckets({});
     expect(buckets.map((bucket) => bucket.label)).toEqual([
       'วิเคราะห์แล้ว',
-      'รอผู้ดูแลตรวจสอบ',
+      'รอตรวจสอบ',
       'ไม่มี TOR',
       'ล้มเหลว',
       'รอ',
@@ -79,5 +80,66 @@ describe('bucketOfOutcome', () => {
       const counted = outcomeBuckets({ [outcome]: 1 }).find((bucket) => bucket.count === 1);
       expect(counted?.key).toBe(bucketOfOutcome(outcome));
     }
+  });
+});
+
+describe('countTiles', () => {
+  const summary: IngestionSummaryResponse = {
+    total: 288,
+    byState: { Queued: 243, Processing: 3, Completed: 44, Failed: 5 },
+    byOutcome: {
+      queued: 240,
+      error: 3,
+      downloading: 1,
+      analysing: 2,
+      tor_analysed: 38,
+      needs_review: 1,
+      analysis_failed: 2,
+      no_tor_package: 4,
+      no_tor_in_archive: 1,
+      abandoned: 1,
+    },
+    byAgency: [],
+    byYear: [],
+    torDocumentsRetrieved: 38,
+    totalTorBytes: 0,
+    failureCount: 4,
+    lastRunAt: null,
+    openDataQuota: null,
+    runInProgress: false,
+    runStartedAt: null,
+    stopRequested: false,
+    agencies: [],
+  };
+  const tile = (key: string, s = summary) => countTiles(s).find((t) => t.key === key)!;
+
+  test('lists the total then the six buckets in pipeline order, with no "สำเร็จ"', () => {
+    expect(countTiles(summary).map((t) => t.label)).toEqual([
+      'ประกาศทั้งหมด',
+      'รอ',
+      'กำลังทำ',
+      'วิเคราะห์แล้ว',
+      'รอตรวจสอบ',
+      'ไม่มี TOR',
+      'ล้มเหลว',
+    ]);
+  });
+
+  test('counts each tile from its outcomes', () => {
+    expect(tile('total').value).toBe('288');
+    expect(tile('queued').value).toBe('240');
+    expect(tile('running').value).toBe('3');
+    expect(tile('analysed').value).toBe('38');
+    expect(tile('needsReview').value).toBe('1');
+    expect(tile('noTor').value).toBe('5');
+    expect(tile('failed').value).toBe('6');
+  });
+
+  test('failed carries the retryable errors as a hint, and alerts only when non-zero', () => {
+    expect(tile('failed').hint).toContain('รอลองใหม่ 3');
+    expect(tile('failed').alert).toBe(true);
+    const calm = { ...summary, byOutcome: { queued: 1 } };
+    expect(tile('failed', calm).hint).not.toContain('รอลองใหม่');
+    expect(tile('failed', calm).alert).toBe(false);
   });
 });

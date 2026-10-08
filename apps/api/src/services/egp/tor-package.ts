@@ -1,5 +1,6 @@
 import { unzipSync } from 'fflate';
 import { egpGet, UpstreamError } from './client';
+import { invitationRoleOf } from './document-roles';
 import { BROWSER_HEADERS, TOR_DOWNLOAD_URL, TOR_INFO_URL, TOR_MEMBER_PATTERNS } from './constants';
 
 /**
@@ -228,3 +229,27 @@ export function extractTorPdfs(archive: Uint8Array): ExtractionResult {
   return { torFiles, members, unsafeSkipped };
 }
 
+/** The two documents read for the bid deadline, when the archive has them. */
+export interface InvitationPdfs {
+  invitation: ExtractedPdf | null;
+  biddingDocument: ExtractedPdf | null;
+}
+
+/**
+ * Pull out the project's invitation announcement and bidding document, which are
+ * found by filename alone (see `invitationRoleOf`). Nothing else is inflated.
+ */
+export function extractInvitationPdfs(archive: Uint8Array, projectId: string): InvitationPdfs {
+  const chosen = new Map<string, 'invitation' | 'bidding_document'>();
+  for (const member of listMembers(archive)) {
+    const role = invitationRoleOf(member, projectId);
+    if (role && isSafeMember(member)) chosen.set(member, role);
+  }
+
+  const found: InvitationPdfs = { invitation: null, biddingDocument: null };
+  for (const [pdf, role] of inflateChosen(archive, chosen, () => 'unlabelled')) {
+    if (role === 'invitation') found.invitation = pdf;
+    else found.biddingDocument = pdf;
+  }
+  return found;
+}

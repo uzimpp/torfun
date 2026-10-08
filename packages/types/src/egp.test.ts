@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  EMPTY_MILESTONES,
   IngestionOutcome,
   IngestionState,
+  MilestonesSchema,
   OUTCOME_LABELS,
   OUTCOME_STATE,
   ProcurementSchema,
@@ -45,7 +47,7 @@ describe('ProcurementStatus', () => {
   test('names the two stages a Business Development Officer acts on', () => {
     expect(STATUS_LABELS.drafting).toBe('ร่าง / เตรียมการ');
     expect(STATUS_LABELS.open).toBe('เปิดรับข้อเสนอ');
-    expect(STATUS_LABELS.unknown).toBe('ยังไม่ระบุ');
+    expect(STATUS_LABELS.unknown).toBe('ยังไม่ทราบสถานะ');
   });
 });
 
@@ -107,14 +109,17 @@ const record: Procurement = {
   district: null,
   subdistrict: null,
   deptCode: '3100001',
-  year: 2568,
+  budgetYear: 2568,
   announceDate: '2024-11-04T00:00:00.000Z',
   projectTypeName: null,
   purchaseMethodName: null,
   projectMoney: 16773380,
   priceBuild: 16669097,
   status: 'unknown',
-  statusSource: null,
+  milestones: EMPTY_MILESTONES,
+  timelineCheckedAt: null,
+  deadlineAt: null,
+  deadlineSource: null,
   state: 'Queued',
   outcome: 'queued',
   attempts: 0,
@@ -149,11 +154,27 @@ describe('Procurement', () => {
     expect(parsed).toEqual(record);
   });
 
-  test('accepts an AI-read status and rejects an unknown source', () => {
-    expect(
-      ProcurementSchema.safeParse({ ...record, status: 'drafting', statusSource: 'ai' }).success,
-    ).toBe(true);
-    expect(ProcurementSchema.safeParse({ ...record, statusSource: 'guess' }).success).toBe(false);
+  test('carries no record of who read the status: it comes from the timeline alone', () => {
+    const parsed = ProcurementSchema.parse({ ...record, statusSource: 'ai' });
+
+    expect('statusSource' in parsed).toBe(false);
+  });
+
+  test('requires every milestone key, each null or a possibly undated entry', () => {
+    const reached = {
+      ...EMPTY_MILESTONES,
+      drafted: { at: null },
+      invited: { at: '2026-10-01T00:00:00.000Z' },
+    };
+
+    expect(MilestonesSchema.safeParse(reached).success).toBe(true);
+    expect(MilestonesSchema.safeParse({ ...EMPTY_MILESTONES, drafted: undefined }).success).toBe(
+      false,
+    );
+    expect(MilestonesSchema.safeParse({ ...EMPTY_MILESTONES, priced: { at: 5 } }).success).toBe(
+      false,
+    );
+    expect(ProcurementSchema.safeParse({ ...record, milestones: undefined }).success).toBe(false);
   });
 
   test('counts retrieval attempts as a non-negative integer', () => {

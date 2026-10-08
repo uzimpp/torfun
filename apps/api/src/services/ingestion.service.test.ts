@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { EMPTY_MILESTONES } from '@torfun/types';
 import { ConflictError } from '../core/errors';
 import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
@@ -51,14 +52,17 @@ describe('the number of runners', () => {
       district: null,
       subdistrict: null,
       deptCode: '1',
-      year: 2568,
+      budgetYear: 2568,
       announceDate: null,
       projectTypeName: null,
       purchaseMethodName: null,
       projectMoney: null,
       priceBuild: null,
       status: 'open' as const,
-      statusSource: null,
+      milestones: EMPTY_MILESTONES,
+      timelineCheckedAt: null,
+      deadlineAt: null,
+      deadlineSource: null,
       state: 'Queued' as const,
       outcome: 'queued' as const,
       attempts: 0,

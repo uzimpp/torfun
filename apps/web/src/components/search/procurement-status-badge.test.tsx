@@ -7,7 +7,7 @@ import { ProcurementStatusBadge } from './procurement-status-badge';
 describe('ProcurementStatusBadge', () => {
   test('says the stage in Thai for every stage, and never shows the enum name', () => {
     for (const status of ProcurementStatus.options) {
-      const { unmount } = render(<ProcurementStatusBadge status={status} source={null} />);
+      const { unmount } = render(<ProcurementStatusBadge status={status} />);
       const badge = screen.getByText(STATUS_LABELS[status]);
       expect(badge).toBeInTheDocument();
       expect(badge.closest('[data-status]')).toHaveAttribute('data-status', status);
@@ -17,7 +17,7 @@ describe('ProcurementStatusBadge', () => {
   });
 
   test('sets the drafting stage apart by more than colour: an icon and a stated reason', () => {
-    render(<ProcurementStatusBadge status="drafting" source="ai" />);
+    render(<ProcurementStatusBadge status="drafting" />);
 
     const badge = screen.getByText('ร่าง / เตรียมการ').closest('[data-status]');
     expect(badge).toHaveAttribute('data-emphasis', 'prepare-ahead');
@@ -27,7 +27,7 @@ describe('ProcurementStatusBadge', () => {
 
   test('gives no other stage that emphasis', () => {
     for (const status of ProcurementStatus.options.filter((item) => item !== 'drafting')) {
-      const { unmount } = render(<ProcurementStatusBadge status={status} source={null} />);
+      const { unmount } = render(<ProcurementStatusBadge status={status} />);
       expect(screen.getByText(STATUS_LABELS[status]).closest('[data-status]')).not.toHaveAttribute(
         'data-emphasis',
       );
@@ -35,22 +35,11 @@ describe('ProcurementStatusBadge', () => {
     }
   });
 
-  test('marks a stage Gemini read from the documents, and not one the feed named', () => {
-    const { rerender } = render(<ProcurementStatusBadge status="awarded" source="ai" />);
-    expect(screen.getByText('AI ประเมิน')).toBeInTheDocument();
-    expect(screen.getByText('ประกาศผู้ชนะแล้ว').closest('[data-status]')).toHaveAttribute(
-      'title',
-      expect.stringContaining('ตรวจสอบกับเอกสารต้นฉบับ'),
-    );
+  test('shows an unread timeline quietly and neutrally, as not yet known', () => {
+    render(<ProcurementStatusBadge status="unknown" />);
 
-    rerender(<ProcurementStatusBadge status="awarded" source="upstream" />);
-    expect(screen.queryByText('AI ประเมิน')).not.toBeInTheDocument();
-  });
-
-  test('shows an unclassified procurement quietly, as not yet specified', () => {
-    render(<ProcurementStatusBadge status="unknown" source={null} />);
-
-    expect(screen.getByText('ยังไม่ระบุ')).toBeInTheDocument();
-    expect(screen.queryByText('AI ประเมิน')).not.toBeInTheDocument();
+    const badge = screen.getByText('ยังไม่ทราบสถานะ').closest('[data-status]');
+    expect(badge).toHaveAttribute('data-status', 'unknown');
+    expect(badge).not.toHaveAttribute('title');
   });
 });

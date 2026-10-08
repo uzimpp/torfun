@@ -11,11 +11,13 @@ import type { ProcurementStore } from '../../repositories/procurement.repository
 import {
   classifyTorDocument,
   type DocumentClassification,
-  type ModelStatus,
   type ReadMode,
 } from '../vertex/classify-document';
+import { readInvitationPdf } from '../vertex/invitation-reader';
 import { createOversizeReaders } from '../vertex/oversize-readers';
 import { createModelCall } from '../vertex/vertex-ai';
+import type { AnnouncementClient } from './announcement-client';
+import { createAnnouncementClient } from './announcement-client';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
 import { mapWithConcurrency } from './concurrency';
 import {
@@ -27,8 +29,10 @@ import {
 } from './constants';
 import { discoverProjects, type DiscoveryResult, type TombstoneLookup } from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
+import { readInvitationDocuments, type InvitationResult } from './invitation';
 import {
   downloadArchive,
+  extractInvitationPdfs,
   extractTorPdfs,
   resolveZipId,
   type ExtractionResult,
@@ -36,6 +40,8 @@ import {
 import { createSiteGate, SiteLatchedError, type SiteGateHold } from './site-gate';
 import { decideOutcome } from './decision';
 import { buildTombstone } from './tombstone';
+import { decideDeadline } from './deadline';
+import { reviewTimeline, type TimelinePatch, type TimelineReview } from './timeline';
 
 /**
  * Orchestrates the two ingestion stages against the repository.
@@ -59,6 +65,10 @@ export interface IngestionDeps {
   downloadArchive: (zipId: string, signal?: AbortSignal) => Promise<Uint8Array>;
   extractTorPdfs: (archive: Uint8Array) => ExtractionResult;
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
+  /** Reads the bid date off the archive's invitation announcement, if it carries one. */
+  readInvitation: (archive: Uint8Array, projectId: string) => Promise<InvitationResult>;
+  /** The project's announcement timeline, always the first thing asked of the site about it. */
+  announcements: AnnouncementClient;
   sleep: (ms: number) => Promise<void>;
   /** Longest one record may take before it is treated as a transport failure. */
   recordDeadlineMs: number;
@@ -73,6 +83,13 @@ export function createIngestionDeps(env: Env): IngestionDeps {
     downloadArchive,
     extractTorPdfs: (archive) => extractTorPdfs(archive),
     classifyDocument: (pdf) => classifyTorDocument(callModel, pdf, oversizeReaders),
+    readInvitation: (archive, projectId) =>
+      readInvitationDocuments(
+        { extract: extractInvitationPdfs, read: (pdf) => readInvitationPdf(callModel, pdf) },
+        archive,
+        projectId,
+      ),
+    announcements: createAnnouncementClient(),
     sleep,
     recordDeadlineMs: RECORD_DEADLINE_MS,
   };
@@ -98,6 +115,18 @@ interface RecordGuard {
   expired: boolean;
   siteRequest: boolean;
   readonly controller: AbortController;
+}
+
+/** One record's work in progress, shared by the steps that make it up. */
+interface RecordWork {
+  record: Procurement;
+  /** Where the record has got to, so a failure is logged against the step that failed. */
+  stage: IngestionFailure['stage'];
+  guard: RecordGuard;
+  /** Marks the span of a call to the upstream site, so a deadline knows to cancel and wait for it. */
+  site: <T>(call: () => Promise<T>) => Promise<T>;
+  /** Frees the gate once the site is done with. */
+  endSiteSection: () => Promise<void>;
 }
 
 /**
@@ -199,6 +228,8 @@ export interface RunResult {
   discoveryStopped: 'rate_limited' | 'budget' | null;
   rejectedNonRegistry: number;
   attempted: number;
+  /** Projects already read whose timeline was read again to refresh their status. */
+  refreshed: number;
   /** Announcement archives successfully retrieved, whatever was in them. */
   archivesRetrieved: number;
   /** Retrievals whose TOR was read and shown to officers (a confident software answer). */
@@ -219,8 +250,19 @@ function sameUtcDay(iso: string, nowMs: number): boolean {
   return iso.slice(0, 10) === new Date(nowMs).toISOString().slice(0, 10);
 }
 
-/** Records read from the queue at a time while it is being collected. */
+/** Records read from the store at a time while a list of work is being collected. */
 const SELECTION_PAGE = 200;
+
+async function collectPages(
+  page: (offset: number) => Promise<Procurement[]>,
+): Promise<Procurement[]> {
+  const all: Procurement[] = [];
+  for (let offset = 0; ; offset += SELECTION_PAGE) {
+    const items = await page(offset);
+    all.push(...items);
+    if (items.length < SELECTION_PAGE) return all;
+  }
+}
 
 /**
  * Every record worth spending an upstream request on, newest announcement first.
@@ -231,26 +273,41 @@ const SELECTION_PAGE = 200;
  * discovery admits nothing else. What keeps the site safe is not how many, but how (single file, paused,
  * stopped at once by a refusal).
  */
-async function selectForRetrieval(repository: ProcurementStore): Promise<Procurement[]> {
-  const queue: Procurement[] = [];
-  for (let offset = 0; ; offset += SELECTION_PAGE) {
-    const { items } = await repository.find({
-      state: 'Queued',
-      // In the query, not filtered afterwards: an exhausted record must not be
-      // read into the queue only to be skipped.
-      attemptsBelow: MAX_ATTEMPTS,
-      limit: SELECTION_PAGE,
-      offset,
-    });
-    queue.push(...items);
-    if (items.length < SELECTION_PAGE) return queue;
-  }
+function selectForRetrieval(repository: ProcurementStore): Promise<Procurement[]> {
+  return collectPages(
+    async (offset) =>
+      (
+        await repository.find({
+          state: 'Queued',
+          // In the query, not filtered afterwards: an exhausted record must not be
+          // read into the queue only to be skipped.
+          attemptsBelow: MAX_ATTEMPTS,
+          limit: SELECTION_PAGE,
+          offset,
+        })
+      ).items,
+  );
+}
+
+/** Records already read whose timeline is due again, the longest unchecked first. */
+function selectForRefresh(repository: ProcurementStore): Promise<Procurement[]> {
+  return collectPages((offset) => repository.dueForTimeline({ limit: SELECTION_PAGE, offset }));
 }
 
 /** The one project a restricted Run is for, if it is Queued and may still be tried. */
 async function selectOne(repository: ProcurementStore, projectId: string): Promise<Procurement[]> {
   const record = await repository.get(projectId);
   return record && record.state === 'Queued' && record.attempts < MAX_ATTEMPTS ? [record] : [];
+}
+
+/**
+ * One unit of a Run's work. A fresh record is retrieved and read; a refresh is a
+ * record already read, whose timeline is looked at again and which is worked on
+ * further only if the invitation has moved.
+ */
+interface Candidate {
+  record: Procurement;
+  fresh: boolean;
 }
 
 interface AnalysedArchive {
@@ -261,8 +318,6 @@ interface AnalysedArchive {
   /** How the main TOR was read; only a whole-PDF reading may act on its own. */
   readMode: ReadMode | undefined;
   torAmbiguous: boolean;
-  /** The stage the main TOR shows, or null where it shows none. */
-  procurementStatus: ModelStatus | null;
   /** True where at least one candidate could not be read at all. */
   anyUnreadable: boolean;
 }
@@ -315,7 +370,6 @@ async function analyseArchive(
     analysis: mainTor ? (byMember.get(mainTor.member)?.analysis ?? null) : null,
     judgement: mainTor ? (byMember.get(mainTor.member)?.judgement ?? null) : null,
     readMode: mainTor ? byMember.get(mainTor.member)?.readMode : undefined,
-    procurementStatus: mainTor ? (byMember.get(mainTor.member)?.procurementStatus ?? null) : null,
     torAmbiguous: ambiguous,
     anyUnreadable: candidates.some((candidate) => candidate.unreadable !== undefined),
   };
@@ -436,10 +490,15 @@ export async function runIngestion(
     discoveryStopped,
   };
 
-  const candidates = options.onlyProject
-    ? await selectOne(repository, options.onlyProject)
-    : await selectForRetrieval(repository);
+  // New projects first, so a throttled site cannot starve them behind refresh-only work.
+  const candidates: Candidate[] = options.onlyProject
+    ? (await selectOne(repository, options.onlyProject)).map((record) => ({ record, fresh: true }))
+    : [
+        ...(await selectForRetrieval(repository)).map((record) => ({ record, fresh: true })),
+        ...(await selectForRefresh(repository)).map((record) => ({ record, fresh: false })),
+      ];
 
+  let refreshed = 0;
   let archivesRetrieved = 0;
   let torAnalysed = 0;
   let held = 0;
@@ -448,7 +507,18 @@ export async function runIngestion(
   let attempted = 0;
   let aborted = false;
 
-  const note = async (failure: IngestionFailure) => {
+  const note = async (
+    about: Pick<Procurement, 'projectId' | 'projectName'>,
+    stage: IngestionFailure['stage'],
+    error: string,
+  ) => {
+    const failure = {
+      projectId: about.projectId,
+      projectName: about.projectName,
+      stage,
+      error,
+      at: new Date().toISOString(),
+    };
     failures.push(failure);
     await repository.recordFailures([failure]);
   };
@@ -456,14 +526,11 @@ export async function runIngestion(
   if (options.onlyProject && candidates.length === 0) {
     // Asked for one project and there is none to read: say so, or the
     // administrator who asked is left to wonder why nothing happened.
-    await note({
-      projectId: options.onlyProject,
-      projectName: '-',
-      stage: 'discovery',
-      error:
-        'The project was not read: this sweep did not bring it back (it may no longer be in the feed, or the sweep stopped early).',
-      at: new Date().toISOString(),
-    });
+    await note(
+      { projectId: options.onlyProject, projectName: '-' },
+      'discovery',
+      'The project was not read: this sweep did not bring it back (it may no longer be in the feed, or the sweep stopped early).',
+    );
   }
 
   const queue = [...candidates];
@@ -471,211 +538,285 @@ export async function runIngestion(
   let stopped = false;
   let stoppedBy: 'admin' | null = null;
 
-  /** One record, from its site requests to its stored outcome. Never throws. */
-  const processRecord = async (record: Procurement): Promise<void> => {
-    attempted += 1;
-    await repository.transition(record.projectId, 'downloading');
-
-    // Where the record had got to, so a failure is logged against the step that
-    // actually failed rather than always the download.
-    let stage: IngestionFailure['stage'] = 'info';
-    const guard: RecordGuard = {
-      expired: false,
-      siteRequest: false,
-      controller: new AbortController(),
-    };
-    // Marks the span of a call to the upstream site, so a deadline knows whether
-    // there is a request it must cancel and wait for.
-    const site = async <T>(call: () => Promise<T>): Promise<T> => {
-      guard.siteRequest = true;
-      try {
-        return await call();
-      } finally {
-        guard.siteRequest = false;
-      }
-    };
-
-    let hold: SiteGateHold | undefined;
-    // Free the gate once the site is done with. A pause follows only where
-    // another site section is coming; the model's reading is outside the gate.
-    const endSiteSection = () =>
-      hold?.release({ pauseAfter: queue.length > 0 || gate.pending > 0 }) ?? Promise.resolve();
-
-    try {
-      // Waiting for the gate is not the record's time: its deadline starts once
-      // it has the site to itself.
-      hold = await gate.acquire();
-      await withDeadline(
-        async () => {
-          const zipId = await site(() =>
-            deps.resolveZipId(record.projectId, guard.controller.signal),
-          );
-          if (guard.expired) return;
-
-          if (zipId === null) {
-            // A real answer from upstream, not a transport error: this project
-            // published no TOR package. Recorded as Failed because an admin is
-            // left with nothing to read, but distinguished by its outcome.
-            const error = 'No zipId in the announcement response — no TOR package published.';
-            await endSiteSection();
-            await note({
-              projectId: record.projectId,
-              projectName: record.projectName,
-              stage: 'info',
-              error,
-              at: new Date().toISOString(),
-            });
-            await repository.transition(record.projectId, 'no_tor_package', {}, error);
-            failed += 1;
-          } else {
-            stage = 'download';
-            const archive = await site(() => deps.downloadArchive(zipId, guard.controller.signal));
-            if (guard.expired) return;
-            await endSiteSection();
-            stage = 'extract';
-            const extraction = deps.extractTorPdfs(archive);
-            archivesRetrieved += 1;
-
-            if (extraction.unsafeSkipped.length > 0) {
-              // Never silently dropped: a path-traversal attempt in a government
-              // archive is exactly the thing an administrator should see.
-              await note({
-                projectId: record.projectId,
-                projectName: record.projectName,
-                stage: 'extract',
-                error: `Archive members rejected by the path-traversal guard: ${extraction.unsafeSkipped.join(', ')}`,
-                at: new Date().toISOString(),
-              });
-            }
-
-            // The record only counts as being read once there is something to read.
-            if (extraction.torFiles.length > 0) {
-              await repository.transition(record.projectId, 'analysing');
-            }
-
-            stage = 'analysis';
-            const analysed = await analyseArchive(extraction, deps.classifyDocument);
-            if (guard.expired) return;
-
-            // Note what is NOT here: extraction.torFiles carries the PDF payloads,
-            // and they stop at this line. Only the manifest is persisted (ADR-0002).
-            const patch: Partial<Procurement> = {
-              zipId,
-              documents: analysed.documents,
-              analysis: analysed.analysis,
-              torAmbiguous: analysed.torAmbiguous,
-            };
-
-            // The model's reading of the stage fills a gap and never fills over a
-            // stage the feed named: only a record nobody has read is touched.
-            if (analysed.procurementStatus !== null && record.statusSource === null) {
-              patch.status = analysed.procurementStatus;
-              patch.statusSource = 'ai';
-            }
-
-            if (analysed.analysis !== null && analysed.judgement !== null) {
-              // The TOR was read either way. What the model's judgement may do is
-              // decided in one place: only a confident, whole-document answer
-              // shows or drops a record, and anything else is held for a person.
-              const decision = decideOutcome({
-                ...analysed.judgement,
-                partialRead: analysed.readMode !== 'pdf',
-              });
-              if (decision.result === 'drop') {
-                // Dropped: nothing read from the document is kept, only the
-                // decision and the quote that made it.
-                await repository.tombstone(
-                  buildTombstone({
-                    projectId: record.projectId,
-                    reason: 'ai_not_software',
-                    evidence: analysed.judgement.reason,
-                    promptVersion: analysed.analysis.promptVersion,
-                    decidedBy: null,
-                    now: new Date(),
-                  }),
-                );
-                dropped += 1;
-              } else {
-                await repository.transition(
-                  record.projectId,
-                  decision.outcome,
-                  decision.result === 'held'
-                    ? { ...patch, holdReason: decision.holdReason }
-                    : patch,
-                );
-                if (decision.result === 'held') held += 1;
-                else torAnalysed += 1;
-              }
-            } else if (analysed.anyUnreadable) {
-              // The archive was retrieved; only the reading failed. Kept Completed
-              // so a retry re-reads what is already here instead of re-downloading
-              // from a site that asked not to be crawled.
-              const error = `Archive retrieved but no candidate could be read: ${analysed.documents
-                .filter((document) => document.role === 'unreadable')
-                .map((document) => `${document.filename} (${document.note})`)
-                .join('; ')}`;
-              await note({
-                projectId: record.projectId,
-                projectName: record.projectName,
-                stage: 'analysis',
-                error,
-                at: new Date().toISOString(),
-              });
-              await repository.transition(record.projectId, 'analysis_failed', patch);
-            } else {
-              await note({
-                projectId: record.projectId,
-                projectName: record.projectName,
-                stage: 'extract',
-                error: `Archive downloaded (${extraction.members.length} members) but none of its documents is a TOR.`,
-                at: new Date().toISOString(),
-              });
-              await repository.transition(record.projectId, 'no_tor_in_archive', patch);
-            }
-          }
-        },
-        deps.recordDeadlineMs,
-        guard,
+  /**
+   * The project's timeline, with any code not seen before logged. Null where
+   * there is nothing to go on: e-GP gave none, or the record's time ran out
+   * (the caller tells the two apart by `guard.expired`).
+   */
+  const readTimeline = async (work: RecordWork): Promise<TimelineReview | null> => {
+    const { record, guard } = work;
+    const rows = await work.site(() =>
+      deps.announcements.timeline(record.projectId, guard.controller.signal),
+    );
+    if (guard.expired) return null;
+    if (rows === null) {
+      // "Unavailable" is not "no announcements": the project keeps what it had.
+      await note(
+        record,
+        'timeline',
+        'e-GP gave no announcement timeline for this project (data: null).',
       );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      return null;
+    }
+    const review = reviewTimeline(record, rows, new Date().toISOString());
+    for (const unknown of review.unrecognised) {
+      await note(
+        record,
+        'timeline',
+        `Unrecognised announcement code "${unknown.announceType}" (${unknown.announceDate ?? 'no date'}); the status was not changed by it.`,
+      );
+    }
+    return review;
+  };
 
-      if (error instanceof SiteLatchedError) {
-        // Another runner met the refusal. This one never reached the site, so it
-        // has nothing to log and nothing to count: the record goes back, whole.
+  /** A project already read: its timeline again, and the invitation only if that moved. */
+  const refresh = async (work: RecordWork): Promise<void> => {
+    const { record } = work;
+    const review = await readTimeline(work);
+    if (work.guard.expired) return;
+    if (review === null) return work.endSiteSection();
+    refreshed += 1;
+
+    if (!review.invitationMoved) {
+      // A read that found nothing new is not news: only its time is kept.
+      const patch = review.changed
+        ? review.patch
+        : { timelineCheckedAt: review.patch.timelineCheckedAt };
+      await repository.amend(record.projectId, patch, review.changed);
+      return work.endSiteSection();
+    }
+    // The moved date is kept back until the invitation it dates has been re-read,
+    // or a failed re-read would leave it looking already done.
+    await repository.amend(
+      record.projectId,
+      { timelineCheckedAt: review.patch.timelineCheckedAt },
+      false,
+    );
+    await rereadInvitation(work, review.patch);
+  };
+
+  /** A read project whose invitation moved: fetch the archive and read only the invitation. */
+  const rereadInvitation = async (work: RecordWork, timeline: TimelinePatch): Promise<void> => {
+    const { record, guard } = work;
+    work.stage = 'info';
+    const zipId = await work.site(() =>
+      deps.resolveZipId(record.projectId, guard.controller.signal),
+    );
+    if (guard.expired) return;
+    if (zipId === null) {
+      await work.endSiteSection();
+      await note(
+        record,
+        'info',
+        'No zipId in the announcement response — the re-dated invitation was not re-read.',
+      );
+      return;
+    }
+    work.stage = 'download';
+    const archive = await work.site(() => deps.downloadArchive(zipId, guard.controller.signal));
+    if (guard.expired) return;
+    await work.endSiteSection();
+
+    work.stage = 'analysis';
+    const invitation = await deps.readInvitation(archive, record.projectId);
+    if (guard.expired) return;
+    const reread = new Set(invitation.documents.map((document) => document.member));
+    await repository.amend(
+      record.projectId,
+      {
+        ...timeline,
+        documents: [
+          ...record.documents.filter(
+            (document) =>
+              document.role !== 'invitation' &&
+              document.role !== 'bidding_document' &&
+              !reread.has(document.member),
+          ),
+          ...invitation.documents,
+        ],
+        ...decideDeadline(record, {
+          priced: timeline.milestones.priced?.at ?? null,
+          invitationBidAt: invitation.bidAt,
+          torDeadline: record.analysis?.deadlineAt ?? null,
+        }),
+      },
+      true,
+    );
+  };
+
+  /** A project never read: its timeline, then its archive retrieved and read. */
+  const retrieve = async (work: RecordWork): Promise<void> => {
+    const { record, guard } = work;
+    const review = await readTimeline(work);
+    if (guard.expired) return;
+    let current = record;
+    if (review !== null) {
+      await repository.amend(record.projectId, review.patch, true);
+      current = { ...record, ...review.patch };
+    }
+
+    work.stage = 'info';
+    const zipId = await work.site(() =>
+      deps.resolveZipId(record.projectId, guard.controller.signal),
+    );
+    if (guard.expired) return;
+
+    if (zipId === null) {
+      // A real answer from upstream, not a transport error: this project
+      // published no TOR package. Recorded as Failed because an admin is
+      // left with nothing to read, but distinguished by its outcome.
+      const error = 'No zipId in the announcement response — no TOR package published.';
+      await work.endSiteSection();
+      await note(record, 'info', error);
+      await repository.transition(record.projectId, 'no_tor_package', {}, error);
+      failed += 1;
+      return;
+    }
+    await readArchive(work, current, zipId);
+  };
+
+  const readArchive = async (work: RecordWork, current: Procurement, zipId: string) => {
+    const { record, guard } = work;
+    work.stage = 'download';
+    const archive = await work.site(() => deps.downloadArchive(zipId, guard.controller.signal));
+    if (guard.expired) return;
+    await work.endSiteSection();
+    work.stage = 'extract';
+    const extraction = deps.extractTorPdfs(archive);
+    archivesRetrieved += 1;
+
+    if (extraction.unsafeSkipped.length > 0) {
+      // Never silently dropped: a path-traversal attempt in a government
+      // archive is exactly the thing an administrator should see.
+      await note(
+        record,
+        'extract',
+        `Archive members rejected by the path-traversal guard: ${extraction.unsafeSkipped.join(', ')}`,
+      );
+    }
+
+    // The record only counts as being read once there is something to read.
+    if (extraction.torFiles.length > 0) {
+      await repository.transition(record.projectId, 'analysing');
+    }
+
+    work.stage = 'analysis';
+    const analysed = await analyseArchive(extraction, deps.classifyDocument);
+    if (guard.expired) return;
+
+    // Note what is NOT here: extraction.torFiles carries the PDF payloads,
+    // and they stop at this line. Only the manifest is persisted (ADR-0002).
+    const patch: Partial<Procurement> = {
+      zipId,
+      documents: analysed.documents,
+      analysis: analysed.analysis,
+      torAmbiguous: analysed.torAmbiguous,
+    };
+
+    // The TOR was read either way. What the model's judgement may do is
+    // decided in one place: only a confident, whole-document answer
+    // shows or drops a record, and anything else is held for a person.
+    const decision =
+      analysed.analysis !== null && analysed.judgement !== null
+        ? decideOutcome({ ...analysed.judgement, partialRead: analysed.readMode !== 'pdf' })
+        : null;
+
+    if (decision?.result !== 'drop') {
+      // A dropped record keeps nothing, so its invitation is not worth a call.
+      // Read even with no TOR: an administrator still sees the deadline.
+      const invitation = await deps.readInvitation(archive, record.projectId);
+      if (guard.expired) return;
+      patch.documents = [...analysed.documents, ...invitation.documents];
+      Object.assign(
+        patch,
+        decideDeadline(current, {
+          priced: current.milestones.priced?.at ?? null,
+          invitationBidAt: invitation.bidAt,
+          torDeadline: analysed.analysis?.deadlineAt ?? null,
+        }),
+      );
+    }
+
+    if (analysed.analysis !== null && analysed.judgement !== null && decision) {
+      if (decision.result === 'drop') {
+        // Dropped: nothing read from the document is kept, only the
+        // decision and the quote that made it.
+        await repository.tombstone(
+          buildTombstone({
+            projectId: record.projectId,
+            reason: 'ai_not_software',
+            evidence: analysed.judgement.reason,
+            promptVersion: analysed.analysis.promptVersion,
+            decidedBy: null,
+            now: new Date(),
+          }),
+        );
+        dropped += 1;
+      } else {
+        await repository.transition(
+          record.projectId,
+          decision.outcome,
+          decision.result === 'held' ? { ...patch, holdReason: decision.holdReason } : patch,
+        );
+        if (decision.result === 'held') held += 1;
+        else torAnalysed += 1;
+      }
+    } else if (analysed.anyUnreadable) {
+      // The archive was retrieved; only the reading failed. Kept Completed
+      // so a retry re-reads what is already here instead of re-downloading
+      // from a site that asked not to be crawled.
+      await note(
+        record,
+        'analysis',
+        `Archive retrieved but no candidate could be read: ${analysed.documents
+          .filter((document) => document.role === 'unreadable')
+          .map((document) => `${document.filename} (${document.note})`)
+          .join('; ')}`,
+      );
+      await repository.transition(record.projectId, 'analysis_failed', patch);
+    } else {
+      await note(
+        record,
+        'extract',
+        `Archive downloaded (${extraction.members.length} members) but none of its documents is a TOR.`,
+      );
+      await repository.transition(record.projectId, 'no_tor_in_archive', patch);
+    }
+  };
+
+  /** Records why a record's work stopped; a refusal from the site stops the Run. */
+  const fail = async (work: RecordWork, fresh: boolean, error: unknown): Promise<void> => {
+    const { record } = work;
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (error instanceof SiteLatchedError) {
+      // Another runner met the refusal. This one never reached the site, so it
+      // has nothing to log and nothing to count: the record goes back, whole.
+      if (fresh) {
         await repository.transition(record.projectId, 'queued', {});
         attempted -= 1;
-        stopped = true;
-        return;
       }
+      stopped = true;
+      return;
+    }
 
-      if (error instanceof RateLimitedError) {
-        gate.latch();
-        // The site is telling us to stop. Stop — leaving the rest Queued for a
-        // later run rather than pushing through. This record did nothing wrong,
-        // so it goes back to the queue without spending one of its attempts.
-        await repository.transition(record.projectId, 'queued', {}, message);
-        await note({
-          projectId: record.projectId,
-          projectName: record.projectName,
-          stage,
-          error: message,
-          at: new Date().toISOString(),
-        });
-        failed += 1;
-        aborted = true;
-        stopped = true;
-        logger.warn({ projectId: record.projectId }, 'egp: rate limited, aborting run');
-        return;
-      }
+    if (error instanceof RateLimitedError) {
+      gate.latch();
+      // The site is telling us to stop. Stop — leaving the rest Queued for a
+      // later run rather than pushing through. This record did nothing wrong,
+      // so it goes back to the queue without spending one of its attempts. A
+      // record only being refreshed was never taken off its Outcome.
+      if (fresh) await repository.transition(record.projectId, 'queued', {}, message);
+      await note(record, work.stage, message);
+      failed += 1;
+      aborted = true;
+      stopped = true;
+      logger.warn({ projectId: record.projectId }, 'egp: rate limited, aborting run');
+      return;
+    }
 
-      await note({
-        projectId: record.projectId,
-        projectName: record.projectName,
-        stage,
-        error: message,
-        at: new Date().toISOString(),
-      });
+    await note(record, work.stage, message);
+    if (fresh) {
       // A transport failure leaves the record Queued for the next run and
       // spends an attempt; the last attempt ends it (ADR-0006).
       const attempts = record.attempts + 1;
@@ -686,7 +827,52 @@ export async function runIngestion(
         { attempts },
         exhausted ? `${message} (attempt ${attempts} of ${MAX_ATTEMPTS}, giving up)` : message,
       );
-      failed += 1;
+    }
+    failed += 1;
+  };
+
+  /** One record, from its site requests to its stored outcome. Never throws. */
+  const processRecord = async ({ record, fresh }: Candidate): Promise<void> => {
+    if (fresh) {
+      attempted += 1;
+      await repository.transition(record.projectId, 'downloading');
+    }
+
+    let hold: SiteGateHold | undefined;
+    const guard: RecordGuard = {
+      expired: false,
+      siteRequest: false,
+      controller: new AbortController(),
+    };
+    const work: RecordWork = {
+      record,
+      stage: 'timeline',
+      guard,
+      site: async (call) => {
+        guard.siteRequest = true;
+        try {
+          return await call();
+        } finally {
+          guard.siteRequest = false;
+        }
+      },
+      // A pause follows only where another site section is coming; the model's
+      // reading is outside the gate.
+      endSiteSection: () =>
+        hold?.release({ pauseAfter: queue.length > 0 || gate.pending > 0 }) ?? Promise.resolve(),
+    };
+
+    try {
+      // Waiting for the gate is not the record's time: its deadline starts once
+      // it has the site to itself.
+      hold = await gate.acquire();
+      await withDeadline(
+        () => (fresh ? retrieve(work) : refresh(work)),
+        deps.recordDeadlineMs,
+        guard,
+      );
+    } catch (error) {
+      await fail(work, fresh, error);
     } finally {
       // Whatever ended the record, the gate is not left held.
       await hold?.release();
@@ -703,15 +889,15 @@ export async function runIngestion(
         logger.info('egp: run stopped by an administrator; the rest stay Queued');
         return;
       }
-      const record = queue.shift();
-      if (!record) return;
+      const candidate = queue.shift();
+      if (!candidate) return;
       if (options.shouldContinue && !options.shouldContinue()) {
         aborted = true;
         stopped = true;
         logger.warn('egp: run stopped before its next record; the rest stay Queued');
         return;
       }
-      await processRecord(record);
+      await processRecord(candidate);
     }
   };
 
@@ -719,7 +905,7 @@ export async function runIngestion(
   await Promise.all(Array.from({ length: runners }, runner));
 
   logger.info(
-    { attempted, archivesRetrieved, torAnalysed, held, dropped, failed, aborted },
+    { attempted, refreshed, archivesRetrieved, torAnalysed, held, dropped, failed, aborted },
     'egp: run complete',
   );
 
@@ -728,6 +914,7 @@ export async function runIngestion(
     ...syncCounts,
     rejectedNonRegistry: discovery.rejected.length,
     attempted,
+    refreshed,
     archivesRetrieved,
     torAnalysed,
     held,

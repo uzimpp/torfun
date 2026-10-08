@@ -137,57 +137,25 @@ describe('classifyTorDocument', () => {
     expect(result.unreadable).not.toMatch(/JSON|schema/i);
   });
 
-  describe('the procurement status the document shows', () => {
-    test('is read from the answer', async () => {
+  describe('the stage of the tender', () => {
+    test('is not asked of the model: the timeline owns it', async () => {
+      let prompt = '';
+      await classifyTorDocument(async (parts) => {
+        prompt = parts.prompt;
+        return JSON.stringify(validAnswer);
+      }, pdf());
+
+      expect(prompt).not.toContain('procurementStatus');
+    });
+
+    test('is not taken from a reply that volunteers one', async () => {
       const result = await classifyTorDocument(
         answering({ ...validAnswer, procurementStatus: 'drafting' }),
         pdf(),
       );
 
-      expect(result.procurementStatus).toBe('drafting');
-    });
-
-    test('is null when the document does not show a stage, or the model leaves it out', async () => {
-      const explicit = await classifyTorDocument(
-        answering({ ...validAnswer, procurementStatus: null }),
-        pdf(),
-      );
-      const omitted = await classifyTorDocument(answering(validAnswer), pdf());
-
-      expect(explicit.procurementStatus).toBeNull();
-      expect(omitted.procurementStatus).toBeNull();
-    });
-
-    test('accepts only the six stages: unknown is what the system says, never the model', async () => {
-      for (const value of ['unknown', 'invitation', 'จัดทำ TOR']) {
-        const result = await classifyTorDocument(
-          answering({ ...validAnswer, procurementStatus: value }),
-          pdf(),
-        );
-
-        expect(result.unreadable).toMatch(/schema/i);
-      }
-    });
-
-    test('the prompt names every stage the model may answer with, and tells it not to guess', async () => {
-      let prompt = '';
-      const call: ModelCall = async (parts) => {
-        prompt = parts.prompt;
-        return JSON.stringify(validAnswer);
-      };
-      await classifyTorDocument(call, pdf());
-
-      for (const stage of [
-        'drafting',
-        'open',
-        'evaluating',
-        'awarded',
-        'contracted',
-        'cancelled',
-      ]) {
-        expect(prompt).toContain(stage);
-      }
-      expect(prompt).toContain('ห้ามเดา');
+      expect(result.isTor).toBe(true);
+      expect(result).not.toHaveProperty('procurementStatus');
     });
 
     test('the prompt makes text aimed at the reader a reason for low confidence, whatever isSoftware says', async () => {

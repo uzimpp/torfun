@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { IngestionSummaryResponse } from '@/lib/api';
-import { outcomeBuckets } from './outcome-buckets';
+import { countTiles, outcomeBuckets } from '@/lib/outcome-buckets';
 import { donutSegments, kpiTiles, timeAgoTh } from './view-models';
 
 function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSummaryResponse {
@@ -89,31 +89,22 @@ describe('kpiTiles', () => {
   const tiles = (s = summary(), now = new Date('2026-09-30T10:05:00.000Z')) => kpiTiles(s, now);
   const tile = (key: string, s = summary()) => tiles(s).find((t) => t.key === key);
 
-  test('lists the six tiles the administrator reads first, in order', () => {
+  test('lists the tiles the administrator reads first, in order', () => {
     expect(tiles().map((t) => t.label)).toEqual([
       'ประกาศทั้งหมด',
-      'รอดำเนินการ',
-      'กำลังประมวลผล',
-      'สำเร็จ',
+      'รอ',
+      'กำลังทำ',
+      'วิเคราะห์แล้ว',
       'ล้มเหลว',
       'รอบล่าสุด',
     ]);
   });
 
-  test('counts the queue, the work in flight and the analysed TORs', () => {
-    expect(tile('total')?.value).toBe('288');
-    expect(tile('queued')?.value).toBe('243');
-    expect(tile('processing')?.value).toBe('3');
-    expect(tile('processing')?.hint).toContain('ดึงข้อมูล 1');
-    expect(tile('processing')?.hint).toContain('ประมวลผล 2');
-    expect(tile('done')?.value).toBe('38');
-  });
-
-  test('counts failures the way the chart does, and flags them only when there are some', () => {
-    // analysis_failed 2 + error 3 + abandoned 0
-    expect(tile('failed')?.value).toBe('5');
-    expect(tile('failed')?.alert).toBe(true);
-    expect(tile('failed', summary({ byOutcome: { queued: 1 } }))?.alert).toBe(false);
+  test('takes every count from the shared tiles', () => {
+    const shared = countTiles(summary());
+    for (const key of ['total', 'queued', 'running', 'analysed', 'failed']) {
+      expect(tile(key)).toMatchObject(shared.find((t) => t.key === key)!);
+    }
   });
 
   test('says when the last run was, or that there has not been one', () => {

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Procurement } from '@torfun/types';
 
@@ -30,7 +30,9 @@ const tor = {
   status: 'open',
   announceDate: null,
   purchaseMethodName: null,
-  year: 2568,
+  budgetYear: 2568,
+  deadlineAt: null,
+  deadlineSource: null,
   analysis: {
     summary: 'จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน',
     scopeOfWork: [],
@@ -53,5 +55,56 @@ describe('TorReviewContent', () => {
 
     expect(await screen.findByText('จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน')).toBeInTheDocument();
     expect(screen.queryByText(/ระดับความมั่นใจ/)).not.toBeInTheDocument();
+  });
+
+  test('shows the bid deadline with where it came from, and a reminder to verify it', async () => {
+    mocked.fetchTor.mockResolvedValue({
+      ...tor,
+      deadlineAt: '2026-10-20T09:30:00.000Z',
+      deadlineSource: 'invitation',
+    });
+    render(<TorReviewContent projectId="66059313551" />);
+
+    const deadline = await screen.findByRole('group', { name: 'กำหนดยื่นข้อเสนอ' });
+    expect(deadline).toHaveTextContent('20 ตุลาคม 2569');
+    expect(deadline).toHaveTextContent('16:30');
+    expect(within(deadline).getByText(/ที่มา: ประกาศเชิญชวน/)).toBeInTheDocument();
+    expect(within(deadline).getByText(/ตรวจสอบกับเอกสารต้นฉบับ/)).toBeInTheDocument();
+  });
+
+  test('shows the bid deadline once, so it never appears without its source', async () => {
+    mocked.fetchTor.mockResolvedValue({
+      ...tor,
+      deadlineAt: '2026-10-20T09:30:00.000Z',
+      deadlineSource: 'invitation',
+    });
+    render(<TorReviewContent projectId="66059313551" />);
+
+    expect(await screen.findAllByText(/20 ตุลาคม 2569/)).toHaveLength(1);
+  });
+
+  test('shows the budget year and the project status in its shared badge', async () => {
+    mocked.fetchTor.mockResolvedValue({ ...tor, status: 'unknown' });
+    const { container } = render(<TorReviewContent projectId="66059313551" />);
+
+    expect(await screen.findByText('ปีงบประมาณ 2568')).toBeInTheDocument();
+    expect(container.querySelector('[data-status="unknown"]')).toHaveTextContent('ยังไม่ทราบสถานะ');
+  });
+
+  test('says there is no bid window yet for a project still being drafted, with no source', async () => {
+    mocked.fetchTor.mockResolvedValue({ ...tor, status: 'drafting' });
+    render(<TorReviewContent projectId="66059313551" />);
+
+    const deadline = await screen.findByRole('group', { name: 'กำหนดยื่นข้อเสนอ' });
+    expect(deadline).toHaveTextContent('ยังไม่มีกำหนดยื่นข้อเสนอ');
+    expect(within(deadline).queryByText(/ที่มา/)).not.toBeInTheDocument();
+  });
+
+  test('shows a dash when the deadline is unknown on a project that is not being drafted', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    render(<TorReviewContent projectId="66059313551" />);
+
+    const deadline = await screen.findByRole('group', { name: 'กำหนดยื่นข้อเสนอ' });
+    expect(deadline).toHaveTextContent('—');
   });
 });

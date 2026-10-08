@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { STATUS_LABELS, type Procurement } from '@torfun/types';
+import {
+  type DeadlineSource,
+  type Procurement,
+  type ProcurementStatus,
+} from '@torfun/types';
 import { ApiError, fetchTor } from '@/lib/api';
 
 export type TorReviewData = {
@@ -10,7 +14,7 @@ export type TorReviewData = {
   agency: string;
   location: string | null;
   budget: number | null;
-  status: string;
+  status: ProcurementStatus;
   technologies: string[];
   summary: string | null;
   objectives: string[];
@@ -18,8 +22,9 @@ export type TorReviewData = {
   bidderQualifications: string[];
   announcementDate: string | null;
   submissionDeadline: string | null;
+  deadlineSource: DeadlineSource | null;
   procurementMethod: string | null;
-  fiscalYear: number;
+  budgetYear: number;
   referencePrice: number | null;
   durationDays: number | null;
   platforms: string[];
@@ -45,16 +50,17 @@ function toReviewData(procurement: Procurement): TorReviewData {
     agency: procurement.deptName,
     location: location || null,
     budget: procurement.projectMoney,
-    status: STATUS_LABELS[procurement.status],
+    status: procurement.status,
     technologies: analysis?.techStack ?? [],
     summary: analysis?.summary ?? null,
     objectives: [],
     scope: analysis?.scopeOfWork ?? [],
     bidderQualifications: analysis?.requiredQualifications ?? [],
     announcementDate: procurement.announceDate,
-    submissionDeadline: analysis?.deadlineAt ?? null,
+    submissionDeadline: procurement.deadlineAt,
+    deadlineSource: procurement.deadlineSource,
     procurementMethod: procurement.purchaseMethodName,
-    fiscalYear: procurement.year,
+    budgetYear: procurement.budgetYear,
     referencePrice: procurement.priceBuild,
     durationDays: analysis?.durationDays ?? null,
     platforms: analysis?.targetPlatforms ?? [],

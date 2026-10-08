@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { fakeAnnouncements } from './announcement-client';
 import type { IngestionDeps } from '../services/egp/pipeline';
 
 /** A logger that says nothing, for tests that drive a real service. */
@@ -49,6 +50,8 @@ export function gatedDeps(fail = false) {
       analysis: null,
       judgement: null,
     }),
+    readInvitation: async () => ({ documents: [], bidAt: null }),
+    announcements: fakeAnnouncements({}, []),
     sleep: async () => {},
     recordDeadlineMs: 60_000,
   };

@@ -1,7 +1,7 @@
 import { IngestionOutcome, OUTCOME_LABELS } from '@torfun/types';
 import { cn } from '@/lib/utils';
 import { BUCKET_STYLE } from './bucket-style';
-import { shareOf, type OutcomeBucket } from './outcome-buckets';
+import { shareOf, type OutcomeBucket } from '@/lib/outcome-buckets';
 import { donutSegments } from './view-models';
 
 /**

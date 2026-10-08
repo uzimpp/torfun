@@ -28,7 +28,7 @@ export interface FilterValues {
   outcome: string;
   status: string;
   agency: string;
-  year: string;
+  budgetYear: string;
   query: string;
 }
 
@@ -37,7 +37,7 @@ export const EMPTY_FILTERS: FilterValues = {
   outcome: '',
   status: '',
   agency: '',
-  year: '',
+  budgetYear: '',
   query: '',
 };
 
@@ -49,7 +49,7 @@ function toQuery(filters: FilterValues, page: number): ProjectFilters {
     ...(filters.outcome ? { outcome: filters.outcome as IngestionOutcome } : {}),
     ...(filters.status ? { status: filters.status as ProcurementStatus } : {}),
     ...(filters.agency ? { deptName: filters.agency } : {}),
-    ...(filters.year ? { year: Number(filters.year) } : {}),
+    ...(filters.budgetYear ? { budgetYear: Number(filters.budgetYear) } : {}),
     ...(filters.query ? { q: filters.query } : {}),
   };
 }
@@ -98,14 +98,14 @@ export function useIngestionData(filters: FilterValues, page: number): Ingestion
   /** Bumped to force a reload without changing any filter. */
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const { state, outcome, status, agency, year, query } = filters;
+  const { state, outcome, status, agency, budgetYear, query } = filters;
 
   // Pure fetch — deliberately free of setState so an effect can call it without
   // triggering the cascading renders the React compiler warns about.
   const loadData = useCallback(() => {
-    const params = toQuery({ state, outcome, status, agency, year, query }, page);
+    const params = toQuery({ state, outcome, status, agency, budgetYear, query }, page);
     return Promise.all([fetchSummary(), fetchProjects(params), fetchFailures()]);
-  }, [page, state, outcome, status, agency, year, query]);
+  }, [page, state, outcome, status, agency, budgetYear, query]);
 
   useEffect(() => {
     // `cancelled` guards against out-of-order responses: changing a filter

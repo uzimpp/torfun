@@ -18,7 +18,7 @@ export function hashSource(record: Procurement): string {
     record.province,
     record.district,
     record.subdistrict,
-    record.year,
+    record.budgetYear,
     record.announceDate,
     record.projectTypeName,
     record.purchaseMethodName,

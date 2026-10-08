@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
+import { fakeAnnouncements } from '../../testing/announcement-client';
 import { zipSync } from 'fflate';
-import type { Procurement } from '@torfun/types';
+import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 import { InMemoryProcurementStore } from '../../testing/procurement-store';
 import { runIngestion, type IngestionDeps } from './pipeline';
 import { extractTorPdfs } from './tor-package';
@@ -45,14 +46,17 @@ function record(index: number): Procurement {
     district: null,
     subdistrict: null,
     deptCode: '0100',
-    year: 2568,
+    budgetYear: 2568,
     announceDate: '2026-08-01',
     projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 5_000_000,
     priceBuild: null,
     status: 'open',
-    statusSource: 'upstream',
+    milestones: EMPTY_MILESTONES,
+    timelineCheckedAt: null,
+    deadlineAt: null,
+    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
@@ -105,6 +109,8 @@ test(`${ARCHIVES} archives leave buffers where they started`, async () => {
       classified.push(pdf.byteLength);
       return { isTor: false, torKind: null, whatThisIs: 'x', analysis: null, judgement: null };
     },
+    readInvitation: async () => ({ documents: [], bidAt: null }),
+    announcements: fakeAnnouncements({}, []),
     sleep: async () => {},
     recordDeadlineMs: 60_000,
   };

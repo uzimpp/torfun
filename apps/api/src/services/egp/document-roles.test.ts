@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
+import { assignDocumentRoles, invitationRoleOf, type ClassifiedDocument } from './document-roles';
 
 /** A candidate as it arrives from per-file classification. */
 function candidate(overrides: Partial<ClassifiedDocument> = {}): ClassifiedDocument {
@@ -120,5 +120,37 @@ describe('how each document was read', () => {
 
     expect(entry?.readMode).toBe('pdf');
     expect(entry).not.toHaveProperty('readNote');
+  });
+});
+
+describe('invitationRoleOf', () => {
+  const projectId = '69049012345';
+
+  test('annoudoc_<digits>_<projectId>.pdf is the invitation', () => {
+    expect(invitationRoleOf(`annoudoc_1234567_${projectId}.pdf`, projectId)).toBe('invitation');
+  });
+
+  test('doc_<digits>_<projectId>.pdf is the bidding document', () => {
+    expect(invitationRoleOf(`doc_7654321_${projectId}.pdf`, projectId)).toBe('bidding_document');
+  });
+
+  test('a folder in the member path does not matter', () => {
+    expect(invitationRoleOf(`pack/annoudoc_1_${projectId}.PDF`, projectId)).toBe('invitation');
+  });
+
+  test('another project\'s file is not ours', () => {
+    expect(invitationRoleOf('annoudoc_1234567_69049099999.pdf', projectId)).toBeNull();
+  });
+
+  test('lookalikes are not matched', () => {
+    for (const name of [
+      `annoudoc_${projectId}.pdf`,
+      `annoudoc_1_${projectId}.docx`,
+      `old_annoudoc_1_${projectId}.pdf`,
+      `bidding noltice.pdf`,
+      `Attach_TOR_1.pdf`,
+    ]) {
+      expect(invitationRoleOf(name, projectId)).toBeNull();
+    }
   });
 });

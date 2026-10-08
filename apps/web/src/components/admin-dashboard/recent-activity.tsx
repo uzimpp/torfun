@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { OUTCOME_LABELS, type Procurement } from '@torfun/types';
 import { cn } from '@/lib/utils';
 import { BUCKET_STYLE } from './bucket-style';
-import { bucketOfOutcome } from './outcome-buckets';
+import { bucketOfOutcome } from '@/lib/outcome-buckets';
 import { timeAgoTh } from './view-models';
 
 /**

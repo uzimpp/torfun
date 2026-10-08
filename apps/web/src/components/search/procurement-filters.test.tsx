@@ -257,7 +257,7 @@ describe('procurement status filter', () => {
       'ประกาศผู้ชนะแล้ว',
       'ทำสัญญาแล้ว',
       'ยกเลิก',
-      'ยังไม่ระบุ',
+      'ยังไม่ทราบสถานะ',
     ]);
     // No English enum name leaks into what an officer reads.
     for (const label of labels) expect(label).not.toMatch(/[A-Za-z]/);
