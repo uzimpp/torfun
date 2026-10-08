@@ -1,13 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 
 import { ProcurementFilters } from './procurement-filters';
 import {
+  activeFilterCount,
   EMPTY_SEARCH_FILTERS,
+  hasSearchCriteria,
   parseSearchFilters,
   searchHref,
   toProjectFilters,
+  withoutSearchFilter,
 } from './search-filter-values';
 
 describe('ProcurementFilters', () => {
@@ -70,7 +73,7 @@ describe('ProcurementFilters', () => {
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({
         query: 'ระบบ',
-        status: 'invitation',
+        status: 'open',
         eBidding: 'true',
         deadlineDays: '3',
         deadlineMode: 'exact',
@@ -85,8 +88,8 @@ describe('ProcurementFilters', () => {
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} />);
     await user.click(screen.getByRole('button', { name: /^ตัวกรอง/ }));
     await user.type(screen.getByLabelText('จำนวนวันเอง (0 = วันนี้)'), '2');
-    expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('invitation');
-    await user.selectOptions(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง'), 'drafting_tor');
+    expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('open');
+    await user.selectOptions(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง'), 'drafting');
     expect(screen.getByLabelText('จำนวนวันเอง (0 = วันนี้)')).toHaveValue(null);
     expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).not.toBeDisabled();
   });
@@ -208,6 +211,68 @@ describe('ProcurementFilters', () => {
   });
 });
 
+describe('procurement status filter', () => {
+  test('is read from the URL only when it names one of the known stages', () => {
+    expect(parseSearchFilters({ status: 'drafting' }).status).toBe('drafting');
+    expect(parseSearchFilters({ status: 'unknown' }).status).toBe('unknown');
+    // A stage that no longer exists, a Thai label, or nothing: no filter.
+    expect(parseSearchFilters({ status: 'invitation' }).status).toBe('');
+    expect(parseSearchFilters({ status: 'ร่าง / เตรียมการ' }).status).toBe('');
+    expect(parseSearchFilters({}).status).toBe('');
+  });
+
+  test('becomes part of the server request and the shareable URL, and only when set', () => {
+    const values = { ...EMPTY_SEARCH_FILTERS, status: 'drafting' as const };
+
+    expect(toProjectFilters(values, 20, 0)).toMatchObject({ status: 'drafting' });
+    expect(searchHref(values)).toBe('/search?status=drafting');
+    expect(toProjectFilters(EMPTY_SEARCH_FILTERS, 20, 0)).not.toHaveProperty('status');
+    expect(searchHref(EMPTY_SEARCH_FILTERS)).toBe('/search');
+  });
+
+  test('counts as an active filter and can be cleared on its own', () => {
+    const values = { ...EMPTY_SEARCH_FILTERS, query: 'ระบบ', status: 'open' as const };
+
+    expect(activeFilterCount(values)).toBe(1);
+    expect(hasSearchCriteria({ ...EMPTY_SEARCH_FILTERS, status: 'open' })).toBe(true);
+    expect(withoutSearchFilter(values, 'status')).toEqual({ ...values, status: '' });
+  });
+
+  test('is offered in Thai only, as a select named status, with the current choice kept', () => {
+    // An active filter opens the panel by itself, so there is no toggle to click.
+    render(<ProcurementFilters values={{ ...EMPTY_SEARCH_FILTERS, status: 'drafting' }} />);
+
+    const select = screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง');
+    expect(select).toHaveAttribute('name', 'status');
+    expect(select).toHaveValue('drafting');
+
+    const labels = within(select)
+      .getAllByRole('option')
+      .map((option) => option.textContent);
+    expect(labels).toEqual([
+      'ทุกขั้นตอน',
+      'ร่าง / เตรียมการ',
+      'เปิดรับข้อเสนอ',
+      'อยู่ระหว่างพิจารณา',
+      'ประกาศผู้ชนะแล้ว',
+      'ทำสัญญาแล้ว',
+      'ยกเลิก',
+      'ยังไม่ระบุ',
+    ]);
+    // No English enum name leaks into what an officer reads.
+    for (const label of labels) expect(label).not.toMatch(/[A-Za-z]/);
+  });
+
+  test('shows the chosen stage as a removable chip', () => {
+    render(<ProcurementFilters values={{ ...EMPTY_SEARCH_FILTERS, status: 'drafting' }} />);
+
+    expect(screen.getByRole('link', { name: 'ล้างตัวกรอง ร่าง / เตรียมการ' })).toHaveAttribute(
+      'href',
+      '/search',
+    );
+  });
+});
+
 test('URL filters become the exact server-side request and remain shareable', () => {
   const values = parseSearchFilters({
     q: 'ระบบ',
@@ -237,7 +302,7 @@ test('URL filters become the exact server-side request and remain shareable', ()
 test('new criteria remain intact through URLs, pagination, and individual clear links', () => {
   const values = parseSearchFilters({
     q: 'ระบบ',
-    status: 'drafting_tor',
+    status: 'drafting',
     eBidding: 'true',
     year: '2569',
     deptName: 'กรมทดสอบ',
@@ -249,7 +314,7 @@ test('new criteria remain intact through URLs, pagination, and individual clear 
     ),
   ).toEqual(values);
   expect(toProjectFilters(values, 20, 40)).toMatchObject({
-    status: 'drafting_tor',
+    status: 'drafting',
     eBidding: true,
     year: 2569,
     deptName: 'กรมทดสอบ',

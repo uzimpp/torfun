@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { Procurement } from '@torfun/types';
+import { STATUS_LABELS, type Procurement } from '@torfun/types';
 import { ApiError, fetchTor } from '@/lib/api';
 
 export type TorReviewData = {
@@ -34,16 +34,6 @@ export interface TorReviewState {
   notFound: boolean;
   error: string | null;
 }
-
-const STATUS_LABELS: Record<Procurement['status'], string> = {
-  drafting_tor: 'จัดทำ TOR',
-  requisition: 'รายงานขอซื้อขอจ้าง',
-  invitation: 'เปิดรับข้อเสนอ',
-  award_announced: 'ประกาศผลผู้ชนะ',
-  contracted: 'จัดทำสัญญา/บริหารสัญญา',
-  cancelled: 'ยกเลิกโครงการ',
-  unknown: 'สถานะไม่ทราบ',
-};
 
 function toReviewData(procurement: Procurement): TorReviewData {
   const analysis = procurement.analysis;

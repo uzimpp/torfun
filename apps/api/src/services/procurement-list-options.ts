@@ -9,12 +9,12 @@ export function resolveProcurementListOptions(
   const { deadlineDays, deadlineMode, ...filters } = options;
   if (deadlineDays === undefined) return filters;
   // A closed lifecycle cannot become an opportunity because its TOR has a future date.
-  if (filters.status && filters.status !== 'invitation') return null;
+  if (filters.status && filters.status !== 'open') return null;
   const today = thailandDay(now);
   const end = addCalendarDays(today, deadlineDays);
   return {
     ...filters,
-    status: 'invitation',
+    status: 'open',
     excludeAwarded: true,
     deadlineFrom: deadlineMode === 'exact' ? end : today,
     deadlineTo: end,

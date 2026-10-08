@@ -74,6 +74,8 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     const items = [...this.records.values()].filter(
       (record) =>
         (!options.state || record.state === options.state) &&
+        (!options.outcome || record.outcome === options.outcome) &&
+        (!options.status || record.status === options.status) &&
         (options.eBidding === undefined || record.eBidding === options.eBidding),
     );
     return {

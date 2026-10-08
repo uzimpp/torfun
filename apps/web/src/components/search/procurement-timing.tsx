@@ -14,7 +14,7 @@ const formatDate = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z
 export function ProcurementTiming({ item, today }: { item: Procurement; today: string }) {
   const deadline = procurementDay(item.analysis?.deadlineAt);
   const remaining = deadline ? daysUntil(deadline, today) : null;
-  const invitation = item.status === 'invitation' && item.winner === null;
+  const invitation = item.status === 'open' && item.winner === null;
   const upcoming = invitation && remaining !== null && remaining >= 0;
   const expired = invitation && remaining !== null && remaining < 0;
   const published = procurementDay(item.announceDate);
@@ -25,14 +25,12 @@ export function ProcurementTiming({ item, today }: { item: Procurement; today: s
         <span
           className={cn(
             'rounded-md px-2.5 py-1 font-medium',
-            item.status === 'drafting_tor'
-              ? 'bg-primary/10 text-primary'
-              : 'bg-muted text-foreground',
+            item.status === 'drafting' ? 'bg-primary/10 text-primary' : 'bg-muted text-foreground',
           )}
         >
-          {item.status === 'invitation' ? 'ประกาศเชิญชวน' : STATUS_LABELS[item.status]}
+          {item.status === 'open' ? 'ประกาศเชิญชวน' : STATUS_LABELS[item.status]}
         </span>
-        {item.status === 'drafting_tor' && (
+        {item.status === 'drafting' && (
           <span className="text-primary">เตรียมตัวก่อนเปิดรับข้อเสนอ</span>
         )}
         {upcoming && (
@@ -51,7 +49,7 @@ export function ProcurementTiming({ item, today }: { item: Procurement; today: s
             พ้นกำหนดตาม TOR แล้ว {Math.abs(remaining)} วัน
           </span>
         )}
-        {item.winner && item.status === 'invitation' && (
+        {item.winner && item.status === 'open' && (
           <span className="text-muted-foreground">มีผู้ชนะแล้ว</span>
         )}
       </div>

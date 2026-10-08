@@ -213,7 +213,7 @@ export function ProcurementFilters({
               value={status}
               onChange={(event) => {
                 setStatus(event.target.value as typeof status);
-                if (event.target.value && event.target.value !== 'invitation') setDeadlineDays('');
+                if (event.target.value && event.target.value !== 'open') setDeadlineDays('');
               }}
               className={selectClass}
             >
@@ -270,7 +270,7 @@ export function ProcurementFilters({
                   aria-pressed={deadlineDays === days}
                   onClick={() => {
                     setDeadlineDays(deadlineDays === days ? '' : days);
-                    setStatus('invitation');
+                    setStatus('open');
                   }}
                   className={cn(
                     'focus-visible:ring-ring/50 min-h-10 rounded-lg border px-2 text-xs transition-colors outline-none focus-visible:ring-3',
@@ -298,7 +298,7 @@ export function ProcurementFilters({
                 value={deadlineDays}
                 onChange={(event) => {
                   setDeadlineDays(event.target.value);
-                  if (event.target.value !== '') setStatus('invitation');
+                  if (event.target.value !== '') setStatus('open');
                 }}
                 className="h-11"
               />

@@ -36,6 +36,19 @@ export class ApiError extends Error {
 }
 
 /**
+ * The session is over and cannot be renewed: the API refused the refresh token
+ * (revoked, expired, or the account deactivated), or a call still got a 401
+ * after a refresh had succeeded. The UI treats this differently from any other
+ * failure — the right response is to sign in again, not to retry.
+ */
+export class SessionEndedError extends ApiError {
+  constructor() {
+    super('Session ended', 401);
+    this.name = 'SessionEndedError';
+  }
+}
+
+/**
  * Headers for one call. `Content-Type: application/json` is set only when there
  * is actually a body to describe: Fastify rejects a request that declares JSON
  * and then sends nothing (`FST_ERR_CTP_EMPTY_JSON_BODY`), which is what a
@@ -47,30 +60,94 @@ function headersFor(init?: RequestInit): HeadersInit {
     : { 'Content-Type': 'application/json', ...init?.headers };
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      ...init,
+/**
+ * How many refreshes have completed. A call remembers the value it was sent
+ * under: if a refresh finished while it was in flight, its 401 came from the
+ * old cookie, and the right move is to retry it, not to refresh a second time.
+ */
+let refreshEpoch = 0;
+let refreshInFlight: Promise<void> | null = null;
+
+// A network-level failure has no status; distinguish it from a 500 so the UI
+// can say "can't reach the API" rather than "the API is broken".
+const notReachable = (error: unknown) =>
+  new ApiError(
+    `Cannot reach the API at ${API_URL}. ${error instanceof Error ? error.message : ''}`.trim(),
+    0,
+  );
+
+/**
+ * Renews the session, at most once at a time.
+ *
+ * The access cookie lives fifteen minutes and only page navigation used to
+ * renew it (`proxy.ts`), so a console left polling went dark at the fifteen-
+ * minute mark. Refresh tokens rotate, so two refreshes racing would present the
+ * same token twice and end the session; concurrent callers share one promise.
+ */
+function refreshSession(): Promise<void> {
+  refreshInFlight ??= (async () => {
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}/api/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (error) {
+      throw notReachable(error);
+    }
+    if (response.status === 401 || response.status === 403) throw new SessionEndedError();
+    if (!response.ok) {
+      throw new ApiError(`Session refresh failed: ${response.status}`, response.status);
+    }
+    refreshEpoch += 1;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+/**
+ * One call to the API, carrying the session cookie and surviving its expiry.
+ *
+ * A 401 on a data call is answered with a refresh and a single retry. The auth
+ * endpoints are exempt — a 401 from a login is a wrong password to show, not a
+ * session to renew — and nothing loops: a 401 that survives a refresh means the
+ * session is over. Any other non-2xx response is returned for the caller to
+ * turn into an error.
+ */
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const attempt = async (): Promise<Response> => {
+    try {
       // The session lives in an httpOnly cookie on a different origin, so every
       // authenticated procurement or administration call must carry it.
-      credentials: 'include',
-      headers: headersFor(init),
-    });
-  } catch (error) {
-    // A network-level failure has no status; distinguish it from a 500 so the
-    // UI can say "can't reach the API" rather than "the API is broken".
-    throw new ApiError(
-      `Cannot reach the API at ${API_URL}. ${error instanceof Error ? error.message : ''}`.trim(),
-      0,
-    );
-  }
+      return await fetch(`${API_URL}${path}`, {
+        ...init,
+        credentials: 'include',
+        headers: headersFor(init),
+      });
+    } catch (error) {
+      throw notReachable(error);
+    }
+  };
 
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new ApiError(body?.message ?? `Request failed: ${response.status}`, response.status);
-  }
+  const sentAt = refreshEpoch;
+  const response = await attempt();
+  if (response.status !== 401 || path.startsWith('/api/auth/')) return response;
 
+  if (refreshEpoch === sentAt) await refreshSession();
+  const retried = await attempt();
+  if (retried.status === 401) throw new SessionEndedError();
+  return retried;
+}
+
+async function failure(response: Response): Promise<ApiError> {
+  const body = (await response.json().catch(() => null)) as { message?: string } | null;
+  return new ApiError(body?.message ?? `Request failed: ${response.status}`, response.status);
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiFetch(path, init);
+  if (!response.ok) throw await failure(response);
   return (await response.json()) as T;
 }
 
@@ -94,23 +171,8 @@ export function fetchTor(projectId: string): Promise<Procurement> {
 }
 
 export async function downloadTor(projectId: string): Promise<Blob> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}/api/tors/${encodeURIComponent(projectId)}/source`, {
-      credentials: 'include',
-    });
-  } catch (error) {
-    throw new ApiError(
-      `Cannot reach the API at ${API_URL}. ${error instanceof Error ? error.message : ''}`.trim(),
-      0,
-    );
-  }
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new ApiError(body?.message ?? `Request failed: ${response.status}`, response.status);
-  }
-
+  const response = await apiFetch(`/api/tors/${encodeURIComponent(projectId)}/source`);
+  if (!response.ok) throw await failure(response);
   return response.blob();
 }
 
@@ -138,24 +200,8 @@ export function startIngestionRun(
 
 /** A body-less response — DELETE answers 204, which `response.json()` chokes on. */
 async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      ...init,
-      credentials: 'include',
-      headers: headersFor(init),
-    });
-  } catch (error) {
-    throw new ApiError(
-      `Cannot reach the API at ${API_URL}. ${error instanceof Error ? error.message : ''}`.trim(),
-      0,
-    );
-  }
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new ApiError(body?.message ?? `Request failed: ${response.status}`, response.status);
-  }
+  const response = await apiFetch(path, init);
+  if (!response.ok) throw await failure(response);
 }
 
 export interface CompanyResponse {

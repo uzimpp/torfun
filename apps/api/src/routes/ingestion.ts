@@ -8,6 +8,7 @@ import {
   IngestionSummarySchema,
 } from '@torfun/types';
 import { requireAdmin } from '../hooks/require-admin';
+import { audienceOf } from '../services/audience';
 
 /**
  * Admin-facing API over the e-GP ingestion pipeline.
@@ -48,7 +49,10 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request) => {
       const { q, ...filters } = request.query;
-      const { items, total } = await app.ingestionService.list({ ...filters, query: q });
+      const { items, total } = await app.ingestionService.list(
+        { ...filters, query: q },
+        audienceOf(request.user.role),
+      );
       return { items, total, limit: filters.limit, offset: filters.offset };
     },
   );
@@ -64,7 +68,8 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       },
     },
-    async (request) => app.ingestionService.get(request.params.projectId),
+    async (request) =>
+      app.ingestionService.get(request.params.projectId, audienceOf(request.user.role)),
   );
 
   app.get(

@@ -19,13 +19,16 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 1_000_000,
     priceBuild: null,
-    status: 'invitation',
+    status: 'open',
+    statusSource: 'upstream',
+    upstreamStatus: 'หนังสือเชิญชวน/ประกาศเชิญชวน',
     matchedKeywords: ['จ้างพัฒนา'],
     softwareClass: 'new_build',
     softwareScore: 5,
     eBidding: true,
     state: 'Queued',
     outcome: 'queued',
+    attempts: 0,
     statusHistory: [],
     zipId: null,
     zipBytes: null,
@@ -107,6 +110,38 @@ describe('mergeDiscovered', () => {
     expect(merged.documents).toEqual(existing.documents);
     expect(merged.torAmbiguous).toBe(true);
     expect(merged.discoveredAt).toBe('2026-09-01T00:00:00.000Z');
+  });
+
+  test('a rediscovery that reads no stage cannot wipe a stage already read', () => {
+    // The feed sends one generic value, so on every sweep it "reads" unknown.
+    // Gemini's earlier reading of the documents must survive that.
+    const existing = procurement({ status: 'drafting', statusSource: 'ai' });
+    const incoming = procurement({
+      status: 'unknown',
+      statusSource: null,
+      upstreamStatus: 'ระหว่างดำเนินการ',
+    });
+
+    const merged = mergeDiscovered(existing, incoming, AT);
+
+    expect(merged.status).toBe('drafting');
+    expect(merged.statusSource).toBe('ai');
+    expect(merged.upstreamStatus).toBe('ระหว่างดำเนินการ');
+  });
+
+  test('a stage the feed does name overrides an AI reading', () => {
+    const existing = procurement({ status: 'drafting', statusSource: 'ai' });
+    const incoming = procurement({ status: 'contracted', statusSource: 'upstream' });
+
+    const merged = mergeDiscovered(existing, incoming, AT);
+
+    expect(merged.status).toBe('contracted');
+    expect(merged.statusSource).toBe('upstream');
+  });
+
+  test('keeps the retrieval attempt count', () => {
+    const merged = mergeDiscovered(procurement({ attempts: 2 }), procurement(), AT);
+    expect(merged.attempts).toBe(2);
   });
 
   test('unions the keywords a project has ever matched and stamps the merge time', () => {
