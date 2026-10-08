@@ -286,9 +286,9 @@ describeMongo('ProcurementRepository', () => {
         row('later', '2026-10-09'),
         row('unknown', 'unreadable'),
         row('missing', null),
-        row('draft', '2026-10-08', { status: 'drafting_tor' }),
+        row('draft', '2026-10-08', { status: 'drafting' }),
         row('cancelled', '2026-10-08', { status: 'cancelled' }),
-        row('awarded', '2026-10-08', { status: 'award_announced' }),
+        row('awarded', '2026-10-08', { status: 'awarded' }),
         row('winner', '2026-10-08', {
           winner: {
             name: 'ผู้ชนะ',
@@ -303,27 +303,31 @@ describeMongo('ProcurementRepository', () => {
     );
     // UTC is still Oct 4; Thai officers have already reached Oct 5.
     const service = new TorService(repository, undefined, () => new Date('2026-10-04T18:00:00Z'));
-    const within = await service.list({ limit: 20, offset: 0, deadlineDays: 3 });
+    const within = await service.list({ limit: 20, offset: 0, deadlineDays: 3 }, 'admin');
     expect(within.items.map((item) => item.projectId).sort()).toEqual([
       'three',
       'today',
       'tomorrow',
     ]);
     expect(within.total).toBe(3);
-    const exact = await service.list({
-      limit: 20,
-      offset: 0,
-      deadlineDays: 3,
-      deadlineMode: 'exact',
-    });
+    const exact = await service.list(
+      {
+        limit: 20,
+        offset: 0,
+        deadlineDays: 3,
+        deadlineMode: 'exact',
+      },
+      'admin',
+    );
     expect(exact.items.map((item) => item.projectId)).toEqual(['three']);
-    const today = await service.list({ limit: 20, offset: 0, deadlineDays: 0 });
+    const today = await service.list({ limit: 20, offset: 0, deadlineDays: 0 }, 'admin');
     expect(today.items.map((item) => item.projectId)).toEqual(['today']);
-    const page = await service.list({ limit: 1, offset: 1, deadlineDays: 3 });
+    const page = await service.list({ limit: 1, offset: 1, deadlineDays: 3 }, 'admin');
     expect(page.total).toBe(3);
     expect(page.items).toHaveLength(1);
     expect(
-      (await service.list({ limit: 20, offset: 0, deadlineDays: 3, status: 'drafting_tor' })).total,
+      (await service.list({ limit: 20, offset: 0, deadlineDays: 3, status: 'drafting' }, 'admin'))
+        .total,
     ).toBe(0);
   });
 

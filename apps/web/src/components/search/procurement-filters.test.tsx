@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 
@@ -73,7 +73,7 @@ describe('ProcurementFilters', () => {
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({
         query: 'ระบบ',
-        status: 'invitation',
+        status: 'open',
         eBidding: 'true',
         deadlineDays: '3',
         deadlineMode: 'exact',
@@ -88,8 +88,8 @@ describe('ProcurementFilters', () => {
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} />);
     await user.click(screen.getByRole('button', { name: /^ตัวกรอง/ }));
     await user.type(screen.getByLabelText('จำนวนวันเอง (0 = วันนี้)'), '2');
-    expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('invitation');
-    await user.selectOptions(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง'), 'drafting_tor');
+    expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('open');
+    await user.selectOptions(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง'), 'drafting');
     expect(screen.getByLabelText('จำนวนวันเอง (0 = วันนี้)')).toHaveValue(null);
     expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).not.toBeDisabled();
   });
@@ -242,13 +242,15 @@ describe('procurement status filter', () => {
     // An active filter opens the panel by itself, so there is no toggle to click.
     render(<ProcurementFilters values={{ ...EMPTY_SEARCH_FILTERS, status: 'drafting' }} />);
 
-    const select = screen.getByLabelText('สถานะโครงการ');
+    const select = screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง');
     expect(select).toHaveAttribute('name', 'status');
     expect(select).toHaveValue('drafting');
 
-    const labels = screen.getAllByRole('option').map((option) => option.textContent);
+    const labels = within(select)
+      .getAllByRole('option')
+      .map((option) => option.textContent);
     expect(labels).toEqual([
-      'ทุกสถานะ',
+      'ทุกขั้นตอน',
       'ร่าง / เตรียมการ',
       'เปิดรับข้อเสนอ',
       'อยู่ระหว่างพิจารณา',
@@ -264,9 +266,10 @@ describe('procurement status filter', () => {
   test('shows the chosen stage as a removable chip', () => {
     render(<ProcurementFilters values={{ ...EMPTY_SEARCH_FILTERS, status: 'drafting' }} />);
 
-    expect(
-      screen.getByRole('link', { name: 'ล้างตัวกรอง สถานะ: ร่าง / เตรียมการ' }),
-    ).toHaveAttribute('href', '/search');
+    expect(screen.getByRole('link', { name: 'ล้างตัวกรอง ร่าง / เตรียมการ' })).toHaveAttribute(
+      'href',
+      '/search',
+    );
   });
 });
 
@@ -299,7 +302,7 @@ test('URL filters become the exact server-side request and remain shareable', ()
 test('new criteria remain intact through URLs, pagination, and individual clear links', () => {
   const values = parseSearchFilters({
     q: 'ระบบ',
-    status: 'drafting_tor',
+    status: 'drafting',
     eBidding: 'true',
     year: '2569',
     deptName: 'กรมทดสอบ',
@@ -311,7 +314,7 @@ test('new criteria remain intact through URLs, pagination, and individual clear 
     ),
   ).toEqual(values);
   expect(toProjectFilters(values, 20, 40)).toMatchObject({
-    status: 'drafting_tor',
+    status: 'drafting',
     eBidding: true,
     year: 2569,
     deptName: 'กรมทดสอบ',
