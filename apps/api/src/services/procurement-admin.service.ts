@@ -3,6 +3,7 @@ import type { Procurement, Tombstone, TombstoneReason } from '@torfun/types';
 import { ConflictError, NotFoundError } from '../core/errors';
 import type { ProcurementStore } from '../repositories/procurement.repository';
 import { OFFICER_VISIBLE_OUTCOME } from './audience';
+import { queuedRecord } from './egp/feed-record';
 import { buildTombstone } from './egp/tombstone';
 import type { StartRunInput } from './ingestion.service';
 
@@ -94,27 +95,38 @@ export class ProcurementAdminService {
   /**
    * Lift a drop and have the project read again, once.
    *
-   * The record was deleted and the tombstone keeps no feed fields, so the project
-   * has to come back through Discovery before anything can be retrieved. That is
-   * a Run like any other: it takes the lease, goes through the one site gate, and
-   * stops on a refusal. It is told to sweep (a sweep minutes ago does not hold
-   * this project) and to retrieve this project alone, so the site sees one
-   * lookup and one download, not the queue. The tombstone is lifted only once the
-   * Run holds the lease: a refused start leaves it standing, and a sweep already
-   * running cannot admit the project in the gap.
+   * The record was deleted, so it is rebuilt from what the feed said about it,
+   * which the tombstone keeps. Reading it is a Run like any other: it takes the
+   * lease, goes through the one site gate, and stops on a refusal. It is told to
+   * retrieve this project alone, so the site sees one lookup and one download,
+   * not the queue. The tombstone is lifted, and the record queued, only once the
+   * Run holds the lease: a refused start leaves the tombstone standing, and a
+   * sweep already running cannot admit the project in the gap.
+   *
+   * A tombstone written before the snapshot was kept has nothing to rebuild
+   * from, so that Run is also told to sweep, in the hope the feed lists the
+   * project again. The feed is read by date, so for an older project it will
+   * not, and the Run says so in the failure log.
    */
   async restoreTombstone(projectId: string, by: string): Promise<void> {
     // Looked for before a Run is asked for, so a project with no tombstone never
     // takes the lease (and never has it taken from a schedule for nothing).
     // `beforeRun` still lifts it, and still fails safe if it vanished in between.
-    if (!(await this.store.tombstonedIds([projectId])).has(projectId)) {
+    const tombstone = await this.store.getTombstone(projectId);
+    if (!tombstone) {
       throw new NotFoundError(`ไม่พบโครงการ ${projectId} ในรายการที่ถูกคัดออก`);
     }
+    const feed = tombstone.feed ?? null;
     try {
       await this.startRun({
-        forceDiscovery: true,
+        ...(feed ? {} : { forceDiscovery: true }),
         onlyProject: projectId,
-        beforeRun: () => this.removeTombstone(projectId, by),
+        beforeRun: async () => {
+          // The record first: if lifting the tombstone then failed, the project
+          // would still be held back, never gone along with its snapshot.
+          if (feed) await this.store.upsert(queuedRecord(projectId, feed, this.now()));
+          await this.removeTombstone(projectId, by);
+        },
       });
     } catch (error) {
       // The only conflict a start can meet is a Run already going; say so in
@@ -147,6 +159,7 @@ export class ProcurementAdminService {
         promptVersion: record.analysis?.promptVersion,
         decidedBy: by,
         now: this.now(),
+        record,
       }),
     );
   }

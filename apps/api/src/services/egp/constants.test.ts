@@ -1,32 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { SOFTWARE_KEYWORDS } from './constants';
+import { FEED_REGISTRY, SOURCE_REGISTRY } from './constants';
 
-const keywords: readonly string[] = SOFTWARE_KEYWORDS;
-
-describe('SOFTWARE_KEYWORDS', () => {
-  test('has no duplicates, since each entry costs upstream calls', () => {
-    expect(new Set(keywords).size).toBe(keywords.length);
+describe('FEED_REGISTRY', () => {
+  test('names every Source Registry agency, so none is left out of the sweep', () => {
+    const inFeed = FEED_REGISTRY.map((agency) => agency.registryName);
+    for (const name of SOURCE_REGISTRY) expect(inFeed).toContain(name);
   });
 
-  test('covers the terms an administrator asked discovery to pull', () => {
-    for (const keyword of [
-      'ซอฟต์แวร์',
-      'ระบบสารสนเทศ',
-      'พัฒนาระบบ',
-      'โปรแกรมคอมพิวเตอร์',
-      'แอปพลิเคชัน',
-      'เว็บไซต์',
-      'software',
-      'application',
-      'website',
-    ]) {
-      expect(keywords).toContain(keyword);
-    }
-  });
-
-  test('lists capitalised English forms, because the upstream match is case-sensitive', () => {
-    for (const keyword of ['Software', 'Application', 'Website']) {
-      expect(keywords).toContain(keyword);
-    }
+  test('asks the feed about each agency once', () => {
+    const ids = FEED_REGISTRY.map((agency) => agency.deptId);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

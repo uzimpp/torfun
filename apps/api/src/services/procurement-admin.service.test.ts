@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { fakeAnnouncements } from '../testing/announcement-client';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { EMPTY_MILESTONES, type Procurement, type Tombstone } from '@torfun/types';
 import { ConflictError, NotFoundError } from '../core/errors';
 import { silentLogger } from '../testing/gated-ingestion';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -27,11 +27,11 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
-    province: null,
-    district: null,
-    subdistrict: null,
     deptCode: '0100',
     budgetYear: 2568,
+    typeId: null,
+    goodsId: null,
+    detailCheckedAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
     projectTypeName: null,
     purchaseMethodName: null,
@@ -62,7 +62,6 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
       requiredQualifications: [],
       reason: 'ขอบเขตไม่ชัดเจน "พัฒนาระบบ"',
     },
-    winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
     sourceHash: null,
@@ -70,6 +69,16 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     ...overrides,
   };
 }
+
+/** What the feed said about `record()`, as its tombstone keeps it. */
+const storedFeed = {
+  projectName: 'จ้างพัฒนาระบบสารสนเทศ',
+  deptName: 'กรุงเทพมหานคร',
+  deptCode: '0100',
+  announceDate: null,
+  budgetYear: 2568,
+  purchaseMethodName: null,
+};
 
 async function build(stored: Procurement[] = [record()]) {
   const store = new InMemoryProcurementStore();
@@ -137,6 +146,7 @@ describe('marking a procurement as non-software', () => {
         promptVersion: null,
         decidedAt: AT.toISOString(),
         decidedBy: 'somchai',
+        feed: storedFeed,
       },
     ]);
   });
@@ -174,6 +184,7 @@ describe('deleting a procurement', () => {
         promptVersion: null,
         decidedAt: AT.toISOString(),
         decidedBy: 'somchai',
+        feed: storedFeed,
       },
     ]);
     expect(await store.tombstonedIds(['66059313551'])).toEqual(new Set(['66059313551']));
@@ -246,7 +257,36 @@ describe('restoring a tombstone', () => {
     decidedBy: 'somchai',
   };
 
-  test('asks for one Run for that project, sweeping afresh because that is where its details come from', async () => {
+  const feed = {
+    projectName: 'จ้างพัฒนาระบบสารสนเทศ',
+    deptName: 'กรมศุลกากร',
+    deptCode: '0305',
+    announceDate: '2026-09-30T00:00:00.000Z',
+    budgetYear: 2569,
+    purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+  };
+
+  test('one that kept the feed snapshot comes back Queued from it, and the Run is not made to sweep', async () => {
+    const { store, service, runs } = await build([]);
+    await store.tombstone({ ...tombstone, feed });
+
+    await service.restoreTombstone('66059313551', 'napa');
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.onlyProject).toBe('66059313551');
+    expect(runs[0]?.forceDiscovery).toBeFalsy();
+    expect(await store.get('66059313551')).toMatchObject({
+      ...feed,
+      state: 'Queued',
+      outcome: 'queued',
+      attempts: 0,
+      status: 'unknown',
+      analysis: null,
+      documents: [],
+    });
+  });
+
+  test('one written before snapshots asks for one Run for that project, sweeping afresh because that is where its details come from', async () => {
     const { store, service, runs } = await build([]);
     await store.tombstone(tombstone);
 
@@ -265,9 +305,9 @@ describe('restoring a tombstone', () => {
     expect(await store.listTombstones()).toEqual([]);
   });
 
-  test('a Run already going refuses it and the tombstone stays', async () => {
+  test('a Run already going refuses it: the tombstone stays and nothing is queued', async () => {
     const store = new InMemoryProcurementStore();
-    await store.tombstone(tombstone);
+    await store.tombstone({ ...tombstone, feed });
     const service = new ProcurementAdminService(
       store,
       async () => {
@@ -280,7 +320,8 @@ describe('restoring a tombstone', () => {
       ConflictError,
     );
 
-    expect(await store.listTombstones()).toEqual([tombstone]);
+    expect(await store.listTombstones()).toEqual([{ ...tombstone, feed }]);
+    expect(await store.get('66059313551')).toBeUndefined();
   });
 
   test('a project with no tombstone is not found, and no Run is asked for', async () => {
@@ -296,34 +337,37 @@ describe('restoring a tombstone, end to end through a real Run', () => {
   const feedRow = (projectId: string): Procurement =>
     record({ projectId, state: 'Queued', outcome: 'queued', holdReason: null, analysis: null });
 
-  test('reads the restored project once and nothing else, through the same pipeline', async () => {
+  const dropped = {
+    projectId: '66059313551',
+    reason: 'admin_non_software' as const,
+    evidence: 'x',
+    promptVersion: null,
+    decidedAt: '2026-10-02T00:00:00.000Z',
+    decidedBy: 'somchai',
+  };
+
+  /**
+   * A store holding `tombstone`, a Run whose sweep lists `swept`, and an
+   * administrator who restores the tombstone. Returns which projects the site
+   * was asked about.
+   */
+  async function restoreThroughRun(tombstone: Tombstone, swept: string[]) {
     const store = new InMemoryProcurementStore();
-    const tombstone = {
-      projectId: '66059313551',
-      reason: 'admin_non_software' as const,
-      evidence: 'x',
-      promptVersion: null,
-      decidedAt: '2026-10-02T00:00:00.000Z',
-      decidedBy: 'somchai',
-    };
     await store.tombstone(tombstone);
 
     const asked: string[] = [];
     const deps: IngestionDeps = {
-      discoverProjects: async (_key, tombstonedIds) => {
+      discoverProjects: async ({ tombstonedIds }) => {
         // What the real sweep does: whatever still has a tombstone is not admitted.
-        const feed = ['66059313551', '66059313552', '66059313553'];
-        const ruledOut = await tombstonedIds(feed);
+        const ruledOut = await tombstonedIds(swept);
         return {
-          records: feed.filter((id) => !ruledOut.has(id)).map(feedRow),
-          rejected: [],
+          records: swept.filter((id) => !ruledOut.has(id)).map(feedRow),
           notEBidding: 0,
           tombstoned: ruledOut.size,
-          resolutions: [],
+          truncated: 0,
           failures: [],
           rateLimited: false,
-          budgetReached: false,
-          quota: null,
+          cursor: {},
           ranAt: new Date().toISOString(),
         };
       },
@@ -359,12 +403,42 @@ describe('restoring a tombstone, end to end through a real Run', () => {
       silentLogger,
     );
 
-    await admin.restoreTombstone('66059313551', 'napa');
+    await admin.restoreTombstone(tombstone.projectId, 'napa');
     await new Promise((resolve) => setTimeout(resolve, 30));
+    return { store, asked };
+  }
+
+  test('reads the restored project once and nothing else, through the same pipeline', async () => {
+    const { store, asked } = await restoreThroughRun(dropped, [
+      '66059313551',
+      '66059313552',
+      '66059313553',
+    ]);
 
     expect(asked).toEqual(['66059313551']); // one site lookup, for the restored project
     expect((await store.get('66059313551'))?.outcome).toBe('no_tor_package');
     expect((await store.get('66059313552'))?.outcome).toBe('queued'); // found by the sweep, not read
+    expect(await store.listTombstones()).toEqual([]);
+  });
+
+  test('reads a project with a feed snapshot even when no sweep lists it again', async () => {
+    // The feed is read by date, so a project announced months ago is not in
+    // the days a sweep asks about; the snapshot is what brings it back.
+    const feed = {
+      projectName: 'จ้างพัฒนาระบบสารสนเทศ',
+      deptName: 'กรมศุลกากร',
+      deptCode: '0305',
+      announceDate: '2026-03-02T00:00:00.000Z',
+      budgetYear: 2569,
+      purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+    };
+    const { store, asked } = await restoreThroughRun({ ...dropped, feed }, ['66059313552']);
+
+    expect(asked).toEqual(['66059313551']);
+    expect(await store.get('66059313551')).toMatchObject({
+      projectName: feed.projectName,
+      outcome: 'no_tor_package',
+    });
     expect(await store.listTombstones()).toEqual([]);
   });
 });

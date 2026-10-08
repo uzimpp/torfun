@@ -42,11 +42,11 @@ function record(index: number): Procurement {
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
-    province: null,
-    district: null,
-    subdistrict: null,
     deptCode: '0100',
     budgetYear: 2568,
+    typeId: null,
+    goodsId: null,
+    detailCheckedAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
     projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
@@ -67,7 +67,6 @@ function record(index: number): Procurement {
     zipId: null,
     documents: [],
     analysis: null,
-    winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
     sourceHash: null,
@@ -89,14 +88,12 @@ test(`${ARCHIVES} archives leave buffers where they started`, async () => {
   const deps: IngestionDeps = {
     discoverProjects: async () => ({
       records,
-      rejected: [],
       notEBidding: 0,
       tombstoned: 0,
-      resolutions: [],
+      truncated: 0,
       failures: [],
       rateLimited: false,
-      budgetReached: false,
-      quota: null,
+      cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
     resolveZipId: async () => 'zip',
@@ -115,7 +112,7 @@ test(`${ARCHIVES} archives leave buffers where they started`, async () => {
     recordDeadlineMs: 60_000,
   };
 
-  const drive = () => runIngestion(new InMemoryProcurementStore(), { apiKey: 'k', logger }, deps);
+  const drive = () => runIngestion(new InMemoryProcurementStore(), { logger }, deps);
 
   // The first records pay for one-off costs (compiled code, pooled allocators)
   // that are not growth. Measure from after them.

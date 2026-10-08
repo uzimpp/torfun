@@ -50,7 +50,7 @@ describe('ProcurementFilters', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
-  test('chooses exact deadline days and applies the method without conflicting date bounds', async () => {
+  test('chooses a days-left preset and applies the method without conflicting date bounds', async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();
     render(
@@ -66,8 +66,7 @@ describe('ProcurementFilters', () => {
       />,
     );
     await user.selectOptions(screen.getByLabelText('วิธีจัดซื้อจัดจ้าง'), 'true');
-    await user.click(screen.getByRole('button', { name: '3 วัน' }));
-    await user.click(screen.getByRole('radio', { name: 'ตรงกับอีก' }));
+    await user.click(screen.getByRole('button', { name: '14 วันขึ้นไป' }));
     expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }));
     expect(onApply).toHaveBeenCalledWith(
@@ -75,8 +74,7 @@ describe('ProcurementFilters', () => {
         query: 'ระบบ',
         status: 'open',
         eBidding: 'true',
-        deadlineDays: '3',
-        deadlineMode: 'exact',
+        minDaysLeft: '14',
         deadlineFrom: '',
         deadlineTo: '',
       }),
@@ -87,10 +85,10 @@ describe('ProcurementFilters', () => {
     const user = userEvent.setup();
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} />);
     await user.click(screen.getByRole('button', { name: /^ตัวกรอง/ }));
-    await user.type(screen.getByLabelText('จำนวนวันเอง (0 = วันนี้)'), '2');
+    await user.type(screen.getByLabelText('เหลืออย่างน้อยกี่วัน (0 = ปิดรับวันนี้ก็ได้)'), '2');
     expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('open');
     await user.selectOptions(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง'), 'drafting');
-    expect(screen.getByLabelText('จำนวนวันเอง (0 = วันนี้)')).toHaveValue(null);
+    expect(screen.getByLabelText('เหลืออย่างน้อยกี่วัน (0 = ปิดรับวันนี้ก็ได้)')).toHaveValue(null);
     expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).not.toBeDisabled();
   });
 
@@ -321,9 +319,6 @@ test('new criteria remain intact through URLs, pagination, and individual clear 
     outcome: 'tor_analysed',
     offset: 40,
   });
-  const deadline = parseSearchFilters({ deadlineDays: '0', deadlineMode: 'exact' });
-  expect(toProjectFilters(deadline, 20, 0)).toMatchObject({
-    deadlineDays: 0,
-    deadlineMode: 'exact',
-  });
+  const deadline = parseSearchFilters({ minDaysLeft: '0' });
+  expect(toProjectFilters(deadline, 20, 0)).toMatchObject({ minDaysLeft: 0 });
 });

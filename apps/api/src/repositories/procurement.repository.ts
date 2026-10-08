@@ -19,7 +19,6 @@ import type {
   TorAnalysis,
   Tombstone,
   TombstoneReason,
-  Winner,
 } from '@torfun/types';
 import { appendStatusChange, EMPTY_MILESTONES, OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
@@ -72,11 +71,12 @@ interface ProcurementDocument {
   project_name: string;
   dept_name: string;
   dept_sub_name: string | null;
-  province?: string | null;
-  district?: string | null;
-  subdistrict?: string | null;
   dept_code: string;
   budget_year: number;
+  /** Absent on records written before the project detail was read. */
+  type_id?: string | null;
+  goods_id?: string | null;
+  detail_checked_at?: string | null;
   announce_date: string | null;
   project_type_name: string | null;
   purchase_method_name: string | null;
@@ -102,7 +102,6 @@ interface ProcurementDocument {
   zip_id: string | null;
   documents: ArchiveDocument[];
   analysis: TorAnalysis | null;
-  winner: Winner | null;
   tor_ambiguous: boolean;
   discovered_at: string;
   /** Absent on records written before sweeps were fingerprinted. */
@@ -128,13 +127,11 @@ function toDomain(document: ProcurementDocument): Procurement {
     projectName: document.project_name,
     deptName: document.dept_name,
     deptSubName: document.dept_sub_name,
-    // Older records predate location ingestion. Unknown is represented as
-    // null until a real discovery run refreshes the upstream-owned fields.
-    province: document.province ?? null,
-    district: document.district ?? null,
-    subdistrict: document.subdistrict ?? null,
     deptCode: document.dept_code,
     budgetYear: document.budget_year,
+    typeId: document.type_id ?? null,
+    goodsId: document.goods_id ?? null,
+    detailCheckedAt: document.detail_checked_at ?? null,
     announceDate: document.announce_date,
     projectTypeName: document.project_type_name,
     purchaseMethodName: document.purchase_method_name,
@@ -158,7 +155,6 @@ function toDomain(document: ProcurementDocument): Procurement {
     zipId: document.zip_id,
     documents: document.documents,
     analysis: document.analysis,
-    winner: document.winner,
     torAmbiguous: document.tor_ambiguous,
     discoveredAt: document.discovered_at,
     sourceHash: document.source_hash ?? null,
@@ -172,11 +168,11 @@ function toDocument(record: Procurement): ProcurementDocument {
     project_name: record.projectName,
     dept_name: record.deptName,
     dept_sub_name: record.deptSubName,
-    province: record.province,
-    district: record.district,
-    subdistrict: record.subdistrict,
     dept_code: record.deptCode,
     budget_year: record.budgetYear,
+    type_id: record.typeId,
+    goods_id: record.goodsId,
+    detail_checked_at: record.detailCheckedAt,
     announce_date: record.announceDate,
     project_type_name: record.projectTypeName,
     purchase_method_name: record.purchaseMethodName,
@@ -197,7 +193,6 @@ function toDocument(record: Procurement): ProcurementDocument {
     zip_id: record.zipId,
     documents: record.documents,
     analysis: record.analysis,
-    winner: record.winner,
     tor_ambiguous: record.torAmbiguous,
     discovered_at: record.discoveredAt,
     source_hash: record.sourceHash,
@@ -225,25 +220,26 @@ export interface FindOptions {
   publishedTo?: string;
   deadlineFrom?: string;
   deadlineTo?: string;
-  deadlineDays?: number;
-  deadlineMode?: 'within' | 'exact';
-  /** Service policy for upcoming deadlines, never applied to the discovery queue. */
-  excludeAwarded?: boolean;
+  /** Open tenders whose deadline is at least this many days away (Thai calendar). */
+  minDaysLeft?: number;
   /** Every term must occur in at least one entry of analysis.techStack. */
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
   targetPlatforms?: TargetPlatform[];
   /** Keyword over existing names only; this is not an authoritative classification. */
   industry?: string;
-  /** Case-insensitive keyword over the upstream administrative location. */
-  location?: string;
   /**
    * `announced` (the default): newest announcement first. `urgency`: a tender
    * still `open` first, nearest deadline first and undated after; then
    * `unknown`; then drafting, evaluating and cancelled; awarded and contracted
-   * last. Within a rank, newest announcement first.
+   * last. Within a rank, newest announcement first. `daysLeft`: open tenders
+   * with the most days left first (needs `today`), then open with no deadline,
+   * drafting, unknown, past deadlines and evaluating, and awarded, contracted
+   * or cancelled last.
    */
-  order?: 'announced' | 'urgency';
+  order?: 'announced' | 'urgency' | 'daysLeft';
+  /** Today in Thailand, `YYYY-MM-DD`. The `daysLeft` order counts from it. */
+  today?: string;
   limit: number;
   offset: number;
 }
@@ -271,6 +267,8 @@ export interface FindResult {
  */
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
+  /** The stored records among these project ids; ids with none are left out. */
+  getMany(projectIds: string[]): Promise<Procurement[]>;
   upsert(record: Procurement): Promise<Procurement>;
   /**
    * Replace a record with its tombstone: the record and everything read from it
@@ -281,6 +279,8 @@ export interface ProcurementStore {
   remove(projectId: string): Promise<boolean>;
   /** Which of these projects were dropped; used to keep them out of a sweep. */
   tombstonedIds(projectIds: string[]): Promise<Set<string>>;
+  /** One project's tombstone, if it has one. */
+  getTombstone(projectId: string): Promise<Tombstone | undefined>;
   listTombstones(): Promise<Tombstone[]>;
   /**
    * Forget a tombstone, so the next sweep that finds the project stores it and
@@ -332,7 +332,19 @@ export interface ProcurementStore {
   recordOpenDataQuota(quota: OpenDataQuota): Promise<void>;
   /** When discovery last completed a sweep, or null if it never has. */
   lastDiscoveryAt(): Promise<string | null>;
+  /** How far the announcement feed has been read, per agency and type; empty before the first sweep. */
+  feedCursor(): Promise<FeedCursor>;
+  /** Store where these units of the feed now stand; units not named are left as they were. */
+  recordFeedCursor(cursor: FeedCursor): Promise<void>;
 }
+
+/**
+ * The days of the announcement feed already read in full, per unit (an agency
+ * and an announcement type, keyed `deptId:type`). Each range is contiguous and
+ * holds only finished days: `to` grows as new days are read, `from` shrinks as
+ * history is. Both are Bangkok calendar days, `YYYY-MM-DD`.
+ */
+export type FeedCursor = Record<string, { from: string; to: string }>;
 
 /**
  * The distinct agency names already ingested, read by the Client suggestion
@@ -359,6 +371,12 @@ export interface ProcurementDataSource extends ProcurementStore, AgencyNameSourc
 }
 
 const QUOTA_ID = 'open_data_quota';
+const FEED_CURSOR_ID = 'feed_cursor';
+
+interface FeedCursorDocument {
+  _id: string;
+  units: FeedCursor;
+}
 
 /** The persistence shape of a Tombstone; snake_case like the rest of what is in Atlas. */
 interface TombstoneDocument {
@@ -368,6 +386,62 @@ interface TombstoneDocument {
   prompt_version: string | null;
   decided_at: string;
   decided_by: string | null;
+  /** Absent on tombstones written before the feed snapshot was kept. */
+  feed?: FeedSnapshotDocument | null;
+}
+
+/** A FeedSnapshot as stored on a tombstone. */
+interface FeedSnapshotDocument {
+  project_name: string;
+  dept_name: string;
+  dept_code: string;
+  announce_date: string | null;
+  budget_year: number;
+  purchase_method_name: string | null;
+}
+
+function toTombstoneDocument(tombstone: Tombstone): TombstoneDocument {
+  const { feed } = tombstone;
+  return {
+    _id: tombstone.projectId,
+    reason: tombstone.reason,
+    evidence: tombstone.evidence,
+    prompt_version: tombstone.promptVersion,
+    decided_at: tombstone.decidedAt,
+    decided_by: tombstone.decidedBy,
+    feed: feed
+      ? {
+          project_name: feed.projectName,
+          dept_name: feed.deptName,
+          dept_code: feed.deptCode,
+          announce_date: feed.announceDate,
+          budget_year: feed.budgetYear,
+          purchase_method_name: feed.purchaseMethodName,
+        }
+      : null,
+  };
+}
+
+function fromTombstoneDocument(document: TombstoneDocument): Tombstone {
+  const { feed } = document;
+  return {
+    projectId: document._id,
+    reason: document.reason,
+    evidence: document.evidence,
+    promptVersion: document.prompt_version,
+    decidedAt: document.decided_at,
+    decidedBy: document.decided_by ?? null,
+    feed: feed
+      ? {
+          projectName: feed.project_name,
+          deptName: feed.dept_name,
+          deptCode: feed.dept_code,
+          announceDate: feed.announce_date,
+          budgetYear: feed.budget_year,
+          purchaseMethodName: feed.purchase_method_name,
+        }
+      : null,
+  };
 }
 
 interface QuotaDocument {
@@ -446,6 +520,10 @@ export class ProcurementRepository
     return (await this.getDb()).collection<QuotaDocument>(INGESTION_META_COLLECTION);
   }
 
+  private async feedCursorDocuments(): Promise<Collection<FeedCursorDocument>> {
+    return (await this.getDb()).collection<FeedCursorDocument>(INGESTION_META_COLLECTION);
+  }
+
   private async meta(): Promise<Collection<{ _id: string; at: string }>> {
     return (await this.getDb()).collection<{ _id: string; at: string }>(INGESTION_META_COLLECTION);
   }
@@ -477,14 +555,7 @@ export class ProcurementRepository
   }
 
   async tombstone(tombstone: Tombstone): Promise<void> {
-    const document: TombstoneDocument = {
-      _id: tombstone.projectId,
-      reason: tombstone.reason,
-      evidence: tombstone.evidence,
-      prompt_version: tombstone.promptVersion,
-      decided_at: tombstone.decidedAt,
-      decided_by: tombstone.decidedBy,
-    };
+    const document = toTombstoneDocument(tombstone);
     // The tombstone first: if the delete then failed, the record would still be
     // there to be tried again, never gone without a trace of why.
     await (
@@ -517,14 +588,12 @@ export class ProcurementRepository
       .find({})
       .sort({ decided_at: -1 })
       .toArray();
-    return documents.map((document) => ({
-      projectId: document._id,
-      reason: document.reason,
-      evidence: document.evidence,
-      promptVersion: document.prompt_version,
-      decidedAt: document.decided_at,
-      decidedBy: document.decided_by ?? null,
-    }));
+    return documents.map(fromTombstoneDocument);
+  }
+
+  async getTombstone(projectId: string): Promise<Tombstone | undefined> {
+    const document = await (await this.tombstoneCollection()).findOne({ _id: projectId });
+    return document ? fromTombstoneDocument(document) : undefined;
   }
 
   async removeTombstone(projectId: string): Promise<boolean> {
@@ -693,6 +762,12 @@ export class ProcurementRepository
     return document ? toDomain(document) : undefined;
   }
 
+  async getMany(projectIds: string[]): Promise<Procurement[]> {
+    if (projectIds.length === 0) return [];
+    const documents = await (await this.records()).find({ _id: { $in: projectIds } }).toArray();
+    return documents.map(toDomain);
+  }
+
   async find(options: FindOptions): Promise<FindResult> {
     const filter: Record<string, unknown> = {};
     const clauses: Record<string, unknown>[] = [];
@@ -708,7 +783,6 @@ export class ProcurementRepository
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.budgetYear) filter.budget_year = options.budgetYear;
     if (options.status) filter.status = options.status;
-    if (options.excludeAwarded) filter.winner = null;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
@@ -720,9 +794,6 @@ export class ProcurementRepository
     }
     if (options.industry?.trim()) {
       clauses.push(regexAny(['project_name', 'dept_name', 'dept_sub_name'], options.industry));
-    }
-    if (options.location?.trim()) {
-      clauses.push(regexAny(['province', 'district', 'subdistrict'], options.location));
     }
     if (options.techStack?.length) {
       // ALL semantics: each requested term must match at least one array entry.
@@ -741,15 +812,21 @@ export class ProcurementRepository
     if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
-    if (options.order === 'urgency') {
+    const ranked =
+      options.order === 'urgency'
+        ? { stages: URGENCY_ORDER, fields: URGENCY_FIELDS }
+        : options.order === 'daysLeft' && options.today
+          ? { stages: daysLeftOrder(options.today), fields: DAYS_LEFT_FIELDS }
+          : null;
+    if (ranked) {
       const [items, total] = await Promise.all([
         collection
           .aggregate<ProcurementDocument>([
             { $match: filter },
-            ...URGENCY_ORDER,
+            ...ranked.stages,
             { $skip: options.offset },
             { $limit: options.limit },
-            { $unset: URGENCY_FIELDS },
+            { $unset: ranked.fields },
           ])
           .toArray(),
         collection.countDocuments(filter),
@@ -829,6 +906,23 @@ export class ProcurementRepository
 
   async lastDiscoveryAt(): Promise<string | null> {
     return (await (await this.meta()).findOne({ _id: 'last_run' }))?.at ?? null;
+  }
+
+  async feedCursor(): Promise<FeedCursor> {
+    return (await (await this.feedCursorDocuments()).findOne({ _id: FEED_CURSOR_ID }))?.units ?? {};
+  }
+
+  async recordFeedCursor(cursor: FeedCursor): Promise<void> {
+    const units = Object.entries(cursor);
+    if (units.length === 0) return;
+    await (
+      await this.feedCursorDocuments()
+    ).updateOne(
+      { _id: FEED_CURSOR_ID },
+      // One field per unit, so a unit this sweep did not reach keeps its range.
+      { $set: Object.fromEntries(units.map(([key, range]) => [`units.${key}`, range])) },
+      { upsert: true },
+    );
   }
 
   async agencies(): Promise<string[]> {
@@ -966,13 +1060,65 @@ export class ProcurementRepository
 
 const URGENCY_FIELDS = ['urgency_rank', 'urgency_undated', 'urgency_deadline'];
 
-/** Stored status values, legacy spellings included (see `LEGACY_STATUSES`), by urgency rank. */
+/** The statuses as stored, old spellings included (see `LEGACY_STATUSES`). */
+function storedStatuses(...statuses: ProcurementStatus[]): string[] {
+  const legacy = Object.keys(LEGACY_STATUSES).filter((old) =>
+    statuses.includes(LEGACY_STATUSES[old]!),
+  );
+  return [...statuses, ...legacy];
+}
+
+const OPEN = storedStatuses('open');
+const DRAFTING = storedStatuses('drafting');
+const CLOSED = storedStatuses('awarded', 'contracted', 'cancelled');
+
+/** Stored status values by urgency rank. */
 const URGENCY_RANKS: [number, string[]][] = [
-  [0, ['open', 'invitation']],
-  [1, ['unknown']],
-  [2, ['drafting', 'evaluating', 'cancelled', 'drafting_tor', 'requisition']],
-  [3, ['awarded', 'contracted', 'award_announced']],
+  [0, OPEN],
+  [1, storedStatuses('unknown')],
+  [2, storedStatuses('drafting', 'evaluating', 'cancelled')],
+  [3, storedStatuses('awarded', 'contracted')],
 ];
+
+const DAYS_LEFT_FIELDS = ['days_left_rank', 'days_left_day'];
+
+/** Most days left first. `today` and the deadline are both Thai calendar days. */
+function daysLeftOrder(today: string) {
+  const isOpen = { $in: ['$status', OPEN] };
+  return [
+    {
+      $addFields: {
+        days_left_day: {
+          $dateToString: {
+            date: { $dateFromString: { dateString: '$deadline_at', onError: null, onNull: null } },
+            format: '%Y-%m-%d',
+            timezone: 'Asia/Bangkok',
+            onNull: null,
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        days_left_rank: {
+          $switch: {
+            branches: [
+              // A null day compares below any date, so it never counts as upcoming.
+              { case: { $and: [isOpen, { $gte: ['$days_left_day', today] }] }, then: 0 },
+              { case: { $and: [isOpen, { $eq: ['$days_left_day', null] }] }, then: 1 },
+              { case: { $in: ['$status', DRAFTING] }, then: 2 },
+              { case: { $eq: ['$status', 'unknown'] }, then: 3 },
+              { case: { $in: ['$status', CLOSED] }, then: 5 },
+            ],
+            // Open with a past deadline, and evaluating.
+            default: 4,
+          },
+        },
+      },
+    },
+    { $sort: { days_left_rank: 1, days_left_day: -1, announce_date: -1, _id: 1 } },
+  ];
+}
 
 const URGENCY_ORDER = [
   {

@@ -65,7 +65,6 @@ test('procurement filters are encoded into the existing listing request', async 
     minBudget: 500_000,
     techStack: ['React', 'PostgreSQL'],
     targetPlatforms: ['web_app', 'mobile'],
-    location: 'คลองเตย',
     limit: 20,
     offset: 20,
   });
@@ -77,7 +76,6 @@ test('procurement filters are encoded into the existing listing request', async 
     minBudget: '500000',
     techStack: 'React,PostgreSQL',
     targetPlatforms: 'web_app,mobile',
-    location: 'คลองเตย',
     limit: '20',
     offset: '20',
   });

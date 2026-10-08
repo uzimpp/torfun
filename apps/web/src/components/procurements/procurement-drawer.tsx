@@ -152,7 +152,6 @@ function AnalysisSection({ record }: { record: Procurement }) {
 }
 
 function FactsSection({ record }: { record: Procurement }) {
-  const area = [record.subdistrict, record.district, record.province].filter(Boolean).join(' ');
   return (
     <Section title="ข้อมูลจาก e-GP">
       <dl className="divide-y">
@@ -162,7 +161,6 @@ function FactsSection({ record }: { record: Procurement }) {
             <span className="text-muted-foreground block">{record.deptSubName}</span>
           ) : null}
         </Fact>
-        {area ? <Fact label="พื้นที่">{area}</Fact> : null}
         <Fact label="สถานะโครงการ">{STATUS_LABELS[record.status]}</Fact>
         <Fact label="ปีงบประมาณ" numeric>
           {record.budgetYear}
@@ -179,16 +177,6 @@ function FactsSection({ record }: { record: Procurement }) {
         ) : null}
         {record.announceDate ? (
           <Fact label="วันที่ประกาศ">{formatThaiDate(record.announceDate)}</Fact>
-        ) : null}
-        {record.winner ? (
-          <Fact label="ผู้ชนะ">
-            {record.winner.name}
-            {record.winner.priceAgree !== null ? (
-              <span className="text-muted-foreground block tabular-nums">
-                {formatThb(record.winner.priceAgree)} บาท
-              </span>
-            ) : null}
-          </Fact>
         ) : null}
       </dl>
     </Section>

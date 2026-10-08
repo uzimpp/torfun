@@ -334,7 +334,6 @@ export class IngestionService {
     void runIngestion(
       this.repository,
       {
-        apiKey: this.env.EGP_API_KEY,
         runners: this.env.EGP_RUNNERS,
         logger: this.logger,
         shouldContinue: () => runMayContinue(held, this.now().getTime(), leaseTtlMs),

@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { ProcurementDeadline } from './procurement-deadline';
 import { ProcurementStatusBadge } from './procurement-status-badge';
 import { hasSearchCriteria, type SearchFilterValues } from './search-filter-values';
-import { ProcurementTiming } from './procurement-timing';
+import { DaysLeftBadge, ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
 
 const bahtFormat = new Intl.NumberFormat('th-TH', {
@@ -182,6 +182,7 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
       className="group hover:bg-card -mx-4 px-4 py-6 transition-colors sm:-mx-6 sm:px-6"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <DaysLeftBadge item={item} today={today} />
         <ProcurementStatusBadge status={item.status} />
         <span data-numeric className="text-muted-foreground font-mono text-xs">
           ปีงบประมาณ {item.budgetYear}
@@ -189,7 +190,7 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
         <ProcurementDeadline deadlineAt={item.deadlineAt} status={item.status} />
       </div>
 
-      <ProcurementTiming item={item} today={today} />
+      <ProcurementTiming item={item} />
 
       <h3 className="mt-3 text-lg font-medium text-balance">
         <Link

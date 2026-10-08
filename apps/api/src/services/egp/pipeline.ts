@@ -25,11 +25,16 @@ import { mapWithConcurrency } from './concurrency';
 import {
   ANALYSIS_CONCURRENCY,
   MAX_ATTEMPTS,
-  OPEN_DATA_SWEEP_CALLS,
   RECORD_DEADLINE_MS,
   STALE_PROCESSING_MS,
 } from './constants';
-import { discoverProjects, type DiscoveryResult, type TombstoneLookup } from './discovery';
+import {
+  bangkokToday,
+  discoverProjects,
+  type DiscoveryResult,
+  type SweepBatch,
+  type SweepContext,
+} from './discovery';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
 import { readInvitationDocuments, type InvitationResult } from './invitation';
 import {
@@ -44,6 +49,7 @@ import { decideOutcome } from './decision';
 import { buildTombstone } from './tombstone';
 import { decideDeadline } from './deadline';
 import { reviewTimeline, type TimelinePatch, type TimelineReview } from './timeline';
+import { readProjectDetail } from './project-detail';
 
 /**
  * Orchestrates the two ingestion stages against the repository.
@@ -61,7 +67,8 @@ import { reviewTimeline, type TimelinePatch, type TimelineReview } from './timel
  * politeness delays that make a real pass take minutes.
  */
 export interface IngestionDeps {
-  discoverProjects: (apiKey: string, tombstonedIds: TombstoneLookup) => Promise<DiscoveryResult>;
+  /** Every request it makes to the site goes through `context.site`, the Run's one gate. */
+  discoverProjects: (context: SweepContext) => Promise<DiscoveryResult>;
   /** `signal` is aborted at the record's deadline, which cancels the site request. */
   resolveZipId: (projectId: string, signal?: AbortSignal) => Promise<string | null>;
   downloadArchive: (zipId: string, signal?: AbortSignal) => Promise<Uint8Array>;
@@ -69,7 +76,7 @@ export interface IngestionDeps {
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   /** Reads the bid date off the archive's invitation announcement, if it carries one. */
   readInvitation: (archive: Uint8Array, projectId: string) => Promise<InvitationResult>;
-  /** The project's announcement timeline, always the first thing asked of the site about it. */
+  /** The project's timeline and detail; the detail is asked first, only where it was never read. */
   announcements: AnnouncementClient;
   sleep: (ms: number) => Promise<void>;
   /** Longest one record may take before it is treated as a transport failure. */
@@ -179,7 +186,6 @@ async function withDeadline(
 }
 
 export interface RunOptions {
-  apiKey: string;
   logger: FastifyBaseLogger;
   /**
    * Asked before each record. A Run cannot be cancelled mid-record, so this is
@@ -188,18 +194,18 @@ export interface RunOptions {
    */
   shouldContinue?: () => boolean;
   /**
-   * A discovery sweep younger than this is not repeated: it is the same ~270
-   * queries for the same answer, and the open-data API rate limits them. Unset
-   * means always sweep.
+   * A discovery sweep younger than this is not repeated: its requests go to the
+   * site the downloads need, for little that is new. Unset means always sweep.
    */
   discoveryMaxAgeMs?: number;
   /** Sweep regardless of how recent the last one was. */
   forceDiscovery?: boolean;
   /**
-   * Retrieve this project and no other. Discovery still runs as asked, because it
-   * is what brings the project's feed fields back; what changes is that the queue
-   * is not worked through, so the site is asked about one project. A project
-   * Discovery did not bring back is reported as a failure rather than skipped.
+   * Retrieve this project and no other. Discovery still runs as asked (a restore
+   * from a tombstone with no feed snapshot needs it to bring the project back);
+   * what changes is that the queue is not worked through, so the site is asked
+   * about one project. A project not in the queue by then is reported as a
+   * failure rather than skipped.
    */
   onlyProject?: string;
   /**
@@ -226,11 +232,12 @@ export interface RunResult {
   changedRecords: number;
   /** Seen again with nothing the agency owns moved. */
   unchangedRecords: number;
-  /** This Run made no discovery sweep (the last was recent, or the day's allowance is too low). */
+  /** This Run made no discovery sweep (the last was recent). */
   discoverySkipped: boolean;
   /**
-   * Why a sweep that began did not finish: the open-data API refused it, or it
-   * stopped with the day's reserve in hand. Null when it finished or never began.
+   * Why a sweep that began did not finish: the site refused it. Null when it
+   * finished or never began. `budget` is no longer produced; runs logged when
+   * discovery read the open-data API may carry it.
    */
   discoveryStopped: 'rate_limited' | 'budget' | null;
   rejectedNonRegistry: number;
@@ -246,15 +253,15 @@ export interface RunResult {
   /** Retrievals whose TOR was read and dropped as not software; only a tombstone remains. */
   dropped: number;
   failed: number;
+  /**
+   * The site refused (429/403), in discovery or retrieval, and the Run stopped
+   * there. The run log shows it as failed. An administrator's stop is `stopped`.
+   */
   aborted: boolean;
   /** Why the Run ended before the queue did, where an administrator is the reason; else null. */
   stopped: 'admin' | null;
   failures: IngestionFailure[];
   ranAt: string;
-}
-
-function sameUtcDay(iso: string, nowMs: number): boolean {
-  return iso.slice(0, 10) === new Date(nowMs).toISOString().slice(0, 10);
 }
 
 /** Records read from the store at a time while a list of work is being collected. */
@@ -406,67 +413,78 @@ export async function runIngestion(
   if (requeued > 0) logger.warn({ requeued }, 'egp: requeued records stuck in Processing');
 
   const lastSweep = await repository.lastDiscoveryAt();
-  const sweepIsRecent =
+  const skipSweep =
     options.discoveryMaxAgeMs !== undefined &&
     !options.forceDiscovery &&
     lastSweep !== null &&
     Date.now() - Date.parse(lastSweep) < options.discoveryMaxAgeMs;
 
-  // The open-data key has a hard daily allowance. If what it last reported, today,
-  // is less than a sweep costs, a sweep would only be refused part-way — so none
-  // is tried, whatever an administrator asked for. A reading from an earlier day
-  // is taken to have reset.
-  const knownQuota = await repository.openDataQuota();
-  const quotaTooLow =
-    knownQuota !== null &&
-    sameUtcDay(knownQuota.observedAt, Date.now()) &&
-    knownQuota.remainingDay < OPEN_DATA_SWEEP_CALLS;
-
-  const skipSweep = sweepIsRecent || quotaTooLow;
+  // One gate for the whole Run: the feed Discovery reads and the archives
+  // Retrieval fetches are the same site, so they share its terms (site-gate.ts).
+  const gate = createSiteGate({ pause: () => deps.sleep(politeTorDelayMs()) });
 
   let discovery: DiscoveryResult;
   let sync = { created: 0, changed: 0, unchanged: 0 };
   let discoveryStopped: RunResult['discoveryStopped'] = null;
 
   if (skipSweep) {
-    // Either the answer has not had time to change, or there is no allowance left
-    // to ask again with. The queue already holds what the last sweep found, so go
-    // straight to retrieving from it.
-    logger.info(
-      { lastSweep, remainingToday: quotaTooLow ? knownQuota?.remainingDay : undefined },
-      quotaTooLow
-        ? 'egp: open-data allowance too low for a sweep today, skipping it'
-        : 'egp: last discovery sweep is recent, skipping it',
-    );
+    // The answer has not had time to change. The queue already holds what the
+    // last sweep found, so go straight to retrieving from it.
+    logger.info({ lastSweep }, 'egp: last discovery sweep is recent, skipping it');
     discovery = {
       records: [],
-      rejected: [],
       notEBidding: 0,
       tombstoned: 0,
-      resolutions: [],
+      truncated: 0,
+      cursor: {},
       failures: [],
       rateLimited: false,
-      budgetReached: false,
-      quota: null,
       ranAt: lastSweep ?? new Date().toISOString(),
     };
   } else {
     logger.info('egp: starting discovery sweep');
-    // A project that has a tombstone is not admitted, whatever the feed says about
-    // it: the tombstone is the decision, until an administrator lifts it.
-    discovery = await deps.discoverProjects(options.apiKey, (ids) => repository.tombstonedIds(ids));
-    sync = await repository.upsertMany(discovery.records);
-    await repository.recordFailures(discovery.failures);
-    if (discovery.quota) await repository.recordOpenDataQuota(discovery.quota);
+    let saved = false;
+    const save = async (batch: SweepBatch) => {
+      saved = true;
+      const summary = await repository.upsertMany(batch.records);
+      sync = {
+        created: sync.created + summary.created,
+        changed: sync.changed + summary.changed,
+        unchanged: sync.unchanged + summary.unchanged,
+      };
+      await repository.recordFailures(batch.failures);
+      // Covers exactly the days read in full, even if the sweep stops later.
+      await repository.recordFeedCursor(batch.cursor);
+    };
+    discovery = await deps.discoverProjects({
+      site: async (call) => {
+        const hold = await gate.acquire();
+        try {
+          return await call();
+        } catch (error) {
+          // The site said stop: nothing else this Run may ask it anything.
+          if (error instanceof RateLimitedError) gate.latch();
+          throw error;
+        } finally {
+          await hold.release();
+        }
+      },
+      cursor: await repository.feedCursor(),
+      // A project that has a tombstone is not admitted, whatever the feed says
+      // about it: the tombstone is the decision, until an administrator lifts it.
+      tombstonedIds: (ids) => repository.tombstonedIds(ids),
+      storedRecords: (ids) => repository.getMany(ids),
+      today: bangkokToday(),
+      save,
+    });
+    // A sweep that handed nothing to `save` on the way is stored whole here.
+    if (!saved) await save(discovery);
 
-    if (discovery.rateLimited || discovery.budgetReached) {
-      // Cut short. What it found is kept, but it is not a finished sweep: marking
-      // it done would make the next Run skip the agencies it never reached.
-      discoveryStopped = discovery.rateLimited ? 'rate_limited' : 'budget';
-      logger.warn(
-        { stopped: discoveryStopped, remainingToday: discovery.quota?.remainingDay },
-        'egp: discovery sweep stopped early; retrieval from the queue carries on',
-      );
+    if (discovery.rateLimited) {
+      // Cut short by a refusal. What it found is kept, but it is not a finished
+      // sweep, so the next Run is not told to skip one.
+      discoveryStopped = 'rate_limited';
+      logger.warn('egp: the site refused during discovery; the Run stops here');
     } else {
       await repository.markRun(discovery.ranAt);
     }
@@ -479,9 +497,9 @@ export async function runIngestion(
       newRecords,
       changed: sync.changed,
       unchanged: sync.unchanged,
-      rejected: discovery.rejected.length,
       notEBidding: discovery.notEBidding,
       tombstoned: discovery.tombstoned,
+      truncated: discovery.truncated,
       failures: discovery.failures.length,
     },
     'egp: discovery complete',
@@ -497,13 +515,19 @@ export async function runIngestion(
     discoveryStopped,
   };
 
-  // New projects first, so a throttled site cannot starve them behind refresh-only work.
-  const candidates: Candidate[] = options.onlyProject
-    ? (await selectOne(repository, options.onlyProject)).map((record) => ({ record, fresh: true }))
-    : [
-        ...(await selectForRetrieval(repository)).map((record) => ({ record, fresh: true })),
-        ...(await selectForRefresh(repository)).map((record) => ({ record, fresh: false })),
-      ];
+  // New projects first, so a throttled site cannot starve them behind refresh-only
+  // work. None at all once the site has refused: it said stop.
+  const candidates: Candidate[] = discovery.rateLimited
+    ? []
+    : options.onlyProject
+      ? (await selectOne(repository, options.onlyProject)).map((record) => ({
+          record,
+          fresh: true,
+        }))
+      : [
+          ...(await selectForRetrieval(repository)).map((record) => ({ record, fresh: true })),
+          ...(await selectForRefresh(repository)).map((record) => ({ record, fresh: false })),
+        ];
 
   let refreshed = 0;
   let archivesRetrieved = 0;
@@ -512,7 +536,8 @@ export async function runIngestion(
   let dropped = 0;
   let failed = 0;
   let attempted = 0;
-  let aborted = false;
+  // A refusal during discovery ends the Run before any record is taken.
+  let aborted = discovery.rateLimited;
 
   const note = async (
     about: Pick<Procurement, 'projectId' | 'projectName'>,
@@ -532,18 +557,18 @@ export async function runIngestion(
     await repository.recordFailures([failure]);
   };
 
-  if (options.onlyProject && candidates.length === 0) {
+  if (options.onlyProject && candidates.length === 0 && !discovery.rateLimited) {
     // Asked for one project and there is none to read: say so, or the
-    // administrator who asked is left to wonder why nothing happened.
+    // administrator who asked is left to wonder why nothing happened. After a
+    // refusal the refusal is the reason, and it is already in the log.
     await note(
       { projectId: options.onlyProject, projectName: '-' },
       'discovery',
-      'The project was not read: this sweep did not bring it back (it may no longer be in the feed, or the sweep stopped early).',
+      'The project was not read: it is not in the queue (no sweep has brought it back, or the sweep stopped early).',
     );
   }
 
   const queue = [...candidates];
-  const gate = createSiteGate({ pause: () => deps.sleep(politeTorDelayMs()) });
   let stopped = false;
   let stoppedBy: 'admin' | null = null;
 
@@ -583,6 +608,28 @@ export async function runIngestion(
       );
     }
     return review;
+  };
+
+  /**
+   * A record stored before the project detail was read gets it now, in the
+   * same gate hold as its timeline. If it fails, the old year stays and the
+   * next Run asks again; a refusal is thrown on and stops the Run as usual.
+   */
+  const catchUpDetail = async (work: RecordWork): Promise<void> => {
+    const { record, guard } = work;
+    if (record.detailCheckedAt !== null) return;
+    const read = await work.site(() =>
+      readProjectDetail(deps.announcements, record.projectId, guard.controller.signal),
+    );
+    if (guard.expired) return;
+    if ('error' in read) return note(record, 'timeline', read.error);
+    // Only a change an officer can see counts as news.
+    const visible =
+      read.fields.budgetYear !== record.budgetYear ||
+      read.fields.deptSubName !== record.deptSubName;
+    await repository.amend(record.projectId, read.fields, visible);
+    // Later steps read this record (a tombstone keeps its year), so it must be current.
+    work.record = { ...record, ...read.fields };
   };
 
   /** A project already read: its timeline again, and the invitation only if that moved. */
@@ -765,6 +812,7 @@ export async function runIngestion(
             promptVersion: analysed.analysis.promptVersion,
             decidedBy: null,
             now: new Date(),
+            record,
           }),
         );
         dropped += 1;
@@ -903,7 +951,11 @@ export async function runIngestion(
       // it has the site to itself.
       hold = await gate.acquire();
       await withDeadline(
-        () => (fresh ? retrieve(work) : refresh(work)),
+        async () => {
+          await catchUpDetail(work);
+          if (guard.expired) return;
+          await (fresh ? retrieve(work) : refresh(work));
+        },
         deps.recordDeadlineMs,
         guard,
       );
@@ -923,14 +975,12 @@ export async function runIngestion(
         // Nothing is taken from the queue: what is left stays Queued, no attempt spent.
         stoppedBy = 'admin';
         stopped = true;
-        aborted = true;
         logger.info('egp: run stopped by an administrator; the rest stay Queued');
         return;
       }
       const candidate = queue.shift();
       if (!candidate) return;
       if (options.shouldContinue && !options.shouldContinue()) {
-        aborted = true;
         stopped = true;
         logger.warn('egp: run stopped before its next record; the rest stay Queued');
         return;
@@ -951,7 +1001,8 @@ export async function runIngestion(
   return {
     discovered: discovery.records.length,
     ...syncCounts,
-    rejectedNonRegistry: discovery.rejected.length,
+    // The feed is asked per agency, so nothing arrives from outside the registry.
+    rejectedNonRegistry: 0,
     attempted,
     refreshed,
     archivesRetrieved,

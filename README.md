@@ -1,8 +1,8 @@
 # torfun
 
 Finds Thai government software procurement a software house can credibly bid
-on. It sweeps the e-GP open data, keeps the software-related announcements,
-has Gemini read the TOR (Terms of Reference) PDF, and scores each against the
+on. It reads the e-GP announcement feed for e-bidding tenders, has Gemini read
+each TOR (Terms of Reference) PDF to keep the software ones, and scores each against the
 company's own past work — so a person reads the ten that matter instead of the
 four hundred that don't.
 
@@ -14,7 +14,9 @@ Next.js web app, sharing one package of zod schemas.
 - **Bun 1.3.11** — pinned by `packageManager`
 - **Docker** — for the local MongoDB Atlas container
 - **A Google Cloud project** with Vertex AI enabled, plus `gcloud` for local credentials
-- **An e-GP open-data API key** — register at <https://opend.data.go.th/register_api/>
+- **An e-GP open-data API key** — register at <https://opend.data.go.th/register_api/>.
+  Discovery no longer reads open data; the key is still required by the config and
+  the dependency health check, and is kept for a future winner lookup.
 - **A Google OAuth 2.0 web client** — for user sign-in
 
 ## Running it locally

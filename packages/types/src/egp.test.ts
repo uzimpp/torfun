@@ -105,11 +105,11 @@ const record: Procurement = {
   projectName: 'ประกวดราคาจ้างเหมาเอกชนดูแลระบบสารสนเทศ',
   deptName: 'กรุงเทพมหานคร',
   deptSubName: null,
-  province: null,
-  district: null,
-  subdistrict: null,
   deptCode: '3100001',
   budgetYear: 2568,
+  typeId: null,
+  goodsId: null,
+  detailCheckedAt: '2026-09-01T00:00:00.000Z',
   announceDate: '2024-11-04T00:00:00.000Z',
   projectTypeName: null,
   purchaseMethodName: null,
@@ -130,7 +130,6 @@ const record: Procurement = {
   zipId: null,
   documents: [],
   analysis: null,
-  winner: null,
   torAmbiguous: false,
   discoveredAt: '2026-09-30T00:00:00.000Z',
   sourceHash: null,
@@ -299,6 +298,23 @@ describe('TombstoneSchema', () => {
   test('does not carry the name or archive of the record it replaced', () => {
     const parsed = TombstoneSchema.parse({ ...tombstone, projectName: 'x', zipId: 'z' });
     expect(parsed).toEqual(tombstone);
+  });
+
+  test('may keep what the feed said about the project, so a restore needs no sweep', () => {
+    const feed = {
+      projectName: 'จ้างพัฒนาระบบ',
+      deptName: 'กรมศุลกากร',
+      deptCode: '0305',
+      announceDate: '2026-10-05T00:00:00.000Z',
+      budgetYear: 2570,
+      purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+    };
+    expect(TombstoneSchema.parse({ ...tombstone, feed })).toEqual({ ...tombstone, feed });
+    // Older tombstones were written without it.
+    expect(TombstoneSchema.parse(tombstone).feed ?? null).toBeNull();
+    expect(TombstoneSchema.safeParse({ ...tombstone, feed: { deptName: 'x' } }).success).toBe(
+      false,
+    );
   });
 });
 

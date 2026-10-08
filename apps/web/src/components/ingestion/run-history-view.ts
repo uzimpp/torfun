@@ -10,12 +10,16 @@ export const TRIGGER_LABELS: Record<RunTrigger, string> = {
 
 export const RUN_HISTORY_EMPTY = 'ยังไม่มีรอบที่บันทึก — เริ่มบันทึกตั้งแต่รอบถัดไป';
 
-export type RunResultTone = 'ok' | 'neutral' | 'warn' | 'error';
+export type RunResultTone = 'ok' | 'neutral' | 'error';
 
-/** How a run ended. A refusal from the site outranks an admin's stop: it is the one to act on. */
+/**
+ * How a run ended. A refusal from the site (429/403) is a failure: the Run
+ * stopped before its work was done. It outranks an admin's stop, being the one
+ * to act on.
+ */
 export function runResult(run: IngestionRun): { label: string; tone: RunResultTone } {
   if (run.error !== null || run.counts === null) return { label: 'ผิดพลาด', tone: 'error' };
-  if (run.counts.aborted) return { label: 'เว็บปฏิเสธ', tone: 'warn' };
+  if (run.counts.aborted) return { label: 'ล้มเหลว · เว็บปฏิเสธ', tone: 'error' };
   if (run.counts.stopped === 'admin') return { label: 'หยุดโดยผู้ดูแล', tone: 'neutral' };
   return { label: 'สำเร็จ', tone: 'ok' };
 }

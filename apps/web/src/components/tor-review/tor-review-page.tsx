@@ -1,4 +1,4 @@
-import { Banknote, Bookmark, CalendarDays, Gavel, Clock3, MapPin } from 'lucide-react';
+import { Banknote, Bookmark, CalendarDays, Gavel, Clock3 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,12 +27,6 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
             </p>
             <h1 className="mt-4 text-2xl font-medium tracking-tight text-balance">{tor.title}</h1>
             <div className="text-muted-foreground mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              {tor.location && (
-                <span className="inline-flex items-center gap-2">
-                  <MapPin aria-hidden="true" className="size-4" />
-                  {tor.location}
-                </span>
-              )}
               <span className="inline-flex items-center gap-2">
                 <CalendarDays aria-hidden="true" className="size-4" />
                 ปีงบประมาณ {tor.budgetYear}
