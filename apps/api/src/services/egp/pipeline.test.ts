@@ -92,6 +92,7 @@ const sweepContext: SweepContext = {
   tombstonedIds: async () => new Set(),
   storedRecords: async () => [],
   today: '2026-09-09',
+  save: async () => {},
 };
 
 /** Every stage stubbed to the happy path; each test overrides what it is about. */
@@ -254,6 +255,30 @@ describe('runIngestion', () => {
       ['extract', 'fault'],
       ['analysis', 'fault'],
     ]);
+  });
+
+  test('batches a sweep saves on the way are stored once, and their counts add up', async () => {
+    const repository = new InMemoryProcurementStore();
+    const second = procurement({ projectId: '66059313552' });
+    const result = await run(repository, {
+      discoverProjects: async (context) => {
+        await context.save({ records: [procurement()], failures: [], cursor: {} });
+        await context.save({ records: [second], failures: [], cursor: {} });
+        return {
+          records: [procurement(), second],
+          notEBidding: 0,
+          tombstoned: 0,
+          truncated: 0,
+          failures: [],
+          rateLimited: false,
+          cursor: {},
+          ranAt: '2026-09-09T00:00:00.000Z',
+        };
+      },
+    });
+
+    expect(result.newRecords).toBe(2);
+    expect(result.changedRecords + result.unchangedRecords).toBe(0);
   });
 
   test('a rate limit aborts the run and leaves the rest Queued', async () => {

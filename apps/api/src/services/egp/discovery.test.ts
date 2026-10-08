@@ -11,7 +11,7 @@ import {
   FEED_REGISTRY,
   type FeedAnnouncementType,
 } from './constants';
-import { addDays, bangkokToday, cursorKey, discoverProjects } from './discovery';
+import { addDays, bangkokToday, cursorKey, discoverProjects, type SweepBatch } from './discovery';
 import { queuedRecord } from './feed-record';
 
 const TODAY = '2026-10-07';
@@ -68,6 +68,9 @@ const everyUnit = (range: { from: string; to: string }): FeedCursor =>
 /** Every unit read in full through yesterday, so nothing but today is left. */
 const caughtUp = () => everyUnit({ from: addDays(TODAY, -364), to: addDays(TODAY, -1) });
 
+/** What the last `sweep` handed to `save`, batch by batch. */
+const saved: SweepBatch[] = [];
+
 function sweep(
   feed: AnnouncementFeed,
   cursor: FeedCursor = {},
@@ -77,6 +80,7 @@ function sweep(
     announcements = fakeAnnouncements(),
   }: { stored?: Procurement[]; announcements?: AnnouncementClient } = {},
 ) {
+  saved.length = 0;
   return discoverProjects(
     {
       site: (call) => call(),
@@ -84,6 +88,9 @@ function sweep(
       tombstonedIds: async (ids) => new Set(ids.filter((id) => tombstoned.includes(id))),
       storedRecords: async (ids) => stored.filter((record) => ids.includes(record.projectId)),
       today: TODAY,
+      save: async (batch) => {
+        saved.push(batch);
+      },
     },
     feed,
     announcements,
@@ -203,6 +210,27 @@ describe('discoverProjects: which days it asks about', () => {
     expect(result.cursor).toEqual({
       [cursorKey(CUSTOMS, 'B0')]: { from: addDays(TODAY, -364), to: '2026-10-06' },
     });
+  });
+
+  test('each agency-day is saved as soon as it is read, so a refusal loses nothing before it', async () => {
+    const { feed } = fakeFeed({
+      [`${CUSTOMS}:B0:2026-10-06`]: listing([item('69109044981')]),
+      [`${CUSTOMS}:D0:2026-10-06`]: new RateLimitedError('http://process3', 429),
+    });
+    const cursor = everyUnit({ from: addDays(TODAY, -364), to: '2026-10-05' });
+
+    await sweep(feed, cursor);
+
+    expect(saved).toHaveLength(2);
+    const [first, last] = saved as [SweepBatch, SweepBatch];
+    expect(first.records.map((record) => record.projectId)).toEqual(['69109044981']);
+    expect(first.cursor).toEqual({
+      [cursorKey(CUSTOMS, 'B0')]: { from: addDays(TODAY, -364), to: '2026-10-06' },
+    });
+    expect(first.failures).toEqual([]);
+    expect(last.records).toEqual([]);
+    expect(last.cursor).toEqual({});
+    expect(last.failures).toHaveLength(1);
   });
 });
 

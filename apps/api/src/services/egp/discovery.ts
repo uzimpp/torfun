@@ -45,6 +45,18 @@ export interface SweepContext {
   storedRecords: (projectIds: string[]) => Promise<Procurement[]>;
   /** Today as a Bangkok calendar day, `YYYY-MM-DD`. */
   today: string;
+  /**
+   * Store what one agency-day added, as soon as it is read, so the queue fills
+   * while the sweep goes on and a Run that stops early keeps what it found.
+   */
+  save: (batch: SweepBatch) => Promise<void>;
+}
+
+/** What one agency-day of the sweep added: records, failures, and the unit's new range. */
+export interface SweepBatch {
+  records: Procurement[];
+  failures: IngestionFailure[];
+  cursor: FeedCursor;
 }
 
 export interface DiscoveryResult {
@@ -55,7 +67,7 @@ export interface DiscoveryResult {
   tombstoned: number;
   /** Agency-days where the feed listed fewer announcements than it said were made. Each is also a failure. */
   truncated: number;
-  /** Where the cursor now stands, for the units this sweep moved; the caller stores it. */
+  /** Where the cursor now stands, for the units this sweep moved; already given to `save`. */
   cursor: FeedCursor;
   failures: IngestionFailure[];
   /**
@@ -177,6 +189,20 @@ export async function discoverProjects(
   }
   const moved = new Set<string>();
 
+  // What `save` has not been given yet.
+  const unsaved = new Set<string>();
+  let savedFailures = 0;
+  const save = async (unit: Unit) => {
+    const range = ranges[unit.key];
+    await context.save({
+      records: [...unsaved].map((id) => byProjectId.get(id)!.record),
+      failures: failures.slice(savedFailures),
+      cursor: range && moved.has(unit.key) ? { [unit.key]: range } : {},
+    });
+    unsaved.clear();
+    savedFailures = failures.length;
+  };
+
   const log = (projectId: string, projectName: string, error: string) =>
     failures.push({ projectId, projectName, stage: 'discovery', kind: 'fault', error, at: now() });
   const fail = (unit: Unit, day: string, error: string) =>
@@ -270,6 +296,7 @@ export async function discoverProjects(
               (record.announceDate ?? '') > (seen.record.announceDate ?? ''))
           ) {
             byProjectId.set(item.projectId, { record, type: unit.type });
+            unsaved.add(item.projectId);
           }
           break;
         }
@@ -292,16 +319,14 @@ export async function discoverProjects(
     for (const unit of units) {
       if (stalledNew.has(unit.key) || day < nextNew(unit)) continue;
       const ok = await read(unit, day);
-      if (rateLimited) break newDays;
-      if (!ok) {
-        stalledNew.add(unit.key);
-        continue;
-      }
       const range = ranges[unit.key];
-      if (day < today && range) {
+      if (ok && day < today && range) {
         range.to = day;
         moved.add(unit.key);
       }
+      await save(unit);
+      if (rateLimited) break newDays;
+      if (!ok) stalledNew.add(unit.key);
     }
   }
 
@@ -319,15 +344,15 @@ export async function discoverProjects(
       // its new projects can take the share a little past the limit.
       if (requests - historyStart >= FEED_BACKFILL_REQUESTS_PER_RUN) break history;
       const ok = await read(unit, day);
-      if (rateLimited) break history;
-      if (!ok) {
-        stalledOld.add(unit.key);
-        continue;
+      if (ok) {
+        const range = ranges[unit.key];
+        if (range) range.from = day;
+        else ranges[unit.key] = { from: day, to: day };
+        moved.add(unit.key);
       }
-      const range = ranges[unit.key];
-      if (range) range.from = day;
-      else ranges[unit.key] = { from: day, to: day };
-      moved.add(unit.key);
+      await save(unit);
+      if (rateLimited) break history;
+      if (!ok) stalledOld.add(unit.key);
     }
   }
 
