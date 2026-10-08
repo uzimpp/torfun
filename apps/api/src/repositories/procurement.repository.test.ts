@@ -45,9 +45,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
-    province: 'กรุงเทพมหานคร',
-    district: 'คลองเตย',
-    subdistrict: 'คลองเตย',
     deptCode: '0100',
     budgetYear: 2568,
     announceDate: '2026-08-01',
@@ -70,7 +67,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     documents: [],
     analysis: null,
-    winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
     sourceHash: null,
@@ -481,16 +477,6 @@ describeMongo('ProcurementRepository', () => {
         row('draft', '2026-10-08', { status: 'drafting' }),
         row('cancelled', '2026-10-08', { status: 'cancelled' }),
         row('awarded', '2026-10-08', { status: 'awarded' }),
-        row('winner', '2026-10-08', {
-          winner: {
-            name: 'ผู้ชนะ',
-            taxId: '1234567890123',
-            contractNo: '1',
-            contractDate: null,
-            contractFinishDate: null,
-            priceAgree: 500000,
-          },
-        }),
       ].map((record) => repository.upsert(record)),
     );
     // UTC is still Oct 4; Thai officers have already reached Oct 5.
@@ -627,22 +613,16 @@ describeMongo('ProcurementRepository', () => {
     expect(platforms.items.map((record) => record.projectId).sort()).toEqual(['mobile', 'web']);
   });
 
-  test('filters keyword-derived industry and upstream location without regex injection', async () => {
+  test('filters keyword-derived industry without regex injection', async () => {
     await seed([
       procurement({
         projectId: 'hospital',
         projectName: 'ระบบผู้ป่วย (ระยะ 2)',
         deptName: 'โรงพยาบาลกลาง',
-        province: 'กรุงเทพมหานคร',
-        district: 'ป้อมปราบศัตรูพ่าย',
-        subdistrict: 'คลองมหานาค',
       }),
       procurement({
         projectId: 'school',
         deptName: 'โรงเรียนตัวอย่าง',
-        province: 'เชียงใหม่',
-        district: 'เมืองเชียงใหม่',
-        subdistrict: 'สุเทพ',
       }),
     ]);
 
@@ -650,7 +630,6 @@ describeMongo('ProcurementRepository', () => {
       limit: 20,
       offset: 0,
       industry: 'โรงพยาบาล',
-      location: 'ป้อมปราบ',
       query: '(ระยะ 2)',
     });
     expect(result.items.map((record) => record.projectId)).toEqual(['hospital']);
@@ -662,7 +641,6 @@ describeMongo('ProcurementRepository', () => {
         projectId: 'one',
         projectMoney: 700_000,
         announceDate: '2026-08-10',
-        province: 'กรุงเทพมหานคร',
         deadlineAt: '2026-10-15',
         deadlineSource: 'tor',
         analysis: analysis({ targetPlatforms: ['web_app'] }),
@@ -671,7 +649,6 @@ describeMongo('ProcurementRepository', () => {
         projectId: 'two',
         projectMoney: 800_000,
         announceDate: '2026-08-11',
-        province: 'กรุงเทพมหานคร',
         deadlineAt: '2026-10-15',
         deadlineSource: 'tor',
         analysis: analysis({ targetPlatforms: ['web_app'] }),
@@ -680,7 +657,6 @@ describeMongo('ProcurementRepository', () => {
         projectId: 'wrong-platform',
         projectMoney: 900_000,
         announceDate: '2026-08-12',
-        province: 'เชียงใหม่',
         analysis: analysis({ targetPlatforms: ['mobile'] }),
       }),
     ]);
@@ -695,7 +671,6 @@ describeMongo('ProcurementRepository', () => {
       techStack: ['React', 'PostgreSQL'],
       targetPlatforms: ['web_app'],
       industry: 'จ้างพัฒนา',
-      location: 'กรุงเทพ',
     });
     expect(page.total).toBe(2);
     expect(page.items).toHaveLength(1);

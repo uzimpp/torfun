@@ -64,7 +64,7 @@ describe('ingestion route access and procurement query validation', () => {
   test('an administrator can filter the ingestion procurement index', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/api/ingestion/projects?limit=20&minBudget=500000&location=กรุงเทพมหานคร',
+      url: '/api/ingestion/projects?limit=20&minBudget=500000',
       cookies: adminCookie,
     });
 

@@ -19,7 +19,6 @@ import type {
   TorAnalysis,
   Tombstone,
   TombstoneReason,
-  Winner,
 } from '@torfun/types';
 import { appendStatusChange, EMPTY_MILESTONES, OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
@@ -72,9 +71,6 @@ interface ProcurementDocument {
   project_name: string;
   dept_name: string;
   dept_sub_name: string | null;
-  province?: string | null;
-  district?: string | null;
-  subdistrict?: string | null;
   dept_code: string;
   budget_year: number;
   announce_date: string | null;
@@ -102,7 +98,6 @@ interface ProcurementDocument {
   zip_id: string | null;
   documents: ArchiveDocument[];
   analysis: TorAnalysis | null;
-  winner: Winner | null;
   tor_ambiguous: boolean;
   discovered_at: string;
   /** Absent on records written before sweeps were fingerprinted. */
@@ -128,11 +123,6 @@ function toDomain(document: ProcurementDocument): Procurement {
     projectName: document.project_name,
     deptName: document.dept_name,
     deptSubName: document.dept_sub_name,
-    // Older records predate location ingestion. Unknown is represented as
-    // null until a real discovery run refreshes the upstream-owned fields.
-    province: document.province ?? null,
-    district: document.district ?? null,
-    subdistrict: document.subdistrict ?? null,
     deptCode: document.dept_code,
     budgetYear: document.budget_year,
     announceDate: document.announce_date,
@@ -158,7 +148,6 @@ function toDomain(document: ProcurementDocument): Procurement {
     zipId: document.zip_id,
     documents: document.documents,
     analysis: document.analysis,
-    winner: document.winner,
     torAmbiguous: document.tor_ambiguous,
     discoveredAt: document.discovered_at,
     sourceHash: document.source_hash ?? null,
@@ -172,9 +161,6 @@ function toDocument(record: Procurement): ProcurementDocument {
     project_name: record.projectName,
     dept_name: record.deptName,
     dept_sub_name: record.deptSubName,
-    province: record.province,
-    district: record.district,
-    subdistrict: record.subdistrict,
     dept_code: record.deptCode,
     budget_year: record.budgetYear,
     announce_date: record.announceDate,
@@ -197,7 +183,6 @@ function toDocument(record: Procurement): ProcurementDocument {
     zip_id: record.zipId,
     documents: record.documents,
     analysis: record.analysis,
-    winner: record.winner,
     tor_ambiguous: record.torAmbiguous,
     discovered_at: record.discoveredAt,
     source_hash: record.sourceHash,
@@ -227,16 +212,12 @@ export interface FindOptions {
   deadlineTo?: string;
   deadlineDays?: number;
   deadlineMode?: 'within' | 'exact';
-  /** Service policy for upcoming deadlines, never applied to the discovery queue. */
-  excludeAwarded?: boolean;
   /** Every term must occur in at least one entry of analysis.techStack. */
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
   targetPlatforms?: TargetPlatform[];
   /** Keyword over existing names only; this is not an authoritative classification. */
   industry?: string;
-  /** Case-insensitive keyword over the upstream administrative location. */
-  location?: string;
   /**
    * `announced` (the default): newest announcement first. `urgency`: a tender
    * still `open` first, nearest deadline first and undated after; then
@@ -779,7 +760,6 @@ export class ProcurementRepository
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.budgetYear) filter.budget_year = options.budgetYear;
     if (options.status) filter.status = options.status;
-    if (options.excludeAwarded) filter.winner = null;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
@@ -791,9 +771,6 @@ export class ProcurementRepository
     }
     if (options.industry?.trim()) {
       clauses.push(regexAny(['project_name', 'dept_name', 'dept_sub_name'], options.industry));
-    }
-    if (options.location?.trim()) {
-      clauses.push(regexAny(['province', 'district', 'subdistrict'], options.location));
     }
     if (options.techStack?.length) {
       // ALL semantics: each requested term must match at least one array entry.

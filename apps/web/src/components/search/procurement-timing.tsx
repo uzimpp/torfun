@@ -14,7 +14,7 @@ const formatDate = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z
 export function ProcurementTiming({ item, today }: { item: Procurement; today: string }) {
   const deadline = procurementDay(item.deadlineAt);
   const remaining = deadline ? daysUntil(deadline, today) : null;
-  const invitation = item.status === 'open' && item.winner === null;
+  const invitation = item.status === 'open';
   const upcoming = invitation && remaining !== null && remaining >= 0;
   const expired = invitation && remaining !== null && remaining < 0;
   const published = procurementDay(item.announceDate);
@@ -48,9 +48,6 @@ export function ProcurementTiming({ item, today }: { item: Procurement; today: s
           <span className="text-muted-foreground">
             พ้นกำหนดตาม TOR แล้ว {Math.abs(remaining)} วัน
           </span>
-        )}
-        {item.winner && item.status === 'open' && (
-          <span className="text-muted-foreground">มีผู้ชนะแล้ว</span>
         )}
       </div>
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">

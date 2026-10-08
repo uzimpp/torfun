@@ -9,9 +9,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
-    province: 'กรุงเทพมหานคร',
-    district: 'คลองเตย',
-    subdistrict: 'คลองเตย',
     deptCode: '0100',
     budgetYear: 2568,
     announceDate: '2026-08-01',
@@ -34,7 +31,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     documents: [],
     analysis: null,
-    winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
     sourceHash: null,
@@ -53,9 +49,6 @@ describe('mergeDiscovered', () => {
       projectMoney: 2_500_000,
       priceBuild: 2_400_000,
       purchaseMethodName: 'วิธีเฉพาะเจาะจง',
-      province: 'เชียงใหม่',
-      district: 'เมืองเชียงใหม่',
-      subdistrict: 'สุเทพ',
     });
 
     const merged = mergeDiscovered(existing, incoming, AT);
@@ -64,9 +57,6 @@ describe('mergeDiscovered', () => {
     expect(merged.projectMoney).toBe(2_500_000);
     expect(merged.priceBuild).toBe(2_400_000);
     expect(merged.purchaseMethodName).toBe('วิธีเฉพาะเจาะจง');
-    expect(merged.province).toBe('เชียงใหม่');
-    expect(merged.district).toBe('เมืองเชียงใหม่');
-    expect(merged.subdistrict).toBe('สุเทพ');
   });
 
   test('keeps what the pipeline found out, so a rediscovery cannot reset a retrieval', () => {
@@ -175,21 +165,6 @@ describe('telling a real change from a record that was only seen again', () => {
 
     expect(merged.updatedAt).toBe(AT);
     expect(merged.sourceHash).not.toBe(existing.sourceHash);
-  });
-
-  test('a new winner is a change', () => {
-    const winner = {
-      name: 'บริษัท ตัวอย่าง จำกัด',
-      taxId: '0105500000001',
-      contractNo: '1/2569',
-      contractDate: null,
-      contractFinishDate: null,
-      priceAgree: 900_000,
-    };
-
-    const merged = mergeDiscovered(stored(), procurement({ winner }), AT);
-
-    expect(merged.updatedAt).toBe(AT);
   });
 
   test('a record stored before fingerprints existed is compared on its own fields, not assumed changed', () => {

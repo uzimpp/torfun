@@ -208,7 +208,6 @@ describe('discoverProjects: what it admits', () => {
       budgetYear: 2570,
       state: 'Queued',
       status: 'unknown',
-      province: null,
       projectMoney: null,
     });
     expect(result.records[0]!.announceDate).toStartWith('2026-10-07');

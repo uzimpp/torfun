@@ -383,36 +383,6 @@ export const TorAnalysisSchema = z.object({
 export type TorAnalysis = z.infer<typeof TorAnalysisSchema>;
 
 /**
- * The awarded contract, where one exists.
- *
- * `null` means no winner is recorded — which, in the `egp-contract` dataset, is
- * currently never: every sampled project already had one. That is the point of
- * modelling it as an award rather than as more fields on the project: whether
- * this is null is the honest answer to "can anyone still bid on it?".
- *
- * `priceAgree` lives here, not on the Procurement, because it is a property of
- * the award. `projectMoney` is what the agency budgeted, `priceBuild` is the
- * official reference price, and `analysis.budgetThb` is what the TOR document
- * claims — four different numbers, each true about something different.
- *
- * Deliberately NOT stored: the contract's own `status`, which is the same value
- * as the project's, and `sum_price_agree`, which equalled `price_agree` on
- * every project sampled.
- */
-export const WinnerSchema = z.object({
-  name: z.string(),
-  /** The winner's 13-digit taxpayer id, for joining across projects. */
-  taxId: z.string(),
-  contractNo: z.string(),
-  /** Thai Buddhist short dates as upstream writes them, e.g. "15 ก.ย. 68". */
-  contractDate: z.string().nullable(),
-  contractFinishDate: z.string().nullable(),
-  /** What the work actually sold for. */
-  priceAgree: z.number().nonnegative().nullable(),
-});
-export type Winner = z.infer<typeof WinnerSchema>;
-
-/**
  * A procurement project discovered on the open-data API, plus everything the
  * TOR-retrieval stage has learned about it. One record per `projectId`, which
  * is the deduplication key the functional requirements call for.
@@ -423,14 +393,6 @@ export const ProcurementSchema = z.object({
   /** The agency's own name for itself, as returned upstream. */
   deptName: z.string(),
   deptSubName: z.string().nullable(),
-  /**
-   * Where the work is performed, as published by the e-GP open-data row.
-   * Kept as separate administrative levels so a location search can match a
-   * province, district, or subdistrict without guessing from the agency name.
-   */
-  province: z.string().nullable(),
-  district: z.string().nullable(),
-  subdistrict: z.string().nullable(),
   deptCode: z.string(),
   /** The Thai Buddhist fiscal year the budget belongs to (2567–2569), not the announcement's year. */
   budgetYear: z.number().int(),
@@ -478,8 +440,6 @@ export const ProcurementSchema = z.object({
   documents: z.array(ArchiveDocumentSchema),
   /** What Gemini read out of the main TOR; null until analysis succeeds. */
   analysis: TorAnalysisSchema.nullable(),
-  /** The awarded contract, or null where none has been recorded. */
-  winner: WinnerSchema.nullable(),
   /**
    * True where more than one document had an equal claim to being the TOR and
    * the tie was broken by convention. Surfaced so an administrator can see the
@@ -490,7 +450,7 @@ export const ProcurementSchema = z.object({
   discoveredAt: z.string(),
   /**
    * A fingerprint of everything the agency owns on this record (name, dates,
-   * money, stage, winner). A sweep compares it to tell a real change from a
+   * money, stage). A sweep compares it to tell a real change from a
    * record that was merely seen again. Null on records from before it existed.
    */
   sourceHash: z.string().nullable(),
@@ -554,8 +514,6 @@ export const ProcurementListQuerySchema = z
     targetPlatforms: QueryList(TargetPlatform).optional(),
     /** Keyword matched against existing project and agency names, not a classification. */
     industry: z.string().trim().min(1).max(100).optional(),
-    /** Keyword matched across the upstream province, district and subdistrict. */
-    location: z.string().trim().min(1).max(200).optional(),
     limit: z.coerce.number().int().positive().max(200).default(50),
     offset: z.coerce.number().int().nonnegative().default(0),
   })
