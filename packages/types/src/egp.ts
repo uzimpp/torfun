@@ -396,6 +396,11 @@ export const ProcurementSchema = z.object({
   deptCode: z.string(),
   /** The Thai Buddhist fiscal year the budget belongs to (2567–2569), not the announcement's year. */
   budgetYear: z.number().int(),
+  /** e-GP's own codes for the kind of buying and of goods, kept raw to be compared with the TOR reading later. Nothing filters on them. */
+  typeId: z.string().nullable(),
+  goodsId: z.string().nullable(),
+  /** When e-GP's project detail was last read; null means the year may still be a guess from the announcement date. */
+  detailCheckedAt: z.string().nullable(),
   announceDate: z.string().nullable(),
   /** WHAT is bought: ซื้อ / จ้างทำของ / เช่า / จ้างก่อสร้าง / จ้างที่ปรึกษา. */
   projectTypeName: z.string().nullable(),

@@ -11,7 +11,12 @@ export function queuedRecord(projectId: string, feed: FeedSnapshot, now: Date): 
   return {
     projectId,
     ...feed,
+    // From the project detail, which Discovery lays over this. A restored
+    // record has none, so record work reads it before anything else.
     deptSubName: null,
+    typeId: null,
+    goodsId: null,
+    detailCheckedAt: null,
     // Not in the feed. Null says "not known", which is the truth.
     projectTypeName: null,
     projectMoney: null,
