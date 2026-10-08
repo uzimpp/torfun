@@ -133,11 +133,9 @@ describe('what a Business Development Officer may see', () => {
     test('no officer response carries a hold reason, whatever the route or filter', async () => {
       const bodies: string[] = [];
       for (const url of [
-        '/api/ingestion/projects',
-        '/api/ingestion/projects?outcome=needs_review',
-        '/api/ingestion/projects?q=p-needs_review',
-        '/api/ingestion/projects/p-tor_analysed',
-        '/api/ingestion/projects/p-needs_review',
+        '/api/tors',
+        '/api/tors?outcome=needs_review',
+        '/api/tors?q=p-needs_review',
         '/api/tors/p-tor_analysed',
         '/api/tors/p-needs_review',
       ]) {
@@ -159,11 +157,7 @@ describe('what a Business Development Officer may see', () => {
 
   describe('who approved a record', () => {
     test('no officer response names the administrator or the time of an approval', async () => {
-      for (const url of [
-        '/api/ingestion/projects',
-        '/api/ingestion/projects/p-tor_analysed',
-        '/api/tors/p-tor_analysed',
-      ]) {
+      for (const url of ['/api/tors', '/api/tors/p-tor_analysed']) {
         const response = await app.inject({ method: 'GET', url, cookies: officer() });
         expect(response.statusCode).toBe(200);
         expect(response.body).not.toContain('somchai');

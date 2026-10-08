@@ -106,7 +106,11 @@ describe('administrator actions on a procurement', () => {
       const url = '/api/ingestion/projects?outcome=needs_review';
 
       const asAdmin = await app.inject({ method: 'GET', url, cookies: admin() });
-      const asOfficer = await app.inject({ method: 'GET', url, cookies: officer() });
+      const asOfficer = await app.inject({
+        method: 'GET',
+        url: '/api/tors?outcome=needs_review',
+        cookies: officer(),
+      });
 
       expect((asAdmin.json() as { items: Procurement[] }).items.map((i) => i.projectId)).toEqual([
         ID,
@@ -121,7 +125,7 @@ describe('administrator actions on a procurement', () => {
 
       expect(response.statusCode).toBe(204);
       const read = (cookies: Record<string, string>) =>
-        app.inject({ method: 'GET', url: `/api/ingestion/projects/${ID}`, cookies });
+        app.inject({ method: 'GET', url: `/api/tors/${ID}`, cookies });
 
       const asOfficer = await read(officer());
       expect(asOfficer.statusCode).toBe(200);

@@ -116,7 +116,7 @@ describe('ingestion route access and procurement query validation', () => {
 
       expect(response.statusCode).toBe(202);
       expect(response.json() as unknown).toEqual({ stopping: true });
-      expect(requestStop).toHaveBeenCalledWith('site-admin');
+      expect(requestStop).toHaveBeenCalledWith('admin');
     });
 
     test('with no run in progress is a clear 409, not a silent success', async () => {
@@ -134,7 +134,7 @@ describe('ingestion route access and procurement query validation', () => {
       );
 
       expect(response.statusCode).toBe(202);
-      expect(requestStop).toHaveBeenCalledWith('site-admin');
+      expect(requestStop).toHaveBeenCalledWith('admin');
     });
   });
 
