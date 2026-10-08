@@ -8,14 +8,14 @@ import type { Procurement } from '@torfun/types';
  * nothing. Comparing this says whether the agency's data actually moved. Only
  * what upstream publishes goes in: what this system owns (state, outcome,
  * attempts, its reading of the stage, the analysis) must not, or the pipeline's
- * own work would look like an upstream change on the next sweep.
+ * own work would look like an upstream change on the next sweep. Nor what the
+ * project detail gives (year, codes, sub-agency): the sweep does not carry it,
+ * so it would look changed on every sweep.
  */
 export function hashSource(record: Procurement): string {
   const owned = [
     record.projectName,
     record.deptName,
-    record.deptSubName,
-    record.budgetYear,
     record.announceDate,
     record.projectTypeName,
     record.purchaseMethodName,

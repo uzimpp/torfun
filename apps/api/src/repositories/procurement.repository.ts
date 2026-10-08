@@ -73,6 +73,10 @@ interface ProcurementDocument {
   dept_sub_name: string | null;
   dept_code: string;
   budget_year: number;
+  /** Absent on records written before the project detail was read. */
+  type_id?: string | null;
+  goods_id?: string | null;
+  detail_checked_at?: string | null;
   announce_date: string | null;
   project_type_name: string | null;
   purchase_method_name: string | null;
@@ -125,6 +129,9 @@ function toDomain(document: ProcurementDocument): Procurement {
     deptSubName: document.dept_sub_name,
     deptCode: document.dept_code,
     budgetYear: document.budget_year,
+    typeId: document.type_id ?? null,
+    goodsId: document.goods_id ?? null,
+    detailCheckedAt: document.detail_checked_at ?? null,
     announceDate: document.announce_date,
     projectTypeName: document.project_type_name,
     purchaseMethodName: document.purchase_method_name,
@@ -163,6 +170,9 @@ function toDocument(record: Procurement): ProcurementDocument {
     dept_sub_name: record.deptSubName,
     dept_code: record.deptCode,
     budget_year: record.budgetYear,
+    type_id: record.typeId,
+    goods_id: record.goodsId,
+    detail_checked_at: record.detailCheckedAt,
     announce_date: record.announceDate,
     project_type_name: record.projectTypeName,
     purchase_method_name: record.purchaseMethodName,
