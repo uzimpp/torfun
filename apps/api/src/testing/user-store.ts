@@ -86,8 +86,7 @@ export class InMemoryUserStore implements UserStore {
   }
 
   async countActiveAdmins(): Promise<number> {
-    return [...this.users.values()].filter((user) => user.role === 'admin' && user.isActive)
-      .length;
+    return [...this.users.values()].filter((user) => user.role === 'admin' && user.isActive).length;
   }
 
   async setRole(id: string, role: User['role']): Promise<void> {

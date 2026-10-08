@@ -1,9 +1,9 @@
-import type {
-  IngestionFailure,
-  IngestionOutcome,
-  IngestionState,
-  IngestionSummary,
-  Procurement,
+import {
+  OUTCOME_STATE,
+  type IngestionFailure,
+  type IngestionOutcome,
+  type IngestionSummary,
+  type Procurement,
 } from '@torfun/types';
 import type {
   FindOptions,
@@ -49,7 +49,6 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch: Partial<Procurement> = {},
     detail?: string,
@@ -57,6 +56,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     const existing = this.records.get(projectId);
     if (!existing) return undefined;
 
+    const state = OUTCOME_STATE[outcome];
     const at = new Date().toISOString();
     const updated: Procurement = {
       ...existing,
@@ -76,12 +76,31 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
         (!options.state || record.state === options.state) &&
         (!options.outcome || record.outcome === options.outcome) &&
         (!options.status || record.status === options.status) &&
+        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow) &&
         (options.eBidding === undefined || record.eBidding === options.eBidding),
     );
     return {
       items: items.slice(options.offset, options.offset + options.limit),
       total: items.length,
     };
+  }
+
+  async requeueStale(cutoff: string): Promise<number> {
+    const stale = [...this.records.values()].filter(
+      (record) =>
+        record.state === 'Processing' &&
+        (record.statusHistory.at(-1)?.at ?? record.updatedAt) < cutoff,
+    );
+    for (const record of stale) {
+      const since = record.statusHistory.at(-1)?.at ?? record.updatedAt;
+      await this.transition(
+        record.projectId,
+        'queued',
+        {},
+        `Requeued: stuck in Processing since ${since} with no progress.`,
+      );
+    }
+    return stale.length;
   }
 
   async recordFailures(failures: IngestionFailure[]): Promise<void> {

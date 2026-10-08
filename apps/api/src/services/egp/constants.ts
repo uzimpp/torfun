@@ -101,6 +101,35 @@ export const POLITENESS = {
   torTimeoutMs: 120_000,
 } as const;
 
+/**
+ * Transport failures a record may accumulate before it is abandoned (ADR-0006).
+ * A policy, not a finding: it bounds how much of a capped run a permanently
+ * broken project can consume.
+ */
+export const MAX_ATTEMPTS = 3;
+
+/**
+ * PDFs of one archive read by Gemini at the same time. Only analysis is pooled;
+ * the site downloads stay one at a time (see POLITENESS).
+ */
+export const ANALYSIS_CONCURRENCY = 2;
+
+/**
+ * Ceiling on one record's whole retrieval, download and analysis together. A
+ * hung call otherwise freezes the serial run for good, and the record stays
+ * Processing forever. Generous on purpose — archives run to ~30 MB and several
+ * PDFs are read one after another — because it exists to catch a hang, not to
+ * hurry a slow one.
+ */
+export const RECORD_DEADLINE_MS = 5 * 60_000;
+
+/**
+ * How long a record may sit in Processing with no status change before the next
+ * run treats its worker as dead. Twice the record deadline, so a live run is
+ * never mistaken for a dead one.
+ */
+export const STALE_PROCESSING_MS = 10 * 60_000;
+
 /** egp-contract accepts a limit of at least 500. */
 export const PAGE_LIMIT = 500;
 

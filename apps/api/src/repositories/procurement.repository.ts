@@ -14,6 +14,7 @@ import type {
   TorAnalysis,
   Winner,
 } from '@torfun/types';
+import { OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 
 /**
@@ -182,6 +183,11 @@ function toDocument(record: Procurement): ProcurementDocument {
 export interface FindOptions {
   state?: IngestionState;
   outcome?: IngestionOutcome;
+  /**
+   * Only records that have failed fewer than this many times. Retrieval uses it
+   * to leave exhausted records out of the query itself.
+   */
+  attemptsBelow?: number;
   deptName?: string;
   year?: number;
   softwareClass?: SoftwareClass;
@@ -227,14 +233,26 @@ export interface FindResult {
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
   upsert(record: Procurement): Promise<Procurement>;
+  /**
+   * Move a record to an Outcome. The State is not an argument: it is looked up
+   * from `OUTCOME_STATE`, so the two fields cannot be written out of step.
+   */
   transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch?: Partial<Procurement>,
     detail?: string,
   ): Promise<Procurement | undefined>;
   find(options: FindOptions): Promise<FindResult>;
+  /**
+   * Return records stuck in Processing to the queue.
+   *
+   * A record is stuck when its last status change is older than `cutoff` (an ISO
+   * timestamp): the run that was working on it died or hung, and nothing else
+   * will ever pick it up, because retrieval selects only Queued. Not an
+   * attempt — the record did nothing wrong. Returns how many were requeued.
+   */
+  requeueStale(cutoff: string): Promise<number>;
   recordFailures(failures: IngestionFailure[]): Promise<void>;
   markRun(at: string): Promise<void>;
 }
@@ -318,7 +336,6 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
 
   async transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch: Partial<Procurement> = {},
     detail?: string,
@@ -326,6 +343,8 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const collection = await this.records();
     const existing = await collection.findOne({ _id: projectId });
     if (!existing) return undefined;
+
+    const state = OUTCOME_STATE[outcome];
 
     const at = new Date().toISOString();
     // `detail` is spread in only when present: the Mongo driver serialises an
@@ -345,6 +364,31 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     return toDomain(updated);
   }
 
+  async requeueStale(cutoff: string): Promise<number> {
+    const collection = await this.records();
+    // Timestamps are `toISOString()` output throughout, so string order is time
+    // order. A record with no history falls back to when it was last written.
+    const stale = await collection
+      .find({
+        state: 'Processing',
+        $expr: {
+          $lt: [{ $ifNull: [{ $arrayElemAt: ['$status_history.at', -1] }, '$updated_at'] }, cutoff],
+        },
+      })
+      .toArray();
+
+    for (const document of stale) {
+      const since = document.status_history.at(-1)?.at ?? document.updated_at;
+      await this.transition(
+        document._id,
+        'queued',
+        {},
+        `Requeued: stuck in Processing since ${since} with no progress.`,
+      );
+    }
+    return stale.length;
+  }
+
   async get(projectId: string): Promise<Procurement | undefined> {
     const document = await (await this.records()).findOne({ _id: projectId });
     return document ? toDomain(document) : undefined;
@@ -355,6 +399,13 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const clauses: Record<string, unknown>[] = [];
     if (options.state) filter.state = options.state;
     if (options.outcome) filter.outcome = options.outcome;
+    if (options.attemptsBelow !== undefined) {
+      // A record written before attempts were counted has no field, which `$lt`
+      // alone would not match; it has failed zero times.
+      clauses.push({
+        $or: [{ attempts: { $exists: false } }, { attempts: { $lt: options.attemptsBelow } }],
+      });
+    }
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.year) filter.year = options.year;
     if (options.softwareClass) filter.software_class = options.softwareClass;

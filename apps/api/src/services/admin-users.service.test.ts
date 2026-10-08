@@ -44,7 +44,9 @@ describe('AdminUsersService', () => {
     const admin = users.seed({ username: 'root', role: 'admin' });
     users.seed({ username: 'root2', role: 'admin' });
 
-    const error = await service.update(admin.id, admin.id, { role: 'business_development_officer' }).catch((e) => e);
+    const error = await service
+      .update(admin.id, admin.id, { role: 'business_development_officer' })
+      .catch((e) => e);
 
     expect(status(error)).toBe(403);
     expect((await users.findById(admin.id))?.role).toBe('admin');
@@ -98,9 +100,7 @@ describe('AdminUsersService', () => {
     users.seed({ username: 'ghost', role: 'admin', isActive: false });
     const someone = users.seed({ username: 'somchai' });
 
-    const error = await service
-      .update(someone.id, lone.id, { isActive: false })
-      .catch((e) => e);
+    const error = await service.update(someone.id, lone.id, { isActive: false }).catch((e) => e);
 
     expect(status(error)).toBe(409);
     expect((await users.findById(lone.id))?.isActive).toBe(true);

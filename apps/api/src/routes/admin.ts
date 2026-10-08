@@ -90,14 +90,10 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) => {
-      const updated = await app.adminUsersService.update(
-        request.user.user_id,
-        request.params.id,
-        {
-          ...(request.body.role !== undefined ? { role: request.body.role } : {}),
-          ...(request.body.is_active !== undefined ? { isActive: request.body.is_active } : {}),
-        },
-      );
+      const updated = await app.adminUsersService.update(request.user.user_id, request.params.id, {
+        ...(request.body.role !== undefined ? { role: request.body.role } : {}),
+        ...(request.body.is_active !== undefined ? { isActive: request.body.is_active } : {}),
+      });
       return toAdminUserResponse(updated);
     },
   );

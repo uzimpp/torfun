@@ -1,4 +1,4 @@
-import { TorAnalysisSchema, type TorAnalysis } from '@torfun/types';
+import { ProcurementStatus, TorAnalysisSchema, type TorAnalysis } from '@torfun/types';
 import { convertDateToISO } from '../egp/dates';
 import { z } from 'zod';
 
@@ -25,11 +25,22 @@ export type ModelCall = (parts: { pdfBase64: string; prompt: string }) => Promis
  */
 export const MAX_INLINE_PDF_BYTES = 15 * 1024 * 1024;
 
+/**
+ * The stages the model may name. `unknown` is what this system says when no one
+ * has read a stage; a model asked to choose between six stages and "unknown"
+ * would use it as an easy way out, so its way out is null.
+ */
+export const ModelStatus = ProcurementStatus.exclude(['unknown']);
+export type ModelStatus = z.infer<typeof ModelStatus>;
+
 const AnswerSchema = z.object({
   isTor: z.boolean(),
   torKind: z.enum(['final', 'draft']).nullable(),
   whatThisIs: z.string(),
   analysis: TorAnalysisSchema.nullable(),
+  // Defaulted so a reply that omits it is still read; the request schema asks
+  // for it, but a model is not a contract.
+  procurementStatus: ModelStatus.nullable().default(null),
 });
 
 export interface DocumentClassification {
@@ -37,6 +48,8 @@ export interface DocumentClassification {
   torKind: 'final' | 'draft' | null;
   whatThisIs: string;
   analysis: TorAnalysis | null;
+  /** The agency's stage as this document shows it, or null where it does not. */
+  procurementStatus?: ModelStatus | null;
   /** Set when the document could not be read at all; the reason why. */
   unreadable?: string;
 }
@@ -47,7 +60,8 @@ const PROMPT = `คุณคือผู้ช่วยคัดกรองเ�
 { "isTor": boolean,
   "torKind": "final" | "draft" | null,
   "whatThisIs": string,
-  "analysis": { ... } | null }
+  "analysis": { ... } | null,
+  "procurementStatus": "drafting" | "open" | "evaluating" | "awarded" | "contracted" | "cancelled" | null }
 
 - isTor เป็น true เฉพาะเมื่อเอกสารนี้คือขอบเขตของงาน (TOR) จริง ๆ
   เอกสารอื่น เช่น หนังสือรับรอง สัญญา ใบเสนอราคา ประกาศเชิญชวน ให้ตอบ false
@@ -58,6 +72,12 @@ const PROMPT = `คุณคือผู้ช่วยคัดกรองเ�
   ถ้าเอกสารไม่ได้ระบุวันปิดรับข้อเสนอที่แน่นอน ให้เป็น null ห้ามใช้วันที่ทำสัญญาหรือส่งมอบงานแทน
   ใช้รูปแบบ ISO ปี ค.ศ. หากมีเวลาให้ระบุเขตเวลา +07:00 หากไม่มีเวลาให้ระบุเฉพาะวันที่
 - durationDays คือระยะเวลาดำเนินงาน/ส่งมอบงาน ไม่ใช่จำนวนวันก่อนปิดรับข้อเสนอ
+- procurementStatus คือขั้นตอนของโครงการตามที่เอกสารนี้แสดงอยู่เท่านั้น เลือกได้เพียงหนึ่งใน:
+  "drafting" (เอกสารเป็นร่าง TOR หรืออยู่ระหว่างจัดทำ/รับฟังความคิดเห็น),
+  "open" (ประกาศเชิญชวนแล้ว เปิดรับข้อเสนอ),
+  "evaluating" (ปิดรับข้อเสนอแล้ว อยู่ระหว่างพิจารณา),
+  "awarded" (ประกาศผู้ชนะแล้ว), "contracted" (ทำสัญญาแล้ว), "cancelled" (ยกเลิกโครงการ)
+  หากเอกสารไม่ได้ระบุขั้นตอนอย่างชัดเจนให้ตอบ null ห้ามเดา
 - ค่าที่ไม่ปรากฏในเอกสารให้เป็น null หรือ [] ห้ามคาดเดา`;
 
 /** A PDF really starts with %PDF; an extension is not proof of anything. */

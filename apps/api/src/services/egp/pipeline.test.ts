@@ -103,6 +103,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       analysis,
     }),
     sleep: async () => {},
+    recordDeadlineMs: 60_000,
     ...overrides,
   };
 }
@@ -275,5 +276,325 @@ describe('runIngestion', () => {
 
     expect(classify).toHaveBeenCalledTimes(2);
     expect((await repository.get('66059313551'))?.torAmbiguous).toBe(true);
+  });
+});
+
+describe('stages and the per-record deadline', () => {
+  test('a record is downloading, then analysing, then done', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository);
+
+    const outcomes = (await repository.get('66059313551'))?.statusHistory.map((s) => s.outcome);
+    expect(outcomes).toEqual(['downloading', 'analysing', 'tor_analysed']);
+  });
+
+  test('a record with nothing to read never reaches analysing', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      extractTorPdfs: () => ({ torFiles: [], members: ['annoudoc_1.pdf'], unsafeSkipped: [] }),
+    });
+
+    const outcomes = (await repository.get('66059313551'))?.statusHistory.map((s) => s.outcome);
+    expect(outcomes).toEqual(['downloading', 'no_tor_in_archive']);
+  });
+
+  test('a record that overruns its deadline is requeued as a transport failure, and the run moves on', async () => {
+    const repository = new InMemoryProcurementStore();
+    let release: () => void = () => {};
+    const hung = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const result = await run(repository, {
+      recordDeadlineMs: 20,
+      discoverProjects: async () => ({
+        records: [procurement(), procurement({ projectId: '66059313552' })],
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+      classifyDocument: async () => {
+        await hung;
+        return { isTor: true, torKind: 'final' as const, whatThisIs: 'ขอบเขตของงาน', analysis };
+      },
+    });
+
+    // Both records hang, neither takes the whole run down with it.
+    expect(result.aborted).toBe(false);
+    expect(result.attempted).toBe(2);
+    const first = await repository.get('66059313551');
+    expect(first?.state).toBe('Queued');
+    expect(first?.outcome).toBe('error');
+    expect(first?.attempts).toBe(1);
+    expect(first?.statusHistory.at(-1)?.detail).toMatch(/deadline/i);
+
+    // The stuck work finishing afterwards must not overwrite the requeue.
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect((await repository.get('66059313551'))?.outcome).toBe('error');
+  });
+});
+
+describe('what Gemini reads from the TOR', () => {
+  const reading = (
+    overrides: {
+      procurementStatus?: 'drafting' | 'awarded' | null;
+      isSoftwareProject?: boolean;
+    } = {},
+  ): Partial<IngestionDeps> => ({
+    classifyDocument: async () => ({
+      isTor: true,
+      torKind: 'final' as const,
+      whatThisIs: 'ขอบเขตของงาน',
+      analysis: { ...analysis, isSoftwareProject: overrides.isSoftwareProject ?? true },
+      procurementStatus: overrides.procurementStatus ?? null,
+    }),
+  });
+  const unread = (overrides: Partial<Procurement> = {}) => ({
+    discoverProjects: async () => ({
+      records: [
+        procurement({
+          status: 'unknown',
+          statusSource: null,
+          upstreamStatus: 'ระหว่างดำเนินการ',
+          ...overrides,
+        }),
+      ],
+      rejected: [],
+      resolutions: [],
+      failures: [],
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+  });
+
+  test('a TOR the model judges not to be software work ends as not_software, analysis kept', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, reading({ isSoftwareProject: false }));
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Completed');
+    expect(record?.outcome).toBe('not_software');
+    // The record stays readable and overrulable: nothing is discarded.
+    expect(record?.analysis?.isSoftwareProject).toBe(false);
+    expect(record?.documents.find((d) => d.role === 'main_tor')).toBeDefined();
+  });
+
+  test('fills in a stage nobody has read yet, and marks it as the model’s reading', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, { ...unread(), ...reading({ procurementStatus: 'drafting' }) });
+
+    const record = await repository.get('66059313551');
+    expect(record?.status).toBe('drafting');
+    expect(record?.statusSource).toBe('ai');
+  });
+
+  test('never overrides a stage the feed named', async () => {
+    const repository = new InMemoryProcurementStore();
+    // The default record is `open`, read from upstream.
+    await run(repository, reading({ procurementStatus: 'awarded' }));
+
+    const record = await repository.get('66059313551');
+    expect(record?.status).toBe('open');
+    expect(record?.statusSource).toBe('upstream');
+  });
+
+  test('leaves the status unclassified when the documents do not show one', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, { ...unread(), ...reading({ procurementStatus: null }) });
+
+    const record = await repository.get('66059313551');
+    expect(record?.status).toBe('unknown');
+    expect(record?.statusSource).toBeNull();
+  });
+
+  test('a model reading survives the next discovery sweep', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, { ...unread(), ...reading({ procurementStatus: 'drafting' }) });
+
+    // The feed still says only "in progress", which places the project nowhere.
+    await run(repository, { ...unread(), resolveZipId: async () => null });
+
+    expect((await repository.get('66059313551'))?.status).toBe('drafting');
+  });
+});
+
+describe('the analysis pool', () => {
+  const four = ['A', 'B', 'C', 'D'].map((letter) =>
+    extracted({ member: `Attach_TOR_${letter}.pdf`, filename: `Attach_TOR_${letter}.pdf` }),
+  );
+
+  test('reads at most two PDFs of an archive at once, and keeps their order', async () => {
+    const repository = new InMemoryProcurementStore();
+    let inFlight = 0;
+    let peak = 0;
+    const seen: string[] = [];
+
+    await run(repository, {
+      extractTorPdfs: () => ({
+        torFiles: four,
+        members: four.map((pdf) => pdf.member),
+        unsafeSkipped: [],
+      }),
+      classifyDocument: async (pdf) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        seen.push(pdf.byteLength.toString());
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        return { isTor: false, torKind: null, whatThisIs: 'ไม่ใช่ TOR', analysis: null };
+      },
+    });
+
+    expect(peak).toBe(2);
+    const record = await repository.get('66059313551');
+    expect(record?.documents.map((document) => document.filename)).toEqual(
+      four.map((pdf) => pdf.filename),
+    );
+  });
+
+  test('downloads stay one at a time even though analysis is pooled', async () => {
+    const repository = new InMemoryProcurementStore();
+    let downloading = 0;
+    let peak = 0;
+
+    await run(repository, {
+      discoverProjects: async () => ({
+        records: [1, 2, 3].map((n) => procurement({ projectId: `6605931355${n}` })),
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+      downloadArchive: async () => {
+        downloading += 1;
+        peak = Math.max(peak, downloading);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        downloading -= 1;
+        return new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+      },
+    });
+
+    expect(peak).toBe(1);
+  });
+});
+
+describe('the reaper', () => {
+  const stuck = (projectId: string, at: string) =>
+    procurement({
+      projectId,
+      state: 'Processing',
+      outcome: 'downloading',
+      statusHistory: [{ state: 'Processing', outcome: 'downloading', at }],
+    });
+
+  test('a record left Processing by a dead run is requeued at the next run, without costing an attempt', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(stuck('66059313551', '2026-09-01T00:00:00.000Z'));
+
+    // Discovery finds nothing new, so what happens to the record is the reaper's doing.
+    await run(repository, {
+      discoverProjects: async () => ({
+        records: [],
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+      resolveZipId: async () => null,
+    });
+
+    const record = await repository.get('66059313551');
+    const requeued = record?.statusHistory.find((entry) => entry.outcome === 'queued');
+    expect(requeued?.detail).toMatch(/stuck/i);
+    expect(record?.attempts).toBe(0);
+  });
+
+  test('a record that is Processing right now is left alone', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(stuck('66059313551', new Date().toISOString()));
+
+    await run(repository, {
+      discoverProjects: async () => ({
+        records: [],
+        rejected: [],
+        resolutions: [],
+        failures: [],
+        ranAt: '2026-09-09T00:00:00.000Z',
+      }),
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Processing');
+    expect(record?.statusHistory).toHaveLength(1);
+  });
+});
+
+describe('retry policy (ADR-0006)', () => {
+  const resetting = {
+    resolveZipId: async () => {
+      throw new Error('connection reset');
+    },
+  };
+
+  test('a transport error leaves the record Queued to be tried again, and counts one attempt', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, resetting);
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Queued');
+    expect(record?.outcome).toBe('error');
+    expect(record?.attempts).toBe(1);
+    expect(record?.statusHistory.at(-1)?.detail).toContain('connection reset');
+  });
+
+  test('the third failed attempt abandons the record', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, resetting);
+    await run(repository, resetting);
+    expect((await repository.get('66059313551'))?.outcome).toBe('error');
+
+    await run(repository, resetting);
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Failed');
+    expect(record?.outcome).toBe('abandoned');
+    expect(record?.attempts).toBe(3);
+  });
+
+  test('an abandoned record is not selected again', async () => {
+    const repository = new InMemoryProcurementStore();
+    const resolve = mock(async () => {
+      throw new Error('connection reset');
+    });
+    for (let i = 0; i < 3; i += 1) await run(repository, { resolveZipId: resolve });
+    expect(resolve).toHaveBeenCalledTimes(3);
+
+    await run(repository, { resolveZipId: resolve });
+
+    expect(resolve).toHaveBeenCalledTimes(3);
+  });
+
+  test('a rate limit is not an attempt: the record goes back to the queue untouched', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, {
+      resolveZipId: async () => {
+        throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
+      },
+    });
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Queued');
+    expect(record?.outcome).toBe('queued');
+    expect(record?.attempts).toBe(0);
+  });
+
+  test('a project with no published TOR package stays terminal', async () => {
+    const repository = new InMemoryProcurementStore();
+    await run(repository, { resolveZipId: async () => null });
+
+    const record = await repository.get('66059313551');
+    expect(record?.state).toBe('Failed');
+    expect(record?.outcome).toBe('no_tor_package');
+    expect(record?.attempts).toBe(0);
   });
 });

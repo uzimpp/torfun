@@ -146,15 +146,92 @@ describeMongo('ProcurementRepository', () => {
     // — so this failing to hold is a 500 on every list of procurements that
     // includes the affected record, not just a shape mismatch in a test.
     await repository.upsert(procurement());
-    const updated = await repository.transition('66059313551', 'Processing', 'downloading');
+    const updated = await repository.transition('66059313551', 'downloading');
 
     const last = updated?.statusHistory.at(-1);
     expect(last).not.toHaveProperty('detail');
   });
 
+  test('a transition derives State from Outcome, so the two cannot disagree', async () => {
+    await repository.upsert(procurement());
+    const expected = {
+      downloading: 'Processing',
+      analysing: 'Processing',
+      error: 'Queued',
+      not_software: 'Completed',
+      no_tor_package: 'Failed',
+      abandoned: 'Failed',
+    } as const;
+
+    for (const [outcome, state] of Object.entries(expected)) {
+      const updated = await repository.transition('66059313551', outcome as keyof typeof expected);
+      expect(updated?.state).toBe(state);
+      expect(updated?.statusHistory.at(-1)).toMatchObject({ state, outcome });
+    }
+  });
+
+  test('attemptsBelow leaves exhausted records out of the query, and counts a missing field as zero', async () => {
+    await seed([
+      procurement({ projectId: 'fresh', attempts: 0 }),
+      procurement({ projectId: 'retrying', attempts: 2 }),
+      procurement({ projectId: 'exhausted', attempts: 3 }),
+      procurement({ projectId: 'legacy', attempts: 0 }),
+    ]);
+    // A record written before attempts were counted has no such field at all.
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne({ _id: 'legacy' as never }, { $unset: { attempts: '' } });
+
+    const { items, total } = await repository.find({
+      state: 'Queued',
+      attemptsBelow: 3,
+      limit: 50,
+      offset: 0,
+    });
+
+    expect(items.map((r) => r.projectId).sort()).toEqual(['fresh', 'legacy', 'retrying']);
+    expect(total).toBe(3);
+  });
+
+  test('requeueStale returns records stuck in Processing to the queue, and only those', async () => {
+    const processing = (projectId: string, at: string) =>
+      procurement({
+        projectId,
+        state: 'Processing',
+        outcome: 'downloading',
+        statusHistory: [{ state: 'Processing', outcome: 'downloading', at }],
+      });
+    await seed([
+      processing('stale', '2026-09-01T00:00:00.000Z'),
+      processing('fresh', '2026-09-30T12:00:00.000Z'),
+      procurement({ projectId: 'queued' }),
+      procurement({
+        projectId: 'done',
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        statusHistory: [
+          { state: 'Completed', outcome: 'tor_analysed', at: '2026-09-01T00:00:00.000Z' },
+        ],
+      }),
+    ]);
+
+    const count = await repository.requeueStale('2026-09-30T00:00:00.000Z');
+
+    expect(count).toBe(1);
+    const stale = await repository.get('stale');
+    expect(stale?.state).toBe('Queued');
+    expect(stale?.outcome).toBe('queued');
+    expect(stale?.attempts).toBe(0);
+    expect(stale?.statusHistory.at(-1)?.detail).toMatch(/stuck/i);
+    expect((await repository.get('fresh'))?.state).toBe('Processing');
+    expect((await repository.get('done'))?.state).toBe('Completed');
+  });
+
   test('rediscovering a project does not reset a finished retrieval', async () => {
     await repository.upsert(procurement({ matchedKeywords: ['จ้างพัฒนา'] }));
-    await repository.transition('66059313551', 'Completed', 'tor_analysed', {
+    await repository.transition('66059313551', 'tor_analysed', {
       documents: [doc()],
     });
 

@@ -30,6 +30,10 @@ bun run dev
 
 Web on <http://localhost:3000>, API on <http://localhost:8080>.
 
+`bun run dev` watches files, and saving any of them restarts the API and kills an
+ingestion run in flight. To let a run finish, start the API without the watcher
+(`bun run dev:stable` inside `apps/api`) and edit freely.
+
 Registering through the web app creates a Business Development Officer. The
 ingestion console at `/admin/ingestion` needs the admin role, which is granted in
 the database and never self-claimed:
