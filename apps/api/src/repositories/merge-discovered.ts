@@ -51,6 +51,7 @@ export function mergeDiscovered(
     // retrieval that already happened.
     state: existing.state,
     outcome: existing.outcome,
+    holdReason: existing.holdReason,
     statusHistory: existing.statusHistory,
     zipId: existing.zipId,
     zipBytes: existing.zipBytes,

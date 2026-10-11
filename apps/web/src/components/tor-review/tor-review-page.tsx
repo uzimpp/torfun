@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { TorDownloadButton } from './tor-download-button';
+import { TorReportButton } from './tor-report-button';
 
 const bahtFormat = new Intl.NumberFormat('th-TH');
 
@@ -60,6 +61,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               </Button>
               <TorDownloadButton projectId={tor.projectId} />
             </div>
+            <TorReportButton projectId={tor.projectId} />
           </div>
         </div>
       </section>

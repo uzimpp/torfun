@@ -1,6 +1,15 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import type { ArchiveDocument, Procurement, ProcurementStatus, TorAnalysis } from '@torfun/types';
+import {
+  ACCESS_COOKIE,
+  ProcurementSchema,
+  type ArchiveDocument,
+  type Procurement,
+  type ProcurementStatus,
+  type TorAnalysis,
+} from '@torfun/types';
+import { buildApp } from '../app';
+import { testEnv } from '../testing/env';
 import { TorService } from '../services/tor.service';
 import { ProcurementRepository } from './procurement.repository';
 
@@ -115,6 +124,163 @@ describeMongo('ProcurementRepository', () => {
     (await repository.find({ limit: 50, offset: 0, ...(status ? { status } : {}) })).items.map(
       (r) => r.projectId,
     );
+
+  // A fixture in this suite's disposable database, never in the ingestion DB.
+  // Represents the alternate Atlas schema without copying project evidence.
+  const seedAlternate = async () => {
+    const database = await getDb();
+    await database.collection<{ _id: string } & Record<string, unknown>>('procurements').insertOne({
+      _id: 'alternate',
+      project_name: 'โครงการทดสอบ',
+      dept_name: 'หน่วยงานทดสอบ',
+      dept_sub_name: null,
+      dept_code: '0100',
+      budget_year: 2568,
+      announce_date: null,
+      project_type_name: null,
+      purchase_method_name: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+      project_money: 1_000_000,
+      price_build: null,
+      status: 'awarded',
+      state: 'Completed',
+      outcome: 'needs_review',
+      hold_reason: 'partial_read',
+      status_history: [{ state: 'Processing', outcome: 'analysing', at: '2026-09-09T00:00:00Z' }],
+      zip_id: 'source-archive',
+      documents: [
+        {
+          member: 'invitation.pdf',
+          filename: 'invitation.pdf',
+          bytes: 200,
+          namePattern: 'unlabelled',
+          role: 'invitation',
+          note: 'ประกาศเชิญชวน',
+          readMode: 'first_pages',
+          readNote: 'อ่านเพียงหน้าแรก',
+        },
+      ],
+      analysis: {
+        summary: 'ผลอ่านทดสอบ',
+        scopeOfWork: [],
+        budgetThb: null,
+        deadlineAt: null,
+        durationDays: null,
+        techStack: [],
+        targetPlatforms: [],
+        requiredQualifications: [],
+        reason: 'อ่านไม่ครบ',
+        promptVersion: 'fixture-v1',
+      },
+      winner: null,
+      tor_ambiguous: false,
+      discovered_at: '2026-09-09T00:00:00Z',
+      updated_at: '2026-09-09T00:00:00Z',
+      source_hash: 'source-fingerprint',
+      milestones: { bidding: '2026-09-10' },
+    });
+  };
+
+  test('reads both stored schemas without inventing heuristics or AI confidence', async () => {
+    await seed([procurement()]);
+    await seedAlternate();
+    const alternate = await repository.get('alternate');
+    expect(ProcurementSchema.safeParse(alternate).success).toBe(true);
+    expect(alternate).toMatchObject({
+      year: 2568,
+      registryName: null,
+      softwareClass: null,
+      softwareScore: null,
+      matchedKeywords: [],
+      eBidding: true,
+      status: 'award_announced',
+      outcome: 'needs_review',
+      holdReason: 'partial_read',
+      zipId: 'source-archive',
+      zipBytes: null,
+      archiveMemberCount: null,
+      analysis: { isSoftwareProject: null, confidence: null, reason: 'อ่านไม่ครบ' },
+      documents: [{ role: 'invitation', namePattern: 'unlabelled', readMode: 'first_pages' }],
+    });
+    const current = await repository.get('66059313551');
+    expect(current).toMatchObject({ registryName: 'กรุงเทพมหานคร', softwareClass: 'new_build' });
+    const filtered = await repository.find({ limit: 20, offset: 0, year: 2568, eBidding: true });
+    expect(filtered.total).toBe(2);
+    expect((await repository.find({ limit: 20, offset: 0, status: 'award_announced' })).total).toBe(
+      1,
+    );
+  });
+
+  test('mixed-schema data serializes through all three previously failing routes', async () => {
+    await seed([procurement()]);
+    await seedAlternate();
+    await repository.recordFailures([
+      {
+        projectId: 'alternate',
+        projectName: null,
+        stage: 'timeline',
+        error: 'unavailable',
+        at: '2026-09-09T00:00:00Z',
+      },
+    ]);
+    const app = await buildApp(testEnv({ LOG_LEVEL: 'fatal' }), { procurements: repository });
+    const cookies = {
+      [ACCESS_COOKIE]: app.jwt.sign({ user_id: 'tester', username: 'tester', role: 'admin' }),
+    };
+    try {
+      for (const url of ['/api/ingestion/summary', '/api/ingestion/failures', '/api/tors']) {
+        const response = await app.inject({ method: 'GET', url, cookies });
+        expect(response.statusCode).toBe(200);
+      }
+      const response = await app.inject({ method: 'GET', url: '/api/ingestion/summary', cookies });
+      expect(response.json()).toMatchObject({
+        total: 2,
+        byOutcome: { queued: 1, needs_review: 1 },
+        byYear: [{ year: 2568, count: 2 }],
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('missing stored ranks do not put settled alternate records ahead of live tenders', async () => {
+    await seed([procurement({ projectId: 'current-open', status: 'invitation' })]);
+    await seedAlternate();
+    const records = (await getDb()).collection<{ _id: string } & Record<string, unknown>>(
+      'procurements',
+    );
+    const alternate = await records.findOne({ _id: 'alternate' });
+    if (!alternate) throw new Error('alternate fixture is missing');
+    await records.insertOne({
+      ...alternate,
+      _id: 'alternate-open',
+      status: 'open',
+      project_money: 2_000_000,
+    });
+    const page = await repository.find({ limit: 2, offset: 0 });
+    expect(page.items.map((item) => item.projectId)).toEqual(['current-open', 'alternate-open']);
+    expect(page.total).toBe(3);
+    const next = await repository.find({ limit: 2, offset: 2 });
+    expect(next.items.map((item) => item.projectId)).toEqual(['alternate']);
+  });
+
+  test('rediscovery and transitions retain evidence belonging to the alternate pipeline', async () => {
+    await seedAlternate();
+    await repository.upsert(procurement({ projectId: 'alternate' }));
+    await repository.transition('alternate', 'Completed', 'needs_review');
+    const stored = await (
+      await getDb()
+    )
+      .collection<{ _id: string }>('procurements')
+      .findOne({ _id: 'alternate' });
+    expect(stored).toMatchObject({
+      budget_year: 2568,
+      hold_reason: 'partial_read',
+      source_hash: 'source-fingerprint',
+      milestones: { bidding: '2026-09-10' },
+      analysis: { reason: 'อ่านไม่ครบ', promptVersion: 'fixture-v1' },
+      documents: [{ member: 'invitation.pdf', role: 'invitation', readMode: 'first_pages' }],
+    });
+  });
 
   test('a record survives a round trip through Mongo unchanged', async () => {
     const record = procurement({

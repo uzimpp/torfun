@@ -29,7 +29,12 @@ const AnswerSchema = z.object({
   isTor: z.boolean(),
   torKind: z.enum(['final', 'draft']).nullable(),
   whatThisIs: z.string(),
-  analysis: TorAnalysisSchema.nullable(),
+  // Stored analyses can have unknown judgements; new model answers still
+  // must supply both fields rather than silently weakening ingestion validation.
+  analysis: TorAnalysisSchema.extend({
+    isSoftwareProject: z.boolean(),
+    confidence: z.enum(['high', 'low']),
+  }).nullable(),
 });
 
 export interface DocumentClassification {

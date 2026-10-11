@@ -36,6 +36,8 @@ export const ProcurementStatus = z.enum([
   'contracted',
   'cancelled',
   'unknown',
+  // The other stored vocabulary has one combined pre-invitation stage.
+  'drafting',
 ]);
 export type ProcurementStatus = z.infer<typeof ProcurementStatus>;
 
@@ -48,6 +50,7 @@ export const STATUS_LABELS: Record<ProcurementStatus, string> = {
   contracted: 'จัดทำสัญญา/บริหารสัญญา',
   cancelled: 'ยกเลิกโครงการ',
   unknown: 'สถานะไม่ทราบ',
+  drafting: 'จัดทำเอกสารก่อนประกาศเชิญชวน',
 };
 
 /**
@@ -67,6 +70,11 @@ export const IngestionOutcome = z.enum([
   'no_tor_in_archive',
   'no_tor_package',
   'error',
+  // Read compatibility for runs written by the shared Atlas pipeline.
+  'downloading',
+  'analysing',
+  'needs_review',
+  'abandoned',
 ]);
 export type IngestionOutcome = z.infer<typeof IngestionOutcome>;
 
@@ -79,6 +87,10 @@ export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
   no_tor_in_archive: 'ไม่มี TOR ในไฟล์บีบอัด',
   no_tor_package: 'ไม่มีชุดเอกสาร TOR',
   error: 'ดึงข้อมูลผิดพลาด',
+  downloading: 'กำลังดาวน์โหลดเอกสาร',
+  analysing: 'กำลังวิเคราะห์ TOR',
+  needs_review: 'รอผู้ดูแลตรวจสอบ',
+  abandoned: 'หยุดดึงหลังครบจำนวนครั้ง',
 };
 
 /**
@@ -105,7 +117,14 @@ export type StatusChange = z.infer<typeof StatusChangeSchema>;
  * the loose filename pattern matches `CONTRACTOR.pdf` and `MONITOR_spec.pdf`,
  * and cannot tell a ร่าง from the TOR it supersedes.
  */
-export const DocumentRole = z.enum(['main_tor', 'tor_variant', 'not_tor', 'unreadable']);
+export const DocumentRole = z.enum([
+  'main_tor',
+  'tor_variant',
+  'not_tor',
+  'unreadable',
+  'invitation',
+  'bidding_document',
+]);
 export type DocumentRole = z.infer<typeof DocumentRole>;
 
 /**
@@ -119,10 +138,12 @@ export const ArchiveDocumentSchema = z.object({
   filename: z.string(),
   bytes: z.number().int().nonnegative(),
   /** What the filename heuristic thought. Provenance and tie-breaker only. */
-  namePattern: z.enum(['canonical', 'loose']),
+  namePattern: z.enum(['canonical', 'loose', 'unlabelled']),
   role: DocumentRole,
   /** Why this document has that role, in the model's words. */
   note: z.string(),
+  readMode: z.enum(['pdf', 'text', 'first_pages']).optional(),
+  readNote: z.string().optional(),
 });
 export type ArchiveDocument = z.infer<typeof ArchiveDocumentSchema>;
 
@@ -157,8 +178,12 @@ export const TorAnalysisSchema = z.object({
    * opinion, and where the two disagree that is worth an officer's attention —
    * so neither is allowed to silently win.
    */
-  isSoftwareProject: z.boolean(),
-  confidence: z.enum(['high', 'low']),
+  // Some stored analyses keep the judgement in the outcome instead. Absence
+  // must not be presented as a confident software judgement.
+  isSoftwareProject: z.boolean().nullable(),
+  confidence: z.enum(['high', 'low']).nullable(),
+  reason: z.string().nullish(),
+  promptVersion: z.string().nullish(),
 });
 export type TorAnalysis = z.infer<typeof TorAnalysisSchema>;
 
@@ -212,7 +237,7 @@ export const ProcurementSchema = z.object({
   district: z.string().nullable(),
   subdistrict: z.string().nullable(),
   /** The Source Registry entry this record was collected under. */
-  registryName: z.string(),
+  registryName: z.string().nullable(),
   deptCode: z.string(),
   /** Thai Buddhist fiscal year (2567–2569). */
   year: z.number().int(),
@@ -230,8 +255,8 @@ export const ProcurementSchema = z.object({
   status: ProcurementStatus,
   matchedKeywords: z.array(z.string()),
 
-  softwareClass: SoftwareClass,
-  softwareScore: z.number().int(),
+  softwareClass: SoftwareClass.nullable(),
+  softwareScore: z.number().int().nullable(),
   /**
    * Whether the tender method is competitive. This is the single best
    * predictor of TOR availability found in the POC (32/32 e-bidding projects
@@ -243,10 +268,11 @@ export const ProcurementSchema = z.object({
    * keeps what it would otherwise throw away. `status` could drop its raw field
    * because that enum is lossless; this one is not.
    */
-  eBidding: z.boolean(),
+  eBidding: z.boolean().nullable(),
 
   state: IngestionState,
   outcome: IngestionOutcome,
+  holdReason: z.enum(['ai_low_confidence', 'ai_not_software_low', 'partial_read']).nullish(),
   statusHistory: z.array(StatusChangeSchema),
 
   /** Handle for the announcement archive; null until the info call resolves it. */
@@ -388,7 +414,7 @@ export const IngestionFailureSchema = z.object({
   projectId: z.string(),
   projectName: z.string().nullable(),
   /** Which step failed: registry resolution, discovery, info lookup, download, extract, analysis. */
-  stage: z.enum(['dept', 'discovery', 'info', 'download', 'extract', 'analysis']),
+  stage: z.enum(['dept', 'discovery', 'timeline', 'info', 'download', 'extract', 'analysis']),
   error: z.string(),
   at: z.string(),
 });

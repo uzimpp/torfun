@@ -20,7 +20,10 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request) => {
       const { q, ...filters } = request.query;
-      const { items, total } = await app.torService.list({ ...filters, query: q });
+      const { items, total } = await app.torService.list(
+        { ...filters, query: q },
+        request.user.role === 'admin',
+      );
       return { items, total, limit: filters.limit, offset: filters.offset };
     },
   );
@@ -36,7 +39,7 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       },
     },
-    async (request) => app.torService.get(request.params.projectId),
+    async (request) => app.torService.get(request.params.projectId, request.user.role === 'admin'),
   );
 
   app.get(
@@ -48,7 +51,10 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const source = await app.torService.source(request.params.projectId);
+      const source = await app.torService.source(
+        request.params.projectId,
+        request.user.role === 'admin',
+      );
       const filename = source.filename.replace(/[\\"\r\n]/g, '_');
       return reply
         .type('application/pdf')
