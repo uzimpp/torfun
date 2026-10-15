@@ -8,6 +8,11 @@ export const EnvSchema = z.object({
 
   // Mongo Atlas
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
+  /** Which database on that server to use. Unset or empty: the one named in the URI. */
+  MONGODB_DB: z
+    .string()
+    .optional()
+    .transform((name) => name || undefined),
 
   // CORS: comma-separated list of allowed origins.
   CORS_ORIGINS: z
