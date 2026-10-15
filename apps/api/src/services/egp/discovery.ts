@@ -82,6 +82,11 @@ export interface DiscoveryResult {
    * stopped there. Like a refusal, the caller stops the Run.
    */
   unreachable: boolean;
+  /**
+   * Every agency's new days were read. Only then does the sweep count as done,
+   * so a Run soon after skips it; one with a failed day must be asked again.
+   */
+  complete: boolean;
   ranAt: string;
 }
 
@@ -383,6 +388,7 @@ export async function discoverProjects(
     failures,
     rateLimited,
     unreachable,
+    complete: !halted() && stalledNew.size === 0,
     ranAt: now(),
   };
 }

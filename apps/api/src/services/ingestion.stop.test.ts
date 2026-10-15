@@ -88,6 +88,7 @@ async function build(options: { records?: number; heartbeatMs?: number } = {}) {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: new Date().toISOString(),
       }),

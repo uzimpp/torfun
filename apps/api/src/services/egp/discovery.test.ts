@@ -224,6 +224,15 @@ describe('discoverProjects: which days it asks about', () => {
     expect(asked).toHaveLength(3);
   });
 
+  test('only a sweep that read every new day is complete', async () => {
+    expect((await sweep(fakeFeed().feed, caughtUp())).complete).toBe(true);
+
+    const { feed } = fakeFeed({
+      [`${CUSTOMS}:B0:${TODAY}`]: new UpstreamError('HTTP 500'),
+    });
+    expect((await sweep(feed, caughtUp())).complete).toBe(false);
+  });
+
   test('an answer in between resets the count, so scattered timeouts do not stop it', async () => {
     const silent = (index: number) => [
       `${UNITS[index]}:${TODAY}`,

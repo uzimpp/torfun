@@ -35,6 +35,7 @@ export function gatedDeps(fail = false) {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: new Date().toISOString(),
       };
