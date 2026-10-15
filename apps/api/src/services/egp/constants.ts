@@ -140,6 +140,12 @@ export const POLITENESS = {
   openDataTimeoutMs: 30_000,
   /** Archives run to ~30 MB over a slow origin. */
   torTimeoutMs: 120_000,
+  /**
+   * The feed and the project detail are a few KB. If one has not answered in
+   * this time it will not, so it fails at once, without retries: a dead feed
+   * then costs seconds per day asked, not minutes.
+   */
+  lookupTimeoutMs: 20_000,
 } as const;
 
 /** Transport failures before a record is abandoned (ADR-0006); the number lives in `@torfun/types`. */

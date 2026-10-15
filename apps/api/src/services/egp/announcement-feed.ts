@@ -131,6 +131,7 @@ export function createAnnouncementFeed(): AnnouncementFeed {
         },
         BROWSER_HEADERS,
         signal,
+        'lookup',
       );
       return parseFeed(decoder.decode(await response.arrayBuffer()));
     },
