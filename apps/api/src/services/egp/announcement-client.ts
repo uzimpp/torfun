@@ -94,7 +94,13 @@ export function createAnnouncementClient(): AnnouncementClient {
     },
 
     async projectDetail(projectId, signal) {
-      const response = await egpGet(PROJECT_DETAIL_URL, { projectId }, BROWSER_HEADERS, signal);
+      const response = await egpGet(
+        PROJECT_DETAIL_URL,
+        { projectId },
+        BROWSER_HEADERS,
+        signal,
+        'lookup',
+      );
       const { data } = await readJson<ProjectDetailResponse>(
         response,
         `project detail endpoint for ${projectId}`,

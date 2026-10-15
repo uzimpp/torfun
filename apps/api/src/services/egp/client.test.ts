@@ -196,6 +196,21 @@ describe('the open-data API is asked once, because every request is part of a sm
     expect(calls.count).toBe(1);
   });
 
+  test('a lookup (the feed, a project detail) is asked once: a dead feed fails fast', async () => {
+    const calls = { count: 0 };
+    globalThis.fetch = (async () => {
+      calls.count += 1;
+      throw new TypeError('network down');
+    }) as unknown as typeof fetch;
+
+    const error = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup').catch(
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(UpstreamError);
+    expect(calls.count).toBe(1);
+  });
+
   test('the procurement site is still retried on a 5xx, with its backoff', async () => {
     const calls = { count: 0 };
     globalThis.fetch = (async () => {

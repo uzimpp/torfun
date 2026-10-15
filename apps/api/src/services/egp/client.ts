@@ -207,8 +207,14 @@ export async function egpGet(
   params: Record<string, string | number>,
   headers: Record<string, string>,
   signal?: AbortSignal,
+  /** `lookup`: a small answer, so a short wait and no retries (see `POLITENESS`). */
+  kind: 'download' | 'lookup' = 'download',
 ): Promise<Response> {
-  return fetchWithRetry(buildUrl(endpoint, params), { headers }, POLITENESS.torTimeoutMs, {
-    signal,
-  });
+  const lookup = kind === 'lookup';
+  return fetchWithRetry(
+    buildUrl(endpoint, params),
+    { headers },
+    lookup ? POLITENESS.lookupTimeoutMs : POLITENESS.torTimeoutMs,
+    { signal, maxRetries: lookup ? 0 : undefined },
+  );
 }
