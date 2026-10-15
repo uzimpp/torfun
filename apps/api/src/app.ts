@@ -29,6 +29,8 @@ import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
 import { TorService } from './services/tor.service';
+import { TorReportRepository, type TorReportStore } from './repositories/tor-report.repository';
+import { TorReportService } from './services/tor-report.service';
 import { registerRoutes } from './routes';
 
 /**
@@ -56,6 +58,7 @@ export interface RepositoryOverrides {
   procurements?: ProcurementDataSource;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
+  torReports?: TorReportStore;
 }
 
 /**
@@ -124,7 +127,16 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     new ExperienceService(experienceRepository, clientRepository, userRepository),
   );
   app.decorate('ingestionService', new IngestionService(procurementRepository, env, app.log));
-  app.decorate('torService', new TorService(torProcurementStore));
+  const torService = new TorService(torProcurementStore);
+  app.decorate('torService', torService);
+  app.decorate(
+    'torReportService',
+    new TorReportService(
+      repositories.torReports ?? new TorReportRepository(app.mongo.getDb),
+      torService,
+      userRepository,
+    ),
+  );
   app.decorate(
     'diagnosticsService',
     new DiagnosticsService(createDependencyProbes(env, app.mongo.getDb)),

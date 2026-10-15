@@ -21,19 +21,24 @@ export class TorService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  list(options: FindOptions): Promise<FindResult> {
-    const filters = resolveProcurementListOptions(options, this.now());
+  list(options: FindOptions, includeHeld = false): Promise<FindResult> {
+    const filters = resolveProcurementListOptions(
+      { ...options, excludeHeld: !includeHeld },
+      this.now(),
+    );
     return filters ? this.procurements.find(filters) : Promise.resolve({ items: [], total: 0 });
   }
 
-  async get(projectId: string): Promise<Procurement> {
+  async get(projectId: string, includeHeld = false): Promise<Procurement> {
     const procurement = await this.procurements.get(projectId);
-    if (!procurement) throw new NotFoundError(`No ingested project ${projectId}`);
+    if (!procurement || (!includeHeld && procurement.outcome === 'needs_review')) {
+      throw new NotFoundError(`No ingested project ${projectId}`);
+    }
     return procurement;
   }
 
-  async source(projectId: string): Promise<TorSource> {
-    const procurement = await this.get(projectId);
+  async source(projectId: string, includeHeld = false): Promise<TorSource> {
+    const procurement = await this.get(projectId, includeHeld);
     if (!procurement.zipId) throw new NotFoundError('No TOR source is available');
 
     const mainTor = procurement.documents.find((document) => document.role === 'main_tor');

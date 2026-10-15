@@ -45,6 +45,12 @@ function countTorDocuments(record: Procurement): number {
 function ProjectDetail({ record }: { record: Procurement }) {
   return (
     <div className="flex flex-col gap-4 p-2">
+      {record.outcome === 'needs_review' ? (
+        <p className="text-sm text-amber-700 dark:text-amber-400">
+          รอผู้ดูแลตรวจสอบ — ยังไม่ยืนยันผลวิเคราะห์
+          {record.analysis?.reason ? `: ${record.analysis.reason}` : ''}
+        </p>
+      ) : null}
       <div>
         <h3 className="text-muted-foreground text-xs font-medium">ประวัติสถานะ</h3>
         <ol className="mt-2 flex flex-col gap-1">
@@ -91,6 +97,16 @@ function ProjectDetail({ record }: { record: Procurement }) {
                     อ่านไม่ได้
                   </Badge>
                 ) : null}
+                {file.role === 'invitation' || file.role === 'bidding_document' ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    {file.role === 'invitation' ? 'ประกาศเชิญชวน' : 'เอกสารประกวดราคา'}
+                  </Badge>
+                ) : null}
+                {file.namePattern === 'unlabelled' ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    ชื่อไฟล์ไม่ระบุ TOR
+                  </Badge>
+                ) : null}
                 {file.namePattern === 'loose' ? (
                   <Badge variant="outline" className="text-[10px]">
                     ชื่อไฟล์ไม่ตรงแบบแผน
@@ -98,6 +114,11 @@ function ProjectDetail({ record }: { record: Procurement }) {
                 ) : null}
                 {file.note ? (
                   <span className="text-muted-foreground truncate">{file.note}</span>
+                ) : null}
+                {file.readMode && file.readMode !== 'pdf' ? (
+                  <span className="text-amber-700 dark:text-amber-400">
+                    อ่านเอกสารได้ไม่ครบ{file.readNote ? `: ${file.readNote}` : ''}
+                  </span>
                 ) : null}
               </li>
             ))}

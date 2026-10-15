@@ -19,7 +19,7 @@ import { hasSearchCriteria, type SearchFilterValues } from './search-filter-valu
 import { ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
 
-const CLASS_LABELS: Record<Procurement['softwareClass'], string> = {
+const CLASS_LABELS: Record<NonNullable<Procurement['softwareClass']>, string> = {
   new_build: 'พัฒนาระบบใหม่',
   oandm: 'ดูแลและบำรุงรักษา',
   not_software: 'ไม่ใช่งานซอฟต์แวร์',
@@ -187,7 +187,9 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
-          {CLASS_LABELS[item.softwareClass]}
+          {item.softwareClass === null
+            ? 'ยังไม่มีผลคัดกรองชื่อโครงการ'
+            : CLASS_LABELS[item.softwareClass]}
         </span>
         {item.eBidding ? (
           <span className="text-muted-foreground border-border rounded-full border px-2.5 py-1 text-xs">
@@ -195,7 +197,7 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
           </span>
         ) : (
           <span className="text-muted-foreground text-xs">
-            {item.purchaseMethodName ?? 'วิธีอื่นที่ไม่ใช่ e-bidding'}
+            {item.purchaseMethodName ?? 'ยังไม่ทราบวิธีจัดหา'}
           </span>
         )}
         <span data-numeric className="text-muted-foreground font-mono text-xs">

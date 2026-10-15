@@ -132,6 +132,32 @@ describe('TOR detail routes', () => {
     expect(response.statusCode).toBe(200);
   });
 
+  test('held records remain admin-only in listing, detail, and source routes', async () => {
+    await procurements.upsert(procurement({ projectId: 'held', outcome: 'needs_review' }));
+    const list = await app.inject({ method: 'GET', url: '/api/tors', cookies: session() });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().items.map((item: Procurement) => item.projectId)).toEqual(['project-1']);
+
+    for (const url of ['/api/tors/held', '/api/tors/held/source']) {
+      const response = await app.inject({ method: 'GET', url, cookies: session() });
+      expect(response.statusCode).toBe(404);
+    }
+
+    const adminList = await app.inject({
+      method: 'GET',
+      url: '/api/tors',
+      cookies: session('admin'),
+    });
+    expect(adminList.json().total).toBe(2);
+    const detail = await app.inject({
+      method: 'GET',
+      url: '/api/tors/held',
+      cookies: session('admin'),
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().outcome).toBe('needs_review');
+  });
+
   test('returns 404 for an unknown project', async () => {
     const response = await app.inject({
       method: 'GET',

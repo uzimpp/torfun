@@ -48,6 +48,8 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/tors`                          | user   | Search, filter and paginate procurements          |
 | GET    | `/tors/:projectId`               | user   | One procurement by its project id                 |
 | GET    | `/tors/:projectId/source`        | user   | Download the original TOR PDF                     |
+| POST   | `/tors/:projectId/reports`       | user   | Report a TOR for admin review (US-14 / FR-35)      |
+| GET    | `/admin/tor-reports`             | admin  | Shared report queue, newest first                 |
 | GET    | `/companies/search?q=`           | user   | Typeahead over Thai company names                 |
 | POST   | `/companies`                     | user   | Creates a Company and joins the caller to it      |
 | GET    | `/companies/me`                  | user   | The caller's Company; `404` when they have none   |
@@ -84,6 +86,41 @@ all relative windows use the calendar in Asia/Bangkok and paginate after filteri
 Choose either a relative window or `deadlineFrom`/`deadlineTo`, never both.
 Missing or unreadable deadlines do not match a date filter. The deadlines are AI
 extractions and must be verified against the original TOR before bidding.
+
+## TOR reports
+
+Authenticated users submit one reason and optional `details` (maximum 2,000
+characters). The `other` reason requires nonblank details. The API records the
+reporter's identity from their account and snapshots the TOR title and agency.
+It returns `201`; another pending report from the same user for that TOR returns
+`409`. Different users can report the same TOR.
+
+Reports persist in `tor_reports`, independently of procurements. Every admin can
+read the queue with `limit` (default 25, maximum 100) and `offset`. Reporting does
+not change publication or ingestion status. Review decisions belong to #80 and
+are not implemented here. Index setup is idempotent and runs lazily; for deployment,
+see `docs/migrations/2026-10-11-tor-reports.js`.
+
+## Shared Atlas record compatibility
+
+The API can read the current `develop` records and the alternate schema used by
+the shared ingestion pipeline in the same database. `budget_year` is read as
+`year` when `year` is absent; `open` and `awarded` are served as `invitation` and
+`award_announced`. Stored review outcomes and document-reading provenance stay
+visible to administrators. Records held as `needs_review` are excluded from
+officer listings, details and source downloads until reviewed by the pipeline
+that owns that decision.
+
+Missing title classification and AI confidence are returned as `null`, not
+guessed. Procurement-method filters fall back to the published method when the
+stored `e_bidding` flag is absent. Reads do not migrate or backfill records;
+rediscovery and transitions preserve fields belonging to the other pipeline.
+Unknown enum values and records without either fiscal-year field still fail
+validation rather than silently changing procurement evidence.
+
+An Atlas URI with no database path selects MongoDB's default `test` database.
+Keep the team's chosen URI when working on its shared dataset; resetting local
+Docker MongoDB does not affect Atlas.
 
 ## Health checks
 

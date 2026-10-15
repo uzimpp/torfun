@@ -43,6 +43,7 @@ const STATUS_LABELS: Record<Procurement['status'], string> = {
   contracted: 'จัดทำสัญญา/บริหารสัญญา',
   cancelled: 'ยกเลิกโครงการ',
   unknown: 'สถานะไม่ทราบ',
+  drafting: 'จัดทำเอกสารก่อนประกาศเชิญชวน',
 };
 
 function toReviewData(procurement: Procurement): TorReviewData {
@@ -105,7 +106,11 @@ export function useTorReviewData(projectId: string): TorReviewState {
           data: null,
           loading: false,
           notFound,
-          error: notFound ? null : caught instanceof ApiError ? caught.message : 'โหลดข้อมูล TOR ไม่สำเร็จ',
+          error: notFound
+            ? null
+            : caught instanceof ApiError
+              ? caught.message
+              : 'โหลดข้อมูล TOR ไม่สำเร็จ',
         });
       },
     );

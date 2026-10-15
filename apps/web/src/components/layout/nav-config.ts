@@ -2,6 +2,7 @@ import {
   Bookmark,
   Building2,
   Database,
+  Flag,
   LayoutDashboard,
   ScrollText,
   Search,
@@ -91,6 +92,7 @@ export function accountNav(role: UserRole): AccountNavItem[] {
         label: 'บันทึกข้อผิดพลาด',
         Icon: ScrollText,
       },
+      { href: '/admin/tor-reports', label: 'รายงาน TOR จากผู้ใช้', Icon: Flag },
       { href: '/admin/accounts', label: 'จัดการบัญชีผู้ใช้', Icon: Users },
     ];
   }

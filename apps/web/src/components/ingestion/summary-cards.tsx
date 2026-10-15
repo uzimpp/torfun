@@ -17,6 +17,7 @@ function formatBytes(bytes: number): string {
 
 export function SummaryCards({ summary }: { summary: IngestionSummaryResponse }) {
   const failed = summary.byState.Failed ?? 0;
+  const held = summary.byOutcome.needs_review ?? 0;
   const tiles = [
     {
       label: 'ประกาศทั้งหมด',
@@ -31,9 +32,9 @@ export function SummaryCards({ summary }: { summary: IngestionSummaryResponse })
       alert: false,
     },
     {
-      label: 'สำเร็จ',
+      label: 'ประมวลผลแล้ว',
       value: (summary.byState.Completed ?? 0).toLocaleString('th-TH'),
-      hint: `ได้ไฟล์ TOR ${summary.torDocumentsRetrieved} ไฟล์ · ${formatBytes(summary.totalTorBytes)}`,
+      hint: `ได้ไฟล์ TOR ${summary.torDocumentsRetrieved} ไฟล์ · ${formatBytes(summary.totalTorBytes)}${held > 0 ? ` · รอผู้ดูแลตรวจสอบ ${held.toLocaleString('th-TH')} รายการ` : ''}`,
       alert: false,
     },
     {
@@ -51,9 +52,7 @@ export function SummaryCards({ summary }: { summary: IngestionSummaryResponse })
         <Card key={tile.label} className={cn(tile.alert && 'border-destructive/40')}>
           <CardHeader className="pb-2">
             <CardDescription>{tile.label}</CardDescription>
-            <CardTitle
-              className={cn('text-3xl tabular-nums', tile.alert && 'text-destructive')}
-            >
+            <CardTitle className={cn('text-3xl tabular-nums', tile.alert && 'text-destructive')}>
               {tile.value}
             </CardTitle>
           </CardHeader>

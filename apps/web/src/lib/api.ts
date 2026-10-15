@@ -8,6 +8,9 @@ import type {
   ProcurementListResponse,
   TargetPlatform,
   UserRole,
+  CreateTorReport,
+  TorReportResponse,
+  TorReportListResponse,
 } from '@torfun/types';
 
 /**
@@ -91,6 +94,20 @@ export function fetchProjects(filters: ProjectFilters = {}): Promise<ProjectList
 
 export function fetchTor(projectId: string): Promise<Procurement> {
   return request<Procurement>(`/api/tors/${encodeURIComponent(projectId)}`);
+}
+
+export function submitTorReport(
+  projectId: string,
+  input: CreateTorReport,
+): Promise<TorReportResponse> {
+  return request(`/api/tors/${encodeURIComponent(projectId)}/reports`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function fetchTorReports(offset = 0, signal?: AbortSignal): Promise<TorReportListResponse> {
+  return request(`/api/admin/tor-reports?limit=25&offset=${offset}`, { signal });
 }
 
 export async function downloadTor(projectId: string): Promise<Blob> {

@@ -45,7 +45,7 @@ const BIDDABILITY_ORDER: ProcurementStatus[] = [
 ];
 
 function biddabilityRank(status: ProcurementStatus): number {
-  const rank = BIDDABILITY_ORDER.indexOf(status);
+  const rank = BIDDABILITY_ORDER.indexOf(status === 'drafting' ? 'drafting_tor' : status);
   return rank === -1 ? BIDDABILITY_ORDER.indexOf('unknown') : rank;
 }
 
@@ -61,27 +61,29 @@ interface ProcurementDocument {
   province?: string | null;
   district?: string | null;
   subdistrict?: string | null;
-  registry_name: string;
+  registry_name?: string | null;
   dept_code: string;
-  year: number;
+  year?: number;
+  budget_year?: number;
   announce_date: string | null;
   project_type_name: string | null;
   purchase_method_name: string | null;
   project_money: number | null;
   price_build: number | null;
-  status: ProcurementStatus;
+  status: ProcurementStatus | 'open' | 'awarded';
   /** Derived from `status` on every write, purely so the queue's sort is indexable. */
-  biddability_rank: number;
-  matched_keywords: string[];
-  software_class: SoftwareClass;
-  software_score: number;
-  e_bidding: boolean;
+  biddability_rank?: number;
+  matched_keywords?: string[];
+  software_class?: SoftwareClass | null;
+  software_score?: number | null;
+  e_bidding?: boolean | null;
   state: IngestionState;
   outcome: IngestionOutcome;
+  hold_reason?: Procurement['holdReason'];
   status_history: StatusChange[];
   zip_id: string | null;
-  zip_bytes: number | null;
-  archive_member_count: number | null;
+  zip_bytes?: number | null;
+  archive_member_count?: number | null;
   documents: ArchiveDocument[];
   analysis: TorAnalysis | null;
   winner: Winner | null;
@@ -90,7 +92,18 @@ interface ProcurementDocument {
   updated_at: string;
 }
 
+const STATUS_ALIASES = { open: 'invitation', awarded: 'award_announced' } as const;
+const E_BIDDING_METHOD = 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)';
+
+function storedStatus(status: ProcurementDocument['status']): ProcurementStatus {
+  return status === 'open' || status === 'awarded' ? STATUS_ALIASES[status] : status;
+}
+
 function toDomain(document: ProcurementDocument): Procurement {
+  const year = document.year ?? document.budget_year;
+  if (year === undefined) {
+    throw new Error(`Procurement ${document._id} has no recorded fiscal year`);
+  }
   return {
     projectId: document._id,
     projectName: document.project_name,
@@ -101,27 +114,43 @@ function toDomain(document: ProcurementDocument): Procurement {
     province: document.province ?? null,
     district: document.district ?? null,
     subdistrict: document.subdistrict ?? null,
-    registryName: document.registry_name,
+    registryName: document.registry_name ?? null,
     deptCode: document.dept_code,
-    year: document.year,
+    year,
     announceDate: document.announce_date,
     projectTypeName: document.project_type_name,
     purchaseMethodName: document.purchase_method_name,
     projectMoney: document.project_money,
     priceBuild: document.price_build,
-    status: document.status,
-    matchedKeywords: document.matched_keywords,
-    softwareClass: document.software_class,
-    softwareScore: document.software_score,
-    eBidding: document.e_bidding,
+    status: storedStatus(document.status),
+    matchedKeywords: document.matched_keywords ?? [],
+    softwareClass: document.software_class ?? null,
+    softwareScore: document.software_score ?? null,
+    eBidding:
+      document.e_bidding ??
+      (document.purchase_method_name === null
+        ? null
+        : document.purchase_method_name === E_BIDDING_METHOD),
     state: document.state,
     outcome: document.outcome,
+    ...(document.hold_reason !== undefined
+      ? {
+          holdReason: document.outcome === 'needs_review' ? document.hold_reason : null,
+        }
+      : {}),
     statusHistory: document.status_history,
     zipId: document.zip_id,
-    zipBytes: document.zip_bytes,
-    archiveMemberCount: document.archive_member_count,
+    zipBytes: document.zip_bytes ?? null,
+    archiveMemberCount: document.archive_member_count ?? null,
     documents: document.documents,
-    analysis: document.analysis,
+    analysis:
+      document.analysis === null
+        ? null
+        : {
+            ...document.analysis,
+            isSoftwareProject: document.analysis.isSoftwareProject ?? null,
+            confidence: document.analysis.confidence ?? null,
+          },
     winner: document.winner,
     torAmbiguous: document.tor_ambiguous,
     discoveredAt: document.discovered_at,
@@ -188,6 +217,8 @@ export interface FindOptions {
   deadlineMode?: 'within' | 'exact';
   /** Service policy for upcoming deadlines, never applied to the discovery queue. */
   excludeAwarded?: boolean;
+  /** Held records are admin-only, even when their coarse state is Completed. */
+  excludeHeld?: boolean;
   /** Every term must occur in at least one entry of analysis.techStack. */
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
@@ -300,8 +331,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     }
 
     const merged = toDocument(mergeDiscovered(toDomain(existing), record));
-    await collection.replaceOne({ _id: record.projectId }, merged);
-    return toDomain(merged);
+    // Keep evidence owned by the other pipeline (milestones, review decisions,
+    // fingerprints, etc.). Only fields this version owns are updated.
+    await collection.updateOne({ _id: record.projectId }, { $set: merged });
+    return toDomain({ ...existing, ...merged });
   }
 
   async transition(
@@ -329,8 +362,8 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       status_history: [...existing.status_history, entry],
       updated_at: at,
     };
-    await collection.replaceOne({ _id: projectId }, updated);
-    return toDomain(updated);
+    await collection.updateOne({ _id: projectId }, { $set: updated });
+    return toDomain({ ...existing, ...updated });
   }
 
   async get(projectId: string): Promise<Procurement | undefined> {
@@ -344,11 +377,42 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     if (options.state) filter.state = options.state;
     if (options.outcome) filter.outcome = options.outcome;
     if (options.deptName) filter.dept_name = options.deptName;
-    if (options.year) filter.year = options.year;
+    if (options.year) {
+      clauses.push({ $expr: { $eq: [{ $ifNull: ['$year', '$budget_year'] }, options.year] } });
+    }
     if (options.softwareClass) filter.software_class = options.softwareClass;
-    if (options.status) filter.status = options.status;
+    if (options.status) {
+      const alias =
+        options.status === 'invitation'
+          ? 'open'
+          : options.status === 'award_announced'
+            ? 'awarded'
+            : undefined;
+      filter.status = alias ? { $in: [options.status, alias] } : options.status;
+    }
+    if (options.excludeHeld) clauses.push({ outcome: { $ne: 'needs_review' } });
     if (options.excludeAwarded) filter.winner = null;
-    if (options.eBidding !== undefined) filter.e_bidding = options.eBidding;
+    if (options.eBidding !== undefined) {
+      clauses.push({
+        $expr: {
+          $eq: [
+            {
+              $ifNull: [
+                '$e_bidding',
+                {
+                  $cond: [
+                    { $eq: [{ $ifNull: ['$purchase_method_name', null] }, null] },
+                    null,
+                    { $eq: ['$purchase_method_name', E_BIDDING_METHOD] },
+                  ],
+                },
+              ],
+            },
+            options.eBidding,
+          ],
+        },
+      });
+    }
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
@@ -391,12 +455,40 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     // three priority fields have no defined order between them, and `skip`ing
     // through pages could show one twice or skip it entirely depending on how
     // the storage engine happens to return ties on a given call.
+    // Alternate records have no stored rank. Sort their equivalent statuses
+    // without backfilling shared evidence or putting every missing rank first.
+    const status = {
+      $switch: {
+        branches: [
+          { case: { $eq: ['$status', 'open'] }, then: 'invitation' },
+          { case: { $eq: ['$status', 'awarded'] }, then: 'award_announced' },
+          { case: { $eq: ['$status', 'drafting'] }, then: 'drafting_tor' },
+        ],
+        default: '$status',
+      },
+    };
+    const rank = { $indexOfArray: [BIDDABILITY_ORDER, status] };
     const [items, total] = await Promise.all([
       collection
-        .find(filter)
-        .sort({ biddability_rank: 1, software_score: -1, project_money: -1, _id: 1 })
-        .skip(options.offset)
-        .limit(options.limit)
+        .aggregate<ProcurementDocument>([
+          { $match: filter },
+          {
+            $set: {
+              __sort_rank: {
+                $ifNull: [
+                  '$biddability_rank',
+                  {
+                    $cond: [{ $gte: [rank, 0] }, rank, biddabilityRank('unknown')],
+                  },
+                ],
+              },
+            },
+          },
+          { $sort: { __sort_rank: 1, software_score: -1, project_money: -1, _id: 1 } },
+          { $skip: options.offset },
+          { $limit: options.limit },
+          { $unset: '__sort_rank' },
+        ])
         .toArray(),
       collection.countDocuments(filter),
     ]);
@@ -460,7 +552,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
         .toArray(),
       collection
         .aggregate<{ _id: number; count: number }>([
-          { $group: { _id: '$year', count: { $sum: 1 } } },
+          { $group: { _id: { $ifNull: ['$year', '$budget_year'] }, count: { $sum: 1 } } },
           { $sort: { _id: 1 } },
         ])
         .toArray(),
