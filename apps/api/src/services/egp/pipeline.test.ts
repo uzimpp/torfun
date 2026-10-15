@@ -106,6 +106,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       failures: [],
       rateLimited: false,
       unreachable: false,
+      complete: true,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
@@ -273,6 +274,7 @@ describe('runIngestion', () => {
           failures: [],
           rateLimited: false,
           unreachable: false,
+          complete: true,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         };
@@ -295,6 +297,7 @@ describe('runIngestion', () => {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -323,6 +326,7 @@ describe('runIngestion', () => {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -417,6 +421,7 @@ describe('stages and the per-record deadline', () => {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -458,6 +463,7 @@ describe('a discovery sweep inside the Run', () => {
     failures: [],
     rateLimited: false,
     unreachable: false,
+    complete: true,
     ranAt: new Date().toISOString(),
     ...overrides,
   });
@@ -528,6 +534,7 @@ describe('a discovery sweep inside the Run', () => {
         sweepResult({
           rateLimited: true,
           unreachable: false,
+          complete: true,
           cursor: { '0305:D0': { from: '2026-09-01', to: '2026-09-08' } },
         }),
     });
@@ -653,6 +660,7 @@ describe('a sweep that only re-sees what it already has', () => {
       failures: [],
       rateLimited: false,
       unreachable: false,
+      complete: true,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
@@ -679,6 +687,7 @@ describe('when discovery runs', () => {
   async function runWith(
     lastSweepHoursAgo: number | null,
     options: { discoveryMaxAgeMs?: number; forceDiscovery?: boolean },
+    complete = true,
   ) {
     const repository = new InMemoryProcurementStore();
     await repository.upsert(procurement());
@@ -691,6 +700,7 @@ describe('when discovery runs', () => {
       failures: [],
       rateLimited: false,
       unreachable: false,
+      complete,
       cursor: {},
       ranAt: new Date().toISOString(),
     }));
@@ -717,6 +727,12 @@ describe('when discovery runs', () => {
 
     const last = (await repository.summary()).lastRunAt;
     expect(Date.now() - Date.parse(last!)).toBeGreaterThan(0.9 * HOUR);
+  });
+
+  test('a sweep with a day it could not read is not counted, so the next Run sweeps again', async () => {
+    const { repository } = await runWith(null, { discoveryMaxAgeMs: 6 * HOUR }, false);
+
+    expect((await repository.summary()).lastRunAt).toBeNull();
   });
 
   test('a stale sweep is repeated', async () => {
@@ -766,6 +782,7 @@ describe('a run that is told to stop', () => {
           failures: [],
           rateLimited: false,
           unreachable: false,
+          complete: true,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
@@ -798,6 +815,7 @@ describe('a deadline that fires while a site request is in flight', () => {
       failures: [],
       rateLimited: false,
       unreachable: false,
+      complete: true,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
@@ -984,6 +1002,7 @@ describe('the analysis pool', () => {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -1023,6 +1042,7 @@ describe('the reaper', () => {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -1048,6 +1068,7 @@ describe('the reaper', () => {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -1143,6 +1164,7 @@ describe('a record the model drops', () => {
         failures: [],
         rateLimited: false,
         unreachable: false,
+        complete: true,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       };
@@ -1335,6 +1357,7 @@ describe('a run for one project only', () => {
       failures: [],
       rateLimited: false,
       unreachable: false,
+      complete: true,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }));
@@ -1387,6 +1410,7 @@ describe('two runners sharing the site', () => {
       failures: [],
       rateLimited: false,
       unreachable: false,
+      complete: true,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
@@ -1483,6 +1507,7 @@ describe('a Run over a long queue', () => {
           failures: [],
           rateLimited: false,
           unreachable: false,
+          complete: true,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
@@ -1518,6 +1543,7 @@ describe('a Run an administrator stops', () => {
           failures: [],
           rateLimited: false,
           unreachable: false,
+          complete: true,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
@@ -2021,6 +2047,7 @@ describe('progress reported while a run works', () => {
           failures: [],
           rateLimited: false,
           unreachable: false,
+          complete: true,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),

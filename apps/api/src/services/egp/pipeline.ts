@@ -440,6 +440,7 @@ export async function runIngestion(
       failures: [],
       rateLimited: false,
       unreachable: false,
+      complete: true,
       ranAt: lastSweep ?? new Date().toISOString(),
     };
   } else {
@@ -491,7 +492,7 @@ export async function runIngestion(
       // answer them either.
       discoveryStopped = 'unreachable';
       logger.warn('egp: the site stopped answering during discovery; the Run stops here');
-    } else {
+    } else if (discovery.complete) {
       await repository.markRun(discovery.ranAt);
     }
   }
