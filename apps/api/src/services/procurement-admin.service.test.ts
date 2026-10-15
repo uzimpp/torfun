@@ -367,6 +367,7 @@ describe('restoring a tombstone, end to end through a real Run', () => {
           truncated: 0,
           failures: [],
           rateLimited: false,
+          unreachable: false,
           cursor: {},
           ranAt: new Date().toISOString(),
         };

@@ -4,7 +4,7 @@ import type { FeedCursor } from '../../repositories/procurement.repository';
 import { fakeAnnouncements, SAMPLE_DETAIL } from '../../testing/announcement-client';
 import type { AnnouncementClient } from './announcement-client';
 import type { AnnouncementFeed, FeedDay, FeedItem } from './announcement-feed';
-import { RateLimitedError, UpstreamError } from './client';
+import { RateLimitedError, UnreachableError, UpstreamError } from './client';
 import {
   E_BIDDING_METHOD,
   FEED_BACKFILL_REQUESTS_PER_RUN,
@@ -210,6 +210,31 @@ describe('discoverProjects: which days it asks about', () => {
     expect(result.cursor).toEqual({
       [cursorKey(CUSTOMS, 'B0')]: { from: addDays(TODAY, -364), to: '2026-10-06' },
     });
+  });
+
+  test('three requests in a row with no answer stop the sweep: the site is unreachable', async () => {
+    const silent = Object.fromEntries(
+      UNITS.map((unit) => [`${unit}:${TODAY}`, new UnreachableError('transport error: timed out')]),
+    );
+    const { feed, asked } = fakeFeed(silent);
+
+    const result = await sweep(feed, caughtUp());
+
+    expect(result.unreachable).toBe(true);
+    expect(asked).toHaveLength(3);
+  });
+
+  test('an answer in between resets the count, so scattered timeouts do not stop it', async () => {
+    const silent = (index: number) => [
+      `${UNITS[index]}:${TODAY}`,
+      new UnreachableError('transport error: timed out'),
+    ];
+    const { feed, asked } = fakeFeed(Object.fromEntries([0, 1, 3, 4].map(silent)));
+
+    const result = await sweep(feed, caughtUp());
+
+    expect(result.unreachable).toBe(false);
+    expect(asked).toHaveLength(UNITS.length);
   });
 
   test('each agency-day is saved as soon as it is read, so a refusal loses nothing before it', async () => {

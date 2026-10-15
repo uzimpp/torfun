@@ -3,12 +3,13 @@ import type { FeedCursor } from '../../repositories/procurement.repository';
 import { admit } from './admission';
 import { createAnnouncementClient, type AnnouncementClient } from './announcement-client';
 import { createAnnouncementFeed, type AnnouncementFeed, type FeedItem } from './announcement-feed';
-import { RateLimitedError } from './client';
+import { RateLimitedError, UnreachableError } from './client';
 import {
   FEED_ANNOUNCEMENT_TYPES,
   FEED_BACKFILL_REQUESTS_PER_RUN,
   FEED_HISTORY_DAYS,
   FEED_REGISTRY,
+  SITE_UNREACHABLE_AFTER,
   type FeedAnnouncementType,
 } from './constants';
 import { convertDateToISO } from './dates';
@@ -76,6 +77,11 @@ export interface DiscoveryResult {
    * stops the Run: it is the same site the downloads would ask next.
    */
   rateLimited: boolean;
+  /**
+   * `SITE_UNREACHABLE_AFTER` requests in a row got no answer, and the sweep
+   * stopped there. Like a refusal, the caller stops the Run.
+   */
+  unreachable: boolean;
   ranAt: string;
 }
 
@@ -169,11 +175,23 @@ export async function discoverProjects(
   const tombstoned = new Set<string>();
   let truncated = 0;
   let rateLimited = false;
+  let unreachable = false;
+  /** Requests in a row that got no answer at all. */
+  let silent = 0;
+  const halted = () => rateLimited || unreachable;
   /** Requests made so far, so history can be held to its share. */
   let requests = 0;
-  const site: SweepContext['site'] = (call) => {
+  const site: SweepContext['site'] = async (call) => {
     requests += 1;
-    return context.site(call);
+    try {
+      const answer = await context.site(call);
+      silent = 0;
+      return answer;
+    } catch (error) {
+      silent = error instanceof UnreachableError ? silent + 1 : 0;
+      if (silent >= SITE_UNREACHABLE_AFTER) unreachable = true;
+      throw error;
+    }
   };
 
   const units: Unit[] = FEED_REGISTRY.flatMap((agency) =>
@@ -282,7 +300,7 @@ export async function discoverProjects(
             ? detailOf(seen.record)
             : (stored.get(item.projectId) ?? (await readDetail(unit, day, item)));
           if (detail === null) {
-            if (rateLimited) return false;
+            if (halted()) return false;
             complete = false;
             break;
           }
@@ -325,7 +343,7 @@ export async function discoverProjects(
         moved.add(unit.key);
       }
       await save(unit);
-      if (rateLimited) break newDays;
+      if (halted()) break newDays;
       if (!ok) stalledNew.add(unit.key);
     }
   }
@@ -337,7 +355,7 @@ export async function discoverProjects(
   };
   const stalledOld = new Set<string>();
   const historyStart = requests;
-  history: for (let day = yesterday; day >= oldest && !rateLimited; day = addDays(day, -1)) {
+  history: for (let day = yesterday; day >= oldest && !halted(); day = addDays(day, -1)) {
     for (const unit of units) {
       if (stalledOld.has(unit.key) || day !== nextOld(unit)) continue;
       // Checked before each day, not each request: a day begun is finished, so
@@ -351,7 +369,7 @@ export async function discoverProjects(
         moved.add(unit.key);
       }
       await save(unit);
-      if (rateLimited) break history;
+      if (halted()) break history;
       if (!ok) stalledOld.add(unit.key);
     }
   }
@@ -364,6 +382,7 @@ export async function discoverProjects(
     cursor: Object.fromEntries([...moved].map((key) => [key, ranges[key]!])),
     failures,
     rateLimited,
+    unreachable,
     ranAt: now(),
   };
 }
