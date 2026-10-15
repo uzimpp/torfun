@@ -4,6 +4,7 @@ import {
   OpenDataForbiddenError,
   openDataGet,
   RateLimitedError,
+  UnreachableError,
   UpstreamError,
 } from './client';
 
@@ -194,6 +195,23 @@ describe('the open-data API is asked once, because every request is part of a sm
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect(calls.count).toBe(1);
+  });
+
+  test('no answer at all is UnreachableError; a 5xx answered, so it is not', async () => {
+    globalThis.fetch = (async () => {
+      throw new TypeError('network down');
+    }) as unknown as typeof fetch;
+    const silent = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup').catch(
+      (e: unknown) => e,
+    );
+    expect(silent).toBeInstanceOf(UnreachableError);
+
+    globalThis.fetch = (async () => new Response('', { status: 503 })) as unknown as typeof fetch;
+    const answered = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup').catch(
+      (e: unknown) => e,
+    );
+    expect(answered).toBeInstanceOf(UpstreamError);
+    expect(answered).not.toBeInstanceOf(UnreachableError);
   });
 
   test('a lookup (the feed, a project detail) is asked once: a dead feed fails fast', async () => {

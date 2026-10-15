@@ -93,6 +93,7 @@ test(`${ARCHIVES} archives leave buffers where they started`, async () => {
       truncated: 0,
       failures: [],
       rateLimited: false,
+      unreachable: false,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),

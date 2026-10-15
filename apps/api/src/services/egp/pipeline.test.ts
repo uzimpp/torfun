@@ -105,6 +105,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       truncated: 0,
       failures: [],
       rateLimited: false,
+      unreachable: false,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
@@ -271,6 +272,7 @@ describe('runIngestion', () => {
           truncated: 0,
           failures: [],
           rateLimited: false,
+          unreachable: false,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         };
@@ -292,6 +294,7 @@ describe('runIngestion', () => {
         truncated: 0,
         failures: [],
         rateLimited: false,
+        unreachable: false,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -319,6 +322,7 @@ describe('runIngestion', () => {
         truncated: 0,
         failures: [],
         rateLimited: false,
+        unreachable: false,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -412,6 +416,7 @@ describe('stages and the per-record deadline', () => {
         truncated: 0,
         failures: [],
         rateLimited: false,
+        unreachable: false,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -452,6 +457,7 @@ describe('a discovery sweep inside the Run', () => {
     cursor: {},
     failures: [],
     rateLimited: false,
+    unreachable: false,
     ranAt: new Date().toISOString(),
     ...overrides,
   });
@@ -484,6 +490,21 @@ describe('a discovery sweep inside the Run', () => {
     expect(record?.attempts).toBe(0);
   });
 
+  test('a site that stopped answering during discovery ends the Run: no record is retrieved', async () => {
+    const repository = await queued();
+    const timeline = mock(async () => []);
+
+    const result = await run(repository, {
+      discoverProjects: async () => sweepResult({ unreachable: true }),
+      announcements: { ...fakeAnnouncements(), timeline },
+    });
+
+    expect(result.discoveryStopped).toBe('unreachable');
+    expect(result.attempted).toBe(0);
+    expect(timeline).not.toHaveBeenCalled();
+    expect((await repository.get('66059313551'))?.state).toBe('Queued');
+  });
+
   test('a Run for one project that the site refused does not blame the queue', async () => {
     const repository = await queued();
 
@@ -506,6 +527,7 @@ describe('a discovery sweep inside the Run', () => {
       discoverProjects: async () =>
         sweepResult({
           rateLimited: true,
+          unreachable: false,
           cursor: { '0305:D0': { from: '2026-09-01', to: '2026-09-08' } },
         }),
     });
@@ -630,6 +652,7 @@ describe('a sweep that only re-sees what it already has', () => {
       truncated: 0,
       failures: [],
       rateLimited: false,
+      unreachable: false,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
@@ -667,6 +690,7 @@ describe('when discovery runs', () => {
       truncated: 0,
       failures: [],
       rateLimited: false,
+      unreachable: false,
       cursor: {},
       ranAt: new Date().toISOString(),
     }));
@@ -741,6 +765,7 @@ describe('a run that is told to stop', () => {
           truncated: 0,
           failures: [],
           rateLimited: false,
+          unreachable: false,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
@@ -772,6 +797,7 @@ describe('a deadline that fires while a site request is in flight', () => {
       truncated: 0,
       failures: [],
       rateLimited: false,
+      unreachable: false,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
@@ -957,6 +983,7 @@ describe('the analysis pool', () => {
         truncated: 0,
         failures: [],
         rateLimited: false,
+        unreachable: false,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -995,6 +1022,7 @@ describe('the reaper', () => {
         truncated: 0,
         failures: [],
         rateLimited: false,
+        unreachable: false,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -1019,6 +1047,7 @@ describe('the reaper', () => {
         truncated: 0,
         failures: [],
         rateLimited: false,
+        unreachable: false,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       }),
@@ -1113,6 +1142,7 @@ describe('a record the model drops', () => {
         truncated: 0,
         failures: [],
         rateLimited: false,
+        unreachable: false,
         cursor: {},
         ranAt: '2026-09-09T00:00:00.000Z',
       };
@@ -1304,6 +1334,7 @@ describe('a run for one project only', () => {
       truncated: 0,
       failures: [],
       rateLimited: false,
+      unreachable: false,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }));
@@ -1355,6 +1386,7 @@ describe('two runners sharing the site', () => {
       truncated: 0,
       failures: [],
       rateLimited: false,
+      unreachable: false,
       cursor: {},
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
@@ -1450,6 +1482,7 @@ describe('a Run over a long queue', () => {
           truncated: 0,
           failures: [],
           rateLimited: false,
+          unreachable: false,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
@@ -1484,6 +1517,7 @@ describe('a Run an administrator stops', () => {
           truncated: 0,
           failures: [],
           rateLimited: false,
+          unreachable: false,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
@@ -1986,6 +2020,7 @@ describe('progress reported while a run works', () => {
           truncated: 0,
           failures: [],
           rateLimited: false,
+          unreachable: false,
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),

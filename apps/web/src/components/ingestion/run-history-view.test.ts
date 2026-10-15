@@ -55,6 +55,13 @@ describe('runResult', () => {
     });
   });
 
+  test('a Run whose site stopped answering has failed', () => {
+    expect(runResult(run({ counts: counts({ discoveryStopped: 'unreachable' }) }))).toEqual({
+      label: 'ล้มเหลว · เว็บไม่ตอบ',
+      tone: 'error',
+    });
+  });
+
   test('a refusal from the site is a failure, even where an admin also stopped it', () => {
     expect(runResult(run({ counts: counts({ aborted: true, stopped: 'admin' }) }))).toEqual({
       label: 'ล้มเหลว · เว็บปฏิเสธ',

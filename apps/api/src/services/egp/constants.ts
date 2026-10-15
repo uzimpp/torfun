@@ -148,6 +148,13 @@ export const POLITENESS = {
   lookupTimeoutMs: 20_000,
 } as const;
 
+/**
+ * Requests in a row that got no answer at all before the site counts as
+ * unreachable and the Run stops. One can be bad luck; three is the site down
+ * or not talking to us, and asking more only makes it worse.
+ */
+export const SITE_UNREACHABLE_AFTER = 3;
+
 /** Transport failures before a record is abandoned (ADR-0006); the number lives in `@torfun/types`. */
 export { MAX_RETRIEVAL_ATTEMPTS as MAX_ATTEMPTS } from '@torfun/types';
 

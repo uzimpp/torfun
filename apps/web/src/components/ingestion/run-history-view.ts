@@ -20,6 +20,9 @@ export type RunResultTone = 'ok' | 'neutral' | 'error';
 export function runResult(run: IngestionRun): { label: string; tone: RunResultTone } {
   if (run.error !== null || run.counts === null) return { label: 'ผิดพลาด', tone: 'error' };
   if (run.counts.aborted) return { label: 'ล้มเหลว · เว็บปฏิเสธ', tone: 'error' };
+  if (run.counts.discoveryStopped === 'unreachable') {
+    return { label: 'ล้มเหลว · เว็บไม่ตอบ', tone: 'error' };
+  }
   if (run.counts.stopped === 'admin') return { label: 'หยุดโดยผู้ดูแล', tone: 'neutral' };
   return { label: 'สำเร็จ', tone: 'ok' };
 }

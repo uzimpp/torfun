@@ -239,7 +239,7 @@ export interface RunResult {
    * finished or never began. `budget` is no longer produced; runs logged when
    * discovery read the open-data API may carry it.
    */
-  discoveryStopped: 'rate_limited' | 'budget' | null;
+  discoveryStopped: 'rate_limited' | 'unreachable' | 'budget' | null;
   rejectedNonRegistry: number;
   attempted: number;
   /** Projects already read whose timeline was read again to refresh their status. */
@@ -439,6 +439,7 @@ export async function runIngestion(
       cursor: {},
       failures: [],
       rateLimited: false,
+      unreachable: false,
       ranAt: lastSweep ?? new Date().toISOString(),
     };
   } else {
@@ -485,6 +486,11 @@ export async function runIngestion(
       // sweep, so the next Run is not told to skip one.
       discoveryStopped = 'rate_limited';
       logger.warn('egp: the site refused during discovery; the Run stops here');
+    } else if (discovery.unreachable) {
+      // Same site as the downloads: if it does not answer the feed, it will not
+      // answer them either.
+      discoveryStopped = 'unreachable';
+      logger.warn('egp: the site stopped answering during discovery; the Run stops here');
     } else {
       await repository.markRun(discovery.ranAt);
     }
@@ -516,8 +522,8 @@ export async function runIngestion(
   };
 
   // New projects first, so a throttled site cannot starve them behind refresh-only
-  // work. None at all once the site has refused: it said stop.
-  const candidates: Candidate[] = discovery.rateLimited
+  // work. None at all once the site has refused or stopped answering.
+  const candidates: Candidate[] = discoveryStopped
     ? []
     : options.onlyProject
       ? (await selectOne(repository, options.onlyProject)).map((record) => ({
@@ -557,7 +563,7 @@ export async function runIngestion(
     await repository.recordFailures([failure]);
   };
 
-  if (options.onlyProject && candidates.length === 0 && !discovery.rateLimited) {
+  if (options.onlyProject && candidates.length === 0 && !discoveryStopped) {
     // Asked for one project and there is none to read: say so, or the
     // administrator who asked is left to wonder why nothing happened. After a
     // refusal the refusal is the reason, and it is already in the log.
