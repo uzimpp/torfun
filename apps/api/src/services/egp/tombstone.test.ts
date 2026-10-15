@@ -24,6 +24,32 @@ describe('buildTombstone', () => {
     });
   });
 
+  test('keeps what the feed said about the record it replaces, and nothing read from its TOR', () => {
+    const tombstone = buildTombstone({
+      projectId: '69109044981',
+      reason: 'ai_not_software',
+      evidence: 'x',
+      decidedBy: null,
+      now: NOW,
+      record: {
+        projectName: 'จ้างพัฒนาระบบ',
+        deptName: 'กรมศุลกากร',
+        deptCode: '0305',
+        announceDate: '2026-10-05T00:00:00.000Z',
+        budgetYear: 2570,
+        purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+      },
+    });
+    expect(tombstone.feed).toEqual({
+      projectName: 'จ้างพัฒนาระบบ',
+      deptName: 'กรมศุลกากร',
+      deptCode: '0305',
+      announceDate: '2026-10-05T00:00:00.000Z',
+      budgetYear: 2570,
+      purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+    });
+  });
+
   test('a decision by the model has no person, and no prompt version is recorded as null', () => {
     const tombstone = buildTombstone({
       projectId: '1',

@@ -32,8 +32,8 @@ Self-registration always creates a BD officer. Admin is granted, never claimed.
 ## How the pieces fit
 
 ```
-   Thai e-GP open data          gprocurement.go.th
-   (project announcements)      (TOR document archives)
+   e-GP announcement feed       e-GP project pages
+   (process3 RSS, by day)       (timeline, TOR archives)
              │                            │
              └──────────┬─────────────────┘
                         ▼
@@ -45,14 +45,20 @@ Self-registration always creates a BD officer. Admin is granted, never claimed.
                    apps/web (Next.js)
 ```
 
-Two stages, deliberately separate. **Discovery** sweeps the open-data API for
-announcements and admits those from Source Registry agencies that are e-bidding
-and not tombstoned; the title is never consulted. **Retrieval** downloads the
-announcement archive for each admitted one, newest first, and extracts TOR PDFs.
-Each project's status and bid deadline come from its e-GP announcement timeline
+Two stages, deliberately separate. **Discovery** reads e-GP's announcement feed,
+one Source Registry agency and one day at a time, for e-bidding draft TORs and
+invitations, and admits those not tombstoned; the title is never consulted. It
+asks about the days since the last Run first, then a share of the past year
+(ADR-0018). A project not yet stored has its e-GP project detail read first,
+for its real budget year, and is stored only once that succeeds (ADR-0019). The
+open-data API is not read: it holds only signed contracts (ADR-0004). Both
+stages reach `gprocurement.go.th`. **Retrieval** downloads the announcement
+archive for each admitted one, newest first, and extracts TOR PDFs. Each
+project's status and bid deadline come from its e-GP announcement timeline
 (greenBook), read first; projects already read have the timeline read again on
 later Runs, oldest check first, and are retrieved again only if the invitation
-moved. Discovery is cheap and broad; retrieval is slow and rate-limited. A record
+moved. Discovery is one request per agency per day, plus one per new project;
+retrieval is several per project and the model's reading on top. A record
 carries both a coarse `state` (Queued → Processing → Completed/Failed) and a finer `outcome`, because "no TOR was ever published" is a
 legitimate upstream answer rather than a failure, and an admin needs to tell them
 apart.
@@ -69,12 +75,19 @@ which is the point.
 whose own limits are not recorded in this repository. What the code does to stay
 within the spirit of it: requests are single-file through one gate, the politeness
 delay follows each, a rate-limit or forbidden response stops every runner at once,
-and only one Run goes at a time. Every request to the site is one of these: for each
-project, its announcement timeline (greenBook), the archive lookup and the download,
-all inside one gate hold. They are not performance tuning. Do not parallelise
+and only one Run goes at a time. Every request to the site is one of these: the
+announcement feed Discovery reads (one agency, one type, one day), the project
+detail (one per project, when it is first stored or was never read), and for each
+project its announcement timeline (greenBook), the archive lookup and the download,
+all inside one gate hold. The process5 project search sits behind Cloudflare
+Turnstile and is never called; do not add a captcha solver, a copied browser token
+or a headless browser to reach it. They are not performance tuning. Do not parallelise
 around them or retry past a refusal. **No volume cap is applied** — a Run works
 through the whole queue — by the owner's decision (ADR-0015); if the site's owner
-ever states a limit, it belongs back in code, not in this paragraph.
+ever states a limit, it belongs back in code, not in this paragraph. The one
+exception is Discovery's history: reading the past year takes a fixed share of
+each Run (`FEED_BACKFILL_REQUESTS_PER_RUN`, ADR-0018), so the new days and the
+queue are not starved behind it. New days are always read in full.
 
 **Ingested data is evidence, not decoration.** A BD officer decides whether to
 spend days on a bid. Never seed, mock, or backfill records outside a real
@@ -125,3 +138,14 @@ Read the one for the app you're touching before writing code:
 Each directory's `CLAUDE.md` is a one-line `@AGENTS.md` import, so Claude Code and
 every agent that reads `AGENTS.md` get the same text from one source. Edit the
 `AGENTS.md`; never duplicate content into a `CLAUDE.md`.
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+# This is NOT the Turborepo you know
+
+Turborepo configuration, task behavior, and CLI commands can vary between installed versions and may differ from your training data. Resolve the `turbo` package from this file's directory or relevant workspace; in monorepos, it may not be visible from the repository root. For example, run `node -p "require.resolve('turbo/package.json')"` from a workspace that depends on `turbo`.
+
+Read `docs/README.md` inside that installed package first, then read the relevant pages from its `docs/` directory before changing Turborepo configuration or commands. Heed deprecation notices. These bundled docs match the installed package version and are available without network access.
+
+This block is written and re-added by `turbo` before repository-scoped commands when an AI agent is detected. In the Turborepo source repository, its template is defined in `crates/turborepo-cli/src/cli/agent_guidance.rs`. Removing the managed block while updates are enabled means a later qualifying invocation will add it again. Set `"agentGuidance": false` in the root `turbo.json` or `turbo.jsonc` to opt out; this does not remove an existing block. Keep the block committed with your work to avoid an uncommitted change on the next agent invocation.
+<!-- END:turborepo-agent-rules -->

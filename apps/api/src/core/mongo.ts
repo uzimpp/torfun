@@ -18,7 +18,8 @@ export function registerMongo(app: FastifyInstance, env: Env) {
   const client = new MongoClient(env.MONGODB_URI);
   let connecting: Promise<Db> | undefined;
 
-  const getDb = () => (connecting ??= client.connect().then((connected) => connected.db()));
+  const getDb = () =>
+    (connecting ??= client.connect().then((connected) => connected.db(env.MONGODB_DB)));
 
   app.decorate('mongo', { getDb });
   app.addHook('onClose', async () => {

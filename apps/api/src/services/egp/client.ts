@@ -68,6 +68,14 @@ export class UpstreamError extends Error {
   }
 }
 
+/** No answer at all came back (a timeout or a dropped connection), not even an error page. */
+export class UnreachableError extends UpstreamError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnreachableError';
+  }
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -114,6 +122,7 @@ async function fetchWithRetry(
   const { signal, onForbidden } = options;
   const maxRetries = options.maxRetries ?? POLITENESS.maxRetries;
   let lastError = 'unknown failure';
+  let answered = false;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
@@ -130,6 +139,7 @@ async function fetchWithRetry(
         throw new RateLimitedError(url, response.status, quotaFrom(response.headers));
       }
       if (response.status >= 500) {
+        answered = true;
         lastError = `HTTP ${response.status}`;
       } else if (!response.ok) {
         throw new UpstreamError(`HTTP ${response.status} from ${redactUrl(url)}`);
@@ -145,6 +155,7 @@ async function fetchWithRetry(
         throw error;
       }
       if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
+      answered = false;
       lastError = `transport error: ${redactUrl(error instanceof Error ? error.message : String(error))}`;
     }
 
@@ -153,7 +164,7 @@ async function fetchWithRetry(
     }
   }
 
-  throw new UpstreamError(lastError);
+  throw answered ? new UpstreamError(lastError) : new UnreachableError(lastError);
 }
 
 /** Envelope the open-data API wraps every response in. */
@@ -207,8 +218,14 @@ export async function egpGet(
   params: Record<string, string | number>,
   headers: Record<string, string>,
   signal?: AbortSignal,
+  /** `lookup`: a small answer, so a short wait and no retries (see `POLITENESS`). */
+  kind: 'download' | 'lookup' = 'download',
 ): Promise<Response> {
-  return fetchWithRetry(buildUrl(endpoint, params), { headers }, POLITENESS.torTimeoutMs, {
-    signal,
-  });
+  const lookup = kind === 'lookup';
+  return fetchWithRetry(
+    buildUrl(endpoint, params),
+    { headers },
+    lookup ? POLITENESS.lookupTimeoutMs : POLITENESS.torTimeoutMs,
+    { signal, maxRetries: lookup ? 0 : undefined },
+  );
 }

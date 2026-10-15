@@ -226,7 +226,7 @@ export function attentionChips(
     refusedCodes.length > 0
       ? {
           key: 'refused',
-          label: `รอบหยุดเพราะเว็บปฏิเสธ (${refusedCodes.join('/')})`,
+          label: `รอบล้มเหลวเพราะเว็บปฏิเสธ (${refusedCodes.join('/')})`,
           href: FAILURE_LOG,
         }
       : null,

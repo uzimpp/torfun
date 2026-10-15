@@ -1,22 +1,20 @@
 import { addCalendarDays, thailandDay } from '@torfun/types';
 import type { FindOptions } from '../repositories/procurement.repository';
 
-/** Resolves user-facing relative deadlines before either listing reaches persistence. */
+/** Turns "days left" into calendar dates before a listing reaches the database. */
 export function resolveProcurementListOptions(
   options: FindOptions,
   now = new Date(),
 ): FindOptions | null {
-  const { deadlineDays, deadlineMode, ...filters } = options;
-  if (deadlineDays === undefined) return filters;
-  // A closed lifecycle cannot become an opportunity because its TOR has a future date.
-  if (filters.status && filters.status !== 'open') return null;
+  const { minDaysLeft, ...filters } = options;
   const today = thailandDay(now);
-  const end = addCalendarDays(today, deadlineDays);
+  if (minDaysLeft === undefined) return { ...filters, today };
+  // Only an open tender has days left; asking for another status finds nothing.
+  if (filters.status && filters.status !== 'open') return null;
   return {
     ...filters,
+    today,
     status: 'open',
-    excludeAwarded: true,
-    deadlineFrom: deadlineMode === 'exact' ? end : today,
-    deadlineTo: end,
+    deadlineFrom: addCalendarDays(today, minDaysLeft),
   };
 }

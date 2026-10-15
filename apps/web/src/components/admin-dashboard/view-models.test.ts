@@ -203,7 +203,7 @@ describe('attentionChips', () => {
     });
     expect(keys(s, [refused])).toEqual(['refused']);
     expect(keys(s, [{ ...refused, at: '2026-09-29T08:00:00.000Z' }])).toEqual([]);
-    expect(attentionChips(s, [refused], NOW)[0]?.label).toBe('รอบหยุดเพราะเว็บปฏิเสธ (429)');
+    expect(attentionChips(s, [refused], NOW)[0]?.label).toBe('รอบล้มเหลวเพราะเว็บปฏิเสธ (429)');
   });
 
   test('unknown timeline codes in the last run are counted once per code', () => {

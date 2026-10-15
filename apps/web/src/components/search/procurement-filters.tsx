@@ -52,11 +52,8 @@ function activeFilters(values: SearchFilterValues): ActiveFilter[] {
       label: `วันที่ประกาศ ${values.publishedFrom || 'ไม่กำหนด'}–${values.publishedTo || 'ไม่กำหนด'}`,
     });
   }
-  if (values.deadlineDays !== '') {
-    filters.push({
-      criterion: 'deadline',
-      label: `ปิดรับ${values.deadlineMode === 'exact' ? 'ในอีก' : 'ภายใน'} ${values.deadlineDays} วัน`,
-    });
+  if (values.minDaysLeft !== '') {
+    filters.push({ criterion: 'deadline', label: `เหลืออย่างน้อย ${values.minDaysLeft} วัน` });
   } else if (values.deadlineFrom || values.deadlineTo) {
     filters.push({
       criterion: 'deadline',
@@ -112,11 +109,11 @@ function Field({
 
 const selectClass =
   'border-input bg-card focus-visible:ring-ring/50 h-11 w-full rounded-lg border px-3 text-sm outline-none focus-visible:ring-3';
-const DEADLINE_PRESETS = [
-  ['3', '3 วัน'],
-  ['7', '1 สัปดาห์'],
-  ['14', '2 สัปดาห์'],
-  ['30', '1 เดือน (30 วัน)'],
+const DAYS_LEFT_PRESETS = [
+  ['7', '7 วันขึ้นไป'],
+  ['14', '14 วันขึ้นไป'],
+  ['30', '30 วันขึ้นไป'],
+  ['60', '60 วันขึ้นไป'],
 ] as const;
 
 export function ProcurementFilters({
@@ -129,8 +126,7 @@ export function ProcurementFilters({
   const active = activeFilters(values);
   const count = activeFilterCount(values);
   const [open, setOpen] = useState(false);
-  const [deadlineDays, setDeadlineDays] = useState(values.deadlineDays);
-  const [deadlineMode, setDeadlineMode] = useState(values.deadlineMode);
+  const [minDaysLeft, setMinDaysLeft] = useState(values.minDaysLeft);
   const [status, setStatus] = useState(values.status);
 
   function apply(event: FormEvent<HTMLFormElement>) {
@@ -213,7 +209,7 @@ export function ProcurementFilters({
               value={status}
               onChange={(event) => {
                 setStatus(event.target.value as typeof status);
-                if (event.target.value && event.target.value !== 'open') setDeadlineDays('');
+                if (event.target.value && event.target.value !== 'open') setMinDaysLeft('');
               }}
               className={selectClass}
             >
@@ -243,38 +239,19 @@ export function ProcurementFilters({
           </div>
           <fieldset className="border-border space-y-3 border-t pt-4">
             <legend className="text-sm font-semibold">เวลาที่เหลือก่อนปิดรับ</legend>
-            <div className="flex gap-4 text-sm">
-              {[
-                ['within', 'ภายใน'],
-                ['exact', 'ตรงกับอีก'],
-              ].map(([mode, label]) => (
-                <label key={mode} className="flex min-h-10 items-center gap-2">
-                  <input
-                    type="radio"
-                    name="deadlineMode"
-                    value={mode}
-                    checked={deadlineMode === mode}
-                    disabled={deadlineDays === ''}
-                    onChange={() => setDeadlineMode(mode as typeof deadlineMode)}
-                    className="accent-primary size-4"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
             <div className="grid grid-cols-2 gap-2">
-              {DEADLINE_PRESETS.map(([days, label]) => (
+              {DAYS_LEFT_PRESETS.map(([days, label]) => (
                 <button
                   key={days}
                   type="button"
-                  aria-pressed={deadlineDays === days}
+                  aria-pressed={minDaysLeft === days}
                   onClick={() => {
-                    setDeadlineDays(deadlineDays === days ? '' : days);
+                    setMinDaysLeft(minDaysLeft === days ? '' : days);
                     setStatus('open');
                   }}
                   className={cn(
                     'focus-visible:ring-ring/50 min-h-10 rounded-lg border px-2 text-xs transition-colors outline-none focus-visible:ring-3',
-                    deadlineDays === days
+                    minDaysLeft === days
                       ? 'bg-primary/10 border-primary text-primary font-medium'
                       : 'border-border hover:bg-muted',
                   )}
@@ -284,27 +261,27 @@ export function ProcurementFilters({
               ))}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="deadline-days" className="text-xs">
-                จำนวนวันเอง (0 = วันนี้)
+              <Label htmlFor="min-days-left" className="text-xs">
+                เหลืออย่างน้อยกี่วัน (0 = ปิดรับวันนี้ก็ได้)
               </Label>
               <Input
-                id="deadline-days"
-                name="deadlineDays"
+                id="min-days-left"
+                name="minDaysLeft"
                 type="number"
                 min={0}
                 max={365}
                 step={1}
                 placeholder="0–365 วัน"
-                value={deadlineDays}
+                value={minDaysLeft}
                 onChange={(event) => {
-                  setDeadlineDays(event.target.value);
+                  setMinDaysLeft(event.target.value);
                   if (event.target.value !== '') setStatus('open');
                 }}
                 className="h-11"
               />
             </div>
             <p className="text-muted-foreground text-xs">
-              เฉพาะประกาศเชิญชวนที่ยังไม่มีผู้ชนะ อ้างอิงวันในประเทศไทย
+              เฉพาะประกาศเชิญชวนที่ยังเปิดรับ นับตามวันในประเทศไทย
             </p>
           </fieldset>
           <DateRangeFilter
@@ -315,7 +292,7 @@ export function ProcurementFilters({
             toLabel="กำหนดส่งถึง"
             from={values.deadlineFrom}
             to={values.deadlineTo}
-            disabled={deadlineDays !== ''}
+            disabled={minDaysLeft !== ''}
           />
           <p className="text-muted-foreground text-xs leading-relaxed">
             กำหนดส่ง เทคโนโลยี และแพลตฟอร์มค้นจาก TOR ที่วิเคราะห์สำเร็จแล้วเท่านั้น

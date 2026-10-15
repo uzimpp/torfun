@@ -55,7 +55,7 @@ export const RunCountsSchema = z.object({
   changedRecords: z.number().int(),
   unchangedRecords: z.number().int(),
   discoverySkipped: z.boolean(),
-  discoveryStopped: z.enum(['rate_limited', 'budget']).nullable(),
+  discoveryStopped: z.enum(['rate_limited', 'unreachable', 'budget']).nullable(),
   rejectedNonRegistry: z.number().int(),
   attempted: z.number().int(),
   refreshed: z.number().int(),

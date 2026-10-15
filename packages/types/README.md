@@ -10,12 +10,12 @@ time type can never drift:
 import { ProcurementSchema, type Procurement } from '@torfun/types';
 ```
 
-| File          | Holds                                                                                                        |
-| ------------- | ------------------------------------------------------------------------------------------------------------ |
-| `egp.ts`      | `Procurement` and everything it carries: state, outcome, status, software class, documents, analysis, winner |
-| `user.ts`     | `User`, `UserRole`, and the `fullName` helper                                                                |
-| `session.ts`  | The two session cookie names                                                                                 |
-| `matching.ts` | `CompanyProfile`, `MatchResult` and its score breakdown                                                      |
+| File          | Holds                                                                                                |
+| ------------- | ---------------------------------------------------------------------------------------------------- |
+| `egp.ts`      | `Procurement` and everything it carries: state, outcome, status, software class, documents, analysis |
+| `user.ts`     | `User`, `UserRole`, and the `fullName` helper                                                        |
+| `session.ts`  | The two session cookie names                                                                         |
+| `matching.ts` | `CompanyProfile`, `MatchResult` and its score breakdown                                              |
 
 Two rules keep this package a contract rather than a dumping ground. Persistence
 shapes never enter it — `_id` and `password_hash` stay inside their repository.

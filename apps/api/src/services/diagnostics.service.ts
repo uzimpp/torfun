@@ -99,8 +99,10 @@ export function createDependencyProbes(env: Env, getDb: () => Promise<Db>): Depe
           const collections = await db.listCollections().toArray();
           // The connection string naming no database is a real misconfiguration:
           // the driver silently falls back to one called `test`.
-          const named = /mongodb(?:\+srv)?:\/\/[^/]+\/[^?]+/.test(env.MONGODB_URI);
-          return `database ${db.databaseName}${named ? '' : ' (NOT named in MONGODB_URI — driver default)'}, ${collections.length} collections`;
+          const named =
+            env.MONGODB_DB !== undefined ||
+            /mongodb(?:\+srv)?:\/\/[^/]+\/[^?]+/.test(env.MONGODB_URI);
+          return `database ${db.databaseName}${named ? '' : ' (NOT named in MONGODB_DB or MONGODB_URI — driver default)'}, ${collections.length} collections`;
         } catch (error) {
           throw new Error(
             explain(error instanceof Error ? error.message : String(error), [

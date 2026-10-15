@@ -31,20 +31,21 @@ export function mergeDiscovered(
     // Owned by the agency, read from upstream on every sweep.
     projectName: incoming.projectName,
     deptName: incoming.deptName,
-    deptSubName: incoming.deptSubName,
-    province: incoming.province,
-    district: incoming.district,
-    subdistrict: incoming.subdistrict,
-    budgetYear: incoming.budgetYear,
     announceDate: incoming.announceDate,
     projectTypeName: incoming.projectTypeName,
     purchaseMethodName: incoming.purchaseMethodName,
     projectMoney: incoming.projectMoney,
     priceBuild: incoming.priceBuild,
-    winner: incoming.winner,
 
     // Where this sweep found it, which can move between fiscal years.
     deptCode: incoming.deptCode,
+
+    // Read from e-GP's project detail, which the feed does not carry.
+    deptSubName: existing.deptSubName,
+    budgetYear: existing.budgetYear,
+    typeId: existing.typeId,
+    goodsId: existing.goodsId,
+    detailCheckedAt: existing.detailCheckedAt,
 
     // Owned by this system's pipeline. A rediscovery must never reset a
     // retrieval that already happened, nor the stage its timeline established:

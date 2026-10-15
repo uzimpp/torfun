@@ -29,14 +29,14 @@ export function gatedDeps(fail = false) {
       if (fail) throw new Error('upstream exploded');
       return {
         records: [],
-        rejected: [],
         notEBidding: 0,
         tombstoned: 0,
-        resolutions: [],
+        truncated: 0,
         failures: [],
         rateLimited: false,
-        budgetReached: false,
-        quota: null,
+        unreachable: false,
+        complete: true,
+        cursor: {},
         ranAt: new Date().toISOString(),
       };
     },

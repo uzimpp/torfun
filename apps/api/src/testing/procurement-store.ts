@@ -10,6 +10,7 @@ import {
 } from '@torfun/types';
 import {
   holdReasonFor,
+  type FeedCursor,
   type FindOptions,
   type FindResult,
   type ProcurementDataSource,
@@ -32,6 +33,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly tombstones = new Map<string, Tombstone>();
   private lastRunAt: string | null = null;
   private quota: OpenDataQuota | null = null;
+  private cursor: FeedCursor = {};
 
   async ensureIndexes(): Promise<void> {
     // The in-memory store has no indexes; this preserves the production
@@ -40,6 +42,10 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async get(projectId: string): Promise<Procurement | undefined> {
     return this.records.get(projectId);
+  }
+
+  async getMany(projectIds: string[]): Promise<Procurement[]> {
+    return projectIds.flatMap((id) => this.records.get(id) ?? []);
   }
 
   async upsert(record: Procurement): Promise<Procurement> {
@@ -66,6 +72,10 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async tombstonedIds(projectIds: string[]): Promise<Set<string>> {
     return new Set(projectIds.filter((id) => this.tombstones.has(id)));
+  }
+
+  async getTombstone(projectId: string): Promise<Tombstone | undefined> {
+    return this.tombstones.get(projectId);
   }
 
   async listTombstones(): Promise<Tombstone[]> {
@@ -196,6 +206,14 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async lastDiscoveryAt(): Promise<string | null> {
     return this.lastRunAt;
+  }
+
+  async feedCursor(): Promise<FeedCursor> {
+    return structuredClone(this.cursor);
+  }
+
+  async recordFeedCursor(cursor: FeedCursor): Promise<void> {
+    Object.assign(this.cursor, structuredClone(cursor));
   }
 
   async listFailures(): Promise<IngestionFailure[]> {

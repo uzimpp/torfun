@@ -473,7 +473,7 @@ describe('run history', () => {
       '2',
       '1',
       expect.stringContaining('132,000'),
-      'เว็บปฏิเสธ',
+      'ล้มเหลว · เว็บปฏิเสธ',
     ]);
     expect(within(row!).getByRole('button', { name: '132,000' })).toHaveAccessibleDescription(
       /prompt 120,000 · output 8,000 · thinking 4,000 — นับโดย Gemini; ไม่รวมการเรียกที่ล้มเหลว/,

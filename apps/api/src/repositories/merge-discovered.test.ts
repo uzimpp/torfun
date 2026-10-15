@@ -9,11 +9,11 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
-    province: 'กรุงเทพมหานคร',
-    district: 'คลองเตย',
-    subdistrict: 'คลองเตย',
     deptCode: '0100',
     budgetYear: 2568,
+    typeId: null,
+    goodsId: null,
+    detailCheckedAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
     projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
@@ -34,7 +34,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     documents: [],
     analysis: null,
-    winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
     sourceHash: null,
@@ -53,9 +52,6 @@ describe('mergeDiscovered', () => {
       projectMoney: 2_500_000,
       priceBuild: 2_400_000,
       purchaseMethodName: 'วิธีเฉพาะเจาะจง',
-      province: 'เชียงใหม่',
-      district: 'เมืองเชียงใหม่',
-      subdistrict: 'สุเทพ',
     });
 
     const merged = mergeDiscovered(existing, incoming, AT);
@@ -64,9 +60,6 @@ describe('mergeDiscovered', () => {
     expect(merged.projectMoney).toBe(2_500_000);
     expect(merged.priceBuild).toBe(2_400_000);
     expect(merged.purchaseMethodName).toBe('วิธีเฉพาะเจาะจง');
-    expect(merged.province).toBe('เชียงใหม่');
-    expect(merged.district).toBe('เมืองเชียงใหม่');
-    expect(merged.subdistrict).toBe('สุเทพ');
   });
 
   test('keeps what the pipeline found out, so a rediscovery cannot reset a retrieval', () => {
@@ -145,6 +138,31 @@ describe('mergeDiscovered', () => {
     expect(merged.timelineCheckedAt).toBe('2026-09-21T00:00:00.000Z');
   });
 
+  test('keeps what the project detail said, which the feed does not carry', () => {
+    const existing = procurement({
+      budgetYear: 2569,
+      typeId: '03',
+      goodsId: '4016',
+      deptSubName: 'สำนักเทคโนโลยีสารสนเทศ',
+      detailCheckedAt: '2026-10-08T00:00:00.000Z',
+    });
+    const incoming = procurement({
+      budgetYear: 2570,
+      typeId: null,
+      goodsId: null,
+      deptSubName: null,
+      detailCheckedAt: null,
+    });
+
+    expect(mergeDiscovered(existing, incoming, AT)).toMatchObject({
+      budgetYear: 2569,
+      typeId: '03',
+      goodsId: '4016',
+      deptSubName: 'สำนักเทคโนโลยีสารสนเทศ',
+      detailCheckedAt: '2026-10-08T00:00:00.000Z',
+    });
+  });
+
   test('keeps the retrieval attempt count', () => {
     const merged = mergeDiscovered(procurement({ attempts: 2 }), procurement(), AT);
     expect(merged.attempts).toBe(2);
@@ -177,21 +195,6 @@ describe('telling a real change from a record that was only seen again', () => {
     expect(merged.sourceHash).not.toBe(existing.sourceHash);
   });
 
-  test('a new winner is a change', () => {
-    const winner = {
-      name: 'บริษัท ตัวอย่าง จำกัด',
-      taxId: '0105500000001',
-      contractNo: '1/2569',
-      contractDate: null,
-      contractFinishDate: null,
-      priceAgree: 900_000,
-    };
-
-    const merged = mergeDiscovered(stored(), procurement({ winner }), AT);
-
-    expect(merged.updatedAt).toBe(AT);
-  });
-
   test('a record stored before fingerprints existed is compared on its own fields, not assumed changed', () => {
     const before = { ...procurement({ updatedAt: STORED }), sourceHash: null };
 
@@ -212,5 +215,13 @@ describe('telling a real change from a record that was only seen again', () => {
     expect(
       hashSource({ ...base, status: 'drafting', timelineCheckedAt: '2026-10-01T00:00:00.000Z' }),
     ).toBe(hashSource(base));
+  });
+
+  test('the fingerprint ignores the project detail, so a sweep without it is not a change', () => {
+    const base = procurement();
+
+    expect(hashSource({ ...base, budgetYear: 2570, deptSubName: 'สำนัก', typeId: '03' })).toBe(
+      hashSource(base),
+    );
   });
 });

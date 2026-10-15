@@ -11,7 +11,7 @@ import type {
   Tombstone,
 } from '@torfun/types';
 import { TorService } from '../services/tor.service';
-import { ProcurementRepository } from './procurement.repository';
+import { ProcurementRepository, type FindOptions } from './procurement.repository';
 
 /**
  * Runs against a real MongoDB, because what these tests are for is the query
@@ -45,11 +45,11 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
-    province: 'กรุงเทพมหานคร',
-    district: 'คลองเตย',
-    subdistrict: 'คลองเตย',
     deptCode: '0100',
     budgetYear: 2568,
+    typeId: null,
+    goodsId: null,
+    detailCheckedAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
     projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
@@ -70,7 +70,6 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     zipId: null,
     documents: [],
     analysis: null,
-    winner: null,
     torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
     sourceHash: null,
@@ -133,6 +132,14 @@ describeMongo('ProcurementRepository', () => {
       promptVersion: '2026-10-01.1',
       decidedAt: '2026-10-02T00:00:00.000Z',
       decidedBy: null,
+      feed: {
+        projectName: 'จัดซื้อเครื่องคอมพิวเตอร์',
+        deptName: 'กรมศุลกากร',
+        deptCode: '0305',
+        announceDate: '2026-09-30T00:00:00.000Z',
+        budgetYear: 2569,
+        purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
+      },
     };
 
     test('a tombstone replaces the record, and reads back as written', async () => {
@@ -150,11 +157,33 @@ describeMongo('ProcurementRepository', () => {
         reason: 'admin_deleted',
         promptVersion: null,
         decidedBy: 'admin',
+        feed: null,
       };
 
       await repository.tombstone(byAdmin);
 
       expect(await repository.listTombstones()).toEqual([byAdmin]);
+    });
+
+    test('one is found by its project, with the feed snapshot it kept', async () => {
+      await repository.tombstone(dropped);
+
+      expect(await repository.getTombstone('66059313551')).toEqual(dropped);
+      expect(await repository.getTombstone('66059313552')).toBeUndefined();
+    });
+
+    test('one written before the feed snapshot was kept reads back with none', async () => {
+      const { feed: _feed, ...old } = dropped;
+      await (await getDb()).collection('tombstones').insertOne({
+        _id: old.projectId as never,
+        reason: old.reason,
+        evidence: old.evidence,
+        prompt_version: old.promptVersion,
+        decided_at: old.decidedAt,
+        decided_by: old.decidedBy,
+      });
+
+      expect(await repository.getTombstone('66059313551')).toEqual({ ...old, feed: null });
     });
 
     test('says which of a set of projects were dropped, and none for an empty set', async () => {
@@ -436,9 +465,14 @@ describeMongo('ProcurementRepository', () => {
     ).toEqual(['middle']);
   });
 
-  test('upcoming deadline windows include today and exclude past, unknown, closed and awarded records', async () => {
+  test('days left keeps open tenders at least N Thai days away, most days left first', async () => {
     const row = (id: string, deadlineAt: string | null, overrides: Partial<Procurement> = {}) =>
-      procurement({ projectId: id, analysis: analysis({ deadlineAt }), ...overrides });
+      procurement({
+        projectId: id,
+        deadlineAt,
+        deadlineSource: deadlineAt ? 'tor' : null,
+        ...overrides,
+      });
     await Promise.all(
       [
         row('today', '2026-10-05'),
@@ -451,53 +485,36 @@ describeMongo('ProcurementRepository', () => {
         row('draft', '2026-10-08', { status: 'drafting' }),
         row('cancelled', '2026-10-08', { status: 'cancelled' }),
         row('awarded', '2026-10-08', { status: 'awarded' }),
-        row('winner', '2026-10-08', {
-          winner: {
-            name: 'ผู้ชนะ',
-            taxId: '1234567890123',
-            contractNo: '1',
-            contractDate: null,
-            contractFinishDate: null,
-            priceAgree: 500000,
-          },
-        }),
       ].map((record) => repository.upsert(record)),
     );
     // UTC is still Oct 4; Thai officers have already reached Oct 5.
     const service = new TorService(repository, undefined, () => new Date('2026-10-04T18:00:00Z'));
-    const within = await service.list({ limit: 20, offset: 0, deadlineDays: 3 }, 'admin');
-    expect(within.items.map((item) => item.projectId).sort()).toEqual([
-      'three',
-      'today',
-      'tomorrow',
-    ]);
-    expect(within.total).toBe(3);
-    const exact = await service.list(
-      {
-        limit: 20,
-        offset: 0,
-        deadlineDays: 3,
-        deadlineMode: 'exact',
-      },
-      'admin',
-    );
-    expect(exact.items.map((item) => item.projectId)).toEqual(['three']);
-    const today = await service.list({ limit: 20, offset: 0, deadlineDays: 0 }, 'admin');
-    expect(today.items.map((item) => item.projectId)).toEqual(['today']);
-    const page = await service.list({ limit: 1, offset: 1, deadlineDays: 3 }, 'admin');
-    expect(page.total).toBe(3);
-    expect(page.items).toHaveLength(1);
-    expect(
-      (await service.list({ limit: 20, offset: 0, deadlineDays: 3, status: 'drafting' }, 'admin'))
-        .total,
-    ).toBe(0);
+    const ids = async (query: Partial<FindOptions>) =>
+      (await service.list({ limit: 20, offset: 0, ...query }, 'admin')).items.map(
+        (item) => item.projectId,
+      );
+
+    expect(await ids({ minDaysLeft: 3 })).toEqual(['later', 'three']);
+    expect(await ids({ minDaysLeft: 0 })).toEqual(['later', 'three', 'tomorrow', 'today']);
+    expect(await ids({ minDaysLeft: 3, status: 'drafting' })).toEqual([]);
+    const page = await service.list({ limit: 1, offset: 1, minDaysLeft: 0 }, 'admin');
+    expect(page.total).toBe(4);
+    expect(page.items.map((item) => item.projectId)).toEqual(['three']);
+    // With no filter: most days left, then open with no readable deadline,
+    // drafts, the past deadline, and closed projects last.
+    const all = await ids({});
+    expect(all.slice(0, 4)).toEqual(['later', 'three', 'tomorrow', 'today']);
+    expect(all.slice(4, 6).sort()).toEqual(['missing', 'unknown']);
+    expect(all.slice(6, 8)).toEqual(['draft', 'past']);
+    expect(all.slice(8).sort()).toEqual(['awarded', 'cancelled']);
   });
 
   test('deadline calendar filters include offset timestamps on the correct Thai day', async () => {
     await repository.upsert(
       procurement({
         projectId: 'thai-day',
-        analysis: analysis({ deadlineAt: '2026-10-07T18:00:00Z' }),
+        deadlineAt: '2026-10-07T18:00:00Z',
+        deadlineSource: 'tor',
       }),
     );
     const result = await repository.find({
@@ -597,22 +614,16 @@ describeMongo('ProcurementRepository', () => {
     expect(platforms.items.map((record) => record.projectId).sort()).toEqual(['mobile', 'web']);
   });
 
-  test('filters keyword-derived industry and upstream location without regex injection', async () => {
+  test('filters keyword-derived industry without regex injection', async () => {
     await seed([
       procurement({
         projectId: 'hospital',
         projectName: 'ระบบผู้ป่วย (ระยะ 2)',
         deptName: 'โรงพยาบาลกลาง',
-        province: 'กรุงเทพมหานคร',
-        district: 'ป้อมปราบศัตรูพ่าย',
-        subdistrict: 'คลองมหานาค',
       }),
       procurement({
         projectId: 'school',
         deptName: 'โรงเรียนตัวอย่าง',
-        province: 'เชียงใหม่',
-        district: 'เมืองเชียงใหม่',
-        subdistrict: 'สุเทพ',
       }),
     ]);
 
@@ -620,7 +631,6 @@ describeMongo('ProcurementRepository', () => {
       limit: 20,
       offset: 0,
       industry: 'โรงพยาบาล',
-      location: 'ป้อมปราบ',
       query: '(ระยะ 2)',
     });
     expect(result.items.map((record) => record.projectId)).toEqual(['hospital']);
@@ -632,7 +642,6 @@ describeMongo('ProcurementRepository', () => {
         projectId: 'one',
         projectMoney: 700_000,
         announceDate: '2026-08-10',
-        province: 'กรุงเทพมหานคร',
         deadlineAt: '2026-10-15',
         deadlineSource: 'tor',
         analysis: analysis({ targetPlatforms: ['web_app'] }),
@@ -641,7 +650,6 @@ describeMongo('ProcurementRepository', () => {
         projectId: 'two',
         projectMoney: 800_000,
         announceDate: '2026-08-11',
-        province: 'กรุงเทพมหานคร',
         deadlineAt: '2026-10-15',
         deadlineSource: 'tor',
         analysis: analysis({ targetPlatforms: ['web_app'] }),
@@ -650,7 +658,6 @@ describeMongo('ProcurementRepository', () => {
         projectId: 'wrong-platform',
         projectMoney: 900_000,
         announceDate: '2026-08-12',
-        province: 'เชียงใหม่',
         analysis: analysis({ targetPlatforms: ['mobile'] }),
       }),
     ]);
@@ -665,7 +672,6 @@ describeMongo('ProcurementRepository', () => {
       techStack: ['React', 'PostgreSQL'],
       targetPlatforms: ['web_app'],
       industry: 'จ้างพัฒนา',
-      location: 'กรุงเทพ',
     });
     expect(page.total).toBe(2);
     expect(page.items).toHaveLength(1);
