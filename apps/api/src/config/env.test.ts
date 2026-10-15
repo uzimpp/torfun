@@ -13,3 +13,11 @@ describe('EGP_RUNNERS', () => {
     expect(() => testEnv({ EGP_RUNNERS: 4 })).toThrow();
   });
 });
+
+describe('MONGODB_DB', () => {
+  test('names the database; unset or empty leaves it to the URI', () => {
+    expect(testEnv({ MONGODB_DB: 'test1' }).MONGODB_DB).toBe('test1');
+    expect(testEnv({ MONGODB_DB: '' }).MONGODB_DB).toBeUndefined();
+    expect(testEnv().MONGODB_DB).toBeUndefined();
+  });
+});
