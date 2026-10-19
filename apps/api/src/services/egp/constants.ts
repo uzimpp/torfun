@@ -51,9 +51,15 @@ export const SOURCE_REGISTRY = [
  * for one agency, one announcement type and one day, and needs no token, cookie
  * or captcha. Unlike the open-data API it lists tenders before they are
  * awarded, which is the only stage anyone can bid in.
+ *
+ * Asked at its final host. The old `http://process3…` address now redirects
+ * twice (to `https://process3…`, then here), and since 2026-10-15 port 80 on
+ * process3 accepts the connection and never answers, so every feed request
+ * timed out. This host answered on 2026-10-15 with the same Windows-874 RSS in
+ * 0.35 s; asking it directly is one hit on the site instead of three.
  */
 export const ANNOUNCEMENT_FEED_URL =
-  'http://process3.gprocurement.go.th/EPROCRssFeedWeb/egpannouncerss.xml';
+  'https://process.gprocurement.go.th/EPROCRssFeedWeb/egpannouncerss.xml';
 
 /** The feed's `methodId` for e-bidding; it filters the feed, and is checked again per item. */
 export const FEED_E_BIDDING_METHOD_ID = '16';

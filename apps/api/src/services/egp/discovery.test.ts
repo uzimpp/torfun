@@ -199,7 +199,7 @@ describe('discoverProjects: which days it asks about', () => {
 
   test('a refusal stops the sweep at once and keeps the days read before it', async () => {
     const { feed, asked } = fakeFeed({
-      [`${CUSTOMS}:D0:2026-10-06`]: new RateLimitedError('http://process3', 429),
+      [`${CUSTOMS}:D0:2026-10-06`]: new RateLimitedError('https://process', 429),
     });
     const cursor = everyUnit({ from: addDays(TODAY, -364), to: '2026-10-05' });
 
@@ -249,7 +249,7 @@ describe('discoverProjects: which days it asks about', () => {
   test('each agency-day is saved as soon as it is read, so a refusal loses nothing before it', async () => {
     const { feed } = fakeFeed({
       [`${CUSTOMS}:B0:2026-10-06`]: listing([item('69109044981')]),
-      [`${CUSTOMS}:D0:2026-10-06`]: new RateLimitedError('http://process3', 429),
+      [`${CUSTOMS}:D0:2026-10-06`]: new RateLimitedError('https://process', 429),
     });
     const cursor = everyUnit({ from: addDays(TODAY, -364), to: '2026-10-05' });
 
