@@ -86,9 +86,10 @@ Three behaviours in `pipeline.ts` are load-bearing:
 - **Path-traversal members in an archive are surfaced, never dropped.**
 
 Discovery (`services/egp/discovery.ts`) reads the announcement feed
-(`announcement-feed.ts`, process3 RSS) for each `FEED_REGISTRY` agency × {B0, D0},
-one day per request. The Feed Cursor (a contiguous range of fully-read days per
-agency and type, in the ingestion meta collection) decides what to ask: first
+(`announcement-feed.ts`, the RSS on `https://process.gprocurement.go.th`) for
+each `FEED_REGISTRY` agency × {B0, D0}, one day per request. The Feed Cursor (a
+contiguous range of fully-read days per agency and type, in the ingestion meta
+collection) decides what to ask: first
 the days after each range up to today (today is re-read and never recorded), then
 history newest-first, at most `FEED_BACKFILL_REQUESTS_PER_RUN` requests, back
 `FEED_HISTORY_DAYS`. A project not stored yet has its project detail

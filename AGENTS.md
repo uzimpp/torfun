@@ -33,7 +33,7 @@ Self-registration always creates a BD officer. Admin is granted, never claimed.
 
 ```
    e-GP announcement feed       e-GP project pages
-   (process3 RSS, by day)       (timeline, TOR archives)
+   (process RSS, by day)        (timeline, TOR archives)
              │                            │
              └──────────┬─────────────────┘
                         ▼
