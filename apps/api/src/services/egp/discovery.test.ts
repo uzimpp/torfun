@@ -83,7 +83,7 @@ function sweep(
   saved.length = 0;
   return discoverProjects(
     {
-      site: (call) => call(),
+      site: (_tier, call) => call(),
       cursor,
       tombstonedIds: async (ids) => new Set(ids.filter((id) => tombstoned.includes(id))),
       storedRecords: async (ids) => stored.filter((record) => ids.includes(record.projectId)),

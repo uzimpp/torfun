@@ -106,8 +106,9 @@ call the process5 search endpoints: they sit behind Cloudflare Turnstile
 
 Several records can be worked on at once (`EGP_RUNNERS`, default 2), but the
 upstream site is reached through one gate (`services/egp/site-gate.ts`): one
-request in flight across all runners, a pause after each, and a refusal latches it
-so every runner stops. Only the model's reading of a TOR overlaps. Do not call the
+request in flight across all runners, a pause after each, turns handed out by
+tier (new days, fresh, refresh, history; ADR-0020), and a refusal latches it so
+every runner stops. Only the model's reading of a TOR overlaps. Do not call the
 site from anywhere that bypasses the gate.
 
 Per candidate the first call is the announcement timeline (`AnnouncementClient`,

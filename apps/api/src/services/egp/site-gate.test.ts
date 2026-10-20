@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { RateLimitedError } from './client';
-import { createSiteGate, SiteLatchedError } from './site-gate';
+import { createSiteGate, GATE_TIERS, type GateTier, SiteLatchedError } from './site-gate';
 
 /**
  * The gate is what keeps several runners within the terms of access to the
@@ -34,8 +34,9 @@ function harness(pauseMs = 5_000) {
   const use = async <T>(
     section: () => Promise<T>,
     options?: { pauseAfter?: boolean },
+    tier: GateTier = 'fresh',
   ): Promise<T> => {
-    const hold = await gate.acquire();
+    const hold = await gate.acquire(tier);
     try {
       return await section();
     } finally {
@@ -159,7 +160,7 @@ describe('the site gate', () => {
     const { gate, wait } = harness();
 
     wait(1_000);
-    const hold = await gate.acquire();
+    const hold = await gate.acquire('fresh');
     wait(4_000);
 
     expect(gate.stats()).toEqual({ busyMs: 4_000, pausedMs: 0, idleMs: 1_000, holds: 1 });
@@ -177,5 +178,89 @@ describe('the site gate', () => {
     const stats = gate.stats();
     expect(stats).toEqual({ busyMs: 1_000, pausedMs: 5_000, idleMs: 1_000, holds: 1 });
     expect(stats.busyMs + stats.pausedMs + stats.idleMs).toBe(now());
+  });
+
+  describe('when it frees, the best tier waiting goes next', () => {
+    /** The order sections started in, by name. */
+    const starts = (log: string[]) =>
+      log.filter((line) => line.includes('start')).map((line) => line.split(' ')[0]);
+
+    test('a fresh waiter goes before a history waiter that arrived first', async () => {
+      const { gate, use, section, log } = harness();
+      const hold = await gate.acquire('history');
+
+      const history = use(section('history'), undefined, 'history');
+      const fresh = use(section('fresh'), undefined, 'fresh');
+      await hold.release();
+      await Promise.all([history, fresh]);
+
+      expect(starts(log)).toEqual(['fresh', 'history']);
+    });
+
+    test('waiters of the same tier go in the order they arrived', async () => {
+      const { gate, use, section, log } = harness();
+      const hold = await gate.acquire('refresh');
+
+      const waiters = ['a', 'b', 'c'].map((name) => use(section(name), undefined, 'refresh'));
+      await hold.release();
+      await Promise.all(waiters);
+
+      expect(starts(log)).toEqual(['a', 'b', 'c']);
+    });
+
+    test('new days, then fresh, then refresh, then history', async () => {
+      const { gate, use, section, log } = harness();
+      const hold = await gate.acquire('history');
+
+      // Queued worst first, so arrival order alone would get it backwards.
+      const waiters = [...GATE_TIERS].reverse().map((tier) => use(section(tier), undefined, tier));
+      await hold.release();
+      await Promise.all(waiters);
+
+      expect(starts(log)).toEqual(['new_day', 'fresh', 'refresh', 'history']);
+    });
+
+    test('a free gate is taken at once, whatever the tier', async () => {
+      const { use, section, log } = harness();
+
+      await use(section('history'), undefined, 'history');
+
+      expect(log).toEqual(['history start@0', 'history end@1000']);
+    });
+
+    test('a latch refuses waiters of every tier, and leaves none pending', async () => {
+      const { gate, use, section, log } = harness();
+      const hold = await gate.acquire('new_day');
+
+      const waiters = GATE_TIERS.map((tier) => use(section(tier), undefined, tier));
+      gate.latch();
+      await hold.release();
+      const results = await Promise.allSettled(waiters);
+
+      expect(
+        results.map((result) => (result as PromiseRejectedResult).reason?.constructor),
+      ).toEqual(GATE_TIERS.map(() => SiteLatchedError));
+      expect(gate.pending).toBe(0);
+      expect(log).toEqual([]);
+      for (const tier of GATE_TIERS) {
+        await expect(gate.acquire(tier)).rejects.toBeInstanceOf(SiteLatchedError);
+      }
+    });
+
+    test('its stats still add up when tiers reorder the turns', async () => {
+      const { gate, use, section, now } = harness(5_000);
+      const hold = await gate.acquire('history');
+
+      const waiters = [
+        use(section('h'), undefined, 'history'),
+        use(section('n'), undefined, 'new_day'),
+      ];
+      await hold.release();
+      await Promise.all(waiters);
+
+      const stats = gate.stats();
+      expect(stats.holds).toBe(3);
+      expect(stats.busyMs + stats.pausedMs + stats.idleMs).toBe(now());
+    });
   });
 });

@@ -87,7 +87,7 @@ const judgement = { isSoftware: true, confidence: 'high' as const, reason: 'à¸žà
 
 /** A sweep context for calling a stubbed `discoverProjects` directly. */
 const sweepContext: SweepContext = {
-  site: (call) => call(),
+  site: (_tier, call) => call(),
   cursor: {},
   tombstonedIds: async () => new Set(),
   storedRecords: async () => [],

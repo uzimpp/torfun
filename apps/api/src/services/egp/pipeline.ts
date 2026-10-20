@@ -492,8 +492,8 @@ export async function runIngestion(
       await repository.recordFeedCursor(batch.cursor);
     };
     discovery = await deps.discoverProjects({
-      site: async (call) => {
-        const hold = await gate.acquire();
+      site: async (tier, call) => {
+        const hold = await gate.acquire(tier);
         try {
           return await call();
         } catch (error) {
@@ -989,7 +989,7 @@ export async function runIngestion(
     try {
       // Waiting for the gate is not the record's time: its deadline starts once
       // it has the site to itself.
-      hold = await gate.acquire();
+      hold = await gate.acquire(fresh ? 'fresh' : 'refresh');
       turns[fresh ? 'retrievalTurns' : 'refreshTurns'] += 1;
       await withDeadline(
         async () => {

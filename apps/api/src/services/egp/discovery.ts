@@ -15,6 +15,7 @@ import {
 import { convertDateToISO } from './dates';
 import { queuedRecord } from './feed-record';
 import { detailOf, readProjectDetail, type DetailFields } from './project-detail';
+import type { GateTier } from './site-gate';
 
 /**
  * Stage 1 of the pipeline: e-GP's announcement feed, asked agency by agency and
@@ -36,9 +37,9 @@ export type TombstoneLookup = (projectIds: string[]) => Promise<Set<string>>;
 export interface SweepContext {
   /**
    * Make one request to the site: inside a gate hold, with the politeness pause
-   * after it. A refusal latches the gate on its way out.
+   * after it, waiting behind better tiers. A refusal latches the gate on its way out.
    */
-  site: <T>(call: () => Promise<T>) => Promise<T>;
+  site: <T>(tier: GateTier, call: () => Promise<T>) => Promise<T>;
   /** The days already read in full, per agency and announcement type; see `cursorKey`. */
   cursor: FeedCursor;
   tombstonedIds: TombstoneLookup;
@@ -190,10 +191,11 @@ export async function discoverProjects(
   let requests = 0;
   let pass: 'newDays' | 'historyDays' = 'newDays';
   const byKind = { newDays: 0, historyDays: 0, details: 0 };
-  const site: SweepContext['site'] = async (call) => {
+  /** A request at the tier of the pass it is made in, a detail read included. */
+  const site = async <T>(call: () => Promise<T>): Promise<T> => {
     requests += 1;
     try {
-      const answer = await context.site(call);
+      const answer = await context.site(pass === 'newDays' ? 'new_day' : 'history', call);
       silent = 0;
       return answer;
     } catch (error) {
