@@ -92,12 +92,12 @@ contiguous range of fully-read days per agency and type, in the ingestion meta
 collection) decides what to ask: first
 the days after each range up to today (today is re-read and never recorded), then
 history newest-first, at most `FEED_BACKFILL_REQUESTS_PER_RUN` requests, back
-`FEED_HISTORY_DAYS`. A project not stored yet has its project detail
-(`AnnouncementClient.projectDetail`, the getProjectDetail endpoint) read before
-it is kept: that is where `budgetYear`, `typeId`, `goodsId` and `deptSubName`
-come from, and a project whose detail fails is not stored and its day is read
-again (ADR-0019). Detail requests in the history pass count toward its share.
-Its requests go through the same gate as retrieval's, and a
+`FEED_HISTORY_DAYS`; only feed requests count toward that share. A project is
+stored from the feed alone, with `budgetYear`, `typeId`, `goodsId` and
+`deptSubName` null: they come from its project detail
+(`AnnouncementClient.projectDetail`, the getProjectDetail endpoint), which
+Retrieval reads in the record's own gate turn (ADR-0020). Until then the year is
+null, never guessed. Its requests go through the same gate as retrieval's, and a
 refusal there ends the Run with nothing retrieved; the cursor is stored either
 way, and only a finished sweep counts for `DISCOVERY_MAX_AGE_MS`. The open-data
 client is kept for a future winner lookup and is not used for discovery. Never
@@ -111,11 +111,12 @@ tier (new days, fresh, refresh, history; ADR-0020), and a refusal latches it so
 every runner stops. Only the model's reading of a TOR overlaps. Do not call the
 site from anywhere that bypasses the gate.
 
-Per candidate the first call is the announcement timeline (`AnnouncementClient`,
-the greenBook endpoint), made inside the same gate hold as the archive lookup and
-download. The one exception is a record stored before the detail was read
-(`detailCheckedAt` null): its project detail comes first, in the same hold, and a
-failure is logged and the old year kept. The pipeline works the never-read projects first, then the already-read
+Per candidate the turn is one gate hold: the project detail first while
+`detailCheckedAt` is null (every new record), then the announcement timeline
+(`AnnouncementClient`, the greenBook endpoint), the archive lookup and the
+download. A failed detail is logged and the record carries on with the year it
+has, null for a new one; the next Run asks again. A refusal on it stops the Run
+like any other. The pipeline works the never-read projects first, then the already-read
 ones that are not `contracted`, oldest `timelineCheckedAt` first. A timeline that
 changed nothing costs no archive or model call; one whose invitation date moved
 re-reads the invitation alone. `data: null` means the site had none to give, never

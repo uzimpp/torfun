@@ -29,7 +29,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
             <div className="text-muted-foreground mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
               <span className="inline-flex items-center gap-2">
                 <CalendarDays aria-hidden="true" className="size-4" />
-                ปีงบประมาณ {tor.budgetYear}
+                ปีงบประมาณ {tor.budgetYear ?? '—'}
               </span>
               {tor.procurementMethod && (
                 <span className="inline-flex items-center gap-2">

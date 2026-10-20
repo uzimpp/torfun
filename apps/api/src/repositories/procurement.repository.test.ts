@@ -268,6 +268,26 @@ describeMongo('ProcurementRepository', () => {
     });
   });
 
+  test('a record whose detail is not read yet round-trips with no year', async () => {
+    const record = procurement({ budgetYear: null, detailCheckedAt: null });
+    await repository.upsert(record);
+
+    expect(await repository.get('66059313551')).toEqual({
+      ...record,
+      sourceHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
+
+  test('a record with no year never matches a year filter', async () => {
+    await seed([
+      procurement({ projectId: 'a', budgetYear: 2569 }),
+      procurement({ projectId: 'b', budgetYear: null, detailCheckedAt: null }),
+    ]);
+
+    const found = await repository.find({ limit: 50, offset: 0, budgetYear: 2569 });
+    expect(found.items.map((record) => record.projectId)).toEqual(['a']);
+  });
+
   test('nothing above the repository ever sees a snake_case field or _id', async () => {
     await repository.upsert(procurement());
     const found = await repository.get('66059313551');
@@ -705,11 +725,12 @@ describeMongo('ProcurementRepository', () => {
     expect(summary.byState.Queued).toBe(1);
   });
 
-  test('summary counts records per budget year, oldest first', async () => {
+  test('summary counts records per budget year, oldest first, leaving out a year not read yet', async () => {
     await seed([
       procurement({ projectId: 'a', budgetYear: 2569 }),
       procurement({ projectId: 'b', budgetYear: 2568 }),
       procurement({ projectId: 'c', budgetYear: 2569 }),
+      procurement({ projectId: 'd', budgetYear: null, detailCheckedAt: null }),
     ]);
 
     const { byYear } = await repository.summary();

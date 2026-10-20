@@ -90,7 +90,6 @@ const sweepContext: SweepContext = {
   site: (_tier, call) => call(),
   cursor: {},
   tombstonedIds: async () => new Set(),
-  storedRecords: async () => [],
   today: '2026-09-09',
   save: async () => {},
 };
@@ -1242,14 +1241,14 @@ describe('a record the model drops', () => {
   });
 });
 
-describe('the project detail (ADR-0019)', () => {
-  /** Stored before the detail was read: its year is a guess from the announcement date. */
-  const old = (overrides: Partial<Procurement> = {}) =>
-    procurement({ budgetYear: 2570, detailCheckedAt: null, ...overrides });
+describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
+  /** As Discovery stores it: from the feed alone, with no year yet. */
+  const fresh = (overrides: Partial<Procurement> = {}) =>
+    procurement({ budgetYear: null, detailCheckedAt: null, ...overrides });
 
-  test('a record stored before it is read gets its detail first, then is retrieved as usual', async () => {
+  test('a new record gets its detail first, inside its turn, then is retrieved as usual', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(old());
+    await repository.upsert(fresh());
     const order: string[] = [];
     const announcements = fakeAnnouncements({}, []);
     announcements.projectDetail = async () => {
@@ -1283,9 +1282,32 @@ describe('the project detail (ADR-0019)', () => {
     expect(announcements.detailCalls).toEqual([]);
   });
 
-  test('a detail that cannot be read is logged, and the record goes on with its old year', async () => {
+  test('a detail that cannot be read is logged, and the record is still downloaded and analysed with no year', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(old({ state: 'Completed', outcome: 'tor_analysed' }));
+    await repository.upsert(fresh());
+    const announcements = fakeAnnouncements({}, [], { '66059313551': null });
+
+    const result = await run(repository, { announcements });
+
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        projectId: '66059313551',
+        error: expect.stringContaining('no project detail with a budget year'),
+      }),
+    ]);
+    expect(result.archivesRetrieved).toBe(1);
+    expect(await repository.get('66059313551')).toMatchObject({
+      budgetYear: null,
+      detailCheckedAt: null,
+      outcome: 'tor_analysed',
+    });
+  });
+
+  test('a detail that fails on a record already read leaves its year as it was', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(
+      fresh({ budgetYear: 2570, state: 'Completed', outcome: 'tor_analysed' }),
+    );
     const announcements = fakeAnnouncements({}, []);
     announcements.projectDetail = async () => {
       throw new UpstreamError('HTTP 500');
@@ -1306,7 +1328,7 @@ describe('the project detail (ADR-0019)', () => {
 
   test('a refusal on the detail stops the Run and puts the record back without spending an attempt', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(old());
+    await repository.upsert(fresh());
     const announcements = fakeAnnouncements({}, []);
     announcements.projectDetail = async () => {
       throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
@@ -1319,7 +1341,7 @@ describe('the project detail (ADR-0019)', () => {
     expect(await repository.get('66059313551')).toMatchObject({ outcome: 'queued', attempts: 0 });
   });
 
-  test('a refusal on a new project’s detail during discovery marks the Run aborted', async () => {
+  test('a project the feed lists is stored without its detail, which its retrieval then reads', async () => {
     const repository = new InMemoryProcurementStore();
     const item = {
       projectId: '69109044981',
@@ -1331,18 +1353,28 @@ describe('the project detail (ADR-0019)', () => {
     const feed: AnnouncementFeed = {
       day: async () => ({ announced: 1, items: [item], withoutId: 0 }),
     };
+    const order: string[] = [];
     const announcements = fakeAnnouncements({}, []);
     announcements.projectDetail = async () => {
-      throw new RateLimitedError('https://process5.gprocurement.go.th/…', 403);
+      order.push('detail');
+      return SAMPLE_DETAIL;
+    };
+    announcements.timeline = async () => {
+      order.push('timeline');
+      return [];
     };
 
-    const result = await run(repository, {
-      discoverProjects: (context) => discoverProjects(context, feed, announcements),
+    await run(repository, {
+      discoverProjects: (context) => discoverProjects(context, feed),
       announcements,
     });
 
-    expect(result).toMatchObject({ aborted: true, discoveryStopped: 'rate_limited', attempted: 0 });
-    expect(await repository.get('69109044981')).toBeUndefined();
+    expect(order).toEqual(['detail', 'timeline']);
+    expect(await repository.get('69109044981')).toMatchObject({
+      budgetYear: 2569,
+      detailCheckedAt: expect.any(String),
+      outcome: 'tor_analysed',
+    });
   });
 });
 
@@ -2203,7 +2235,7 @@ describe('runIngestion: the timing log', () => {
       deps({
         discoverProjects: async (context) => ({
           ...(await deps().discoverProjects(context)),
-          requests: { newDays: 4, historyDays: 2, details: 1 },
+          requests: { newDays: 4, historyDays: 2 },
         }),
         classifyDocument: async (pdf) => {
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -2224,7 +2256,6 @@ describe('runIngestion: the timing log', () => {
     expect(timing.requests).toEqual({
       newDays: 4,
       historyDays: 2,
-      details: 1,
       retrievalTurns: 1,
       refreshTurns: 0,
     });

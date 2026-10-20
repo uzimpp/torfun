@@ -514,7 +514,6 @@ export async function runIngestion(
       // A project that has a tombstone is not admitted, whatever the feed says
       // about it: the tombstone is the decision, until an administrator lifts it.
       tombstonedIds: (ids) => repository.tombstonedIds(ids),
-      storedRecords: (ids) => repository.getMany(ids),
       today: bangkokToday(),
       save,
     });
@@ -657,9 +656,11 @@ export async function runIngestion(
   };
 
   /**
-   * A record stored before the project detail was read gets it now, in the
-   * same gate hold as its timeline. If it fails, the old year stays and the
-   * next Run asks again; a refusal is thrown on and stops the Run as usual.
+   * Discovery stores a project from the feed alone, so a record whose detail
+   * was never read (`detailCheckedAt` null) gets it first, in the same gate hold
+   * as its timeline (ADR-0020). A failure is logged and the record carries on
+   * with the year it has, null for a new one, never guessed; the next Run asks
+   * again. A refusal is thrown on and stops the Run as usual.
    */
   const catchUpDetail = async (work: RecordWork): Promise<void> => {
     const { record, guard } = work;
@@ -1048,7 +1049,7 @@ export async function runIngestion(
   await Promise.all(Array.from({ length: runners }, (_, slot) => runner(slot)));
 
   // Logged only, never stored: a baseline to compare Runs by hand.
-  const swept = discovery.requests ?? { newDays: 0, historyDays: 0, details: 0 };
+  const swept = discovery.requests ?? { newDays: 0, historyDays: 0 };
   const timing = {
     wallMs: Date.now() - startedAt,
     gate: gate.stats(),
