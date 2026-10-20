@@ -19,7 +19,7 @@ export type TorReviewData = {
   submissionDeadline: string | null;
   deadlineSource: DeadlineSource | null;
   procurementMethod: string | null;
-  budgetYear: number;
+  budgetYear: number | null;
   referencePrice: number | null;
   durationDays: number | null;
   platforms: string[];

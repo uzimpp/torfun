@@ -72,7 +72,7 @@ interface ProcurementDocument {
   dept_name: string;
   dept_sub_name: string | null;
   dept_code: string;
-  budget_year: number;
+  budget_year: number | null;
   /** Absent on records written before the project detail was read. */
   type_id?: string | null;
   goods_id?: string | null;
@@ -267,8 +267,6 @@ export interface FindResult {
  */
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
-  /** The stored records among these project ids; ids with none are left out. */
-  getMany(projectIds: string[]): Promise<Procurement[]>;
   upsert(record: Procurement): Promise<Procurement>;
   /**
    * Replace a record with its tombstone: the record and everything read from it
@@ -396,7 +394,7 @@ interface FeedSnapshotDocument {
   dept_name: string;
   dept_code: string;
   announce_date: string | null;
-  budget_year: number;
+  budget_year: number | null;
   purchase_method_name: string | null;
 }
 
@@ -762,12 +760,6 @@ export class ProcurementRepository
     return document ? toDomain(document) : undefined;
   }
 
-  async getMany(projectIds: string[]): Promise<Procurement[]> {
-    if (projectIds.length === 0) return [];
-    const documents = await (await this.records()).find({ _id: { $in: projectIds } }).toArray();
-    return documents.map(toDomain);
-  }
-
   async find(options: FindOptions): Promise<FindResult> {
     const filter: Record<string, unknown> = {};
     const clauses: Record<string, unknown>[] = [];
@@ -962,6 +954,8 @@ export class ProcurementRepository
         .toArray(),
       collection
         .aggregate<{ _id: number; count: number }>([
+          // A record whose detail is not read yet has no year to be counted under.
+          { $match: { budget_year: { $ne: null } } },
           { $group: { _id: '$budget_year', count: { $sum: 1 } } },
           { $sort: { _id: 1 } },
         ])
