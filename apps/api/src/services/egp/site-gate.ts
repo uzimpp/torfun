@@ -45,23 +45,61 @@ export interface SiteGate {
   latch(): void;
   /** How many are waiting for the gate right now. */
   readonly pending: number;
+  /** Where the gate's time has gone since it was made, up to now. */
+  stats(): SiteGateStats;
 }
 
-export function createSiteGate(deps: { pause: () => Promise<void> }): SiteGate {
+/**
+ * The gate's lifetime split three ways, which add up to it: held by a section
+ * (`busyMs`), in the pause after one (`pausedMs`), and with nobody holding it
+ * (`idleMs`). Nobody waits while the gate is free — `acquire` takes a free gate
+ * at once, and a release hands it straight to the next waiter — so idle is also
+ * "nobody waiting".
+ */
+export interface SiteGateStats {
+  busyMs: number;
+  pausedMs: number;
+  idleMs: number;
+  /** Holds granted; a refused acquirer is not one. */
+  holds: number;
+}
+
+export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => number }): SiteGate {
+  const now = deps.now ?? Date.now;
   let held = false;
   let latched = false;
   const waiting: Array<{ grant: (hold: SiteGateHold) => void; refuse: () => void }> = [];
 
+  // Only one hold is ever open, so the gate is in exactly one phase at a time.
+  const spent = { busy: 0, paused: 0, idle: 0 };
+  let phase: keyof typeof spent = 'idle';
+  let since = now();
+  let holds = 0;
+  const enter = (next: keyof typeof spent) => {
+    const at = now();
+    spent[phase] += at - since;
+    phase = next;
+    since = at;
+  };
+
   const makeHold = (): SiteGateHold => {
     let released = false;
+    holds += 1;
+    enter('busy');
     return {
       async release(options = {}) {
         if (released) return;
         released = true;
-        if (!latched && options.pauseAfter !== false) await deps.pause();
+        if (!latched && options.pauseAfter !== false) {
+          enter('paused');
+          await deps.pause();
+        }
         const next = waiting.shift();
         if (next && !latched) next.grant(makeHold());
-        else held = false;
+        else {
+          held = false;
+          enter('idle');
+        }
       },
     };
   };
@@ -85,6 +123,16 @@ export function createSiteGate(deps: { pause: () => Promise<void> }): SiteGate {
 
     get pending() {
       return waiting.length;
+    },
+
+    stats() {
+      const open = now() - since;
+      return {
+        busyMs: spent.busy + (phase === 'busy' ? open : 0),
+        pausedMs: spent.paused + (phase === 'paused' ? open : 0),
+        idleMs: spent.idle + (phase === 'idle' ? open : 0),
+        holds,
+      };
     },
   };
 

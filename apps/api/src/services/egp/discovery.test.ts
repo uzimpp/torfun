@@ -417,6 +417,21 @@ describe('discoverProjects: what it admits', () => {
     expect(asked).toHaveLength(UNITS.length + 55);
   });
 
+  test('it reports its requests by kind: new days, history days and project details', async () => {
+    const { feed, asked } = fakeFeed({
+      [`${CUSTOMS}:D0:${TODAY}`]: listing([item('69109044981')]),
+      [`${CUSTOMS}:B0:2026-10-06`]: listing([item('69109044982')]),
+    });
+
+    const result = await sweep(feed);
+
+    expect(result.requests).toEqual({
+      newDays: UNITS.length,
+      historyDays: asked.length - UNITS.length,
+      details: 2,
+    });
+  });
+
   test('tombstoned and non-e-bidding items are counted, not kept', async () => {
     const { feed } = fakeFeed({
       [`${CUSTOMS}:D0:${TODAY}`]: listing([

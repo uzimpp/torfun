@@ -390,6 +390,29 @@ async function analyseArchive(
 }
 
 /**
+ * Wall time with at least one call in flight, overlapping calls counted once.
+ * For the Run's timing log: how long the model's reading kept something busy.
+ */
+function overlapTimer(now: () => number = Date.now) {
+  let open = 0;
+  let since = 0;
+  let total = 0;
+  return {
+    async time<T>(call: () => Promise<T>): Promise<T> {
+      if (open++ === 0) since = now();
+      try {
+        return await call();
+      } finally {
+        if (--open === 0) total += now() - since;
+      }
+    },
+    get ms() {
+      return total + (open > 0 ? now() - since : 0);
+    },
+  };
+}
+
+/**
  * Run one full ingestion pass: discover, then retrieve and read TOR packages
  * for the most promising queued projects.
  *
@@ -404,6 +427,7 @@ export async function runIngestion(
   deps: IngestionDeps,
 ): Promise<RunResult> {
   const { logger } = options;
+  const startedAt = Date.now();
 
   // Runs never overlap, so anything still Processing and long silent belongs to
   // a run that died. Done first, before discovery can take minutes or fail.
@@ -422,6 +446,15 @@ export async function runIngestion(
   // One gate for the whole Run: the feed Discovery reads and the archives
   // Retrieval fetches are the same site, so they share its terms (site-gate.ts).
   const gate = createSiteGate({ pause: () => deps.sleep(politeTorDelayMs()) });
+
+  // Every call to the model goes through here, so the timing log can say how
+  // long it was busy.
+  const modelTimer = overlapTimer();
+  const classifyDocument: IngestionDeps['classifyDocument'] = (pdf) =>
+    modelTimer.time(() => deps.classifyDocument(pdf));
+  const readInvitation: IngestionDeps['readInvitation'] = (archive, projectId) =>
+    modelTimer.time(() => deps.readInvitation(archive, projectId));
+  const turns = { retrievalTurns: 0, refreshTurns: 0 };
 
   let discovery: DiscoveryResult;
   let sync = { created: 0, changed: 0, unchanged: 0 };
@@ -688,7 +721,7 @@ export async function runIngestion(
     await work.endSiteSection();
 
     work.stage = 'analysis';
-    const invitation = await deps.readInvitation(archive, record.projectId);
+    const invitation = await readInvitation(archive, record.projectId);
     if (guard.expired) return;
     const reread = new Set(invitation.documents.map((document) => document.member));
     await repository.amend(
@@ -771,7 +804,7 @@ export async function runIngestion(
     }
 
     work.stage = 'analysis';
-    const analysed = await analyseArchive(extraction, deps.classifyDocument);
+    const analysed = await analyseArchive(extraction, classifyDocument);
     if (guard.expired) return;
 
     // Note what is NOT here: extraction.torFiles carries the PDF payloads,
@@ -794,7 +827,7 @@ export async function runIngestion(
     if (decision?.result !== 'drop') {
       // A dropped record keeps nothing, so its invitation is not worth a call.
       // Read even with no TOR: an administrator still sees the deadline.
-      const invitation = await deps.readInvitation(archive, record.projectId);
+      const invitation = await readInvitation(archive, record.projectId);
       if (guard.expired) return;
       patch.documents = [...analysed.documents, ...invitation.documents];
       Object.assign(
@@ -957,6 +990,7 @@ export async function runIngestion(
       // Waiting for the gate is not the record's time: its deadline starts once
       // it has the site to itself.
       hold = await gate.acquire();
+      turns[fresh ? 'retrievalTurns' : 'refreshTurns'] += 1;
       await withDeadline(
         async () => {
           await catchUpDetail(work);
@@ -1000,8 +1034,26 @@ export async function runIngestion(
   report();
   await Promise.all(Array.from({ length: runners }, (_, slot) => runner(slot)));
 
+  // Logged only, never stored: a baseline to compare Runs by hand.
+  const swept = discovery.requests ?? { newDays: 0, historyDays: 0, details: 0 };
+  const timing = {
+    wallMs: Date.now() - startedAt,
+    gate: gate.stats(),
+    analysisBusyMs: modelTimer.ms,
+    requests: { ...swept, ...turns },
+  };
   logger.info(
-    { attempted, refreshed, archivesRetrieved, torAnalysed, held, dropped, failed, aborted },
+    {
+      attempted,
+      refreshed,
+      archivesRetrieved,
+      torAnalysed,
+      held,
+      dropped,
+      failed,
+      aborted,
+      timing,
+    },
     'egp: run complete',
   );
 
