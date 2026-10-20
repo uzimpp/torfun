@@ -19,9 +19,13 @@ export const TokenUsageSchema = z.object({
 });
 export type TokenUsage = z.infer<typeof TokenUsageSchema>;
 
-/** One record a runner is working on right now. */
+/**
+ * One piece of work going on right now: a project in its turn at the site or
+ * under Analysis, or Discovery reading the feed (projectId '-', projectName the
+ * agency-day being read).
+ */
 export const InFlightWorkSchema = z.object({
-  /** Which runner (0-based) has it. */
+  /** A small index that stays the same while the work goes on: Discovery 0, Retrieval 1, Analysis 2 up. */
   slot: z.number().int().nonnegative(),
   projectId: z.string(),
   projectName: z.string(),
@@ -54,7 +58,8 @@ export const RunCountsSchema = z.object({
   newRecords: z.number().int(),
   changedRecords: z.number().int(),
   unchangedRecords: z.number().int(),
-  discoverySkipped: z.boolean(),
+  /** Only on Runs logged before every Run swept (ADR-0020). */
+  discoverySkipped: z.boolean().optional(),
   discoveryStopped: z.enum(['rate_limited', 'unreachable', 'budget']).nullable(),
   rejectedNonRegistry: z.number().int(),
   attempted: z.number().int(),
@@ -76,7 +81,8 @@ export const IngestionRunSchema = z.object({
   endedAt: z.string(),
   durationMs: z.number().int().nonnegative(),
   trigger: RunTrigger,
-  runners: z.number().int().positive(),
+  /** Only on Runs logged when records were worked by several runners (before ADR-0020). */
+  runners: z.number().int().positive().optional(),
   /** Null where the pass threw before it could count anything; `error` says why. */
   counts: RunCountsSchema.nullable(),
   error: z.string().nullable(),

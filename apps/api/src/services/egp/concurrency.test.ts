@@ -75,4 +75,26 @@ describe('createLimiter', () => {
     expect(third).toBe(false);
     second();
   });
+
+  test('a place can be tried for without waiting: none while it is full, one once given back', async () => {
+    const limiter = createLimiter(1);
+    const first = limiter.tryAcquire();
+    expect(first).not.toBeNull();
+    expect(limiter.tryAcquire()).toBeNull();
+
+    first!();
+    const again = limiter.tryAcquire();
+    expect(again).not.toBeNull();
+    again!();
+  });
+
+  test('trying does not jump ahead of someone already waiting', async () => {
+    const limiter = createLimiter(1);
+    const held = await limiter.acquire();
+    const waiting = limiter.acquire();
+    held();
+
+    expect(limiter.tryAcquire()).toBeNull();
+    (await waiting)();
+  });
 });

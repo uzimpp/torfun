@@ -194,12 +194,3 @@ export const TOR_MEMBER_PATTERNS = [
   { label: 'canonical' as const, pattern: /(^|\/)Attach_TOR_[^/]*\.pdf$/i },
   { label: 'loose' as const, pattern: /(^|\/)[^/]*TOR[^/]*\.pdf$/i },
 ];
-
-/**
- * A discovery sweep younger than this is not repeated. A sweep asks only about
- * the days it has not read, plus today and a share of history, so repeating it
- * spends requests on the same site the downloads use for little news. Six hours
- * matches the shortest Schedule, so every scheduled Run sweeps; a full day would
- * skip the next day's Run whenever it started a few seconds early.
- */
-export const DISCOVERY_MAX_AGE_MS = 6 * 60 * 60 * 1000;

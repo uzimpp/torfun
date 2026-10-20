@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { FeedCursor } from '../../repositories/procurement.repository';
 import type { AnnouncementFeed, FeedDay, FeedItem } from './announcement-feed';
-import { RateLimitedError, UnreachableError, UpstreamError } from './client';
+import { RateLimitedError, UpstreamError } from './client';
 import {
   E_BIDDING_METHOD,
   FEED_BACKFILL_REQUESTS_PER_RUN,
@@ -9,6 +9,7 @@ import {
   type FeedAnnouncementType,
 } from './constants';
 import { addDays, bangkokToday, cursorKey, discoverProjects, type SweepBatch } from './discovery';
+import { SiteClosedError, SiteLatchedError } from './site-gate';
 
 const TODAY = '2026-10-07';
 const CUSTOMS = '0305';
@@ -204,16 +205,98 @@ describe('discoverProjects: which days it asks about', () => {
     });
   });
 
-  test('three requests in a row with no answer stop the sweep: the site is unreachable', async () => {
-    const silent = Object.fromEntries(
-      UNITS.map((unit) => [`${unit}:${TODAY}`, new UnreachableError('transport error: timed out')]),
+  test('a gate closed by the Run stops the sweep quietly: not a refusal, nothing logged, not complete', async () => {
+    const { feed } = fakeFeed();
+    let calls = 0;
+    saved.length = 0;
+
+    const result = await discoverProjects(
+      {
+        site: async (_tier, call) => {
+          calls += 1;
+          if (calls > 1) throw new SiteClosedError();
+          return call();
+        },
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        save: async (batch) => {
+          saved.push(batch);
+        },
+      },
+      feed,
     );
-    const { feed, asked } = fakeFeed(silent);
 
-    const result = await sweep(feed, caughtUp());
+    expect(calls).toBe(2);
+    expect(result.rateLimited).toBe(false);
+    expect(result.complete).toBe(false);
+    expect(result.failures).toEqual([]);
+  });
 
+  test('a refusal another stage met stops the sweep as refused, without logging it twice', async () => {
+    const { feed } = fakeFeed();
+
+    const result = await discoverProjects(
+      {
+        site: async () => {
+          throw new SiteLatchedError();
+        },
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        save: async () => {},
+      },
+      feed,
+    );
+
+    expect(result.rateLimited).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
+
+  test('it says which agency-day it is about to ask', async () => {
+    const said: string[] = [];
+    await discoverProjects(
+      {
+        site: (_tier, call) => call(),
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        save: async () => {},
+        reading: (what) => said.push(what),
+      },
+      fakeFeed().feed,
+    );
+
+    expect(said).toHaveLength(UNITS.length);
+    expect(said[0]).toContain(TODAY);
+  });
+
+  test('a gate closed because the site stopped answering stops the sweep as unreachable', async () => {
+    // The silence is counted in the pipeline, across every request of the Run;
+    // the sweep learns of it from the gate.
+    const { feed } = fakeFeed();
+    let calls = 0;
+
+    const result = await discoverProjects(
+      {
+        site: async (_tier, call) => {
+          calls += 1;
+          if (calls > 2) throw new SiteClosedError('unreachable');
+          return call();
+        },
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        save: async () => {},
+      },
+      feed,
+    );
+
+    expect(calls).toBe(3);
     expect(result.unreachable).toBe(true);
-    expect(asked).toHaveLength(3);
+    expect(result.rateLimited).toBe(false);
+    expect(result.complete).toBe(false);
+    expect(result.failures).toEqual([]);
   });
 
   test('only a sweep that read every new day is complete', async () => {
@@ -223,19 +306,6 @@ describe('discoverProjects: which days it asks about', () => {
       [`${CUSTOMS}:B0:${TODAY}`]: new UpstreamError('HTTP 500'),
     });
     expect((await sweep(feed, caughtUp())).complete).toBe(false);
-  });
-
-  test('an answer in between resets the count, so scattered timeouts do not stop it', async () => {
-    const silent = (index: number) => [
-      `${UNITS[index]}:${TODAY}`,
-      new UnreachableError('transport error: timed out'),
-    ];
-    const { feed, asked } = fakeFeed(Object.fromEntries([0, 1, 3, 4].map(silent)));
-
-    const result = await sweep(feed, caughtUp());
-
-    expect(result.unreachable).toBe(false);
-    expect(asked).toHaveLength(UNITS.length);
   });
 
   test('each agency-day is saved as soon as it is read, so a refusal loses nothing before it', async () => {
