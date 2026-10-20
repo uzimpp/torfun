@@ -13,13 +13,22 @@ import { RateLimitedError } from './client';
  *
  *  - at most one site section in flight, across all runners;
  *  - a pause after each, taken before the next may begin;
- *  - FIFO, so no runner is starved;
+ *  - when it frees, the best tier waiting goes next (`GATE_TIERS`), first come
+ *    first served within a tier. A worse tier can wait, but not for ever: a Run
+ *    does not end until its work is done (ADR-0020);
  *  - released even when the section throws, and never before it has settled;
  *  - a refusal latches it, and every runner — waiting or arriving later — is
  *    refused in turn without touching the site.
  *
  * Work that is not a site request (the model reading a PDF) runs outside it.
  */
+
+/**
+ * What a turn at the gate is for, best first: Discovery's new days, retrieval of
+ * projects never read, timeline refreshes, then Discovery's history (ADR-0020).
+ */
+export const GATE_TIERS = ['new_day', 'fresh', 'refresh', 'history'] as const;
+export type GateTier = (typeof GATE_TIERS)[number];
 
 /** Raised to a runner that did not itself meet a refusal but must stop as if it had. */
 export class SiteLatchedError extends RateLimitedError {
@@ -39,8 +48,11 @@ export interface SiteGateHold {
 }
 
 export interface SiteGate {
-  /** Wait for the gate; throws `SiteLatchedError` if it is, or becomes, latched. */
-  acquire(): Promise<SiteGateHold>;
+  /**
+   * Wait for the gate, behind any waiter of a better tier; throws
+   * `SiteLatchedError` if it is, or becomes, latched.
+   */
+  acquire(tier: GateTier): Promise<SiteGateHold>;
   /** Stop all site access: pending and future acquirers are refused. */
   latch(): void;
   /** How many are waiting for the gate right now. */
@@ -68,7 +80,13 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
   const now = deps.now ?? Date.now;
   let held = false;
   let latched = false;
-  const waiting: Array<{ grant: (hold: SiteGateHold) => void; refuse: () => void }> = [];
+  type Waiter = { grant: (hold: SiteGateHold) => void; refuse: () => void };
+  // One line per tier, in GATE_TIERS order.
+  const waiting: Record<GateTier, Waiter[]> = { new_day: [], fresh: [], refresh: [], history: [] };
+  const nextWaiter = () => {
+    const tier = GATE_TIERS.find((each) => waiting[each].length > 0);
+    return tier ? waiting[tier].shift() : undefined;
+  };
 
   // Only one hold is ever open, so the gate is in exactly one phase at a time.
   const spent = { busy: 0, paused: 0, idle: 0 };
@@ -94,7 +112,7 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
           enter('paused');
           await deps.pause();
         }
-        const next = waiting.shift();
+        const next = nextWaiter();
         if (next && !latched) next.grant(makeHold());
         else {
           held = false;
@@ -105,24 +123,24 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
   };
 
   const gate: SiteGate = {
-    async acquire() {
+    async acquire(tier) {
       if (latched) throw new SiteLatchedError();
       if (!held) {
         held = true;
         return makeHold();
       }
       return new Promise<SiteGateHold>((grant, reject) => {
-        waiting.push({ grant, refuse: () => reject(new SiteLatchedError()) });
+        waiting[tier].push({ grant, refuse: () => reject(new SiteLatchedError()) });
       });
     },
 
     latch() {
       latched = true;
-      for (const waiter of waiting.splice(0)) waiter.refuse();
+      for (const tier of GATE_TIERS) for (const waiter of waiting[tier].splice(0)) waiter.refuse();
     },
 
     get pending() {
-      return waiting.length;
+      return GATE_TIERS.reduce((sum, tier) => sum + waiting[tier].length, 0);
     },
 
     stats() {
