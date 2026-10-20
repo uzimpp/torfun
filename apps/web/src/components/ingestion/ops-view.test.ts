@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { IngestionFailure, IngestionRun } from '@torfun/types';
-import { formatDuration, groupFailures, isNoTor } from './ops-view';
+import { formatDuration, groupFailures, isNoTor, liveWorkLabel } from './ops-view';
 
 const failure = (overrides: Partial<IngestionFailure> = {}): IngestionFailure => ({
   projectId: '67109288963',
@@ -18,7 +18,6 @@ const run = (overrides: Partial<IngestionRun> = {}): IngestionRun => ({
   endedAt: '2026-10-03T04:00:00.000Z',
   durationMs: 3_600_000,
   trigger: 'manual',
-  runners: 2,
   counts: null,
   error: null,
   tokens: { prompt: 0, output: 0, thoughts: 0, total: 0, calls: 0 },
@@ -130,5 +129,25 @@ describe('groupFailures', () => {
     expect(groupFailures([failure()], [newer, older], null).map((group) => group.key)).toEqual([
       'newer',
     ]);
+  });
+});
+
+describe('liveWorkLabel', () => {
+  test('names the agency Discovery is reading, without its codes or day', () => {
+    expect(liveWorkLabel({ stage: 'discovery', projectName: 'กรมสรรพากร / B0 / 2026-10-05' })).toBe(
+      'กำลังค้นหาประกาศ · กรมสรรพากร',
+    );
+  });
+
+  test('says only that Discovery is looking when it names nothing', () => {
+    expect(liveWorkLabel({ stage: 'discovery', projectName: '-' })).toBe('กำลังค้นหาประกาศ');
+    expect(liveWorkLabel({ stage: 'discovery', projectName: 'แปลก' })).toBe('กำลังค้นหาประกาศ');
+  });
+
+  test('every step before Analysis is fetching documents; Analysis is the model reading', () => {
+    for (const stage of ['dept', 'timeline', 'info', 'download', 'extract'] as const) {
+      expect(liveWorkLabel({ stage, projectName: 'งาน' })).toBe('กำลังดึงเอกสาร');
+    }
+    expect(liveWorkLabel({ stage: 'analysis', projectName: 'งาน' })).toBe('AI กำลังอ่าน');
   });
 });

@@ -1,11 +1,16 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { IngestionFailure, IngestionOps, IngestionRun as RunLog } from '@torfun/types';
+import type {
+  InFlightWork,
+  IngestionFailure,
+  IngestionOps,
+  IngestionRun as RunLog,
+} from '@torfun/types';
 
 import type { IngestionSummaryResponse } from '@/lib/api';
 import { IngestionDashboard } from './ingestion-dashboard';
-import { dailyWindow, ZERO_DISCOVERED, ZERO_THROUGHPUT } from './ops-fixture';
+import { dailyWindow, inFlightFixture, ZERO_DISCOVERED, ZERO_THROUGHPUT } from './ops-fixture';
 import type { IngestionOpsData } from './use-ingestion-ops';
 import type { IngestionRun } from './use-ingestion-run';
 
@@ -57,7 +62,6 @@ const runLog = (overrides: Partial<RunLog> = {}): RunLog => ({
   endedAt: '2026-10-03T03:09:06.000Z',
   durationMs: 546_000,
   trigger: 'scheduled',
-  runners: 2,
   counts: null,
   error: null,
   tokens: { prompt: 120_000, output: 8_000, thoughts: 4_000, total: 132_000, calls: 12 },
@@ -325,52 +329,85 @@ describe('the record tiles', () => {
 });
 
 describe('live work', () => {
-  test('lists what each runner holds, by slot, with its stage and a link to the record', () => {
+  const liveWith = (inFlight: InFlightWork[], queueRemaining: number | null = 99) =>
+    opsData({
+      ops: ops({ live: { ...ops().live, runInProgress: true, queueRemaining, inFlight } }),
+    });
+  const liveItems = () =>
+    within(screen.getByRole('list', { name: 'รายการที่กำลังทำ' })).getAllByRole('listitem');
+
+  test('says in plain words what Discovery, Retrieval and Analysis are doing', () => {
     mockedRun.mockReturnValue(running());
-    const since = new Date(Date.now() - 65_000).toISOString();
     mockedOps.mockReturnValue(
-      opsData({
-        ops: ops({
-          live: {
-            ...ops().live,
-            runInProgress: true,
-            queueRemaining: 99,
-            inFlight: [
-              {
-                slot: 1,
-                projectId: 'p2',
-                projectName: 'งานที่สอง',
-                stage: 'timeline',
-                fresh: false,
-                since,
-              },
-              {
-                slot: 0,
-                projectId: 'p1',
-                projectName: 'งานแรก',
-                stage: 'download',
-                fresh: true,
-                since,
-              },
-            ],
-          },
-        }),
-      }),
+      liveWith(inFlightFixture(new Date(Date.now() - 65_000).toISOString())),
     );
     render(<IngestionDashboard />);
 
-    const items = within(screen.getByRole('list', { name: 'รายการที่กำลังทำ' })).getAllByRole(
-      'listitem',
-    );
-    expect(items[0]).toHaveTextContent('งานแรก');
-    expect(items[0]).toHaveTextContent('ดาวน์โหลดเอกสาร');
-    expect(items[0]).not.toHaveTextContent('อัปเดตไทม์ไลน์เท่านั้น');
-    expect(items[1]).toHaveTextContent('อัปเดตไทม์ไลน์เท่านั้น');
-    expect(within(items[0]!).getByRole('link', { name: 'งานแรก' })).toHaveAttribute(
-      'href',
-      '/admin/procurements?id=p1',
-    );
+    const [discovery, retrieval, analysis] = liveItems();
+    expect(discovery).toHaveTextContent('กำลังค้นหาประกาศ · กรมสรรพากร');
+    expect(discovery).not.toHaveTextContent('D0');
+    expect(discovery).not.toHaveTextContent('2026-10-05');
+    expect(within(discovery!).queryByRole('link')).not.toBeInTheDocument();
+    expect(retrieval).toHaveTextContent('จ้างพัฒนาระบบบริหารงานบุคคล');
+    expect(retrieval).toHaveTextContent('กำลังดึงเอกสาร');
+    expect(analysis).toHaveTextContent('จ้างพัฒนาแอปพลิเคชันบริการประชาชน');
+    expect(analysis).toHaveTextContent('AI กำลังอ่าน');
+    expect(
+      within(retrieval!).getByRole('link', { name: 'จ้างพัฒนาระบบบริหารงานบุคคล' }),
+    ).toHaveAttribute('href', '/admin/procurements?id=69109288963');
     expect(screen.getByText('เหลือในคิวรอบนี้ 99 รายการ')).toBeInTheDocument();
+  });
+
+  test('every step before Analysis reads as fetching documents', () => {
+    mockedRun.mockReturnValue(running());
+    const since = new Date().toISOString();
+    const stages = ['dept', 'timeline', 'info', 'download', 'extract'] as const;
+    mockedOps.mockReturnValue(
+      liveWith(
+        stages.map((stage, index) => ({
+          slot: index + 1,
+          projectId: `p${index}`,
+          projectName: `งาน ${stage}`,
+          stage,
+          fresh: true,
+          since,
+        })),
+      ),
+    );
+    render(<IngestionDashboard />);
+
+    for (const item of liveItems()) expect(item).toHaveTextContent('กำลังดึงเอกสาร');
+  });
+
+  test('Discovery with nothing named yet is just one plain line', () => {
+    mockedRun.mockReturnValue(running());
+    const [discovery] = inFlightFixture(new Date().toISOString());
+    mockedOps.mockReturnValue(liveWith([{ ...discovery!, projectName: '-' }]));
+    render(<IngestionDashboard />);
+
+    const [item] = liveItems();
+    expect(within(item!).getByText(/กำลังค้นหาประกาศ/).textContent).toBe('กำลังค้นหาประกาศ');
+    expect(item).not.toHaveTextContent('·');
+    expect(item).not.toHaveTextContent(/(^|\s)-(\s|$)/);
+  });
+
+  test('shows no slot numbers or runner wording', () => {
+    mockedRun.mockReturnValue(running());
+    mockedOps.mockReturnValue(liveWith(inFlightFixture(new Date().toISOString())));
+    render(<IngestionDashboard />);
+
+    const list = screen.getByRole('list', { name: 'รายการที่กำลังทำ' });
+    expect(list).not.toHaveTextContent(/#\d/);
+    expect(list).not.toHaveTextContent(/ช่อง|runner|รันเนอร์/i);
+  });
+
+  test('marks a project that only has its timeline refreshed', () => {
+    mockedRun.mockReturnValue(running());
+    const [, retrieval] = inFlightFixture(new Date().toISOString());
+    mockedOps.mockReturnValue(liveWith([{ ...retrieval!, stage: 'timeline', fresh: false }]));
+    render(<IngestionDashboard />);
+
+    expect(liveItems()[0]).toHaveTextContent('อัปเดตไทม์ไลน์เท่านั้น');
   });
 });
 
@@ -423,7 +460,6 @@ describe('run history', () => {
                 newRecords: 12,
                 changedRecords: 0,
                 unchangedRecords: 18,
-                discoverySkipped: false,
                 discoveryStopped: null,
                 rejectedNonRegistry: 0,
                 attempted: 9,
