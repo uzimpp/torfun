@@ -21,13 +21,8 @@ import { createModelCall, type ModelUsage } from '../vertex/vertex-ai';
 import type { AnnouncementClient } from './announcement-client';
 import { createAnnouncementClient } from './announcement-client';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
-import { mapWithConcurrency } from './concurrency';
-import {
-  ANALYSIS_CONCURRENCY,
-  MAX_ATTEMPTS,
-  RECORD_DEADLINE_MS,
-  STALE_PROCESSING_MS,
-} from './constants';
+import { createLimiter } from './concurrency';
+import { MAX_ATTEMPTS, RECORD_DEADLINE_MS, STALE_PROCESSING_MS } from './constants';
 import {
   bangkokToday,
   discoverProjects,
@@ -216,6 +211,12 @@ export interface RunOptions {
    */
   runners?: number;
   /**
+   * Calls to the model in flight at once across the whole Run, default eight.
+   * Also the number of Archives that may be held in memory waiting for, or
+   * under, Analysis (ADR-0020).
+   */
+  analysisConcurrency?: number;
+  /**
    * Asked before each record, like `shouldContinue`, but for an administrator's
    * request to stop. Graceful: a record already in flight is not interrupted,
    * and nothing further is taken.
@@ -350,13 +351,12 @@ async function analyseArchive(
 ): Promise<AnalysedArchive> {
   const byMember = new Map<string, DocumentClassification>();
 
-  // Two at a time. This is Gemini, not the upstream site, so the politeness
-  // terms do not apply — only the downloads are held to one at a time. Results
-  // come back in archive order, which `assignDocumentRoles` relies on.
-  const candidates = await mapWithConcurrency(
-    extraction.torFiles,
-    ANALYSIS_CONCURRENCY,
-    async (pdf): Promise<ClassifiedDocument> => {
+  // All at once: the Run's limiter, inside `classifyDocument`, bounds the calls
+  // across every archive. Gemini is not the upstream site, so the politeness
+  // terms do not apply. Results come back in archive order, which
+  // `assignDocumentRoles` relies on.
+  const candidates = await Promise.all(
+    extraction.torFiles.map(async (pdf): Promise<ClassifiedDocument> => {
       const classification = await classifyDocument(
         // A view over the extracted bytes, not a copy: a copy doubles every PDF in memory.
         Buffer.from(pdf.payload.buffer, pdf.payload.byteOffset, pdf.payload.byteLength),
@@ -374,7 +374,7 @@ async function analyseArchive(
         readMode: classification.readMode,
         readNote: classification.readNote,
       };
-    },
+    }),
   );
 
   const { documents, mainTor, ambiguous } = assignDocumentRoles(candidates);
@@ -447,13 +447,19 @@ export async function runIngestion(
   // Retrieval fetches are the same site, so they share its terms (site-gate.ts).
   const gate = createSiteGate({ pause: () => deps.sleep(politeTorDelayMs()) });
 
-  // Every call to the model goes through here, so the timing log can say how
-  // long it was busy.
+  // Every call to the model goes through here: the limiter bounds how many are
+  // in flight across the Run, and the timer (inside it, so waiting is not
+  // counted) says how long the model was busy.
+  const analysisConcurrency = options.analysisConcurrency ?? 8;
+  const modelCalls = createLimiter(analysisConcurrency);
   const modelTimer = overlapTimer();
   const classifyDocument: IngestionDeps['classifyDocument'] = (pdf) =>
-    modelTimer.time(() => deps.classifyDocument(pdf));
+    modelCalls.run(() => modelTimer.time(() => deps.classifyDocument(pdf)));
   const readInvitation: IngestionDeps['readInvitation'] = (archive, projectId) =>
-    modelTimer.time(() => deps.readInvitation(archive, projectId));
+    modelCalls.run(() => modelTimer.time(() => deps.readInvitation(archive, projectId)));
+  // The waiting room: Archives held in memory, waiting for or under Analysis.
+  // A record takes a place before it asks the gate for its turn (ADR-0020).
+  const room = createLimiter(analysisConcurrency);
   const turns = { retrievalTurns: 0, refreshTurns: 0 };
 
   let discovery: DiscoveryResult;
@@ -986,7 +992,13 @@ export async function runIngestion(
         hold?.release({ pauseAfter: queue.length > 0 || gate.pending > 0 }) ?? Promise.resolve(),
     };
 
+    let leaveRoom: (() => void) | undefined;
     try {
+      // A place in the room before the gate, never while holding it: a record
+      // holding the gate while it waited for a place would stall every other
+      // runner. So a refresh takes one too, though only one whose invitation
+      // moved downloads; it ends soon after its turn and gives the place back.
+      leaveRoom = await room.acquire();
       // Waiting for the gate is not the record's time: its deadline starts once
       // it has the site to itself.
       hold = await gate.acquire(fresh ? 'fresh' : 'refresh');
@@ -1003,8 +1015,9 @@ export async function runIngestion(
     } catch (error) {
       await fail(work, fresh, error);
     } finally {
-      // Whatever ended the record, the gate is not left held.
+      // Whatever ended the record, the gate is not left held, nor its place.
       await hold?.release();
+      leaveRoom?.();
       inFlight.delete(slot);
       report();
     }

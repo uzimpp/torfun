@@ -1,57 +1,78 @@
 import { describe, expect, test } from 'bun:test';
-import { mapWithConcurrency } from './concurrency';
+import { createLimiter } from './concurrency';
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-describe('mapWithConcurrency', () => {
-  test('returns results in input order, whatever order the work finishes in', async () => {
-    const finishesAfter = [30, 5, 15, 1];
-
-    const results = await mapWithConcurrency(finishesAfter, 2, async (ms, index) => {
-      await delay(ms);
-      return `item-${index}`;
-    });
-
-    expect(results).toEqual(['item-0', 'item-1', 'item-2', 'item-3']);
-  });
-
-  test('never has more than the limit in flight, and does use the whole limit', async () => {
+describe('createLimiter', () => {
+  test('never has more than its size in flight, and does use all of it', async () => {
+    const limiter = createLimiter(3);
     let inFlight = 0;
     let peak = 0;
 
-    await mapWithConcurrency([1, 2, 3, 4, 5, 6], 2, async () => {
-      inFlight += 1;
-      peak = Math.max(peak, inFlight);
-      await delay(5);
-      inFlight -= 1;
-    });
+    await Promise.all(
+      Array.from({ length: 10 }, () =>
+        limiter.run(async () => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          await delay(3);
+          inFlight -= 1;
+        }),
+      ),
+    );
 
-    expect(peak).toBe(2);
+    expect(peak).toBe(3);
   });
 
-  test('a limit of one is strictly sequential', async () => {
+  test('waiters go in the order they asked', async () => {
+    const limiter = createLimiter(1);
     const order: string[] = [];
 
-    await mapWithConcurrency(['a', 'b', 'c'], 1, async (item) => {
-      order.push(`start ${item}`);
-      await delay(3);
-      order.push(`end ${item}`);
+    await Promise.all(
+      ['a', 'b', 'c', 'd'].map((item) =>
+        limiter.run(async () => {
+          order.push(item);
+          await delay(1);
+        }),
+      ),
+    );
+
+    expect(order).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  test('a rejected call frees its place for the next', async () => {
+    const limiter = createLimiter(1);
+
+    const failed = limiter.run(async () => {
+      throw new Error('boom');
+    });
+    const next = limiter.run(async () => 'ran');
+
+    await expect(failed).rejects.toThrow('boom');
+    expect(await next).toBe('ran');
+  });
+
+  test('a place taken by hand is held until given back, and giving it back twice frees one', async () => {
+    const limiter = createLimiter(1);
+    const release = await limiter.acquire();
+    let ran = false;
+    const waiting = limiter.run(async () => {
+      ran = true;
     });
 
-    expect(order).toEqual(['start a', 'end a', 'start b', 'end b', 'start c', 'end c']);
-  });
-
-  test('handles an empty list and a limit larger than the list', async () => {
-    expect(await mapWithConcurrency([], 2, async () => 1)).toEqual([]);
-    expect(await mapWithConcurrency([7], 5, async (n) => n * 2)).toEqual([14]);
-  });
-
-  test('a failure rejects the whole call rather than being lost', async () => {
-    await expect(
-      mapWithConcurrency([1, 2, 3], 2, async (n) => {
-        if (n === 2) throw new Error('boom');
-        return n;
-      }),
-    ).rejects.toThrow('boom');
+    await delay(2);
+    expect(ran).toBe(false);
+    release();
+    release();
+    await waiting;
+    expect(ran).toBe(true);
+    // The double release did not leave a spare place behind.
+    const second = await limiter.acquire();
+    let third = false;
+    void limiter.acquire().then(() => {
+      third = true;
+    });
+    await delay(2);
+    expect(third).toBe(false);
+    second();
   });
 });
