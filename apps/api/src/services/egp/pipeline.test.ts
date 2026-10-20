@@ -953,13 +953,13 @@ describe('the analysis pool', () => {
     extracted({ member: `Attach_TOR_${letter}.pdf`, filename: `Attach_TOR_${letter}.pdf` }),
   );
 
-  test('reads at most two PDFs of an archive at once, and keeps their order', async () => {
+  test('reads no more PDFs at once than the limit, and keeps their order', async () => {
     const repository = new InMemoryProcurementStore();
     let inFlight = 0;
     let peak = 0;
     const seen: string[] = [];
 
-    await run(repository, {
+    await runIngestion(repository, { logger, analysisConcurrency: 2 }, deps({
       extractTorPdfs: () => ({
         torFiles: four,
         members: four.map((pdf) => pdf.member),
@@ -979,7 +979,7 @@ describe('the analysis pool', () => {
           judgement: null,
         };
       },
-    });
+    }));
 
     expect(peak).toBe(2);
     const record = await repository.get('66059313551');
@@ -1482,6 +1482,102 @@ describe('two runners sharing the site', () => {
     // The refusal is logged once, and the second runner's stop is not a second failure.
     expect(result.failures.filter((failure) => failure.stage === 'info')).toHaveLength(1);
     expect(result.failed).toBe(1);
+  });
+});
+
+describe('the Analysis limit and the waiting room (ADR-0020)', () => {
+  const ids = ['66059313551', '66059313552'];
+  const pair = ['A', 'B'].map((letter) =>
+    extracted({ member: `Attach_TOR_${letter}.pdf`, filename: `Attach_TOR_${letter}.pdf` }),
+  );
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 3));
+  const base = (): Partial<IngestionDeps> => ({
+    discoverProjects: async () => ({
+      records: ids.map((projectId) => procurement({ projectId })),
+      notEBidding: 0,
+      tombstoned: 0,
+      truncated: 0,
+      failures: [],
+      rateLimited: false,
+      unreachable: false,
+      complete: true,
+      cursor: {},
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+    extractTorPdfs: () => ({
+      torFiles: pair,
+      members: pair.map((pdf) => pdf.member),
+      unsafeSkipped: [],
+    }),
+  });
+  const classified = {
+    isTor: true,
+    torKind: 'final' as const,
+    whatThisIs: 'ขอบเขตของงาน',
+    analysis,
+    judgement,
+    readMode: 'pdf' as const,
+  };
+
+  test('never more model calls in flight than the limit, across every archive of the Run', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const call = async <T>(value: T): Promise<T> => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await tick();
+      inFlight -= 1;
+      return value;
+    };
+
+    const repository = new InMemoryProcurementStore();
+    await runIngestion(
+      repository,
+      { logger, runners: 2, analysisConcurrency: 1 },
+      deps({
+        ...base(),
+        classifyDocument: () => call(classified),
+        readInvitation: () => call({ documents: [], bidAt: null }),
+      }),
+    );
+
+    expect(peak).toBe(1);
+    for (const id of ids) expect((await repository.get(id))?.outcome).toBe('tor_analysed');
+  });
+
+  test('a full room keeps the next record from the gate until an Archive leaves it', async () => {
+    const events: string[] = [];
+
+    const repository = new InMemoryProcurementStore();
+    await runIngestion(
+      repository,
+      { logger, runners: 2, analysisConcurrency: 1 },
+      deps({
+        ...base(),
+        resolveZipId: async (projectId) => {
+          events.push(`site ${projectId}`);
+          return 'zip-1';
+        },
+        classifyDocument: async () => {
+          // Long enough that the other runner would reach the site meanwhile.
+          await tick();
+          await tick();
+          return classified;
+        },
+        readInvitation: async (_archive, projectId) => {
+          await tick();
+          events.push(`analysed ${projectId}`);
+          return { documents: [], bidAt: null };
+        },
+      }),
+    );
+
+    expect(events).toEqual([
+      'site 66059313551',
+      'analysed 66059313551',
+      'site 66059313552',
+      'analysed 66059313552',
+    ]);
   });
 });
 

@@ -164,12 +164,6 @@ export const SITE_UNREACHABLE_AFTER = 3;
 /** Transport failures before a record is abandoned (ADR-0006); the number lives in `@torfun/types`. */
 export { MAX_RETRIEVAL_ATTEMPTS as MAX_ATTEMPTS } from '@torfun/types';
 
-/**
- * PDFs of one archive read by Gemini at the same time. Only analysis is pooled;
- * the site downloads stay one at a time (see POLITENESS).
- */
-export const ANALYSIS_CONCURRENCY = 2;
-
 /** Longest one record may take before it is requeued; the number lives in `@torfun/types`. */
 export { RECORD_DEADLINE_MS } from '@torfun/types';
 
