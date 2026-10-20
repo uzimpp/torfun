@@ -2091,3 +2091,52 @@ describe('progress reported while a run works', () => {
     expect(latest).toEqual({ inFlight: [], queueRemaining: 0 });
   });
 });
+
+describe('runIngestion: the timing log', () => {
+  test('the run-complete line says where the time went and what was asked of the site', async () => {
+    const lines: Array<{ fields: unknown; message: unknown }> = [];
+    const recording = {
+      ...logger,
+      info: (fields: unknown, message?: unknown) => lines.push({ fields, message }),
+    } as typeof logger;
+    const repository = new InMemoryProcurementStore();
+
+    await runIngestion(
+      repository,
+      { logger: recording },
+      deps({
+        discoverProjects: async (context) => ({
+          ...(await deps().discoverProjects(context)),
+          requests: { newDays: 4, historyDays: 2, details: 1 },
+        }),
+        classifyDocument: async (pdf) => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return deps().classifyDocument(pdf);
+        },
+      }),
+    );
+
+    const complete = lines.find((line) => line.message === 'egp: run complete');
+    const { timing } = complete?.fields as {
+      timing: {
+        wallMs: number;
+        gate: { busyMs: number; pausedMs: number; idleMs: number; holds: number };
+        analysisBusyMs: number;
+        requests: Record<string, number>;
+      };
+    };
+    expect(timing.requests).toEqual({
+      newDays: 4,
+      historyDays: 2,
+      details: 1,
+      retrievalTurns: 1,
+      refreshTurns: 0,
+    });
+    // The fake discovery asks nothing through the gate, so the one hold is the record's.
+    expect(timing.gate.holds).toBe(1);
+    expect(timing.analysisBusyMs).toBeGreaterThanOrEqual(5);
+    expect(timing.wallMs).toBeGreaterThanOrEqual(timing.analysisBusyMs);
+    const { busyMs, pausedMs, idleMs } = timing.gate;
+    expect(busyMs + pausedMs + idleMs).toBeLessThanOrEqual(timing.wallMs);
+  });
+});

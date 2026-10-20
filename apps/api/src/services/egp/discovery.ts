@@ -88,6 +88,8 @@ export interface DiscoveryResult {
    */
   complete: boolean;
   ranAt: string;
+  /** Requests made, by kind, for the Run's timing log. Absent where no sweep was made. */
+  requests?: { newDays: number; historyDays: number; details: number };
 }
 
 /** One cell of the sweep's grid: an agency's announcements of one type. */
@@ -186,6 +188,8 @@ export async function discoverProjects(
   const halted = () => rateLimited || unreachable;
   /** Requests made so far, so history can be held to its share. */
   let requests = 0;
+  let pass: 'newDays' | 'historyDays' = 'newDays';
+  const byKind = { newDays: 0, historyDays: 0, details: 0 };
   const site: SweepContext['site'] = async (call) => {
     requests += 1;
     try {
@@ -238,6 +242,7 @@ export async function discoverProjects(
   /** A new project's detail, or null where it could not be read (logged). */
   const readDetail = async (unit: Unit, day: string, item: FeedItem) => {
     try {
+      byKind.details += 1;
       const result = await site(() => readProjectDetail(announcements, item.projectId));
       if ('fields' in result) return result.fields;
       log(
@@ -254,6 +259,7 @@ export async function discoverProjects(
   /** Ask the feed about one unit's day and admit what it lists. False where the day could not be read. */
   const read = async (unit: Unit, day: string): Promise<boolean> => {
     let answer;
+    byKind[pass] += 1;
     try {
       answer = await site(() => feed.day(unit.agency.deptId, unit.type, day));
     } catch (error) {
@@ -360,6 +366,7 @@ export async function discoverProjects(
   };
   const stalledOld = new Set<string>();
   const historyStart = requests;
+  pass = 'historyDays';
   history: for (let day = yesterday; day >= oldest && !halted(); day = addDays(day, -1)) {
     for (const unit of units) {
       if (stalledOld.has(unit.key) || day !== nextOld(unit)) continue;
@@ -390,5 +397,6 @@ export async function discoverProjects(
     unreachable,
     complete: !halted() && stalledNew.size === 0,
     ranAt: now(),
+    requests: byKind,
   };
 }

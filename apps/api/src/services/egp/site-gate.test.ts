@@ -18,6 +18,7 @@ function harness(pauseMs = 5_000) {
       pauses.push(clock);
       clock += pauseMs;
     },
+    now: () => clock,
   });
   /** A site section that takes `ms` of fake time and records when it began and ended. */
   const section =
@@ -41,7 +42,11 @@ function harness(pauseMs = 5_000) {
       await hold.release(options);
     }
   };
-  return { gate, log, section, use, now: () => clock, pauses };
+  /** Time passing with nobody at the gate. */
+  const wait = (ms: number) => {
+    clock += ms;
+  };
+  return { gate, log, section, use, now: () => clock, pauses, wait };
 }
 
 describe('the site gate', () => {
@@ -135,5 +140,42 @@ describe('the site gate', () => {
     await use(section('a'), { pauseAfter: false });
 
     expect(pauses).toEqual([]);
+  });
+
+  test('its time is split into held, paused and idle, which add up to the time it has existed', async () => {
+    const { gate, use, section, wait, now } = harness(5_000);
+
+    wait(2_000);
+    await Promise.all([use(section('a')), use(section('b'))]);
+    wait(3_000);
+
+    // a and b hold 1000 each, each pause is 5000, and nobody is there for 2000 + 3000.
+    const stats = gate.stats();
+    expect(stats).toEqual({ busyMs: 2_000, pausedMs: 10_000, idleMs: 5_000, holds: 2 });
+    expect(stats.busyMs + stats.pausedMs + stats.idleMs).toBe(now());
+  });
+
+  test('a hold still open is counted up to the moment its stats are read', async () => {
+    const { gate, wait } = harness();
+
+    wait(1_000);
+    const hold = await gate.acquire();
+    wait(4_000);
+
+    expect(gate.stats()).toEqual({ busyMs: 4_000, pausedMs: 0, idleMs: 1_000, holds: 1 });
+    await hold.release();
+  });
+
+  test('a latch changes nothing about its stats but that the refused never count as holds', async () => {
+    const { gate, use, section, wait, now } = harness(5_000);
+
+    await use(section('a'));
+    gate.latch();
+    await expect(use(section('b'))).rejects.toBeInstanceOf(SiteLatchedError);
+    wait(1_000);
+
+    const stats = gate.stats();
+    expect(stats).toEqual({ busyMs: 1_000, pausedMs: 5_000, idleMs: 1_000, holds: 1 });
+    expect(stats.busyMs + stats.pausedMs + stats.idleMs).toBe(now());
   });
 });
