@@ -77,7 +77,8 @@ the `mongosh` invocation in a header comment.
 `services/egp/` is the upstream adapter. A run is started, not awaited — a pass
 takes minutes, and progress is observed through the state the admin UI polls.
 
-Three behaviours in `pipeline.ts` are load-bearing:
+Three behaviours of a Run (`pipeline.ts` and the modules it wires, listed in its
+header) are load-bearing:
 
 - **A rate-limit response aborts the run.** The right answer to a site saying stop
   is to stop, leaving the rest Queued. Archives already downloaded are still

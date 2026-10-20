@@ -1,23 +1,23 @@
 import { RateLimitedError } from './client';
 
 /**
- * What lets more than one runner share the upstream site without breaking the
- * terms it is used under.
+ * What lets Discovery and the Retrieval worker share the upstream site without
+ * breaking the terms it is used under.
  *
  * `gprocurement.go.th` is reached under a research authorisation, and the code
  * keeps to its spirit: single-file requests, a politeness delay between them,
  * and a hard stop on a rate-limit response (there is no volume cap; ADR-0015).
- * Several runners could each honour those on their own and still, together,
- * break them. So the terms live in one place that every runner
- * goes through:
+ * Discovery and Retrieval run side by side in a Run (ADR-0020), and each could
+ * honour those on its own and still, together, break them. So the terms live in
+ * one place that every request of the Run goes through:
  *
- *  - at most one site section in flight, across all runners;
+ *  - at most one site section in flight, Discovery's or Retrieval's;
  *  - a pause after each, taken before the next may begin;
  *  - when it frees, the best tier waiting goes next (`GATE_TIERS`), first come
  *    first served within a tier. A worse tier can wait, but not for ever: a Run
  *    does not end until its work is done (ADR-0020);
  *  - released even when the section throws, and never before it has settled;
- *  - a refusal latches it, and every runner — waiting or arriving later — is
+ *  - a refusal latches it, and every caller — waiting or arriving later — is
  *    refused in turn without touching the site.
  *
  * Work that is not a site request (the model reading a PDF) runs outside it.
@@ -30,7 +30,10 @@ import { RateLimitedError } from './client';
 export const GATE_TIERS = ['new_day', 'fresh', 'refresh', 'history'] as const;
 export type GateTier = (typeof GATE_TIERS)[number];
 
-/** Raised to a runner that did not itself meet a refusal but must stop as if it had. */
+/**
+ * Raised to a caller, Discovery or Retrieval, that did not itself meet a
+ * refusal but must stop as if it had.
+ */
 export class SiteLatchedError extends RateLimitedError {
   constructor() {
     super('the upstream site', 429);
