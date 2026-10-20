@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { RateLimitedError } from './client';
-import { createSiteGate, GATE_TIERS, type GateTier, SiteLatchedError } from './site-gate';
+import {
+  createSiteGate,
+  GATE_TIERS,
+  type GateTier,
+  SiteClosedError,
+  SiteLatchedError,
+} from './site-gate';
 
 /**
  * The gate is what keeps several runners within the terms of access to the
@@ -133,6 +139,30 @@ describe('the site gate', () => {
     const error = await use(async () => 'x').catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(RateLimitedError);
+  });
+
+  test('closing it stops every caller without calling it a refusal, and lets the section in flight finish', async () => {
+    const { gate, use, section, log } = harness();
+    const hold = await gate.acquire('fresh');
+
+    const waiting = use(section('b'), undefined, 'history');
+    gate.close();
+    await hold.release();
+    const error = await waiting.catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SiteClosedError);
+    expect(error).not.toBeInstanceOf(RateLimitedError);
+    expect(log).toEqual([]);
+    expect(gate.pending).toBe(0);
+    await expect(gate.acquire('new_day')).rejects.toBeInstanceOf(SiteClosedError);
+  });
+
+  test('a refusal after a close still reads as a refusal', async () => {
+    const { gate } = harness();
+    gate.close();
+    gate.latch();
+
+    await expect(gate.acquire('fresh')).rejects.toBeInstanceOf(SiteLatchedError);
   });
 
   test('the last section can skip the pause, since nothing follows it', async () => {

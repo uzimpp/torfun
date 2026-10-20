@@ -970,7 +970,12 @@ describeMongo('ProcurementRepository', () => {
         procurement({ projectId: 'b' }),
       ]);
 
-      expect(summary).toEqual({ created: 2, changed: 0, unchanged: 0 });
+      expect(summary).toEqual({
+        created: 2,
+        createdIds: ['a', 'b'],
+        changed: 0,
+        unchanged: 0,
+      });
       expect((await repository.get('a'))?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
@@ -985,7 +990,7 @@ describeMongo('ProcurementRepository', () => {
         procurement({ projectId: 'b' }),
       ]);
 
-      expect(summary).toEqual({ created: 0, changed: 0, unchanged: 2 });
+      expect(summary).toEqual({ created: 0, createdIds: [], changed: 0, unchanged: 2 });
       expect((await repository.get('a'))?.updatedAt).toBe(at(1));
       expect((await repository.get('b'))?.updatedAt).toBe(at(2));
     });
@@ -1001,7 +1006,7 @@ describeMongo('ProcurementRepository', () => {
         procurement({ projectId: 'b' }),
       ]);
 
-      expect(summary).toEqual({ created: 0, changed: 1, unchanged: 1 });
+      expect(summary).toEqual({ created: 0, createdIds: [], changed: 1, unchanged: 1 });
       expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['a', 'b']);
     });
 
@@ -1015,7 +1020,12 @@ describeMongo('ProcurementRepository', () => {
     });
 
     test('an empty sweep is a no-op', async () => {
-      expect(await repository.upsertMany([])).toEqual({ created: 0, changed: 0, unchanged: 0 });
+      expect(await repository.upsertMany([])).toEqual({
+        created: 0,
+        createdIds: [],
+        changed: 0,
+        unchanged: 0,
+      });
     });
   });
 

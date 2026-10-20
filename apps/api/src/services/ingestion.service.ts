@@ -21,7 +21,6 @@ import type {
   IngestionStatsSource,
   ProcurementDataSource,
 } from '../repositories/procurement.repository';
-import { DISCOVERY_MAX_AGE_MS } from './egp/constants';
 import {
   createIngestionDeps,
   runIngestion,
@@ -92,7 +91,6 @@ function countsOf(result: RunResult): RunCounts {
     newRecords: result.newRecords,
     changedRecords: result.changedRecords,
     unchangedRecords: result.unchangedRecords,
-    discoverySkipped: result.discoverySkipped,
     discoveryStopped: result.discoveryStopped,
     rejectedNonRegistry: result.rejectedNonRegistry,
     attempted: result.attempted,
@@ -108,13 +106,11 @@ function countsOf(result: RunResult): RunCounts {
 }
 
 export interface StartRunInput {
-  /** Sweep upstream even if the last sweep is recent. Only an administrator's deliberate choice. */
-  forceDiscovery?: boolean;
   /** Retrieve this project and no other (see `RunOptions.onlyProject`). */
   onlyProject?: string;
   /**
    * Work that must happen only if this Run really begins, after the lease is held
-   * and before anything is swept: a caller whose change the sweep depends on
+   * and before anything is retrieved: a caller whose change the Run depends on
    * (lifting a tombstone) makes it here, so a refused start changes nothing. If it
    * throws, no Run begins.
    */
@@ -334,7 +330,6 @@ export class IngestionService {
     void runIngestion(
       this.repository,
       {
-        runners: this.env.EGP_RUNNERS,
         analysisConcurrency: this.env.ANALYSIS_CONCURRENCY,
         logger: this.logger,
         shouldContinue: () => runMayContinue(held, this.now().getTime(), leaseTtlMs),
@@ -342,8 +337,6 @@ export class IngestionService {
         onProgress: (progress) => {
           held.progress = progress;
         },
-        discoveryMaxAgeMs: DISCOVERY_MAX_AGE_MS,
-        ...(input.forceDiscovery ? { forceDiscovery: true } : {}),
         ...(input.onlyProject ? { onlyProject: input.onlyProject } : {}),
       },
       this.deps,
@@ -370,7 +363,6 @@ export class IngestionService {
           endedAt: endedAt.toISOString(),
           durationMs: Math.max(0, endedAt.getTime() - startedAt.getTime()),
           trigger: input.trigger ?? 'manual',
-          runners: this.env.EGP_RUNNERS,
           ...outcome,
           tokens: held.tokens,
         });

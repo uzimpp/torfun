@@ -266,7 +266,7 @@ describe('restoring a tombstone', () => {
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
   };
 
-  test('one that kept the feed snapshot comes back Queued from it, and the Run is not made to sweep', async () => {
+  test('one that kept the feed snapshot comes back Queued from it, for a Run of that project alone', async () => {
     const { store, service, runs } = await build([]);
     await store.tombstone({ ...tombstone, feed });
 
@@ -274,7 +274,6 @@ describe('restoring a tombstone', () => {
 
     expect(runs).toHaveLength(1);
     expect(runs[0]?.onlyProject).toBe('66059313551');
-    expect(runs[0]?.forceDiscovery).toBeFalsy();
     expect(await store.get('66059313551')).toMatchObject({
       ...feed,
       state: 'Queued',
@@ -286,14 +285,15 @@ describe('restoring a tombstone', () => {
     });
   });
 
-  test('one written before snapshots asks for one Run for that project, sweeping afresh because that is where its details come from', async () => {
+  test('one written before snapshots still asks for one Run for that project, and makes no sweep for it (ADR-0020)', async () => {
     const { store, service, runs } = await build([]);
     await store.tombstone(tombstone);
 
     await service.restoreTombstone('66059313551', 'napa');
 
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ onlyProject: '66059313551', forceDiscovery: true });
+    expect(runs[0]).toEqual(expect.objectContaining({ onlyProject: '66059313551' }));
+    expect(runs[0]).not.toHaveProperty('forceDiscovery');
   });
 
   test('lifts the tombstone only once the Run really begins', async () => {
@@ -389,7 +389,7 @@ describe('restoring a tombstone, end to end through a real Run', () => {
     };
     const ingestion = new IngestionService(
       store,
-      testEnv({ EGP_RUNNERS: 2 }),
+      testEnv(),
       silentLogger,
       {
         lease: new InMemoryIngestionLease(),
@@ -410,17 +410,21 @@ describe('restoring a tombstone, end to end through a real Run', () => {
     return { store, asked };
   }
 
-  test('reads the restored project once and nothing else, through the same pipeline', async () => {
+  test('one with no feed snapshot is lifted, but its Run makes no sweep, so nothing is fetched and the log says why', async () => {
     const { store, asked } = await restoreThroughRun(dropped, [
       '66059313551',
       '66059313552',
       '66059313553',
     ]);
 
-    expect(asked).toEqual(['66059313551']); // one site lookup, for the restored project
-    expect((await store.get('66059313551'))?.outcome).toBe('no_tor_package');
-    expect((await store.get('66059313552'))?.outcome).toBe('queued'); // found by the sweep, not read
+    // A one-project Run skips Discovery (ADR-0020): there is nothing to rebuild it from.
+    expect(asked).toEqual([]);
+    expect(await store.get('66059313551')).toBeUndefined();
+    expect(await store.get('66059313552')).toBeUndefined();
     expect(await store.listTombstones()).toEqual([]);
+    expect(await store.listFailures()).toEqual([
+      expect.objectContaining({ projectId: '66059313551', stage: 'discovery' }),
+    ]);
   });
 
   test('reads a project with a feed snapshot even when no sweep lists it again', async () => {

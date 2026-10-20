@@ -2,18 +2,17 @@ import type { IngestionFailure, Procurement } from '@torfun/types';
 import type { FeedCursor } from '../../repositories/procurement.repository';
 import { admit } from './admission';
 import { createAnnouncementFeed, type AnnouncementFeed, type FeedItem } from './announcement-feed';
-import { RateLimitedError, UnreachableError } from './client';
+import { RateLimitedError } from './client';
 import {
   FEED_ANNOUNCEMENT_TYPES,
   FEED_BACKFILL_REQUESTS_PER_RUN,
   FEED_HISTORY_DAYS,
   FEED_REGISTRY,
-  SITE_UNREACHABLE_AFTER,
   type FeedAnnouncementType,
 } from './constants';
 import { convertDateToISO } from './dates';
 import { queuedRecord } from './feed-record';
-import type { GateTier } from './site-gate';
+import { SiteClosedError, SiteLatchedError, type GateTier } from './site-gate';
 
 /**
  * Stage 1 of the pipeline: e-GP's announcement feed, asked agency by agency and
@@ -48,6 +47,8 @@ export interface SweepContext {
    * while the sweep goes on and a Run that stops early keeps what it found.
    */
   save: (batch: SweepBatch) => Promise<void>;
+  /** Told which agency-day is about to be asked, for the Run's live view. */
+  reading?: (what: string) => void;
 }
 
 /** What one agency-day of the sweep added: records, failures, and the unit's new range. */
@@ -75,13 +76,14 @@ export interface DiscoveryResult {
    */
   rateLimited: boolean;
   /**
-   * `SITE_UNREACHABLE_AFTER` requests in a row got no answer, and the sweep
-   * stopped there. Like a refusal, the caller stops the Run.
+   * The Run closed the gate because the site stopped answering: its last
+   * `SITE_UNREACHABLE_AFTER` requests, Discovery's and Retrieval's alike, got no
+   * answer (the count is kept where every request passes, in the pipeline).
    */
   unreachable: boolean;
   /**
-   * Every agency's new days were read. Only then does the sweep count as done,
-   * so a Run soon after skips it; one with a failed day must be asked again.
+   * Every agency's new days were read, and the sweep was not stopped. Only then
+   * is it recorded as the last finished sweep.
    */
   complete: boolean;
   ranAt: string;
@@ -171,9 +173,9 @@ export async function discoverProjects(
   let truncated = 0;
   let rateLimited = false;
   let unreachable = false;
-  /** Requests in a row that got no answer at all. */
-  let silent = 0;
-  const halted = () => rateLimited || unreachable;
+  /** The Run closed the gate for its own reasons (an administrator's stop, say). */
+  let closed = false;
+  const halted = () => rateLimited || unreachable || closed;
   /** Requests made so far, so history can be held to its share. */
   let requests = 0;
   let pass: 'newDays' | 'historyDays' = 'newDays';
@@ -181,15 +183,7 @@ export async function discoverProjects(
   /** A request at the tier of the pass it is made in. */
   const site = async <T>(call: () => Promise<T>): Promise<T> => {
     requests += 1;
-    try {
-      const answer = await context.site(pass === 'newDays' ? 'new_day' : 'history', call);
-      silent = 0;
-      return answer;
-    } catch (error) {
-      silent = error instanceof UnreachableError ? silent + 1 : 0;
-      if (silent >= SITE_UNREACHABLE_AFTER) unreachable = true;
-      throw error;
-    }
+    return context.site(pass === 'newDays' ? 'new_day' : 'history', call);
   };
 
   const units: Unit[] = FEED_REGISTRY.flatMap((agency) =>
@@ -229,6 +223,18 @@ export async function discoverProjects(
       at: now(),
     });
   const failWith = (unit: Unit, day: string, error: unknown) => {
+    // The gate turned this request away before it reached the site: the Run is
+    // stopping. Nothing failed on this day, so nothing is logged against it; a
+    // refusal met by Retrieval is logged there.
+    if (error instanceof SiteClosedError) {
+      if (error.reason === 'unreachable') unreachable = true;
+      else closed = true;
+      return;
+    }
+    if (error instanceof SiteLatchedError) {
+      rateLimited = true;
+      return;
+    }
     fail(unit, day, error instanceof Error ? error.message : String(error));
     if (error instanceof RateLimitedError) rateLimited = true;
   };
@@ -237,6 +243,7 @@ export async function discoverProjects(
   const read = async (unit: Unit, day: string): Promise<boolean> => {
     let answer;
     byKind[pass] += 1;
+    context.reading?.(`${unit.agency.deptName} / ${unit.type} / ${day}`);
     try {
       answer = await site(() => feed.day(unit.agency.deptId, unit.type, day));
     } catch (error) {

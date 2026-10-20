@@ -247,6 +247,8 @@ export interface FindOptions {
 /** What one sweep did to the store. */
 export interface UpsertSummary {
   created: number;
+  /** The ids of those created, new to the store, in the order given. */
+  createdIds: string[];
   /** Seen before, and the agency's data for it is different now. */
   changed: number;
   /** Seen before, and nothing the agency owns moved. */
@@ -328,8 +330,6 @@ export interface ProcurementStore {
   /** The open-data API's daily allowance as last read, or null if never read. */
   openDataQuota(): Promise<OpenDataQuota | null>;
   recordOpenDataQuota(quota: OpenDataQuota): Promise<void>;
-  /** When discovery last completed a sweep, or null if it never has. */
-  lastDiscoveryAt(): Promise<string | null>;
   /** How far the announcement feed has been read, per agency and type; empty before the first sweep. */
   feedCursor(): Promise<FeedCursor>;
   /** Store where these units of the feed now stand; units not named are left as they were. */
@@ -625,7 +625,7 @@ export class ProcurementRepository
   }
 
   async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
-    const summary: UpsertSummary = { created: 0, changed: 0, unchanged: 0 };
+    const summary: UpsertSummary = { created: 0, createdIds: [], changed: 0, unchanged: 0 };
     if (records.length === 0) return summary;
 
     const collection = await this.records();
@@ -641,6 +641,7 @@ export class ProcurementRepository
       const existing = stored.get(record.projectId);
       if (!existing) {
         summary.created += 1;
+        summary.createdIds.push(record.projectId);
         operations.push({
           insertOne: {
             document: toDocument({
@@ -894,10 +895,6 @@ export class ProcurementRepository
       },
       { upsert: true },
     );
-  }
-
-  async lastDiscoveryAt(): Promise<string | null> {
-    return (await (await this.meta()).findOne({ _id: 'last_run' }))?.at ?? null;
   }
 
   async feedCursor(): Promise<FeedCursor> {
