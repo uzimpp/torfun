@@ -227,6 +227,12 @@ export interface FindOptions {
    * to leave exhausted records out of the query itself.
    */
   attemptsBelow?: number;
+  /**
+   * Only records whose procurement detail was read (true) or never read
+   * (false). Discovery reads it for a Queued record before Retrieval may take
+   * the record (ADR-0021).
+   */
+  detailRead?: boolean;
   deptName?: string;
   budgetYear?: number;
   /** Filter to one stage of the agency's own lifecycle. */
@@ -773,6 +779,9 @@ export class ProcurementRepository
       clauses.push({
         $or: [{ attempts: { $exists: false } }, { attempts: { $lt: options.attemptsBelow } }],
       });
+    }
+    if (options.detailRead !== undefined) {
+      filter.detail_read_at = options.detailRead ? { $ne: null } : null;
     }
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.budgetYear) filter.budget_year = options.budgetYear;

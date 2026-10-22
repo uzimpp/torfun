@@ -1,16 +1,15 @@
 import type { Procurement } from '@torfun/types';
 import { readMovedInvitation, readRetrievedArchive, type AnalysisDeps } from './analysis-task';
 import type { AnnouncementClient } from './announcement-client';
-import { readProjectDetail } from './project-detail';
 import type { Handoff, RecordWork } from './record-work';
 import type { RetrievalQueue } from './retrieval-queue';
 import { reviewTimeline, type TimelineReview } from './timeline';
 
 /**
- * Retrieval: one project's turn at the gate. The project detail where it was
- * never read, its timeline, then the archive lookup and download where there is
- * an Archive to fetch, all in one gate hold. What it fetched is handed back for
- * Analysis.
+ * Retrieval: one project's turn at the gate. Its timeline, then the archive
+ * lookup and download where there is an Archive to fetch, all in one gate hold.
+ * What it fetched is handed back for Analysis. Discovery has read the project's
+ * procurement detail before Retrieval sees it (ADR-0021).
  */
 
 export interface RetrievalDeps {
@@ -34,8 +33,6 @@ export async function takeTurn(
   work: RecordWork,
   fresh: boolean,
 ): Promise<Handoff | undefined> {
-  await catchUpDetail(deps, work);
-  if (work.guard.expired) return;
   return fresh ? retrieve(deps, work) : refresh(deps, work);
 }
 
@@ -66,29 +63,6 @@ async function readTimeline(deps: RetrievalDeps, work: RecordWork): Promise<Time
     );
   }
   return review;
-}
-
-/**
- * Discovery stores a project from the feed alone, so a record whose detail
- * was never read (`detailReadAt` null) gets it first, in the same gate hold
- * as its timeline (ADR-0020). A failure is logged and the record carries on
- * with the year it has, null for a new one, never guessed; the next Run asks
- * again. A refusal is thrown on and stops the Run as usual.
- */
-async function catchUpDetail(deps: RetrievalDeps, work: RecordWork): Promise<void> {
-  const { record, guard } = work;
-  if (record.detailReadAt !== null) return;
-  const read = await work.site(() =>
-    readProjectDetail(deps.announcements, record.projectId, guard.controller.signal),
-  );
-  if (guard.expired) return;
-  if ('error' in read) return work.note('timeline', read.error);
-  // Only a change an officer can see counts as news.
-  const visible =
-    read.fields.budgetYear !== record.budgetYear || read.fields.deptSubName !== record.deptSubName;
-  await work.store.amend(record.projectId, read.fields, visible);
-  // Later steps read this record (a tombstone keeps its year), so it must be current.
-  work.record = { ...record, ...read.fields };
 }
 
 /** A project already read: its timeline again, and the invitation only if that moved. */

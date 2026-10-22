@@ -8,6 +8,7 @@ const counts = (overrides: Partial<RunCounts> = {}): RunCounts => ({
   newRecords: 12,
   changedRecords: 0,
   unchangedRecords: 18,
+  outOfScope: 0,
   discoveryStopped: null,
   attempted: 9,
   refreshed: 2,

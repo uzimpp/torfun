@@ -24,10 +24,11 @@ import { RateLimitedError } from './client';
  */
 
 /**
- * What a turn at the gate is for, best first: Discovery's new days, retrieval of
- * projects never read, timeline refreshes, then Discovery's history (ADR-0020).
+ * What a turn at the gate is for, best first: Discovery's new days, Discovery's
+ * read of a new project's procurement detail (ADR-0021), retrieval of projects
+ * never read, timeline refreshes, then Discovery's history (ADR-0020).
  */
-export const GATE_TIERS = ['new_day', 'fresh', 'refresh', 'history'] as const;
+export const GATE_TIERS = ['new_day', 'detail', 'fresh', 'refresh', 'history'] as const;
 export type GateTier = (typeof GATE_TIERS)[number];
 
 /**
@@ -116,7 +117,13 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
     refuse: (error: Error) => void;
   };
   // One line per tier, in GATE_TIERS order.
-  const waiting: Record<GateTier, Waiter[]> = { new_day: [], fresh: [], refresh: [], history: [] };
+  const waiting: Record<GateTier, Waiter[]> = {
+    new_day: [],
+    detail: [],
+    fresh: [],
+    refresh: [],
+    history: [],
+  };
   const nextWaiter = () => {
     const tier = GATE_TIERS.find((each) => waiting[each].length > 0);
     return tier ? waiting[tier].shift() : undefined;

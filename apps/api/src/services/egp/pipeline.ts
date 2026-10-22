@@ -19,9 +19,10 @@ import {
   type SweepBatch,
   type SweepContext,
 } from './discovery';
+import { createDetailWorker, type DetailCandidate } from './detail-turn';
 import { readInvitationDocuments, type InvitationResult } from './invitation';
 import { createLiveView, DISCOVERY_SLOT, type LiveView } from './live-view';
-import { createRetrievalQueue, type RetrievalQueue } from './retrieval-queue';
+import { createRetrievalQueue } from './retrieval-queue';
 import type { RetrievalDeps } from './retrieval-turn';
 import { createRetrievalWorker } from './retrieval-worker';
 import { createRunControl, runEnding, type RunControl } from './run-control';
@@ -43,6 +44,7 @@ import {
  * and this owns the policy: what to retrieve, in what order, how failures are
  * recorded, and when to stop. `runIngestion` wires a Run from its parts:
  *
+ *  - `detail-turn.ts`: Discovery's read of each project's procurement detail;
  *  - `run-control.ts`: whether the Run may go on, and why it stopped;
  *  - `retrieval-queue.ts`: the work waiting for the gate, and the waiting room;
  *  - `retrieval-worker.ts` and `retrieval-turn.ts`: one project's gate turn;
@@ -68,7 +70,7 @@ export interface IngestionDeps {
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   /** Reads the bid date off the archive's invitation announcement, if it carries one. */
   readInvitation: (archive: Uint8Array, projectId: string) => Promise<InvitationResult>;
-  /** The project's timeline and detail; the detail is asked first, only where it was never read. */
+  /** The project's procurement detail, read by Discovery, and its timeline, read by Retrieval. */
   announcements: AnnouncementClient;
   sleep: (ms: number) => Promise<void>;
   /**
@@ -113,8 +115,9 @@ export interface RunOptions {
   shouldContinue?: () => boolean;
   /**
    * Retrieve this project and no other, with no discovery sweep (ADR-0020): the
-   * site is asked about one project. A project that is not Queued with attempts
-   * left is reported as a failure rather than skipped.
+   * site is asked about one project, its procurement detail first if that was
+   * never read. A project that is not Queued with attempts left is reported as
+   * a failure rather than skipped.
    */
   onlyProject?: string;
   /**
@@ -140,6 +143,8 @@ export interface RunResult {
   changedRecords: number;
   /** Seen again with nothing the agency owns moved. */
   unchangedRecords: number;
+  /** Projects whose Goods Category was out of scope, so nothing more was read (ADR-0021). */
+  outOfScope: number;
   /**
    * Why a sweep that began did not finish: the site refused it, or stopped
    * answering. Null when it finished, never began, or was stopped by the Run
@@ -184,7 +189,9 @@ async function collectPages(
 }
 
 /**
- * Every record worth spending an upstream request on, newest announcement first.
+ * The Queued records with attempts left, newest announcement first: those whose
+ * procurement detail was never read, for Discovery's detail turn, or those
+ * whose detail was read, for Retrieval (ADR-0021). That one field decides which.
  *
  * There is no cap: a Run works through the whole queue, so what is selected is
  * all of it, in the order `find` gives, which means a Run that is stopped early
@@ -192,7 +199,7 @@ async function collectPages(
  * discovery admits nothing else. What keeps the site safe is not how many, but how (single file, paused,
  * stopped at once by a refusal).
  */
-function selectForRetrieval(repository: ProcurementStore): Promise<Procurement[]> {
+function selectQueued(repository: ProcurementStore, detailRead: boolean): Promise<Procurement[]> {
   return collectPages(
     async (offset) =>
       (
@@ -201,6 +208,7 @@ function selectForRetrieval(repository: ProcurementStore): Promise<Procurement[]
           // In the query, not filtered afterwards: an exhausted record must not be
           // read into the queue only to be skipped.
           attemptsBelow: MAX_ATTEMPTS,
+          detailRead,
           limit: SELECTION_PAGE,
           offset,
         })
@@ -248,8 +256,9 @@ interface Sweep {
 }
 
 /**
- * Discovery: sweep the feed through the Run's gate, saving each agency-day as
- * soon as it is read and handing each project new to the store to Retrieval.
+ * Discovery's sweep: read the feed through the Run's gate, saving each
+ * agency-day as soon as it is read and handing each project new to the store
+ * on to have its procurement detail read.
  */
 async function runDiscovery(run: {
   repository: ProcurementStore;
@@ -258,7 +267,7 @@ async function runDiscovery(run: {
   gate: SiteGate;
   control: RunControl;
   live: LiveView;
-  queue: RetrievalQueue;
+  route: (candidate: DetailCandidate) => void;
   failures: IngestionFailure[];
 }): Promise<Sweep> {
   const { repository, logger, gate, control, failures } = run;
@@ -289,12 +298,13 @@ async function runDiscovery(run: {
     await repository.recordFailures(batch.failures);
     // Covers exactly the days read in full, even if the sweep stops later.
     await repository.recordFeedCursor(batch.cursor);
-    // Only a project new to the store is fresh work; one seen before is
-    // already in the queue if it is Queued, or due a refresh if it is not.
+    // Only a project new to the store is fresh work; one seen before was
+    // selected at the start of the Run if it is Queued, or is due a refresh.
     const byId = new Map(batch.records.map((record) => [record.projectId, record]));
+    const drafts = new Set(batch.drafts);
     for (const id of summary.createdIds) {
       const record = byId.get(id);
-      if (record) run.queue.enqueue({ record, fresh: true });
+      if (record) run.route({ record, draft: drafts.has(id) });
     }
   };
 
@@ -358,8 +368,11 @@ async function runDiscovery(run: {
  * Run one full ingestion pass: Discovery, Retrieval and Analysis side by side
  * (ADR-0020).
  *
- *  - Discovery sweeps the feed and hands each project new to the store to
- *    Retrieval as soon as its agency-day is saved.
+ *  - Discovery sweeps the feed and, as each agency-day is saved, reads each
+ *    new project's procurement detail in a gate turn of its own, as it does
+ *    for a Queued project whose detail an earlier Run left unread. A project
+ *    in scope is handed to Retrieval; one out of scope goes no further
+ *    (ADR-0021).
  *  - Retrieval is one worker. Its queue starts with the projects never read,
  *    then those due a timeline refresh, and Discovery's new projects join the
  *    never-read ones, ahead of every refresh. Each project is one gate turn.
@@ -413,13 +426,16 @@ export async function runIngestion(
     onProgress: options.onProgress,
     queueRemaining: () => queue.remaining,
   });
-  // A stop wakes Retrieval, which may be waiting, so it sees it.
+  // A stop wakes Discovery's detail turns and Retrieval, which may be waiting, so they see it.
   const control = createRunControl({
     gate,
     logger,
     stopRequested: options.stopRequested,
     shouldContinue: options.shouldContinue,
-    onStop: () => queue.wake(),
+    onStop: () => {
+      queue.wake();
+      details.wake();
+    },
   });
   // What a Retrieval turn uses: the site's endpoints, the model's reading
   // inside the Run's limit, and the queue for a refresh that needs a place.
@@ -450,6 +466,21 @@ export async function runIngestion(
     fail: ledger.fail,
     onError: stopForError,
   });
+  const details = createDetailWorker({
+    repository,
+    gate,
+    control,
+    live,
+    ledger,
+    announcements: deps.announcements,
+    admitted: (record) => queue.enqueue({ record, fresh: true }),
+    deadlineMs: deps.recordDeadlineMs,
+  });
+  /** A Queued project goes to Retrieval once its procurement detail is read, and to Discovery's detail turn until then. */
+  const route = (candidate: DetailCandidate) => {
+    if (candidate.record.detailReadAt === null) details.enqueue(candidate);
+    else queue.enqueue({ record: candidate.record, fresh: true });
+  };
   const retrieval = createRetrievalWorker({
     repository,
     gate,
@@ -462,33 +493,12 @@ export async function runIngestion(
     deadlineMs: deps.recordDeadlineMs,
   });
 
-  // Discovery first, so its first request is at the gate before Retrieval's.
-  // A one-project Run makes no sweep (ADR-0020).
-  if (options.onlyProject) queue.endDiscovery();
-  const discovering = (
-    options.onlyProject
-      ? Promise.resolve(null)
-      : runDiscovery({
-          repository,
-          logger,
-          discoverProjects: deps.discoverProjects,
-          gate,
-          control,
-          live,
-          queue,
-          failures: ledger.failures,
-        })
-  )
-    .catch((error: unknown) => {
-      stopForError(error);
-      return null;
-    })
-    .finally(() => {
-      live.remove(DISCOVERY_SLOT);
-      queue.endDiscovery();
-    });
-
-  try {
+  /**
+   * Discovery first, so its first request is at the gate before Retrieval's: the
+   * sweep, and beside it the projects an earlier Run left with their detail
+   * unread. A one-project Run makes no sweep (ADR-0020).
+   */
+  const sweep = async (): Promise<Sweep | null> => {
     if (options.onlyProject) {
       const one = await selectOne(repository, options.onlyProject);
       if (one.length === 0) {
@@ -500,9 +510,43 @@ export async function runIngestion(
           'The project was not read: it is not in the queue, or has no attempts left.',
         );
       }
-      for (const record of one) queue.enqueue({ record, fresh: true });
-    } else {
-      for (const record of await selectForRetrieval(repository))
+      for (const record of one) route({ record, draft: false });
+      return null;
+    }
+    const [result] = await Promise.all([
+      runDiscovery({
+        repository,
+        logger,
+        discoverProjects: deps.discoverProjects,
+        gate,
+        control,
+        live,
+        route,
+        failures: ledger.failures,
+      }),
+      selectQueued(repository, false).then((records) => {
+        for (const record of records) details.enqueue({ record, draft: false });
+      }),
+    ]);
+    return result;
+  };
+  const failSafe = (error: unknown) => {
+    stopForError(error);
+    return null;
+  };
+  const sweeping = sweep()
+    .catch(failSafe)
+    .finally(() => {
+      live.remove(DISCOVERY_SLOT);
+      details.end();
+    });
+  const discovering = Promise.all([sweeping, details.run().catch(failSafe)])
+    .then(([result]) => result)
+    .finally(() => queue.endDiscovery());
+
+  try {
+    if (!options.onlyProject) {
+      for (const record of await selectQueued(repository, true))
         queue.enqueue({ record, fresh: true });
       for (const record of await selectForRefresh(repository))
         queue.enqueue({ record, fresh: false });
@@ -513,19 +557,23 @@ export async function runIngestion(
   } catch (error) {
     stopForError(error);
   }
-  const sweep = await discovering;
+  const swept = await discovering;
   // Archives already fetched are analysed and stored, whatever stopped the Run.
   await analyses.settled();
   live.report();
   if (thrown.length > 0) throw thrown[0];
 
-  const ending = runEnding(control.status, sweep?.result ?? null);
+  const ending = runEnding(control.status, swept?.result ?? null);
   // Logged only, never stored: a baseline to compare Runs by hand.
   const timing = {
     wallMs: Date.now() - startedAt,
     gate: gate.stats(),
     analysisBusyMs: modelTimer.ms,
-    requests: { ...(sweep?.result.requests ?? { newDays: 0, historyDays: 0 }), ...retrieval.turns },
+    requests: {
+      ...(swept?.result.requests ?? { newDays: 0, historyDays: 0 }),
+      detailTurns: details.turns,
+      ...retrieval.turns,
+    },
   };
   logger.info(
     { attempted: ledger.attempted, ...ledger.tally, aborted: ending.aborted, timing },
@@ -533,16 +581,16 @@ export async function runIngestion(
   );
 
   return {
-    discovered: sweep?.result.records.length ?? 0,
-    newRecords: sweep?.sync.created ?? 0,
-    changedRecords: sweep?.sync.changed ?? 0,
-    unchangedRecords: sweep?.sync.unchanged ?? 0,
+    discovered: swept?.result.records.length ?? 0,
+    newRecords: swept?.sync.created ?? 0,
+    changedRecords: swept?.sync.changed ?? 0,
+    unchangedRecords: swept?.sync.unchanged ?? 0,
     discoveryStopped: ending.discoveryStopped,
     attempted: ledger.attempted,
     ...ledger.tally,
     aborted: ending.aborted,
     stopped: ending.stopped,
     failures: ledger.failures,
-    ranAt: sweep?.result.ranAt ?? new Date().toISOString(),
+    ranAt: swept?.result.ranAt ?? new Date().toISOString(),
   };
 }

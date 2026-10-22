@@ -76,6 +76,7 @@ async function build(options: { records?: number; heartbeatMs?: number } = {}) {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
