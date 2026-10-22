@@ -1,7 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { type DeadlineSource, type Procurement, type ProcurementStatus } from '@torfun/types';
+import {
+  currentDeadline,
+  type CurrentDeadline,
+  type Procurement,
+  type ProcurementStatus,
+} from '@torfun/types';
 import { ApiError, fetchTor } from '@/lib/api';
 
 export type TorReviewData = {
@@ -16,8 +21,7 @@ export type TorReviewData = {
   scope: string[];
   bidderQualifications: string[];
   announcementDate: string | null;
-  submissionDeadline: string | null;
-  deadlineSource: DeadlineSource | null;
+  deadline: CurrentDeadline | null;
   procurementMethod: string | null;
   budgetYear: number | null;
   referencePrice: number | null;
@@ -41,15 +45,14 @@ function toReviewData(procurement: Procurement): TorReviewData {
     title: procurement.projectName,
     agency: procurement.deptName,
     budget: procurement.projectMoney,
-    status: procurement.status,
+    status: procurement.timeline.status,
     technologies: analysis?.techStack ?? [],
     summary: analysis?.summary ?? null,
     objectives: [],
     scope: analysis?.scopeOfWork ?? [],
     bidderQualifications: analysis?.requiredQualifications ?? [],
     announcementDate: procurement.announceDate,
-    submissionDeadline: procurement.deadlineAt,
-    deadlineSource: procurement.deadlineSource,
+    deadline: currentDeadline(procurement),
     procurementMethod: procurement.purchaseMethodName,
     budgetYear: procurement.budgetYear,
     referencePrice: procurement.priceBuild,

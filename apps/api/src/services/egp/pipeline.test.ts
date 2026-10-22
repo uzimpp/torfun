@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { currentDeadline, EMPTY_STAGES, EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 import { fakeAnnouncements, SAMPLE_DETAIL } from '../../testing/announcement-client';
 import { InMemoryProcurementStore } from '../../testing/procurement-store';
 import { RateLimitedError, SiteUnavailableError, UnreachableError, UpstreamError } from './client';
@@ -28,30 +28,21 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
-    projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 5_000_000,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -145,8 +136,9 @@ describe('runIngestion', () => {
     expect(record?.state).toBe('Completed');
     expect(record?.analysis?.budgetThb).toBe(4_500_000);
     expect(
-      record?.documents.find((d: { role: string; filename: string }) => d.role === 'main_tor')
-        ?.filename,
+      record?.archive?.documents.find(
+        (d: { role: string; filename: string }) => d.role === 'main_tor',
+      )?.filename,
     ).toBe('Attach_TOR_1.pdf');
     expect(result).toMatchObject({ torAnalysed: 1, held: 0, dropped: 0 });
   });
@@ -181,7 +173,7 @@ describe('runIngestion', () => {
 
     const record = await repository.get('66059313551');
     expect(record?.outcome).toBe('no_tor_in_archive');
-    expect(record?.documents[0]?.role).toBe('not_tor');
+    expect(record?.archive?.documents[0]?.role).toBe('not_tor');
   });
 
   test('an analysis failure keeps the retrieval, so a retry costs nothing upstream', async () => {
@@ -200,8 +192,8 @@ describe('runIngestion', () => {
     const record = await repository.get('66059313551');
     expect(record?.state).toBe('Completed');
     expect(record?.outcome).toBe('analysis_failed');
-    expect(record?.documents[0]?.role).toBe('unreadable');
-    expect(record?.zipId).toBe('zip-1');
+    expect(record?.archive?.documents[0]?.role).toBe('unreadable');
+    expect(record?.archive?.zipId).toBe('zip-1');
   });
 
   test('a project with no published TOR package is a real answer, not an error', async () => {
@@ -381,7 +373,7 @@ describe('runIngestion', () => {
     });
 
     expect(classify).toHaveBeenCalledTimes(2);
-    expect((await repository.get('66059313551'))?.torAmbiguous).toBe(true);
+    expect((await repository.get('66059313551'))?.archive?.torAmbiguous).toBe(true);
   });
 });
 
@@ -624,7 +616,7 @@ describe('what a retrieval remembers about the archive', () => {
 
     const record = await repository.get('66059313551');
     expect(record?.outcome).toBe('tor_analysed');
-    expect(record?.documents[0]?.namePattern).toBe('unlabelled');
+    expect(record?.archive?.documents[0]?.namePattern).toBe('unlabelled');
   });
 });
 
@@ -648,8 +640,8 @@ describe('a document that was only partly read', () => {
     // A partial reading is never enough to show a record to an officer.
     expect(record?.outcome).toBe('needs_review');
     expect(record?.holdReason).toBe('partial_read');
-    expect(record?.documents[0]?.readMode).toBe('first_pages');
-    expect(record?.documents[0]?.readNote).toMatch(/30/);
+    expect(record?.archive?.documents[0]?.readMode).toBe('first_pages');
+    expect(record?.archive?.documents[0]?.readNote).toMatch(/30/);
   });
 });
 
@@ -674,7 +666,7 @@ describe('a sweep that only re-sees what it already has', () => {
 
     const first = await run(repository, sweep());
     const again = await run(repository, sweep());
-    const moved = await run(repository, sweep({ projectMoney: 9_999_999 }));
+    const moved = await run(repository, sweep({ projectName: 'จ้างพัฒนาระบบ (แก้ไข)' }));
 
     expect([first.newRecords, first.changedRecords, first.unchangedRecords]).toEqual([1, 0, 0]);
     expect([again.newRecords, again.changedRecords, again.unchangedRecords]).toEqual([0, 0, 1]);
@@ -942,7 +934,7 @@ describe('the analysis pool', () => {
 
     expect(peak).toBe(2);
     const record = await repository.get('66059313551');
-    expect(record?.documents.map((document) => document.filename)).toEqual(
+    expect(record?.archive?.documents.map((document) => document.filename)).toEqual(
       four.map((pdf) => pdf.filename),
     );
   });
@@ -1164,7 +1156,6 @@ describe('a record the model drops', () => {
           deptName: 'กรุงเทพมหานคร',
           deptCode: '0100',
           announceDate: '2026-08-01',
-          budgetYear: 2568,
           purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
         },
       },
@@ -1204,7 +1195,7 @@ describe('a record the model drops', () => {
 describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
   /** As Discovery stores it: from the feed alone, with no year yet. */
   const fresh = (overrides: Partial<Procurement> = {}) =>
-    procurement({ budgetYear: null, detailCheckedAt: null, ...overrides });
+    procurement({ budgetYear: null, detailReadAt: null, ...overrides });
 
   test('a new record gets its detail first, inside its turn, then is retrieved as usual', async () => {
     const repository = new InMemoryProcurementStore();
@@ -1228,7 +1219,7 @@ describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
       typeId: '03',
       goodsId: '4016',
       deptSubName: SAMPLE_DETAIL.deptSubName,
-      detailCheckedAt: expect.any(String),
+      detailReadAt: expect.any(String),
       outcome: 'tor_analysed',
     });
   });
@@ -1258,7 +1249,7 @@ describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
     expect(result.archivesRetrieved).toBe(1);
     expect(await repository.get('66059313551')).toMatchObject({
       budgetYear: null,
-      detailCheckedAt: null,
+      detailReadAt: null,
       outcome: 'tor_analysed',
     });
   });
@@ -1281,8 +1272,8 @@ describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
     ]);
     expect(await repository.get('66059313551')).toMatchObject({
       budgetYear: 2570,
-      detailCheckedAt: null,
-      timelineCheckedAt: expect.any(String),
+      detailReadAt: null,
+      timeline: { lastReadAt: expect.any(String) },
     });
   });
 
@@ -1332,7 +1323,7 @@ describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
     expect(order).toEqual(['detail', 'timeline']);
     expect(await repository.get('69109044981')).toMatchObject({
       budgetYear: 2569,
-      detailCheckedAt: expect.any(String),
+      detailReadAt: expect.any(String),
       outcome: 'tor_analysed',
     });
   });
@@ -1673,34 +1664,39 @@ describe('runIngestion: the bid deadline', () => {
     await run(repository, invited('2026-10-20T09:30:00.000Z'));
 
     const record = await repository.get('66059313551');
-    expect(record?.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
-    expect(record?.deadlineSource).toBe('invitation');
-    expect(record?.documents.map((d) => d.role)).toEqual(['main_tor', 'invitation']);
+    expect(record?.timeline.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
+    expect(record?.archive?.documents.map((d) => d.role)).toEqual(['main_tor', 'invitation']);
   });
 
-  test('is the TOR’s when the invitation states none', async () => {
+  test('is the TOR’s when the invitation states none, marked as read by the model', async () => {
     const repository = new InMemoryProcurementStore();
     await run(repository, invited(null));
 
     const record = await repository.get('66059313551');
-    expect(record?.deadlineAt).toBe('2026-10-15');
-    expect(record?.deadlineSource).toBe('tor');
+    expect(record?.timeline.deadlineAt).toBeNull();
+    expect(currentDeadline(record!)).toEqual({ at: '2026-10-15', kind: 'bids', readByModel: true });
   });
 
-  test('a weaker source read later does not displace a better one already stored', async () => {
+  test('a TOR read later does not displace the official date already stored', async () => {
     const repository = new InMemoryProcurementStore();
     await run(repository, {
       discoverProjects: async () => ({
         ...(await deps().discoverProjects(sweepContext)),
         records: [
-          procurement({ deadlineAt: '2026-10-20T09:30:00.000Z', deadlineSource: 'invitation' }),
+          procurement({
+            timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-20T09:30:00.000Z' },
+          }),
         ],
       }),
     });
 
     const record = await repository.get('66059313551');
-    expect(record?.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
-    expect(record?.deadlineSource).toBe('invitation');
+    expect(record?.timeline.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
+    expect(currentDeadline(record!)).toEqual({
+      at: '2026-10-20T09:30:00.000Z',
+      kind: 'bids',
+      readByModel: false,
+    });
   });
 
   test('is still found for a project whose archive holds no TOR', async () => {
@@ -1712,7 +1708,7 @@ describe('runIngestion: the bid deadline', () => {
 
     const record = await repository.get('66059313551');
     expect(record?.outcome).toBe('no_tor_in_archive');
-    expect(record?.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
+    expect(record?.timeline.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
   });
 
   test('is not read for a project the model drops as not software', async () => {
@@ -1760,16 +1756,20 @@ describe('runIngestion: the timeline', () => {
       projectId: '66059313599',
       state: 'Completed',
       outcome: 'tor_analysed',
-      status: 'open',
-      milestones: { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } },
-      timelineCheckedAt: '2026-10-01T00:00:00.000Z',
+      timeline: {
+        ...EMPTY_TIMELINE,
+        status: 'open',
+        stages: { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' },
+        lastReadAt: '2026-10-01T00:00:00.000Z',
+        deadlineAt: '2026-10-25T00:00:00.000Z',
+      },
       analysis: { ...analysis, deadlineAt: null },
-      documents: [invitationDocument],
-      deadlineAt: '2026-10-25T00:00:00.000Z',
-      deadlineSource: 'invitation',
+      archive: { zipId: 'zip-1', documents: [invitationDocument], torAmbiguous: false },
       updatedAt: '2026-10-01T00:00:00.000Z',
       ...overrides,
     });
+  const lastRead = (projectId: string, lastReadAt: string | null) =>
+    read({ projectId, timeline: { ...read().timeline, lastReadAt } });
   const READ_TIMELINE = [row('D0', '2026-09-20T02:00:00.000Z')];
 
   /** Records the archive-side work so a test can say what was not done. */
@@ -1806,7 +1806,7 @@ describe('runIngestion: the timeline', () => {
   }
 
   describe('for a project not yet read', () => {
-    test('is read before anything else is asked of the site, and sets status and milestones', async () => {
+    test('is read before anything else is asked of the site, and sets status and stages', async () => {
       const repository = new InMemoryProcurementStore();
       const order: string[] = [];
       const announcements = fakeAnnouncements({
@@ -1828,14 +1828,11 @@ describe('runIngestion: the timeline', () => {
 
       expect(order).toEqual(['timeline', 'zip']);
       const record = await repository.get(NEW);
-      expect(record).toMatchObject({
+      expect(record?.timeline).toMatchObject({
         status: 'open',
-        milestones: {
-          drafted: { at: '2026-08-01T00:00:00.000Z' },
-          invited: { at: '2026-08-10T00:00:00.000Z' },
-        },
+        stages: { drafted: '2026-08-01T00:00:00.000Z', invited: '2026-08-10T00:00:00.000Z' },
       });
-      expect(record?.timelineCheckedAt).toMatch(/^\d{4}-/);
+      expect(record?.timeline.lastReadAt).toMatch(/^\d{4}-/);
       expect(record?.outcome).toBe('tor_analysed');
     });
 
@@ -1848,10 +1845,9 @@ describe('runIngestion: the timeline', () => {
       });
 
       const record = await repository.get(NEW);
-      expect(record).toMatchObject({
+      expect(record?.timeline).toMatchObject({
         status: 'evaluating',
         deadlineAt: '2026-10-02T00:00:00.000Z',
-        deadlineSource: 'timeline',
       });
     });
 
@@ -1862,8 +1858,7 @@ describe('runIngestion: the timeline', () => {
 
       expect(result.failures).toMatchObject([{ projectId: NEW, stage: 'timeline' }]);
       expect(await repository.get(NEW)).toMatchObject({
-        milestones: EMPTY_MILESTONES,
-        timelineCheckedAt: null,
+        timeline: { stages: EMPTY_STAGES, lastReadAt: null },
         outcome: 'tor_analysed',
       });
     });
@@ -1883,7 +1878,7 @@ describe('runIngestion: the timeline', () => {
       expect(result.failures).toHaveLength(1);
       expect(result.failures[0]).toMatchObject({ projectId: NEW, stage: 'timeline' });
       expect(result.failures[0]?.error).toContain('explain');
-      expect((await repository.get(NEW))?.status).toBe('open');
+      expect((await repository.get(NEW))?.timeline.status).toBe('open');
     });
 
     test('an error reading the timeline is a transport failure, costing an attempt like any other', async () => {
@@ -1920,7 +1915,7 @@ describe('runIngestion: the timeline', () => {
 
       expect(calls).toEqual({ zip: [], download: 0, classify: 0, invitation: 0 });
       const record = await repository.get('66059313599');
-      expect(record?.timelineCheckedAt).not.toBe('2026-10-01T00:00:00.000Z');
+      expect(record?.timeline.lastReadAt).not.toBe('2026-10-01T00:00:00.000Z');
       expect(record?.updatedAt).toBe('2026-10-01T00:00:00.000Z');
       expect(record?.outcome).toBe('tor_analysed');
     });
@@ -1939,9 +1934,8 @@ describe('runIngestion: the timeline', () => {
       expect(calls).toEqual({ zip: [], download: 0, classify: 0, invitation: 0 });
       const record = await repository.get('66059313599');
       expect(record).toMatchObject({
-        status: 'awarded',
+        timeline: { status: 'awarded', stages: { awarded: '2026-10-10T00:00:00.000Z' } },
         outcome: 'tor_analysed',
-        milestones: { awarded: { at: '2026-10-10T00:00:00.000Z' } },
       });
       expect(record?.updatedAt).not.toBe('2026-10-01T00:00:00.000Z');
     });
@@ -1960,13 +1954,32 @@ describe('runIngestion: the timeline', () => {
       expect(calls).toEqual({ zip: ['66059313599'], download: 1, classify: 0, invitation: 1 });
       const record = await repository.get('66059313599');
       expect(record).toMatchObject({
-        deadlineAt: '2026-10-30T00:00:00.000Z',
-        deadlineSource: 'invitation',
+        timeline: {
+          deadlineAt: '2026-10-30T00:00:00.000Z',
+          stages: { invited: '2026-09-27T00:00:00.000Z' },
+        },
         outcome: 'tor_analysed',
-        milestones: { invited: { at: '2026-09-27T00:00:00.000Z' } },
       });
-      expect(record?.documents.map((d) => d.role)).toEqual(['invitation']);
+      expect(record?.archive?.documents.map((d) => d.role)).toEqual(['invitation']);
       expect(record?.analysis).toEqual({ ...analysis, deadlineAt: null });
+    });
+
+    test('a re-dated invitation on a project with no archive stored keeps it under the archive it came from', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(read({ outcome: 'no_tor_package', archive: null }));
+      const { deps: archive } = watch();
+
+      await refresh(
+        repository,
+        { '66059313599': [row('D0', '2026-09-27T02:00:00.000Z')] },
+        archive,
+      );
+
+      expect((await repository.get('66059313599'))?.archive).toEqual({
+        zipId: 'zip-1',
+        documents: [invitationDocument],
+        torAmbiguous: false,
+      });
     });
 
     test('a re-dated invitation that cannot be re-read keeps the old date, so the next Run tries again', async () => {
@@ -1981,15 +1994,15 @@ describe('runIngestion: the timeline', () => {
           throw new Error('model unavailable');
         },
       });
-      expect((await repository.get('66059313599'))?.milestones.invited).toEqual({
-        at: '2026-09-20T00:00:00.000Z',
-      });
+      expect((await repository.get('66059313599'))?.timeline.stages.invited).toBe(
+        '2026-09-20T00:00:00.000Z',
+      );
 
       await refresh(repository, redated, archive);
       expect(calls.invitation).toBe(1);
-      expect(await repository.get('66059313599')).toMatchObject({
+      expect((await repository.get('66059313599'))?.timeline).toMatchObject({
         deadlineAt: '2026-10-30T00:00:00.000Z',
-        milestones: { invited: { at: '2026-09-27T00:00:00.000Z' } },
+        stages: { invited: '2026-09-27T00:00:00.000Z' },
       });
     });
 
@@ -2021,7 +2034,7 @@ describe('runIngestion: the timeline', () => {
 
     test('a contracted project is never read again', async () => {
       const repository = new InMemoryProcurementStore();
-      await repository.upsert(read({ status: 'contracted' }));
+      await repository.upsert(read({ timeline: { ...read().timeline, status: 'contracted' } }));
       const announcements = fakeAnnouncements({}, READ_TIMELINE);
 
       await run(repository, { discoverProjects: noSweep, announcements });
@@ -2042,13 +2055,9 @@ describe('runIngestion: the timeline', () => {
   describe('the order of work', () => {
     test('new projects come first, then the read ones with the oldest check first', async () => {
       const repository = new InMemoryProcurementStore();
-      await repository.upsert(
-        read({ projectId: 'stale', timelineCheckedAt: '2026-09-01T00:00:00.000Z' }),
-      );
-      await repository.upsert(
-        read({ projectId: 'fresh', timelineCheckedAt: '2026-10-02T00:00:00.000Z' }),
-      );
-      await repository.upsert(read({ projectId: 'never', timelineCheckedAt: null }));
+      await repository.upsert(lastRead('stale', '2026-09-01T00:00:00.000Z'));
+      await repository.upsert(lastRead('fresh', '2026-10-02T00:00:00.000Z'));
+      await repository.upsert(lastRead('never', null));
       // Queued before the Run, as Discovery would have left it.
       await repository.upsert(procurement());
       const announcements = fakeAnnouncements({}, []);
@@ -2071,12 +2080,8 @@ describe('runIngestion: the timeline', () => {
 
     test('a refusal on the timeline stops the run, leaving what was not reached to lead the next', async () => {
       const repository = new InMemoryProcurementStore();
-      await repository.upsert(
-        read({ projectId: 'a', timelineCheckedAt: '2026-09-01T00:00:00.000Z' }),
-      );
-      await repository.upsert(
-        read({ projectId: 'b', timelineCheckedAt: '2026-09-02T00:00:00.000Z' }),
-      );
+      await repository.upsert(lastRead('a', '2026-09-01T00:00:00.000Z'));
+      await repository.upsert(lastRead('b', '2026-09-02T00:00:00.000Z'));
       const announcements = fakeAnnouncements({}, []);
       announcements.timeline = async (id) => {
         announcements.calls.push(id);
@@ -2091,9 +2096,9 @@ describe('runIngestion: the timeline', () => {
       expect(await repository.get('a')).toMatchObject({
         outcome: 'tor_analysed',
         attempts: 0,
-        timelineCheckedAt: '2026-09-01T00:00:00.000Z',
+        timeline: { lastReadAt: '2026-09-01T00:00:00.000Z' },
       });
-      expect((await repository.get('b'))?.timelineCheckedAt).toBe('2026-09-02T00:00:00.000Z');
+      expect((await repository.get('b'))?.timeline.lastReadAt).toBe('2026-09-02T00:00:00.000Z');
     });
 
     test('a refusal while a new project is being read puts it back untouched', async () => {
@@ -2440,10 +2445,13 @@ describe('a Run that streams Discovery, Retrieval and Analysis (ADR-0020)', () =
         projectId: 'read',
         state: 'Completed',
         outcome: 'tor_analysed',
-        milestones: { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } },
-        timelineCheckedAt: '2026-10-01T00:00:00.000Z',
-        deadlineAt: '2026-10-25T00:00:00.000Z',
-        deadlineSource: 'invitation',
+        timeline: {
+          ...EMPTY_TIMELINE,
+          status: 'open',
+          stages: { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' },
+          lastReadAt: '2026-10-01T00:00:00.000Z',
+          deadlineAt: '2026-10-25T00:00:00.000Z',
+        },
       }),
     );
     const log: string[] = [];
@@ -2499,9 +2507,9 @@ describe('a Run that streams Discovery, Retrieval and Analysis (ADR-0020)', () =
       'invitation read',
     ]);
     expect(result.refreshed).toBe(1);
-    expect(await repository.get('read')).toMatchObject({
+    expect((await repository.get('read'))?.timeline).toMatchObject({
       deadlineAt: '2026-10-30T00:00:00.000Z',
-      milestones: { invited: { at: '2026-09-27T00:00:00.000Z' } },
+      stages: { invited: '2026-09-27T00:00:00.000Z' },
     });
     expect((await repository.get('new'))?.outcome).toBe('tor_analysed');
   });
@@ -2714,8 +2722,12 @@ describe('a full room, a hanging site, and a deadline that fires mid-write', () 
         projectId: 'r',
         state: 'Completed',
         outcome: 'tor_analysed',
-        milestones: { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } },
-        timelineCheckedAt: '2026-10-01T00:00:00.000Z',
+        timeline: {
+          ...EMPTY_TIMELINE,
+          status: 'open',
+          stages: { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' },
+          lastReadAt: '2026-10-01T00:00:00.000Z',
+        },
       }),
     );
     const log: string[] = [];

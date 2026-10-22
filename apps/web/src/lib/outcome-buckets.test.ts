@@ -4,12 +4,13 @@ import type { IngestionSummaryResponse } from './api';
 import { bucketOfOutcome, countTiles, outcomeBuckets, shareOf } from './outcome-buckets';
 
 describe('outcomeBuckets', () => {
-  test('groups the ten outcomes into six Thai buckets in a fixed order', () => {
+  test('groups the outcomes into seven Thai buckets in a fixed order', () => {
     const buckets = outcomeBuckets({});
     expect(buckets.map((bucket) => bucket.label)).toEqual([
       'วิเคราะห์แล้ว',
       'รอตรวจสอบ',
       'ไม่มี TOR',
+      'นอกขอบเขต',
       'ล้มเหลว',
       'รอ',
       'กำลังทำ',
@@ -18,7 +19,7 @@ describe('outcomeBuckets', () => {
 
   test('a sparse summary yields zero-count buckets rather than missing ones', () => {
     const buckets = outcomeBuckets({ queued: 243 });
-    expect(buckets).toHaveLength(6);
+    expect(buckets).toHaveLength(7);
     expect(buckets.find((bucket) => bucket.key === 'queued')?.count).toBe(243);
     expect(buckets.filter((bucket) => bucket.key !== 'queued').every((b) => b.count === 0)).toBe(
       true,
@@ -70,6 +71,7 @@ describe('bucketOfOutcome', () => {
     expect(bucketOfOutcome('tor_analysed')).toBe('analysed');
     expect(bucketOfOutcome('needs_review')).toBe('needsReview');
     expect(bucketOfOutcome('no_tor_in_archive')).toBe('noTor');
+    expect(bucketOfOutcome('out_of_scope')).toBe('outOfScope');
     expect(bucketOfOutcome('abandoned')).toBe('failed');
     expect(bucketOfOutcome('queued')).toBe('queued');
     expect(bucketOfOutcome('analysing')).toBe('running');

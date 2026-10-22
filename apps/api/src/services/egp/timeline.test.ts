@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { EMPTY_STAGES, EMPTY_TIMELINE, type Timeline } from '@torfun/types';
 import { reviewTimeline } from './timeline';
 
 const NOW = '2026-10-04T03:00:00.000Z';
@@ -8,66 +8,62 @@ const row = (announceType: string, announceDate: string | null = null) => ({
   announceDate,
 });
 
-const stored = (overrides: Partial<Procurement> = {}) => ({
-  milestones: EMPTY_MILESTONES,
-  deadlineAt: null,
-  deadlineSource: null,
-  analysis: null,
-  timelineCheckedAt: null,
+const stored = (overrides: Partial<Timeline> = {}): Timeline => ({
+  ...EMPTY_TIMELINE,
   ...overrides,
 });
 
 describe('reviewTimeline', () => {
-  test('derives status, milestones and the check time', () => {
-    const { patch } = reviewTimeline(stored(), [row('D0', '2026-09-20T02:00:00.000Z')], NOW);
+  test('derives status, stages and the read time', () => {
+    const { timeline } = reviewTimeline(stored(), [row('D0', '2026-09-20T02:00:00.000Z')], NOW);
 
-    expect(patch).toMatchObject({
+    expect(timeline).toMatchObject({
       status: 'open',
-      milestones: { invited: { at: '2026-09-20T00:00:00.000Z' } },
-      timelineCheckedAt: NOW,
+      stages: { invited: '2026-09-20T00:00:00.000Z' },
+      lastReadAt: NOW,
     });
   });
 
   test('the bidding date becomes the deadline, ahead of what was stored', () => {
-    const { patch } = reviewTimeline(
-      stored({ deadlineAt: '2026-10-01T00:00:00.000Z', deadlineSource: 'invitation' }),
+    const { timeline } = reviewTimeline(
+      stored({ deadlineAt: '2026-10-01T00:00:00.000Z' }),
       [row('D0', '2026-09-20T02:00:00.000Z'), row('price', '2026-10-02T02:00:00.000Z')],
       NOW,
     );
 
-    expect(patch).toMatchObject({
+    expect(timeline).toMatchObject({
       status: 'evaluating',
       deadlineAt: '2026-10-02T00:00:00.000Z',
-      deadlineSource: 'timeline',
     });
   });
 
-  test('keeps the deadline it has when the timeline offers none, and falls back on the stored TOR reading', () => {
-    const kept = { deadlineAt: '2026-10-01T00:00:00.000Z', deadlineSource: 'invitation' as const };
-    expect(reviewTimeline(stored(kept), [row('BOQ')], NOW).patch).toMatchObject(kept);
-
-    const analysis = { deadlineAt: '2026-10-09T00:00:00.000Z' } as Procurement['analysis'];
-    expect(reviewTimeline(stored({ analysis }), [row('BOQ')], NOW).patch).toMatchObject({
-      deadlineAt: '2026-10-09T00:00:00.000Z',
-      deadlineSource: 'tor',
-    });
+  test('keeps the deadline and the comment deadline it has when the timeline offers none', () => {
+    const kept = {
+      deadlineAt: '2026-10-01T00:00:00.000Z',
+      commentsCloseAt: '2026-09-26T17:00:00.000Z',
+    };
+    expect(reviewTimeline(stored(kept), [row('BOQ')], NOW).timeline).toMatchObject(kept);
   });
 
-  test('the same milestones are not a change', () => {
+  test('the same stages are not a change', () => {
     const rows = [row('D0', '2026-09-20T02:00:00.000Z')];
     const first = reviewTimeline(stored(), rows, NOW);
 
-    const again = reviewTimeline(stored({ milestones: first.patch.milestones }), rows, NOW);
+    const again = reviewTimeline(first.timeline, rows, NOW);
 
     expect(again.changed).toBe(false);
     expect(again.invitationMoved).toBe(false);
   });
 
+  test('a stage reached with no date is a change, by the status it sets', () => {
+    expect(reviewTimeline(stored(), [row('S0')], NOW).changed).toBe(true);
+  });
+
   test('a new stage is a change but does not move the invitation', () => {
-    const invited = { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } };
+    const invited = { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' };
 
     const review = reviewTimeline(
-      stored({ milestones: invited }),
+      stored({ status: 'open', stages: invited }),
       [row('D0', '2026-09-20T02:00:00.000Z'), row('W0', '2026-10-01T02:00:00.000Z')],
       NOW,
     );
@@ -77,10 +73,10 @@ describe('reviewTimeline', () => {
   });
 
   test('a re-dated or newly published invitation moves it', () => {
-    const invited = { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } };
+    const invited = { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' };
 
     expect(
-      reviewTimeline(stored({ milestones: invited }), [row('D0', '2026-09-27T02:00:00.000Z')], NOW)
+      reviewTimeline(stored({ stages: invited }), [row('D0', '2026-09-27T02:00:00.000Z')], NOW)
         .invitationMoved,
     ).toBe(true);
     expect(
@@ -97,7 +93,7 @@ describe('reviewTimeline', () => {
   });
 
   describe('of the codes it does not know, hands back only those not seen at the last check', () => {
-    const checked = stored({ timelineCheckedAt: '2026-10-01T03:00:00.000Z' });
+    const checked = stored({ lastReadAt: '2026-10-01T03:00:00.000Z' });
 
     test('one dated before the last check was handed back then', () => {
       expect(
@@ -105,7 +101,7 @@ describe('reviewTimeline', () => {
       ).toEqual([]);
     });
 
-    test('one dated since is new, even when no milestone moved', () => {
+    test('one dated since is new, even when no stage moved', () => {
       const later = row('X9', '2026-10-02T02:00:00.000Z');
       expect(reviewTimeline(checked, [later], NOW).unrecognised).toEqual([later]);
     });

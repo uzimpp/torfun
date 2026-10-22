@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { HOLD_REASON_LABELS, STATUS_LABELS, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, HOLD_REASON_LABELS, STATUS_LABELS, type Procurement } from '@torfun/types';
 
 import { ApiError, SessionEndedError } from '@/lib/api';
 import { ApprovalQueue, QUEUE_SHOWN } from './approval-queue';
@@ -27,13 +27,14 @@ const held = (overrides: Partial<Procurement> = {}) =>
     projectName: 'จ้างบำรุงรักษาระบบเครือข่ายและซอฟต์แวร์',
     deptName: 'กรมตัวอย่าง',
     projectMoney: 1_250_000,
-    status: 'open',
-    deadlineAt: '2026-10-10T03:00:00.000Z',
-    deadlineSource: 'invitation',
+    timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-10T03:00:00.000Z' },
     outcome: 'needs_review',
     holdReason: 'ai_low_confidence',
-    zipId: 'Z1',
-    documents: [{ member: 'tor.pdf', filename: 'tor.pdf', role: 'main_tor' }],
+    archive: {
+      zipId: 'Z1',
+      documents: [{ member: 'tor.pdf', filename: 'tor.pdf', role: 'main_tor' }],
+      torAmbiguous: false,
+    },
     analysis: {
       summary: 'จัดหาระบบบริหารงานบุคคลบนเว็บ พร้อมบำรุงรักษา 1 ปี',
       reason: 'ขอบเขตงาน “ติดตั้งอุปกรณ์และพัฒนาโปรแกรม” ปะปนกัน',
@@ -101,11 +102,15 @@ describe('ApprovalQueue', () => {
   test('keeps the order the server sends: it ranks the held list by urgency', async () => {
     api.fetchProjects.mockResolvedValue(
       list([
-        held({ projectId: 'awarded', projectName: 'ก ประกาศผู้ชนะแล้ว', status: 'awarded' }),
+        held({
+          projectId: 'awarded',
+          projectName: 'ก ประกาศผู้ชนะแล้ว',
+          timeline: { ...EMPTY_TIMELINE, status: 'awarded' },
+        }),
         held({
           projectId: 'soon',
           projectName: 'ง เปิดรับ ปิดเร็ว',
-          deadlineAt: '2026-10-05T03:00:00.000Z',
+          timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-05T03:00:00.000Z' },
         }),
       ]),
     );
@@ -143,7 +148,7 @@ describe('ApprovalQueue', () => {
     expect(row).toHaveTextContent('กรมตัวอย่าง');
     expect(row).toHaveTextContent('1,250,000');
     expect(row).toHaveTextContent(STATUS_LABELS.open);
-    expect(row).toHaveTextContent('ประกาศเชิญชวน');
+    expect(row).toHaveTextContent('ยื่นข้อเสนอภายใน 10 ตุลาคม 2569');
     expect(row).toHaveTextContent(HOLD_REASON_LABELS.ai_low_confidence);
     expect(row).toHaveTextContent('เหตุผลจาก AI (สรุป ไม่ใช่ข้อยืนยัน)');
     expect(row).toHaveTextContent('ติดตั้งอุปกรณ์และพัฒนาโปรแกรม');
@@ -172,12 +177,26 @@ describe('ApprovalQueue', () => {
   });
 
   test('without a main TOR there is no source button to fail, and it says why', async () => {
-    api.fetchProjects.mockResolvedValue(list([held({ zipId: null, documents: [] })]));
+    api.fetchProjects.mockResolvedValue(list([held({ archive: null })]));
     renderQueue();
 
     const row = await screen.findByRole('listitem');
     expect(within(row).queryByRole('button', { name: /TOR ต้นฉบับ/ })).not.toBeInTheDocument();
     expect(row).toHaveTextContent('ยังไม่มีเอกสาร TOR ต้นฉบับ');
+  });
+
+  test('says when the deadline shown was read from the TOR by the model, and only then', async () => {
+    const fromTor = held({
+      projectId: 'tor',
+      timeline: { ...EMPTY_TIMELINE, status: 'open' },
+      analysis: { ...held().analysis!, deadlineAt: '2026-10-12T03:00:00.000Z' },
+    });
+    api.fetchProjects.mockResolvedValue(list([fromTor, held({ projectId: 'official' })]));
+    renderQueue();
+
+    const [model, official] = await screen.findAllByRole('listitem');
+    expect(model).toHaveTextContent('อ่านจาก TOR โดย AI');
+    expect(official).not.toHaveTextContent('อ่านจาก TOR โดย AI');
   });
 
   test('a record the model gave no reason for lists without an invented one', async () => {

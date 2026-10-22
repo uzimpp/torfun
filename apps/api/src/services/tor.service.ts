@@ -45,13 +45,13 @@ export class TorService {
   }
 
   async source(projectId: string, audience: Audience): Promise<TorSource> {
-    const procurement = await this.get(projectId, audience);
-    if (!procurement.zipId) throw new NotFoundError('No TOR source is available');
+    const { archive: stored } = await this.get(projectId, audience);
+    if (!stored) throw new NotFoundError('No TOR source is available');
 
-    const mainTor = procurement.documents.find((document) => document.role === 'main_tor');
+    const mainTor = stored.documents.find((document) => document.role === 'main_tor');
     if (!mainTor) throw new NotFoundError('No main TOR document is available');
 
-    const archive = await this.download(procurement.zipId);
+    const archive = await this.download(stored.zipId);
     const extracted = extractTorPdfs(archive);
     const pdf = extracted.torFiles.find((file) => file.member === mainTor.member);
     if (!pdf) throw new NotFoundError('The main TOR document is no longer available');

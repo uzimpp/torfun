@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { EMPTY_STAGES, EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
-import { hashSource } from './source-hash';
+import { hashSource, hasUpstreamChange } from './source-hash';
 
 function procurement(overrides: Partial<Procurement> = {}): Procurement {
   return {
@@ -13,30 +13,21 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
-    projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 1_000_000,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-01T00:00:00.000Z',
     ...overrides,
   };
@@ -45,97 +36,78 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
 const AT = '2026-09-09T12:00:00.000Z';
 
 describe('mergeDiscovered', () => {
-  test('takes the upstream-owned fields from the newly discovered record', () => {
+  test('takes the feed-owned fields from the newly discovered record', () => {
     const existing = procurement();
     const incoming = procurement({
       projectName: 'จ้างพัฒนาระบบสารสนเทศ (แก้ไข)',
-      projectMoney: 2_500_000,
-      priceBuild: 2_400_000,
       purchaseMethodName: 'วิธีเฉพาะเจาะจง',
+      deptCode: '0200',
     });
 
-    const merged = mergeDiscovered(existing, incoming, AT);
+    const merged = mergeDiscovered(existing, incoming, true, AT);
 
     expect(merged.projectName).toBe('จ้างพัฒนาระบบสารสนเทศ (แก้ไข)');
-    expect(merged.projectMoney).toBe(2_500_000);
-    expect(merged.priceBuild).toBe(2_400_000);
     expect(merged.purchaseMethodName).toBe('วิธีเฉพาะเจาะจง');
+    expect(merged.deptCode).toBe('0200');
   });
 
   test('keeps what the pipeline found out, so a rediscovery cannot reset a retrieval', () => {
-    const existing = procurement({
-      state: 'Completed',
-      outcome: 'tor_analysed',
-      statusHistory: [
-        { state: 'Completed', outcome: 'tor_analysed', at: '2026-09-02T00:00:00.000Z' },
-      ],
+    const archive = {
       zipId: 'ZIP-1',
       documents: [
         {
           member: 'Attach_TOR_1.pdf',
           filename: 'Attach_TOR_1.pdf',
           bytes: 1_000,
-          namePattern: 'canonical',
-          role: 'main_tor',
+          namePattern: 'canonical' as const,
+          role: 'main_tor' as const,
           note: 'ขอบเขตของงาน',
         },
       ],
       torAmbiguous: true,
+    };
+    const existing = procurement({
+      state: 'Completed',
+      outcome: 'tor_analysed',
+      statusHistory: [
+        { state: 'Completed', outcome: 'tor_analysed', at: '2026-09-02T00:00:00.000Z' },
+      ],
+      archive,
     });
-    const incoming = procurement({ status: 'contracted' });
 
-    const merged = mergeDiscovered(existing, incoming, AT);
+    const merged = mergeDiscovered(existing, procurement(), false, AT);
 
     expect(merged.state).toBe('Completed');
     expect(merged.outcome).toBe('tor_analysed');
     expect(merged.statusHistory).toEqual(existing.statusHistory);
-    expect(merged.zipId).toBe('ZIP-1');
-    expect(merged.documents).toEqual(existing.documents);
-    expect(merged.torAmbiguous).toBe(true);
+    expect(merged.archive).toEqual(archive);
     expect(merged.discoveredAt).toBe('2026-09-01T00:00:00.000Z');
   });
 
-  test('a rediscovery keeps the deadline the pipeline read, and where it came from', () => {
-    const existing = procurement({
+  test('a rediscovery cannot wipe what the timeline said about the tender', () => {
+    const timeline = {
+      status: 'open' as const,
+      lastReadAt: '2026-09-21T00:00:00.000Z',
+      commentsCloseAt: null,
       deadlineAt: '2026-10-20T09:30:00.000Z',
-      deadlineSource: 'invitation',
-    });
+      stages: { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' },
+    };
 
-    const merged = mergeDiscovered(existing, procurement(), AT);
+    const merged = mergeDiscovered(
+      procurement({ timeline }),
+      procurement({ timeline: EMPTY_TIMELINE }),
+      false,
+      AT,
+    );
 
-    expect(merged.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
-    expect(merged.deadlineSource).toBe('invitation');
+    expect(merged.timeline).toEqual(timeline);
   });
 
   test('a rediscovery keeps who approved a held record and when', () => {
-    const existing = procurement({
-      outcome: 'tor_analysed',
-      approvedBy: 'admin',
-      approvedAt: '2026-09-03T00:00:00.000Z',
-    });
+    const approved = { by: 'admin', at: '2026-09-03T00:00:00.000Z' };
+    const existing = procurement({ outcome: 'tor_analysed', approved });
 
-    const merged = mergeDiscovered(existing, procurement(), AT);
-
-    expect(merged.approvedBy).toBe('admin');
-    expect(merged.approvedAt).toBe('2026-09-03T00:00:00.000Z');
-  });
-
-  test('a rediscovery cannot wipe what the timeline said about the tender', () => {
-    // The sweep builds every record with no stage and no milestones, because the
-    // feed carries neither. What the timeline established must survive that.
-    const milestones = { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } };
-    const existing = procurement({
-      status: 'open',
-      milestones,
-      timelineCheckedAt: '2026-09-21T00:00:00.000Z',
-    });
-    const incoming = procurement({ status: 'unknown' });
-
-    const merged = mergeDiscovered(existing, incoming, AT);
-
-    expect(merged.status).toBe('open');
-    expect(merged.milestones).toEqual(milestones);
-    expect(merged.timelineCheckedAt).toBe('2026-09-21T00:00:00.000Z');
+    expect(mergeDiscovered(existing, procurement(), false, AT).approved).toEqual(approved);
   });
 
   test('keeps what the project detail said, which the feed does not carry', () => {
@@ -144,67 +116,66 @@ describe('mergeDiscovered', () => {
       typeId: '03',
       goodsId: '4016',
       deptSubName: 'สำนักเทคโนโลยีสารสนเทศ',
-      detailCheckedAt: '2026-10-08T00:00:00.000Z',
+      projectMoney: 23_248_000,
+      priceBuild: 23_198_991,
+      detailReadAt: '2026-10-08T00:00:00.000Z',
     });
-    // As Discovery builds it now: from the feed alone, with no year (ADR-0020).
     const incoming = procurement({
       budgetYear: null,
       typeId: null,
       goodsId: null,
       deptSubName: null,
-      detailCheckedAt: null,
+      projectMoney: null,
+      priceBuild: null,
+      detailReadAt: null,
     });
 
-    expect(mergeDiscovered(existing, incoming, AT)).toMatchObject({
+    expect(mergeDiscovered(existing, incoming, false, AT)).toMatchObject({
       budgetYear: 2569,
       typeId: '03',
       goodsId: '4016',
       deptSubName: 'สำนักเทคโนโลยีสารสนเทศ',
-      detailCheckedAt: '2026-10-08T00:00:00.000Z',
+      projectMoney: 23_248_000,
+      priceBuild: 23_198_991,
+      detailReadAt: '2026-10-08T00:00:00.000Z',
     });
   });
 
   test('keeps the retrieval attempt count', () => {
-    const merged = mergeDiscovered(procurement({ attempts: 2 }), procurement(), AT);
+    const merged = mergeDiscovered(procurement({ attempts: 2 }), procurement(), false, AT);
     expect(merged.attempts).toBe(2);
+  });
+
+  test('moves updatedAt only for a change', () => {
+    const existing = procurement();
+
+    expect(mergeDiscovered(existing, procurement(), false, AT).updatedAt).toBe(existing.updatedAt);
+    expect(mergeDiscovered(existing, procurement(), true, AT).updatedAt).toBe(AT);
   });
 });
 
 describe('telling a real change from a record that was only seen again', () => {
-  const STORED = '2026-09-01T00:00:00.000Z';
-  /** A stored record, as a sweep would have left it: fingerprinted and last updated at STORED. */
-  const stored = (overrides: Partial<Procurement> = {}) => {
-    const record = procurement({ updatedAt: STORED, ...overrides });
-    return { ...record, sourceHash: hashSource(record) };
-  };
+  test('nothing the feed carries changed: not a change', () => {
+    const existing = procurement();
 
-  test('nothing the agency owns changed: updatedAt stays', () => {
-    const existing = stored();
-
-    const merged = mergeDiscovered(existing, procurement(), AT);
-
-    expect(merged.updatedAt).toBe(STORED);
-    expect(merged.sourceHash).toBe(existing.sourceHash);
+    expect(hasUpstreamChange(hashSource(existing), existing, procurement())).toBe(false);
   });
 
-  test('a changed budget is a change: updatedAt moves, and the fingerprint follows', () => {
-    const existing = stored();
+  test('a renamed project is a change', () => {
+    const existing = procurement();
 
-    const merged = mergeDiscovered(existing, procurement({ projectMoney: 2_000_000 }), AT);
-
-    expect(merged.updatedAt).toBe(AT);
-    expect(merged.sourceHash).not.toBe(existing.sourceHash);
+    expect(
+      hasUpstreamChange(hashSource(existing), existing, procurement({ projectName: 'อื่น' })),
+    ).toBe(true);
   });
 
-  test('a record stored before fingerprints existed is compared on its own fields, not assumed changed', () => {
-    const before = { ...procurement({ updatedAt: STORED }), sourceHash: null };
+  test('a record stored with no fingerprint is compared on its own fields, not assumed changed', () => {
+    const existing = procurement();
 
-    const same = mergeDiscovered(before, procurement(), AT);
-    const different = mergeDiscovered(before, procurement({ projectMoney: 2_000_000 }), AT);
-
-    expect(same.updatedAt).toBe(STORED);
-    expect(same.sourceHash).toBe(hashSource(procurement()));
-    expect(different.updatedAt).toBe(AT);
+    expect(hasUpstreamChange(null, existing, procurement())).toBe(false);
+    expect(hasUpstreamChange(null, existing, procurement({ announceDate: '2026-08-02' }))).toBe(
+      true,
+    );
   });
 
   test('the fingerprint ignores what this system owns, so its own work is never mistaken for an upstream change', () => {
@@ -214,15 +185,25 @@ describe('telling a real change from a record that was only seen again', () => {
       hashSource(base),
     );
     expect(
-      hashSource({ ...base, status: 'drafting', timelineCheckedAt: '2026-10-01T00:00:00.000Z' }),
+      hashSource({
+        ...base,
+        timeline: { ...EMPTY_TIMELINE, status: 'drafting', lastReadAt: '2026-10-01T00:00:00.000Z' },
+      }),
     ).toBe(hashSource(base));
   });
 
   test('the fingerprint ignores the project detail, so a sweep without it is not a change', () => {
     const base = procurement();
 
-    expect(hashSource({ ...base, budgetYear: 2570, deptSubName: 'สำนัก', typeId: '03' })).toBe(
-      hashSource(base),
-    );
+    expect(
+      hashSource({
+        ...base,
+        budgetYear: 2570,
+        deptSubName: 'สำนัก',
+        typeId: '03',
+        projectMoney: 2_000_000,
+        priceBuild: 1_900_000,
+      }),
+    ).toBe(hashSource(base));
   });
 });

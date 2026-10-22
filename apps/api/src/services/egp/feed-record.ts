@@ -1,4 +1,4 @@
-import { EMPTY_MILESTONES, type FeedSnapshot, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, type FeedSnapshot, type Procurement } from '@torfun/types';
 
 /**
  * A project as Discovery first stores it: what the announcement feed said, and
@@ -11,38 +11,28 @@ export function queuedRecord(projectId: string, feed: FeedSnapshot, now: Date): 
   return {
     projectId,
     ...feed,
+    discoveredAt: timestamp,
     // From the project detail, which Retrieval reads first in the record's
     // turn (ADR-0020). Until then they are null, the year too.
+    budgetYear: null,
     deptSubName: null,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: null,
-    // Not in the feed. Null says "not known", which is the truth.
-    projectTypeName: null,
     projectMoney: null,
     priceBuild: null,
+    detailReadAt: null,
     // Set from the timeline, the first thing Retrieval reads (ADR-0017).
-    status: 'unknown',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
+    timeline: EMPTY_TIMELINE,
 
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [{ state: 'Queued', outcome: 'queued', at: timestamp }],
+    approved: null,
 
-    zipId: null,
-    documents: [],
+    archive: null,
     analysis: null,
-    torAmbiguous: false,
-
-    discoveredAt: timestamp,
-    sourceHash: null, // fingerprinted by the store as it writes
     updatedAt: timestamp,
   };
 }
@@ -54,7 +44,6 @@ export function feedSnapshotOf(record: FeedSnapshot): FeedSnapshot {
     deptName: record.deptName,
     deptCode: record.deptCode,
     announceDate: record.announceDate,
-    budgetYear: record.budgetYear,
     purchaseMethodName: record.purchaseMethodName,
   };
 }

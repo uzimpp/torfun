@@ -11,7 +11,7 @@ import {
   Eye,
   type LucideIcon,
 } from 'lucide-react';
-import { DEADLINE_SOURCE_LABELS, HOLD_REASON_LABELS, type Procurement } from '@torfun/types';
+import { currentDeadline, HOLD_REASON_LABELS, type Procurement } from '@torfun/types';
 import { AdminLoadError } from '@/components/admin/admin-load-error';
 import { ADMIN_LINK, AdminSection, EmptyState } from '@/components/admin/admin-ui';
 import { STATUS_STYLE } from '@/components/admin/status-badge';
@@ -169,7 +169,7 @@ function QueueItem({
     >
       <div className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
-          <ProcurementStatusBadge status={record.status} />
+          <ProcurementStatusBadge status={record.timeline.status} />
           <h3 id={headingId} className="min-w-0 flex-1 text-sm font-medium break-words">
             {record.projectName}
           </h3>
@@ -245,22 +245,22 @@ function QueueItem({
 }
 
 function Deadline({ record }: { record: Procurement }) {
-  if (!record.deadlineAt) {
+  const { status } = record.timeline;
+  const deadline = currentDeadline(record);
+  if (!deadline) {
     return (
       <span>
-        {record.status === 'drafting'
-          ? deadlineText(null, record.status)
-          : 'ยังไม่ทราบกำหนดยื่นข้อเสนอ'}
+        {status === 'drafting' ? deadlineText(null, status) : 'ยังไม่ทราบกำหนดยื่นข้อเสนอ'}
       </span>
     );
   }
   return (
     <span>
-      ยื่นข้อเสนอภายใน{' '}
-      <time dateTime={record.deadlineAt} className="text-foreground">
-        {deadlineText(record.deadlineAt, record.status)}
+      {deadline.kind === 'comments' ? 'รับฟังความคิดเห็นถึง' : 'ยื่นข้อเสนอภายใน'}{' '}
+      <time dateTime={deadline.at} className="text-foreground">
+        {deadlineText(deadline, status)}
       </time>
-      {record.deadlineSource ? ` · ตาม${DEADLINE_SOURCE_LABELS[record.deadlineSource]}` : null}
+      {deadline.readByModel ? ' · อ่านจาก TOR โดย AI' : null}
     </span>
   );
 }

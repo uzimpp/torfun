@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 
 import { ApiError, SessionEndedError } from '@/lib/api';
 import { ProjectActionDialog, type ProjectAction } from './project-action-dialog';
@@ -30,30 +30,21 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
-    status: 'unknown',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
-    sourceHash: null,
+    timeline: EMPTY_TIMELINE,
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-01T00:00:00.000Z',
     ...overrides,
   };

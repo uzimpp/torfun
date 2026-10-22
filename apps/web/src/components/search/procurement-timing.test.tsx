@@ -1,20 +1,25 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { describe, expect, test } from 'vitest';
-import { procurementDay, thailandDay, type Procurement } from '@torfun/types';
+import {
+  EMPTY_TIMELINE,
+  procurementDay,
+  thailandDay,
+  type Procurement,
+  type ProcurementStatus,
+} from '@torfun/types';
 import { DaysLeftBadge, ProcurementTiming } from './procurement-timing';
 
 // This component reads only these fields; fixtures never touch the ingested database.
-const row = (status: Procurement['status'], deadlineAt: string | null) =>
+const row = (status: ProcurementStatus, deadlineAt: string | null) =>
   ({
     projectId: 'test-tor',
-    status,
-    deadlineAt,
-    deadlineSource: deadlineAt ? 'tor' : null,
+    timeline: { ...EMPTY_TIMELINE, status },
+    analysis: { deadlineAt },
     announceDate: '2026-10-01',
   }) as Procurement;
 
 describe('procurement timing', () => {
-  const badge = (status: Procurement['status'], deadlineAt: string | null) =>
+  const badge = (status: ProcurementStatus, deadlineAt: string | null) =>
     render(<DaysLeftBadge item={row(status, deadlineAt)} today="2026-10-05" />);
 
   test('shows drafting without suggesting bids can already be submitted', () => {
@@ -33,6 +38,18 @@ describe('procurement timing', () => {
       'href',
       '/tor/test-tor',
     );
+  });
+
+  test('an official deadline carries no AI note', () => {
+    const official = {
+      ...row('open', null),
+      timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-07' },
+    } as Procurement;
+
+    render(<ProcurementTiming item={official} />);
+
+    expect(screen.getByText(/7 ต\.ค\. 2569/)).toBeInTheDocument();
+    expect(screen.queryByText(/วันที่สกัดโดย AI/)).not.toBeInTheDocument();
   });
 
   test('distinguishes today, expired, and missing deadlines', () => {

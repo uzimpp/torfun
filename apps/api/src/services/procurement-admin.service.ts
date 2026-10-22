@@ -40,7 +40,7 @@ export class ProcurementAdminService {
     await this.store.transition(
       projectId,
       OFFICER_VISIBLE_OUTCOME,
-      { approvedBy: by, approvedAt: this.now().toISOString() },
+      { approved: { by, at: this.now().toISOString() } },
       `Approved by ${by}`,
     );
     this.logger.info({ projectId, by }, 'egp: an administrator approved a held project');
