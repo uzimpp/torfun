@@ -81,7 +81,6 @@ describe('runStatus', () => {
     totalTorBytes: 0,
     failureCount: 0,
     lastRunAt: null,
-    openDataQuota: null,
     runInProgress: true,
     runStartedAt: null,
     stopRequested: false,

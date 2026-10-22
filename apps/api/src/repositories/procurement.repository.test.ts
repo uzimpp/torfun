@@ -1029,29 +1029,6 @@ describeMongo('ProcurementRepository', () => {
     });
   });
 
-  describe('the open-data daily quota', () => {
-    const quota = { remainingDay: 640, limitDay: 1000, observedAt: '2026-09-30T18:00:00.000Z' };
-
-    test('is unknown until a sweep has read it', async () => {
-      expect(await repository.openDataQuota()).toBeNull();
-      expect((await repository.summary()).openDataQuota).toBeNull();
-    });
-
-    test('is remembered, and shown in the summary', async () => {
-      await repository.recordOpenDataQuota(quota);
-
-      expect(await repository.openDataQuota()).toEqual(quota);
-      expect((await repository.summary()).openDataQuota).toEqual(quota);
-    });
-
-    test('the latest reading replaces the last', async () => {
-      await repository.recordOpenDataQuota(quota);
-      await repository.recordOpenDataQuota({ ...quota, remainingDay: 0 });
-
-      expect((await repository.openDataQuota())?.remainingDay).toBe(0);
-    });
-  });
-
   describe('operations stats', () => {
     const since = '2026-09-25T00:00:00.000Z';
     const now = '2026-10-05T05:00:00.000Z';

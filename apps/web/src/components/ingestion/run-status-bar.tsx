@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { IngestionSummaryResponse } from '@/lib/api';
-import { describeQuota, quotaFigure, todaysQuota } from '@/lib/open-data-quota';
 import { cn } from '@/lib/utils';
 import { RunToggle } from './run-toggle';
 import { ScheduleSettings } from './schedule-card';
@@ -20,7 +19,7 @@ import { runStatus } from './status-tracking';
 
 /**
  * The run's one control surface: start or stop, what it is doing, how long it
- * has been going, today's open-data allowance, and the schedule behind a gear.
+ * has been going, and the schedule behind a gear.
  */
 export function RunStatusBar({
   summary,
@@ -37,8 +36,6 @@ export function RunStatusBar({
 }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const status = runStatus(summary, now);
-  const quota = todaysQuota(summary.openDataQuota, now);
-  const { label: quotaLabel, low } = describeQuota(summary.openDataQuota, now);
 
   return (
     <section
@@ -68,15 +65,6 @@ export function RunStatusBar({
             {status.elapsed}
           </span>
         ) : null}
-        <span
-          title={quotaLabel}
-          className={cn(
-            'text-xs tabular-nums',
-            low ? STATUS_STYLE.needsReview.text : 'text-muted-foreground',
-          )}
-        >
-          โควตา {quota ? quotaFigure(quota) : 'ยังไม่ทราบ'}
-        </span>
         <Button
           variant="ghost"
           size="icon-lg"
