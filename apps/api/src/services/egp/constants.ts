@@ -128,6 +128,16 @@ export const FEED_REGISTRY: ReadonlyArray<{
 ];
 
 /**
+ * The Goods Categories (`goodsId`) software work is filed under, so Discovery
+ * admits them (ADR-0021): 4010 information system development, 4016 other
+ * services (where system maintenance goes, as e-GP has no category for it) and
+ * 99 unspecified. A project with no category is admitted too. 1008 (buying
+ * computers or licences), 5005 and 6011 are left out on purpose. Changing the
+ * list is a product decision.
+ */
+export const IN_SCOPE_GOODS_IDS: ReadonlySet<string> = new Set(['4010', '4016', '99']);
+
+/**
  * The competitive tender method. TOR availability tracks this almost perfectly
  * (32/32 retrievable for e-bidding, 0/5 for direct award) because the TOR is an
  * attachment to a competitive announcement — a direct award publishes no spec

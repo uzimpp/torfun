@@ -353,6 +353,7 @@ describe('restoring a tombstone, end to end through a real Run', () => {
           notEBidding: 0,
           tombstoned: ruledOut.size,
           truncated: 0,
+          drafts: [],
           failures: [],
           rateLimited: false,
           unreachable: false,

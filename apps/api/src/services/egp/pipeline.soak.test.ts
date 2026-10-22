@@ -82,6 +82,7 @@ test(`${ARCHIVES} archives leave buffers where they started`, async () => {
       notEBidding: 0,
       tombstoned: 0,
       truncated: 0,
+      drafts: [],
       failures: [],
       rateLimited: false,
       unreachable: false,

@@ -1,4 +1,4 @@
-import { E_BIDDING_METHOD } from './constants';
+import { E_BIDDING_METHOD, IN_SCOPE_GOODS_IDS } from './constants';
 
 /** Why a feed row was kept out of the queue, or `admit` where it was not. */
 export type Admission = 'admit' | 'not_registry' | 'not_e_bidding' | 'tombstoned';
@@ -28,4 +28,13 @@ export function admit(
   if (row.purchaseMethodName !== E_BIDDING_METHOD) return 'not_e_bidding';
   if (tombstoned.has(row.projectId)) return 'tombstoned';
   return 'admit';
+}
+
+/**
+ * Whether a project's Goods Category is one software work is filed under. An
+ * unknown category is admitted. The category limits scope; only the TOR decides
+ * whether the work is software (ADR-0021).
+ */
+export function goodsInScope(goodsId: string | null): boolean {
+  return goodsId === null || IN_SCOPE_GOODS_IDS.has(goodsId);
 }

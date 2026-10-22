@@ -129,7 +129,8 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
         (!options.state || record.state === options.state) &&
         (!options.outcome || record.outcome === options.outcome) &&
         (!options.status || record.timeline.status === options.status) &&
-        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow),
+        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow) &&
+        (options.detailRead === undefined || (record.detailReadAt !== null) === options.detailRead),
     );
     return {
       items: items.slice(options.offset, options.offset + options.limit),

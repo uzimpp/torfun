@@ -389,6 +389,27 @@ describeMongo('ProcurementRepository', () => {
     expect(total).toBe(3);
   });
 
+  test('detailRead splits the queue by whether the procurement detail was read, a missing field counting as never', async () => {
+    await seed([
+      procurement({ projectId: 'read', detailReadAt: '2026-10-22T00:00:00.000Z' }),
+      procurement({ projectId: 'unread', detailReadAt: null }),
+      procurement({ projectId: 'legacy', detailReadAt: null }),
+    ]);
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne({ _id: 'legacy' as never }, { $unset: { detail_read_at: '' } });
+
+    const ids = async (detailRead: boolean) =>
+      (await repository.find({ state: 'Queued', detailRead, limit: 50, offset: 0 })).items
+        .map((r) => r.projectId)
+        .sort();
+
+    expect(await ids(true)).toEqual(['read']);
+    expect(await ids(false)).toEqual(['legacy', 'unread']);
+  });
+
   test('requeueStale returns records stuck in Processing to the queue, and only those', async () => {
     const processing = (projectId: string, at: string) =>
       procurement({

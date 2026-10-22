@@ -22,9 +22,9 @@ import { SiteClosedError, SiteLatchedError, type GateTier } from './site-gate';
  * so a sweep is a grid of those, and the cursor remembers, per agency and type,
  * the range of days already read in full. A sweep asks about the days after that
  * range (and today, still filling), then a share of the year before it. A
- * project is stored from the feed alone: the feed does not say which year's
- * budget it spends, so its year stays null until Retrieval reads its project
- * detail (ADR-0020). Every request goes to gprocurement.go.th, the site the
+ * project is stored from the feed alone, with its procurement detail unread;
+ * the pipeline reads that next, and only then is it admitted for Retrieval
+ * (ADR-0021). Every request goes to gprocurement.go.th, the site the
  * downloads use, so each is made through the SiteGate like theirs (`site`).
  */
 
@@ -54,12 +54,16 @@ export interface SweepContext {
 /** What one agency-day of the sweep added: records, failures, and the unit's new range. */
 export interface SweepBatch {
   records: Procurement[];
+  /** Those of `records` the feed listed only as a draft (B0), whose comment deadline is asked for. */
+  drafts: string[];
   failures: IngestionFailure[];
   cursor: FeedCursor;
 }
 
 export interface DiscoveryResult {
   records: Procurement[];
+  /** Those of `records` the feed listed only as a draft (B0). */
+  drafts: string[];
   /** Feed items by a method other than e-bidding (the feed is filtered, so this should stay 0). Counted, not stored. */
   notEBidding: number;
   /** Items left out because they have a tombstone. Counted, not stored. */
@@ -205,6 +209,7 @@ export async function discoverProjects(
     const range = ranges[unit.key];
     await context.save({
       records: [...unsaved].map((id) => byProjectId.get(id)!.record),
+      drafts: [...unsaved].filter((id) => byProjectId.get(id)!.type === 'B0'),
       failures: failures.slice(savedFailures),
       cursor: range && moved.has(unit.key) ? { [unit.key]: range } : {},
     });
@@ -352,8 +357,10 @@ export async function discoverProjects(
     }
   }
 
+  const admitted = [...byProjectId.values()];
   return {
-    records: [...byProjectId.values()].map((admitted) => admitted.record),
+    records: admitted.map((each) => each.record),
+    drafts: admitted.filter((each) => each.type === 'B0').map((each) => each.record.projectId),
     notEBidding: notEBidding.size,
     tombstoned: tombstoned.size,
     truncated,

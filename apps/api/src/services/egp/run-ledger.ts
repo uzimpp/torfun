@@ -27,7 +27,11 @@ export interface RunLedger {
     kind?: IngestionFailure['kind'],
   ): Promise<void>;
   /** Records why a record's work stopped; a refusal from the site stops the Run. */
-  fail(work: RecordWork, fresh: boolean, error: unknown): Promise<void>;
+  fail(
+    work: Pick<RecordWork, 'record' | 'stage' | 'guard'>,
+    fresh: boolean,
+    error: unknown,
+  ): Promise<void>;
 }
 
 export function createRunLedger(options: {
@@ -37,6 +41,7 @@ export function createRunLedger(options: {
 }): RunLedger {
   const { repository, logger } = options;
   const tally: Tally = {
+    outOfScope: 0,
     refreshed: 0,
     archivesRetrieved: 0,
     torAnalysed: 0,

@@ -376,6 +376,7 @@ describe('the heartbeat of a live run', () => {
           notEBidding: 0,
           tombstoned: 0,
           truncated: 0,
+          drafts: [],
           failures: [],
           rateLimited: false,
           unreachable: false,

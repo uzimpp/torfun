@@ -34,6 +34,7 @@ export interface RecordGuard {
 
 /** What a Run's records came to, as counted in its result. */
 export interface Tally {
+  outOfScope: number;
   refreshed: number;
   archivesRetrieved: number;
   torAnalysed: number;
