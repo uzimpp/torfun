@@ -34,7 +34,6 @@ const run = (id: string, endedAt: string, overrides: Partial<IngestionRun> = {})
     changedRecords: 1,
     unchangedRecords: 7,
     discoveryStopped: null,
-    rejectedNonRegistry: 3,
     attempted: 2,
     refreshed: 5,
     archivesRetrieved: 2,

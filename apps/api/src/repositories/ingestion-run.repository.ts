@@ -19,7 +19,6 @@ interface CountsDocument {
   /** Written by Runs before ADR-0020 only. */
   discovery_skipped?: boolean;
   discovery_stopped: RunCounts['discoveryStopped'];
-  rejected_non_registry: number;
   attempted: number;
   refreshed: number;
   archives_retrieved: number;
@@ -52,7 +51,6 @@ function countsToDocument(counts: RunCounts): CountsDocument {
     changed_records: counts.changedRecords,
     unchanged_records: counts.unchangedRecords,
     discovery_stopped: counts.discoveryStopped,
-    rejected_non_registry: counts.rejectedNonRegistry,
     attempted: counts.attempted,
     refreshed: counts.refreshed,
     archives_retrieved: counts.archivesRetrieved,
@@ -75,7 +73,6 @@ function countsFromDocument(document: CountsDocument): RunCounts {
       ? { discoverySkipped: document.discovery_skipped }
       : {}),
     discoveryStopped: document.discovery_stopped,
-    rejectedNonRegistry: document.rejected_non_registry,
     attempted: document.attempted,
     refreshed: document.refreshed,
     archivesRetrieved: document.archives_retrieved,

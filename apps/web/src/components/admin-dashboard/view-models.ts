@@ -1,7 +1,6 @@
 import type { IngestionFailure } from '@torfun/types';
 import type { IngestionSummaryResponse } from '@/lib/api';
 import { formatThaiDate } from '@/lib/format-date';
-import { quotaIsLow } from '@/lib/open-data-quota';
 import {
   countTiles,
   outcomeBuckets,
@@ -165,7 +164,7 @@ export function runState(summary: IngestionSummaryResponse, now: Date): RunState
  * What needs attention
  * ------------------------------------------------------------------------- */
 
-export type AttentionKey = 'needsReview' | 'failed' | 'refused' | 'quota' | 'unknownCodes';
+export type AttentionKey = 'needsReview' | 'failed' | 'refused' | 'unknownCodes';
 
 export interface AttentionChip {
   key: AttentionKey;
@@ -195,7 +194,6 @@ function lastRunFailures(
 export function attentionChips(
   summary: IngestionSummaryResponse,
   failures: readonly IngestionFailure[],
-  now: Date,
 ): AttentionChip[] {
   const buckets = outcomeBuckets(summary.byOutcome);
   const count = (key: BucketKey) => buckets.find((bucket) => bucket.key === key)!.count;
@@ -229,9 +227,6 @@ export function attentionChips(
           label: `รอบล้มเหลวเพราะเว็บปฏิเสธ (${refusedCodes.join('/')})`,
           href: FAILURE_LOG,
         }
-      : null,
-    quotaIsLow(summary.openDataQuota, now)
-      ? { key: 'quota', label: 'โควตา open-data ใกล้หมด', href: INGESTION }
       : null,
     {
       key: 'unknownCodes',

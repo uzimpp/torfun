@@ -4,7 +4,6 @@ import {
   type IngestionFailure,
   type IngestionOutcome,
   type IngestionSummary,
-  type OpenDataQuota,
   type Procurement,
   type Tombstone,
 } from '@torfun/types';
@@ -32,7 +31,6 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly failures: IngestionFailure[] = [];
   private readonly tombstones = new Map<string, Tombstone>();
   private lastRunAt: string | null = null;
-  private quota: OpenDataQuota | null = null;
   private cursor: FeedCursor = {};
 
   async ensureIndexes(): Promise<void> {
@@ -194,14 +192,6 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     this.lastRunAt = at;
   }
 
-  async openDataQuota(): Promise<OpenDataQuota | null> {
-    return this.quota;
-  }
-
-  async recordOpenDataQuota(quota: OpenDataQuota): Promise<void> {
-    this.quota = quota;
-  }
-
   async feedCursor(): Promise<FeedCursor> {
     return structuredClone(this.cursor);
   }
@@ -236,7 +226,6 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       totalTorBytes: 0,
       failureCount: this.failures.length,
       lastRunAt: this.lastRunAt,
-      openDataQuota: this.quota,
       runInProgress: false,
       runStartedAt: null,
       stopRequested: false,
