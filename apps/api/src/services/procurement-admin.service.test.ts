@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { fakeAnnouncements } from '../testing/announcement-client';
-import { EMPTY_MILESTONES, type Procurement, type Tombstone } from '@torfun/types';
+import { EMPTY_TIMELINE, type Procurement, type Tombstone } from '@torfun/types';
 import { ConflictError, NotFoundError } from '../core/errors';
 import { silentLogger } from '../testing/gated-ingestion';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -31,26 +31,16 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Completed',
     outcome: 'needs_review',
     attempts: 0,
     holdReason: 'ai_low_confidence',
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: 'zip-1',
-    documents: [],
     analysis: {
       summary: 'สรุป',
       scopeOfWork: [],
@@ -62,9 +52,10 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
       requiredQualifications: [],
       reason: 'ขอบเขตไม่ชัดเจน "พัฒนาระบบ"',
     },
-    torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: { zipId: 'zip-1', documents: [], torAmbiguous: false },
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -76,7 +67,6 @@ const storedFeed = {
   deptName: 'กรุงเทพมหานคร',
   deptCode: '0100',
   announceDate: null,
-  budgetYear: 2568,
   purchaseMethodName: null,
 };
 
@@ -107,8 +97,7 @@ describe('approving a held procurement', () => {
     expect(approved).toMatchObject({
       state: 'Completed',
       holdReason: null,
-      approvedBy: 'somchai',
-      approvedAt: AT.toISOString(),
+      approved: { by: 'somchai', at: AT.toISOString() },
     });
     expect(approved?.analysis?.summary).toBe('สรุป'); // what was read is kept
   });
@@ -126,7 +115,7 @@ describe('approving a held procurement', () => {
 
       await expect(service.approve('66059313551', 'somchai')).rejects.toBeInstanceOf(ConflictError);
 
-      expect((await store.get('66059313551'))?.approvedBy).toBeNull();
+      expect((await store.get('66059313551'))?.approved).toBeNull();
     },
   );
 });
@@ -262,7 +251,6 @@ describe('restoring a tombstone', () => {
     deptName: 'กรมศุลกากร',
     deptCode: '0305',
     announceDate: '2026-09-30T00:00:00.000Z',
-    budgetYear: 2569,
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
   };
 
@@ -279,9 +267,9 @@ describe('restoring a tombstone', () => {
       state: 'Queued',
       outcome: 'queued',
       attempts: 0,
-      status: 'unknown',
+      timeline: { status: 'unknown' },
       analysis: null,
-      documents: [],
+      archive: null,
     });
   });
 
@@ -435,7 +423,6 @@ describe('restoring a tombstone, end to end through a real Run', () => {
       deptName: 'กรมศุลกากร',
       deptCode: '0305',
       announceDate: '2026-03-02T00:00:00.000Z',
-      budgetYear: 2569,
       purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     };
     const { store, asked } = await restoreThroughRun({ ...dropped, feed }, ['66059313552']);

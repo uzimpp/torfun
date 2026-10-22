@@ -1,4 +1,5 @@
 import {
+  Ban,
   CheckCircle2,
   Circle,
   Clock,
@@ -87,6 +88,15 @@ export const STATUS_STYLE: Record<BucketKey, StatusStyle> = {
     fill: 'fill-zinc-300 dark:fill-zinc-600',
     chart: { light: 'var(--color-zinc-300)', dark: 'var(--color-zinc-600)' },
     icon: FileX2,
+  },
+  outOfScope: {
+    badge: 'border-zinc-300 bg-transparent text-zinc-600 dark:border-zinc-700 dark:text-zinc-400',
+    text: 'text-muted-foreground',
+    dot: 'border border-zinc-400 bg-transparent dark:border-zinc-500',
+    stroke: 'stroke-zinc-200 dark:stroke-zinc-700',
+    fill: 'fill-zinc-200 dark:fill-zinc-700',
+    chart: { light: 'var(--color-zinc-200)', dark: 'var(--color-zinc-700)' },
+    icon: Ban,
   },
   failed: {
     badge: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',

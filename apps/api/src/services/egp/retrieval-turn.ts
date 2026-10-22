@@ -58,7 +58,7 @@ async function readTimeline(deps: RetrievalDeps, work: RecordWork): Promise<Time
     );
     return null;
   }
-  const review = reviewTimeline(record, rows, new Date().toISOString());
+  const review = reviewTimeline(record.timeline, rows, new Date().toISOString());
   for (const unknown of review.unrecognised) {
     await work.note(
       'timeline',
@@ -70,14 +70,14 @@ async function readTimeline(deps: RetrievalDeps, work: RecordWork): Promise<Time
 
 /**
  * Discovery stores a project from the feed alone, so a record whose detail
- * was never read (`detailCheckedAt` null) gets it first, in the same gate hold
+ * was never read (`detailReadAt` null) gets it first, in the same gate hold
  * as its timeline (ADR-0020). A failure is logged and the record carries on
  * with the year it has, null for a new one, never guessed; the next Run asks
  * again. A refusal is thrown on and stops the Run as usual.
  */
 async function catchUpDetail(deps: RetrievalDeps, work: RecordWork): Promise<void> {
   const { record, guard } = work;
-  if (record.detailCheckedAt !== null) return;
+  if (record.detailReadAt !== null) return;
   const read = await work.site(() =>
     readProjectDetail(deps.announcements, record.projectId, guard.controller.signal),
   );
@@ -104,10 +104,10 @@ async function refresh(deps: RetrievalDeps, work: RecordWork): Promise<Handoff |
   if (!review.invitationMoved) {
     work.count('refreshed');
     // A read that found nothing new is not news: only its time is kept.
-    const patch = review.changed
-      ? review.patch
-      : { timelineCheckedAt: review.patch.timelineCheckedAt };
-    await work.store.amend(record.projectId, patch, review.changed);
+    const timeline = review.changed
+      ? review.timeline
+      : { ...record.timeline, lastReadAt: review.timeline.lastReadAt };
+    await work.store.amend(record.projectId, { timeline }, review.changed);
     work.endSiteSection();
     return;
   }
@@ -133,7 +133,7 @@ async function refresh(deps: RetrievalDeps, work: RecordWork): Promise<Handoff |
   // or a failed re-read would leave it looking already done.
   await work.store.amend(
     record.projectId,
-    { timelineCheckedAt: review.patch.timelineCheckedAt },
+    { timeline: { ...record.timeline, lastReadAt: review.timeline.lastReadAt } },
     false,
   );
 
@@ -152,7 +152,7 @@ async function refresh(deps: RetrievalDeps, work: RecordWork): Promise<Handoff |
   }
   const archive = await download(deps, work, zipId);
   if (!archive) return;
-  return readMovedInvitation(deps.analysis, work, { archive, timeline: review.patch });
+  return readMovedInvitation(deps.analysis, work, { archive, zipId, timeline: review.timeline });
 }
 
 /** A project never read: its timeline, then its archive retrieved, to be read by Analysis. */
@@ -162,8 +162,8 @@ async function retrieve(deps: RetrievalDeps, work: RecordWork): Promise<Handoff 
   if (guard.expired) return;
   let current: Procurement = record;
   if (review !== null) {
-    await work.store.amend(record.projectId, review.patch, true);
-    current = { ...record, ...review.patch };
+    await work.store.amend(record.projectId, { timeline: review.timeline }, true);
+    current = { ...record, timeline: review.timeline };
   }
 
   work.stage = 'info';

@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  EMPTY_MILESTONES,
+  currentDeadline,
+  EMPTY_STAGES,
+  EMPTY_TIMELINE,
   IngestionOutcome,
   IngestionState,
-  MilestonesSchema,
+  StagesSchema,
   OUTCOME_LABELS,
   OUTCOME_STATE,
   ProcurementSchema,
@@ -58,7 +60,7 @@ describe('IngestionState', () => {
 });
 
 describe('IngestionOutcome', () => {
-  test('has the ten outcomes the pipeline can reach', () => {
+  test('has the eleven outcomes the pipeline can reach', () => {
     const options: string[] = [...IngestionOutcome.options];
     expect(options.sort()).toEqual(
       [
@@ -70,6 +72,7 @@ describe('IngestionOutcome', () => {
         'needs_review',
         'no_tor_in_archive',
         'no_tor_package',
+        'out_of_scope',
         'queued',
         'tor_analysed',
       ].sort(),
@@ -95,6 +98,7 @@ describe('IngestionOutcome', () => {
     expect(OUTCOME_STATE.downloading).toBe('Processing');
     expect(OUTCOME_STATE.analysing).toBe('Processing');
     expect(OUTCOME_STATE.tor_analysed).toBe('Completed');
+    expect(OUTCOME_STATE.out_of_scope).toBe('Completed');
     expect(OUTCOME_STATE.no_tor_package).toBe('Failed');
     expect(OUTCOME_STATE.abandoned).toBe('Failed');
   });
@@ -106,33 +110,24 @@ const record: Procurement = {
   deptName: 'กรุงเทพมหานคร',
   deptSubName: null,
   deptCode: '3100001',
+  announceDate: '2024-11-04T00:00:00.000Z',
+  purchaseMethodName: null,
+  discoveredAt: '2026-09-30T00:00:00.000Z',
   budgetYear: 2568,
   typeId: null,
   goodsId: null,
-  detailCheckedAt: '2026-09-01T00:00:00.000Z',
-  announceDate: '2024-11-04T00:00:00.000Z',
-  projectTypeName: null,
-  purchaseMethodName: null,
   projectMoney: 16773380,
   priceBuild: 16669097,
-  status: 'unknown',
-  milestones: EMPTY_MILESTONES,
-  timelineCheckedAt: null,
-  deadlineAt: null,
-  deadlineSource: null,
+  detailReadAt: '2026-09-01T00:00:00.000Z',
+  timeline: EMPTY_TIMELINE,
   state: 'Queued',
   outcome: 'queued',
   attempts: 0,
   holdReason: null,
-  approvedBy: null,
-  approvedAt: null,
   statusHistory: [],
-  zipId: null,
-  documents: [],
+  approved: null,
+  archive: null,
   analysis: null,
-  torAmbiguous: false,
-  discoveredAt: '2026-09-30T00:00:00.000Z',
-  sourceHash: null,
   updatedAt: '2026-09-30T00:00:00.000Z',
 };
 
@@ -159,21 +154,24 @@ describe('Procurement', () => {
     expect('statusSource' in parsed).toBe(false);
   });
 
-  test('requires every milestone key, each null or a possibly undated entry', () => {
-    const reached = {
-      ...EMPTY_MILESTONES,
-      drafted: { at: null },
-      invited: { at: '2026-10-01T00:00:00.000Z' },
-    };
+  test('requires every stage key, each a date or null', () => {
+    const reached = { ...EMPTY_STAGES, invited: '2026-10-01T00:00:00.000Z' };
 
-    expect(MilestonesSchema.safeParse(reached).success).toBe(true);
-    expect(MilestonesSchema.safeParse({ ...EMPTY_MILESTONES, drafted: undefined }).success).toBe(
-      false,
-    );
-    expect(MilestonesSchema.safeParse({ ...EMPTY_MILESTONES, priced: { at: 5 } }).success).toBe(
-      false,
-    );
-    expect(ProcurementSchema.safeParse({ ...record, milestones: undefined }).success).toBe(false);
+    expect(StagesSchema.safeParse(reached).success).toBe(true);
+    expect(StagesSchema.safeParse({ ...EMPTY_STAGES, drafted: undefined }).success).toBe(false);
+    expect(StagesSchema.safeParse({ ...EMPTY_STAGES, priced: { at: null } }).success).toBe(false);
+    expect(ProcurementSchema.safeParse({ ...record, timeline: undefined }).success).toBe(false);
+  });
+
+  test('keeps no fingerprint, deadline source or project type: they are not the domain', () => {
+    const parsed = ProcurementSchema.parse({
+      ...record,
+      sourceHash: 'abc',
+      deadlineSource: 'tor',
+      projectTypeName: null,
+    });
+
+    expect(parsed).toEqual(record);
   });
 
   test('counts retrieval attempts as a non-negative integer', () => {
@@ -306,7 +304,6 @@ describe('TombstoneSchema', () => {
       deptName: 'กรมศุลกากร',
       deptCode: '0305',
       announceDate: '2026-10-05T00:00:00.000Z',
-      budgetYear: 2570,
       purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     };
     expect(TombstoneSchema.parse({ ...tombstone, feed })).toEqual({ ...tombstone, feed });
@@ -320,7 +317,56 @@ describe('TombstoneSchema', () => {
 
 describe('Procurement approval', () => {
   test('records who approved a held record and when, or nothing', () => {
-    const approved = { ...record, approvedBy: 'admin', approvedAt: '2026-10-03T00:00:00.000Z' };
+    const approved = { ...record, approved: { by: 'admin', at: '2026-10-03T00:00:00.000Z' } };
     expect(ProcurementSchema.parse(approved)).toEqual(approved);
+    expect(ProcurementSchema.safeParse({ ...record, approved: { by: 'admin' } }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('currentDeadline', () => {
+  const COMMENTS = '2026-10-26T17:00:00.000Z';
+  const BIDS = '2026-11-10T03:00:00.000Z';
+  const TOR = '2026-11-12';
+  const analysis = {
+    summary: 'จ้างพัฒนาระบบ',
+    scopeOfWork: [],
+    budgetThb: null,
+    deadlineAt: TOR,
+    durationDays: null,
+    techStack: [],
+    targetPlatforms: [],
+    requiredQualifications: [],
+  };
+  const at = (
+    timeline: Partial<Procurement['timeline']>,
+    withAnalysis: Procurement['analysis'] = null,
+  ) => currentDeadline({ timeline: { ...EMPTY_TIMELINE, ...timeline }, analysis: withAnalysis });
+
+  test.each([
+    [
+      'a draft with a comment deadline shows it',
+      at({ status: 'drafting', commentsCloseAt: COMMENTS, deadlineAt: BIDS }, analysis),
+      { at: COMMENTS, kind: 'comments', readByModel: false },
+    ],
+    [
+      'a draft with none falls back to the bid deadline',
+      at({ status: 'drafting', deadlineAt: BIDS }),
+      { at: BIDS, kind: 'bids', readByModel: false },
+    ],
+    [
+      'an open tender shows its official deadline over the TOR',
+      at({ status: 'open', commentsCloseAt: COMMENTS, deadlineAt: BIDS }, analysis),
+      { at: BIDS, kind: 'bids', readByModel: false },
+    ],
+    [
+      'with only the TOR date, it is marked as read by the model',
+      at({ status: 'open' }, analysis),
+      { at: TOR, kind: 'bids', readByModel: true },
+    ],
+    ['with nothing known, there is none', at({ status: 'open' }), null],
+  ])('%s', (_name, actual, expected) => {
+    expect(actual).toEqual(expected as ReturnType<typeof currentDeadline>);
   });
 });

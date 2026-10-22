@@ -128,8 +128,6 @@ function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurem
       deptName: agency.deptName,
       deptCode: agency.deptId,
       announceDate: convertDateToISO(item.announcedOn ?? day),
-      // Not in the feed, and never guessed: Retrieval reads it from the project detail.
-      budgetYear: null,
       purchaseMethodName: item.methodName,
     },
     new Date(),

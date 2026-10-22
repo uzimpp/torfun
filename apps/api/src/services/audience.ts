@@ -33,5 +33,5 @@ export function isVisibleTo(audience: Audience, procurement: Procurement): boole
  */
 export function presentTo(audience: Audience, procurement: Procurement): Procurement {
   if (audience === 'admin') return procurement;
-  return { ...procurement, holdReason: null, approvedBy: null, approvedAt: null };
+  return { ...procurement, holdReason: null, approved: null };
 }

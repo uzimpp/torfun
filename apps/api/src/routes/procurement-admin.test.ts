@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { EMPTY_MILESTONES, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
+import { EMPTY_TIMELINE, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -21,30 +21,21 @@ const held: Procurement = {
   budgetYear: 2568,
   typeId: null,
   goodsId: null,
-  detailCheckedAt: '2026-09-01T00:00:00.000Z',
+  detailReadAt: '2026-09-01T00:00:00.000Z',
   announceDate: null,
-  projectTypeName: null,
   purchaseMethodName: null,
   projectMoney: null,
   priceBuild: null,
-  status: 'open',
-  milestones: EMPTY_MILESTONES,
-  timelineCheckedAt: null,
-  deadlineAt: null,
-  deadlineSource: null,
   state: 'Completed',
   outcome: 'needs_review',
   attempts: 0,
   holdReason: 'partial_read',
-  approvedBy: null,
-  approvedAt: null,
   statusHistory: [],
-  zipId: 'zip-1',
-  documents: [],
   analysis: null,
-  torAmbiguous: false,
   discoveredAt: '2026-09-09T00:00:00.000Z',
-  sourceHash: null,
+  timeline: { ...EMPTY_TIMELINE, status: 'open' },
+  approved: null,
+  archive: { zipId: 'zip-1', documents: [], torAmbiguous: false },
   updatedAt: '2026-09-09T00:00:00.000Z',
 };
 
@@ -131,11 +122,11 @@ describe('administrator actions on a procurement', () => {
 
       const asOfficer = await read(officer());
       expect(asOfficer.statusCode).toBe(200);
-      expect(asOfficer.json() as Procurement).toMatchObject({ approvedBy: null, approvedAt: null });
+      expect(asOfficer.json() as Procurement).toMatchObject({ approved: null });
 
       const record = (await read(admin())).json() as Procurement;
-      expect(record.approvedBy).toBe('somchai');
-      expect(Date.parse(record.approvedAt!)).not.toBeNaN();
+      expect(record.approved?.by).toBe('somchai');
+      expect(Date.parse(record.approved!.at)).not.toBeNaN();
     });
 
     test('404 for an unknown project', async () => {

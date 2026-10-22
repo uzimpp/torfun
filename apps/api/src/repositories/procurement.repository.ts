@@ -11,15 +11,14 @@ import type {
   IngestionSummary,
   Procurement,
   ProcurementStatus,
+  Stages,
   StatusChange,
-  DeadlineSource,
-  Milestones,
   TargetPlatform,
   TorAnalysis,
   Tombstone,
   TombstoneReason,
 } from '@torfun/types';
-import { appendStatusChange, EMPTY_MILESTONES, OUTCOME_STATE } from '@torfun/types';
+import { appendStatusChange, currentDeadline, OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 import { hashSource, hasUpstreamChange } from './source-hash';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
@@ -71,41 +70,46 @@ interface ProcurementDocument {
   dept_name: string;
   dept_sub_name: string | null;
   dept_code: string;
+  announce_date: string | null;
+  purchase_method_name: string | null;
+  discovered_at: string;
   budget_year: number | null;
   /** Absent on records written before the project detail was read. */
   type_id?: string | null;
   goods_id?: string | null;
-  detail_checked_at?: string | null;
-  announce_date: string | null;
-  project_type_name: string | null;
-  purchase_method_name: string | null;
   project_money: number | null;
   price_build: number | null;
-  status: ProcurementStatus;
-  /** Absent on records written before the timeline was read. */
-  milestones?: Milestones;
-  timeline_checked_at?: string | null;
-  /** Absent on records written before the deadline was kept. */
-  deadline_at?: string | null;
-  deadline_source?: DeadlineSource | null;
+  detail_read_at: string | null;
+  timeline: TimelineDocument;
   state: IngestionState;
   outcome: IngestionOutcome;
   /** Absent on records written before retries were counted. */
   attempts?: number;
   /** Why the record is held for review; absent unless its outcome is `needs_review`. */
   hold_reason?: HoldReason | null;
-  /** Who approved a held record, and when; absent until an administrator does. */
-  approved_by?: string | null;
-  approved_at?: string | null;
   status_history: StatusChange[];
-  zip_id: string | null;
-  documents: ArchiveDocument[];
+  approved: { by: string; at: string } | null;
+  archive: ArchiveRecordDocument | null;
   analysis: TorAnalysis | null;
-  tor_ambiguous: boolean;
-  discovered_at: string;
-  /** Absent on records written before sweeps were fingerprinted. */
+  /** The feed's fingerprint (`hashSource`); absent on records written before sweeps were fingerprinted. */
   source_hash?: string | null;
+  /** `currentDeadline` as of the last write, for search and ordering; not part of the domain. */
+  deadline_at: string | null;
   updated_at: string;
+}
+
+interface TimelineDocument {
+  status: ProcurementStatus;
+  last_read_at: string | null;
+  comments_close_at: string | null;
+  deadline_at: string | null;
+  stages: Stages;
+}
+
+interface ArchiveRecordDocument {
+  zip_id: string;
+  documents: ArchiveDocument[];
+  tor_ambiguous: boolean;
 }
 
 /**
@@ -121,82 +125,98 @@ export function holdReasonFor(
 }
 
 function toDomain(document: ProcurementDocument): Procurement {
+  const { timeline, archive } = document;
   return {
     projectId: document._id,
     projectName: document.project_name,
     deptName: document.dept_name,
     deptSubName: document.dept_sub_name,
     deptCode: document.dept_code,
+    announceDate: document.announce_date,
+    purchaseMethodName: document.purchase_method_name,
+    discoveredAt: document.discovered_at,
     budgetYear: document.budget_year,
     typeId: document.type_id ?? null,
     goodsId: document.goods_id ?? null,
-    detailCheckedAt: document.detail_checked_at ?? null,
-    announceDate: document.announce_date,
-    projectTypeName: document.project_type_name,
-    purchaseMethodName: document.purchase_method_name,
     projectMoney: document.project_money,
     priceBuild: document.price_build,
-    status: statusFromStored(document.status),
-    milestones: document.milestones ?? EMPTY_MILESTONES,
-    timelineCheckedAt: document.timeline_checked_at ?? null,
-    deadlineAt: document.deadline_at ?? null,
-    deadlineSource: document.deadline_source ?? null,
+    detailReadAt: document.detail_read_at,
+    timeline: {
+      status: statusFromStored(timeline.status),
+      lastReadAt: timeline.last_read_at,
+      commentsCloseAt: timeline.comments_close_at,
+      deadlineAt: timeline.deadline_at,
+      stages: timeline.stages,
+    },
     state: document.state,
     outcome: outcomeFromStored(document.outcome),
     attempts: document.attempts ?? 0,
     holdReason: document.hold_reason ?? null,
-    approvedBy: document.approved_by ?? null,
-    approvedAt: document.approved_at ?? null,
     statusHistory: document.status_history.map((entry) => ({
       ...entry,
       outcome: outcomeFromStored(entry.outcome),
     })),
-    zipId: document.zip_id,
-    documents: document.documents,
+    approved: document.approved,
+    archive: archive
+      ? {
+          zipId: archive.zip_id,
+          documents: archive.documents,
+          torAmbiguous: archive.tor_ambiguous,
+        }
+      : null,
     analysis: document.analysis,
-    torAmbiguous: document.tor_ambiguous,
-    discoveredAt: document.discovered_at,
-    sourceHash: document.source_hash ?? null,
     updatedAt: document.updated_at,
   };
 }
 
-function toDocument(record: Procurement): ProcurementDocument {
+function toDocument(record: Procurement, sourceHash: string | null): ProcurementDocument {
+  const { timeline, archive } = record;
   return {
     _id: record.projectId,
     project_name: record.projectName,
     dept_name: record.deptName,
     dept_sub_name: record.deptSubName,
     dept_code: record.deptCode,
+    announce_date: record.announceDate,
+    purchase_method_name: record.purchaseMethodName,
+    discovered_at: record.discoveredAt,
     budget_year: record.budgetYear,
     type_id: record.typeId,
     goods_id: record.goodsId,
-    detail_checked_at: record.detailCheckedAt,
-    announce_date: record.announceDate,
-    project_type_name: record.projectTypeName,
-    purchase_method_name: record.purchaseMethodName,
     project_money: record.projectMoney,
     price_build: record.priceBuild,
-    status: record.status,
-    milestones: record.milestones,
-    timeline_checked_at: record.timelineCheckedAt,
-    deadline_at: record.deadlineAt,
-    deadline_source: record.deadlineSource,
+    detail_read_at: record.detailReadAt,
+    timeline: {
+      status: timeline.status,
+      last_read_at: timeline.lastReadAt,
+      comments_close_at: timeline.commentsCloseAt,
+      deadline_at: timeline.deadlineAt,
+      stages: timeline.stages,
+    },
     state: record.state,
     outcome: record.outcome,
     attempts: record.attempts,
     hold_reason: record.holdReason,
-    approved_by: record.approvedBy,
-    approved_at: record.approvedAt,
     status_history: record.statusHistory,
-    zip_id: record.zipId,
-    documents: record.documents,
+    approved: record.approved,
+    archive: archive
+      ? {
+          zip_id: archive.zipId,
+          documents: archive.documents,
+          tor_ambiguous: archive.torAmbiguous,
+        }
+      : null,
     analysis: record.analysis,
-    tor_ambiguous: record.torAmbiguous,
-    discovered_at: record.discoveredAt,
-    source_hash: record.sourceHash,
+    source_hash: sourceHash,
+    deadline_at: currentDeadline(record)?.at ?? null,
     updated_at: record.updatedAt,
   };
+}
+
+function mergedDocument(existing: ProcurementDocument, incoming: Procurement): ProcurementDocument {
+  const current = toDomain(existing);
+  const changed = hasUpstreamChange(existing.source_hash ?? null, current, incoming);
+  return toDocument(mergeDiscovered(current, incoming, changed), hashSource(incoming));
 }
 
 export interface FindOptions {
@@ -389,7 +409,6 @@ interface FeedSnapshotDocument {
   dept_name: string;
   dept_code: string;
   announce_date: string | null;
-  budget_year: number | null;
   purchase_method_name: string | null;
 }
 
@@ -408,7 +427,6 @@ function toTombstoneDocument(tombstone: Tombstone): TombstoneDocument {
           dept_name: feed.deptName,
           dept_code: feed.deptCode,
           announce_date: feed.announceDate,
-          budget_year: feed.budgetYear,
           purchase_method_name: feed.purchaseMethodName,
         }
       : null,
@@ -430,7 +448,6 @@ function fromTombstoneDocument(document: TombstoneDocument): Tombstone {
           deptName: feed.dept_name,
           deptCode: feed.dept_code,
           announceDate: feed.announce_date,
-          budgetYear: feed.budget_year,
           purchaseMethodName: feed.purchase_method_name,
         }
       : null,
@@ -595,15 +612,12 @@ export class ProcurementRepository
     const existing = await collection.findOne({ _id: record.projectId });
 
     if (!existing) {
-      const document = toDocument({
-        ...record,
-        sourceHash: record.sourceHash ?? hashSource(record),
-      });
+      const document = toDocument(record, hashSource(record));
       await collection.insertOne(document);
       return toDomain(document);
     }
 
-    const merged = toDocument(mergeDiscovered(toDomain(existing), record));
+    const merged = mergedDocument(existing, record);
     await collection.replaceOne({ _id: record.projectId }, merged);
     return toDomain(merged);
   }
@@ -626,24 +640,17 @@ export class ProcurementRepository
       if (!existing) {
         summary.created += 1;
         summary.createdIds.push(record.projectId);
-        operations.push({
-          insertOne: {
-            document: toDocument({
-              ...record,
-              sourceHash: record.sourceHash ?? hashSource(record),
-            }),
-          },
-        });
+        operations.push({ insertOne: { document: toDocument(record, hashSource(record)) } });
         continue;
       }
 
-      const current = toDomain(existing);
-      if (hasUpstreamChange(current, record)) summary.changed += 1;
-      else summary.unchanged += 1;
+      if (hasUpstreamChange(existing.source_hash ?? null, toDomain(existing), record)) {
+        summary.changed += 1;
+      } else summary.unchanged += 1;
       operations.push({
         replaceOne: {
           filter: { _id: record.projectId },
-          replacement: toDocument(mergeDiscovered(current, record)),
+          replacement: mergedDocument(existing, record),
         },
       });
     }
@@ -672,14 +679,18 @@ export class ProcurementRepository
     // write a literal null on every call — which `StatusChangeSchema.detail`
     // (an optional string) then rejects on the way back out.
     const entry = { state, outcome, at, ...(detail !== undefined ? { detail } : {}) };
-    const updated: ProcurementDocument = {
-      ...toDocument({ ...toDomain(existing), ...patch }),
-      state,
-      outcome,
-      hold_reason: holdReasonFor(outcome, patch),
-      status_history: appendStatusChange(existing.status_history, entry),
-      updated_at: at,
-    };
+    const updated = toDocument(
+      {
+        ...toDomain(existing),
+        ...patch,
+        state,
+        outcome,
+        holdReason: holdReasonFor(outcome, patch),
+        statusHistory: appendStatusChange(existing.status_history, entry),
+        updatedAt: at,
+      },
+      existing.source_hash ?? null,
+    );
     await collection.replaceOne({ _id: projectId }, updated);
     return toDomain(updated);
   }
@@ -693,11 +704,14 @@ export class ProcurementRepository
     const existing = await collection.findOne({ _id: projectId });
     if (!existing) return undefined;
 
-    const updated = toDocument({
-      ...toDomain(existing),
-      ...patch,
-      updatedAt: touch ? new Date().toISOString() : existing.updated_at,
-    });
+    const updated = toDocument(
+      {
+        ...toDomain(existing),
+        ...patch,
+        updatedAt: touch ? new Date().toISOString() : existing.updated_at,
+      },
+      existing.source_hash ?? null,
+    );
     await collection.replaceOne({ _id: projectId }, updated);
     return toDomain(updated);
   }
@@ -706,9 +720,12 @@ export class ProcurementRepository
     const documents = await (
       await this.records()
     )
-      .find({ state: { $in: ['Completed', 'Failed'] }, status: { $ne: 'contracted' } })
-      // Never checked sorts first, since a missing field sorts as null.
-      .sort({ timeline_checked_at: 1, _id: 1 })
+      .find({
+        state: { $in: ['Completed', 'Failed'] },
+        'timeline.status': { $ne: 'contracted' },
+      })
+      // Never read sorts first: null sorts before any date.
+      .sort({ 'timeline.last_read_at': 1, _id: 1 })
       .skip(page.offset)
       .limit(page.limit)
       .toArray();
@@ -759,7 +776,7 @@ export class ProcurementRepository
     }
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.budgetYear) filter.budget_year = options.budgetYear;
-    if (options.status) filter.status = options.status;
+    if (options.status) filter['timeline.status'] = options.status;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
@@ -919,9 +936,11 @@ export class ProcurementRepository
       // must not inflate what an administrator reads as TORs retrieved.
       collection
         .aggregate<{ _id: null; count: number; bytes: number }>([
-          { $unwind: '$documents' },
-          { $match: { 'documents.role': { $in: ['main_tor', 'tor_variant'] } } },
-          { $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: '$documents.bytes' } } },
+          { $unwind: '$archive.documents' },
+          { $match: { 'archive.documents.role': { $in: ['main_tor', 'tor_variant'] } } },
+          {
+            $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: '$archive.documents.bytes' } },
+          },
         ])
         .toArray(),
       (await this.failuresCollection()).countDocuments({}),
@@ -1031,7 +1050,7 @@ const DAYS_LEFT_FIELDS = ['days_left_rank', 'days_left_day'];
 
 /** Most days left first. `today` and the deadline are both Thai calendar days. */
 function daysLeftOrder(today: string) {
-  const isOpen = { $in: ['$status', OPEN] };
+  const isOpen = { $in: ['$timeline.status', OPEN] };
   return [
     {
       $addFields: {
@@ -1053,9 +1072,9 @@ function daysLeftOrder(today: string) {
               // A null day compares below any date, so it never counts as upcoming.
               { case: { $and: [isOpen, { $gte: ['$days_left_day', today] }] }, then: 0 },
               { case: { $and: [isOpen, { $eq: ['$days_left_day', null] }] }, then: 1 },
-              { case: { $in: ['$status', DRAFTING] }, then: 2 },
-              { case: { $eq: ['$status', 'unknown'] }, then: 3 },
-              { case: { $in: ['$status', CLOSED] }, then: 5 },
+              { case: { $in: ['$timeline.status', DRAFTING] }, then: 2 },
+              { case: { $eq: ['$timeline.status', 'unknown'] }, then: 3 },
+              { case: { $in: ['$timeline.status', CLOSED] }, then: 5 },
             ],
             // Open with a past deadline, and evaluating.
             default: 4,
@@ -1073,7 +1092,7 @@ const URGENCY_ORDER = [
       urgency_rank: {
         $switch: {
           branches: URGENCY_RANKS.map(([rank, statuses]) => ({
-            case: { $in: ['$status', statuses] },
+            case: { $in: ['$timeline.status', statuses] },
             then: rank,
           })),
           default: 2,

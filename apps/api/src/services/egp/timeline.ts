@@ -1,24 +1,12 @@
-import type { Procurement } from '@torfun/types';
+import type { Timeline } from '@torfun/types';
 import { MILESTONE_KEYS } from '@torfun/types';
 import { convertTimelineDate } from './dates';
-import { decideDeadline } from './deadline';
-import { readMilestones, statusFromMilestones, type AnnouncementRow } from './milestones';
-
-/** What of a stored record a timeline reading is weighed against. */
-export type TimelineSubject = Pick<
-  Procurement,
-  'milestones' | 'deadlineAt' | 'deadlineSource' | 'analysis' | 'timelineCheckedAt'
->;
-
-export type TimelinePatch = Pick<
-  Procurement,
-  'milestones' | 'status' | 'timelineCheckedAt' | 'deadlineAt' | 'deadlineSource'
->;
+import { officialDeadline } from './deadline';
+import { readStages, type AnnouncementRow } from './milestones';
 
 export interface TimelineReview {
-  /** The fields a reading writes. */
-  patch: TimelinePatch;
-  /** The milestones differ from the stored ones. */
+  timeline: Timeline;
+  /** The stages or status differ from the stored ones. */
   changed: boolean;
   /** The invitation has a date it did not have when it was last read, so its PDF is stale. */
   invitationMoved: boolean;
@@ -40,33 +28,28 @@ function sinceLastCheck(row: AnnouncementRow, lastCheck: string | null): boolean
 }
 
 /**
- * What a fresh read of a project's timeline means for the stored record: its
+ * What a fresh read of a project's timeline means for the stored one: its
  * status and deadline, and whether anything moved that is worth more work.
  * Pure, so the pipeline only has to decide what to do about it.
  */
 export function reviewTimeline(
-  stored: TimelineSubject,
+  stored: Timeline,
   rows: readonly AnnouncementRow[],
   checkedAt: string,
 ): TimelineReview {
-  const { milestones, unrecognised } = readMilestones(rows);
-  const invitedAt = milestones.invited?.at ?? null;
+  const { stages, status, unrecognised } = readStages(rows);
 
   return {
-    patch: {
-      milestones,
-      status: statusFromMilestones(milestones),
-      timelineCheckedAt: checkedAt,
-      ...decideDeadline(stored, {
-        priced: milestones.priced?.at ?? null,
-        invitationBidAt: null,
-        torDeadline: stored.analysis?.deadlineAt ?? null,
-      }),
+    timeline: {
+      status,
+      lastReadAt: checkedAt,
+      commentsCloseAt: stored.commentsCloseAt,
+      deadlineAt: officialDeadline(stored.deadlineAt, stages),
+      stages,
     },
-    changed: MILESTONE_KEYS.some(
-      (key) => JSON.stringify(milestones[key]) !== JSON.stringify(stored.milestones[key]),
-    ),
-    invitationMoved: invitedAt !== null && invitedAt !== (stored.milestones.invited?.at ?? null),
-    unrecognised: unrecognised.filter((row) => sinceLastCheck(row, stored.timelineCheckedAt)),
+    changed:
+      status !== stored.status || MILESTONE_KEYS.some((key) => stages[key] !== stored.stages[key]),
+    invitationMoved: stages.invited !== null && stages.invited !== stored.stages.invited,
+    unrecognised: unrecognised.filter((row) => sinceLastCheck(row, stored.lastReadAt)),
   };
 }

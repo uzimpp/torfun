@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, type Procurement, type ProcurementStatus } from '@torfun/types';
 
 import { TorReviewContent } from './tor-review-content';
 
@@ -24,12 +24,10 @@ const tor = {
   deptName: 'กรุงเทพมหานคร',
   projectMoney: 4_500_000,
   priceBuild: null,
-  status: 'open',
+  timeline: { ...EMPTY_TIMELINE, status: 'open' },
   announceDate: null,
   purchaseMethodName: null,
   budgetYear: 2568,
-  deadlineAt: null,
-  deadlineSource: null,
   analysis: {
     summary: 'จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน',
     scopeOfWork: [],
@@ -43,6 +41,13 @@ const tor = {
   },
 } as unknown as Procurement;
 
+const withStatus = (status: ProcurementStatus) =>
+  ({ ...tor, timeline: { ...EMPTY_TIMELINE, status } }) as Procurement;
+const officialDeadline = {
+  ...tor,
+  timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-20T09:30:00.000Z' },
+} as Procurement;
+
 beforeEach(() => vi.clearAllMocks());
 
 describe('TorReviewContent', () => {
@@ -54,47 +59,51 @@ describe('TorReviewContent', () => {
     expect(screen.queryByText(/ระดับความมั่นใจ/)).not.toBeInTheDocument();
   });
 
-  test('shows the bid deadline with where it came from, and a reminder to verify it', async () => {
-    mocked.fetchTor.mockResolvedValue({
-      ...tor,
-      deadlineAt: '2026-10-20T09:30:00.000Z',
-      deadlineSource: 'invitation',
-    });
+  test('shows an official bid deadline with no note that the model read it', async () => {
+    mocked.fetchTor.mockResolvedValue(officialDeadline);
     render(<TorReviewContent projectId="66059313551" />);
 
     const deadline = await screen.findByRole('group', { name: 'กำหนดยื่นข้อเสนอ' });
     expect(deadline).toHaveTextContent('20 ตุลาคม 2569');
     expect(deadline).toHaveTextContent('16:30');
-    expect(within(deadline).getByText(/ที่มา: ประกาศเชิญชวน/)).toBeInTheDocument();
+    expect(within(deadline).queryByText(/โดย AI/)).not.toBeInTheDocument();
+  });
+
+  test('says a deadline read from the TOR by the model is to be checked against the source', async () => {
+    mocked.fetchTor.mockResolvedValue({
+      ...tor,
+      analysis: { ...tor.analysis!, deadlineAt: '2026-10-20T09:30:00.000Z' },
+    });
+    render(<TorReviewContent projectId="66059313551" />);
+
+    const deadline = await screen.findByRole('group', { name: 'กำหนดยื่นข้อเสนอ' });
+    expect(deadline).toHaveTextContent('20 ตุลาคม 2569');
+    expect(within(deadline).getByText(/อ่านจากเอกสาร TOR โดย AI/)).toBeInTheDocument();
     expect(within(deadline).getByText(/ตรวจสอบกับเอกสารต้นฉบับ/)).toBeInTheDocument();
   });
 
-  test('shows the bid deadline once, so it never appears without its source', async () => {
-    mocked.fetchTor.mockResolvedValue({
-      ...tor,
-      deadlineAt: '2026-10-20T09:30:00.000Z',
-      deadlineSource: 'invitation',
-    });
+  test('shows the bid deadline once', async () => {
+    mocked.fetchTor.mockResolvedValue(officialDeadline);
     render(<TorReviewContent projectId="66059313551" />);
 
     expect(await screen.findAllByText(/20 ตุลาคม 2569/)).toHaveLength(1);
   });
 
   test('shows the budget year and the project status in its shared badge', async () => {
-    mocked.fetchTor.mockResolvedValue({ ...tor, status: 'unknown' });
+    mocked.fetchTor.mockResolvedValue(withStatus('unknown'));
     const { container } = render(<TorReviewContent projectId="66059313551" />);
 
     expect(await screen.findByText('ปีงบประมาณ 2568')).toBeInTheDocument();
     expect(container.querySelector('[data-status="unknown"]')).toHaveTextContent('ยังไม่ทราบสถานะ');
   });
 
-  test('says there is no bid window yet for a project still being drafted, with no source', async () => {
-    mocked.fetchTor.mockResolvedValue({ ...tor, status: 'drafting' });
+  test('says there is no bid window yet for a project still being drafted', async () => {
+    mocked.fetchTor.mockResolvedValue(withStatus('drafting'));
     render(<TorReviewContent projectId="66059313551" />);
 
     const deadline = await screen.findByRole('group', { name: 'กำหนดยื่นข้อเสนอ' });
     expect(deadline).toHaveTextContent('ยังไม่มีกำหนดยื่นข้อเสนอ');
-    expect(within(deadline).queryByText(/ที่มา/)).not.toBeInTheDocument();
+    expect(within(deadline).queryByText(/โดย AI/)).not.toBeInTheDocument();
   });
 
   test('shows a dash when the deadline is unknown on a project that is not being drafted', async () => {

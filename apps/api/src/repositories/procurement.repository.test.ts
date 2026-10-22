@@ -1,12 +1,13 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import { EMPTY_MILESTONES, OUTCOME_STATE } from '@torfun/types';
+import { EMPTY_STAGES, EMPTY_TIMELINE, OUTCOME_STATE } from '@torfun/types';
 import type {
   ArchiveDocument,
   IngestionFailure,
   Procurement,
   ProcurementStatus,
   StatusChange,
+  Timeline,
   TorAnalysis,
   Tombstone,
 } from '@torfun/types';
@@ -39,6 +40,12 @@ afterAll(async () => {
   await client?.close();
 });
 
+const timeline = (overrides: Partial<Timeline> = {}): Timeline => ({
+  ...EMPTY_TIMELINE,
+  status: 'open',
+  ...overrides,
+});
+
 function procurement(overrides: Partial<Procurement> = {}): Procurement {
   return {
     projectId: '66059313551',
@@ -49,30 +56,21 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
-    projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 1_000_000,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
-    sourceHash: null,
+    timeline: timeline(),
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -137,7 +135,6 @@ describeMongo('ProcurementRepository', () => {
         deptName: 'กรมศุลกากร',
         deptCode: '0305',
         announceDate: '2026-09-30T00:00:00.000Z',
-        budgetYear: 2569,
         purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
       },
     };
@@ -231,57 +228,96 @@ describeMongo('ProcurementRepository', () => {
     expect(new Set(paged).size).toBe(7);
   });
 
-  test('who approved a held record, and when, survives the round trip and is absent on older records', async () => {
+  test('who approved a held record, and when, survives the round trip', async () => {
     const approved = procurement({
       projectId: 'approved',
       outcome: 'tor_analysed',
-      approvedBy: 'admin',
-      approvedAt: '2026-10-03T00:00:00.000Z',
+      approved: { by: 'admin', at: '2026-10-03T00:00:00.000Z' },
     });
     await repository.upsert(approved);
     await repository.upsert(procurement({ projectId: 'plain' }));
-    await (
-      await getDb()
-    )
-      .collection('procurements')
-      .updateOne({ _id: 'plain' as never }, { $unset: { approved_by: '', approved_at: '' } });
 
-    expect((await repository.get('approved'))?.approvedBy).toBe('admin');
-    expect((await repository.get('approved'))?.approvedAt).toBe('2026-10-03T00:00:00.000Z');
-    expect((await repository.get('plain'))?.approvedBy).toBeNull();
-    expect((await repository.get('plain'))?.approvedAt).toBeNull();
+    expect((await repository.get('approved'))?.approved).toEqual({
+      by: 'admin',
+      at: '2026-10-03T00:00:00.000Z',
+    });
+    expect((await repository.get('plain'))?.approved).toBeNull();
   });
 
   test('a record survives a round trip through Mongo unchanged', async () => {
     const record = procurement({
-      documents: [doc()],
+      archive: { zipId: 'zip-1', documents: [doc()], torAmbiguous: true },
       analysis: analysis({ techStack: ['React'] }),
-      deadlineAt: '2026-10-20T09:30:00.000Z',
-      deadlineSource: 'invitation',
+      timeline: timeline({
+        lastReadAt: '2026-10-01T00:00:00.000Z',
+        commentsCloseAt: '2026-09-26T17:00:00.000Z',
+        deadlineAt: '2026-10-20T09:30:00.000Z',
+        stages: { ...EMPTY_STAGES, drafted: '2026-09-20T00:00:00.000Z' },
+      }),
     });
     await repository.upsert(record);
 
-    // The store fingerprints a record as it writes it; everything else is unchanged.
-    expect(await repository.get('66059313551')).toEqual({
-      ...record,
-      sourceHash: expect.stringMatching(/^[0-9a-f]{64}$/),
-    });
+    expect(await repository.get('66059313551')).toEqual(record);
   });
 
   test('a record whose detail is not read yet round-trips with no year', async () => {
-    const record = procurement({ budgetYear: null, detailCheckedAt: null });
+    const record = procurement({ budgetYear: null, detailReadAt: null });
     await repository.upsert(record);
 
-    expect(await repository.get('66059313551')).toEqual({
-      ...record,
-      sourceHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    expect(await repository.get('66059313551')).toEqual(record);
+  });
+
+  test('the fingerprint and the deadline searched on stay in the document, out of the domain', async () => {
+    await repository.upsert(procurement({ timeline: timeline({ deadlineAt: '2026-10-20' }) }));
+    const document = await (
+      await getDb()
+    )
+      .collection('procurements')
+      .findOne({ _id: '66059313551' as never });
+
+    expect(document?.source_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(document?.deadline_at).toBe('2026-10-20');
+    expect(await repository.get('66059313551')).not.toHaveProperty('sourceHash');
+  });
+
+  test.each([
+    ['a draft, by its comment deadline', 'drafting', '2026-10-01', '2026-10-01'],
+    ['an open tender, by its official deadline', 'open', '2026-10-01', '2026-10-20'],
+  ] as const)(
+    'searches by the deadline an officer is shown: %s',
+    async (_name, status, commentsCloseAt, expected) => {
+      await repository.upsert(
+        procurement({
+          timeline: timeline({ status, commentsCloseAt, deadlineAt: '2026-10-20' }),
+          analysis: analysis({ deadlineAt: '2026-10-25' }),
+        }),
+      );
+      const on = (day: string) =>
+        repository.find({ limit: 10, offset: 0, deadlineFrom: day, deadlineTo: day });
+
+      expect((await on(expected)).total).toBe(1);
+    },
+  );
+
+  test('searches by the TOR’s deadline when nothing official states one, and keeps it out of the timeline', async () => {
+    await repository.upsert(
+      procurement({ timeline: timeline(), analysis: analysis({ deadlineAt: '2026-10-25' }) }),
+    );
+
+    const found = await repository.find({
+      limit: 10,
+      offset: 0,
+      deadlineFrom: '2026-10-25',
+      deadlineTo: '2026-10-25',
     });
+    expect(found.total).toBe(1);
+    expect(found.items[0]?.timeline.deadlineAt).toBeNull();
   });
 
   test('a record with no year never matches a year filter', async () => {
     await seed([
       procurement({ projectId: 'a', budgetYear: 2569 }),
-      procurement({ projectId: 'b', budgetYear: null, detailCheckedAt: null }),
+      procurement({ projectId: 'b', budgetYear: null, detailReadAt: null }),
     ]);
 
     const found = await repository.find({ limit: 50, offset: 0, budgetYear: 2569 });
@@ -390,33 +426,34 @@ describeMongo('ProcurementRepository', () => {
   test('rediscovering a project does not reset a finished retrieval', async () => {
     await repository.upsert(procurement());
     await repository.transition('66059313551', 'tor_analysed', {
-      documents: [doc()],
+      archive: { zipId: 'zip-1', documents: [doc()], torAmbiguous: false },
     });
 
     await repository.upsert(procurement({ state: 'Queued' }));
 
     const record = await repository.get('66059313551');
     expect(record?.state).toBe('Completed');
-    expect(record?.documents).toHaveLength(1);
+    expect(record?.archive?.documents).toHaveLength(1);
   });
 
-  test('rediscovering a project refreshes what the agency published', async () => {
-    await repository.upsert(procurement({ projectId: 'moving', status: 'contracted' }));
+  test('rediscovering a project refreshes what the feed published, and keeps the rest', async () => {
+    await repository.upsert(
+      procurement({ projectId: 'moving', timeline: timeline({ status: 'contracted' }) }),
+    );
 
     await repository.upsert(
       procurement({
         projectId: 'moving',
-        status: 'unknown',
+        timeline: EMPTY_TIMELINE,
         projectName: 'จ้างพัฒนาระบบสารสนเทศ (แก้ไข)',
-        projectMoney: 2_500_000,
+        projectMoney: null,
       }),
     );
 
     const record = await repository.get('moving');
-    // The stage is the timeline's to set; a sweep, which carries none, leaves it.
-    expect(record?.status).toBe('contracted');
+    expect(record?.timeline.status).toBe('contracted');
     expect(record?.projectName).toBe('จ้างพัฒนาระบบสารสนเทศ (แก้ไข)');
-    expect(record?.projectMoney).toBe(2_500_000);
+    expect(record?.projectMoney).toBe(1_000_000);
   });
 
   test('the newest announcement comes first, and a tie is broken by project id', async () => {
@@ -432,8 +469,8 @@ describeMongo('ProcurementRepository', () => {
 
   test('ordering is a priority, never a filter — nothing is hidden', async () => {
     await seed([
-      procurement({ projectId: 'a', status: 'contracted' }),
-      procurement({ projectId: 'b', status: 'cancelled' }),
+      procurement({ projectId: 'a', timeline: timeline({ status: 'contracted' }) }),
+      procurement({ projectId: 'b', timeline: timeline({ status: 'cancelled' }) }),
     ]);
 
     expect(await ids()).toHaveLength(2);
@@ -441,8 +478,8 @@ describeMongo('ProcurementRepository', () => {
 
   test('callers can filter to one stage when they want to', async () => {
     await seed([
-      procurement({ projectId: 'live', status: 'open' }),
-      procurement({ projectId: 'settled', status: 'contracted' }),
+      procurement({ projectId: 'live', timeline: timeline({ status: 'open' }) }),
+      procurement({ projectId: 'settled', timeline: timeline({ status: 'contracted' }) }),
     ]);
 
     expect(await ids('open')).toEqual(['live']);
@@ -489,8 +526,7 @@ describeMongo('ProcurementRepository', () => {
     const row = (id: string, deadlineAt: string | null, overrides: Partial<Procurement> = {}) =>
       procurement({
         projectId: id,
-        deadlineAt,
-        deadlineSource: deadlineAt ? 'tor' : null,
+        analysis: deadlineAt ? analysis({ deadlineAt }) : null,
         ...overrides,
       });
     await Promise.all(
@@ -502,9 +538,9 @@ describeMongo('ProcurementRepository', () => {
         row('later', '2026-10-09'),
         row('unknown', 'unreadable'),
         row('missing', null),
-        row('draft', '2026-10-08', { status: 'drafting' }),
-        row('cancelled', '2026-10-08', { status: 'cancelled' }),
-        row('awarded', '2026-10-08', { status: 'awarded' }),
+        row('draft', '2026-10-08', { timeline: timeline({ status: 'drafting' }) }),
+        row('cancelled', '2026-10-08', { timeline: timeline({ status: 'cancelled' }) }),
+        row('awarded', '2026-10-08', { timeline: timeline({ status: 'awarded' }) }),
       ].map((record) => repository.upsert(record)),
     );
     // UTC is still Oct 4; Thai officers have already reached Oct 5.
@@ -533,8 +569,7 @@ describeMongo('ProcurementRepository', () => {
     await repository.upsert(
       procurement({
         projectId: 'thai-day',
-        deadlineAt: '2026-10-07T18:00:00Z',
-        deadlineSource: 'tor',
+        analysis: analysis({ deadlineAt: '2026-10-07T18:00:00Z' }),
       }),
     );
     const result = await repository.find({
@@ -554,21 +589,18 @@ describeMongo('ProcurementRepository', () => {
       procurement({
         projectId: 'inside',
         announceDate: '2026-08-10',
-        deadlineAt: '2026-10-15',
-        deadlineSource: 'invitation',
+        timeline: timeline({ deadlineAt: '2026-10-15' }),
       }),
       procurement({
         projectId: 'outside',
         announceDate: '2026-07-31',
-        deadlineAt: '2026-11-01',
-        deadlineSource: 'invitation',
+        timeline: timeline({ deadlineAt: '2026-11-01' }),
       }),
       procurement({ projectId: 'missing', announceDate: null, analysis: null }),
       procurement({
         projectId: 'malformed',
         announceDate: 'not-a-date',
-        deadlineAt: 'unknown',
-        deadlineSource: 'tor',
+        analysis: analysis({ deadlineAt: 'unknown' }),
       }),
     ]);
 
@@ -589,13 +621,11 @@ describeMongo('ProcurementRepository', () => {
       procurement({
         projectId: 'dated',
         announceDate: '2026-08-10',
-        deadlineAt: '2026-10-15',
-        deadlineSource: 'tor',
+        analysis: analysis({ deadlineAt: '2026-10-15' }),
       }),
       procurement({
         projectId: 'undated',
         announceDate: null,
-        deadlineAt: null,
       }),
     ]);
 
@@ -662,16 +692,12 @@ describeMongo('ProcurementRepository', () => {
         projectId: 'one',
         projectMoney: 700_000,
         announceDate: '2026-08-10',
-        deadlineAt: '2026-10-15',
-        deadlineSource: 'tor',
         analysis: analysis({ targetPlatforms: ['web_app'] }),
       }),
       procurement({
         projectId: 'two',
         projectMoney: 800_000,
         announceDate: '2026-08-11',
-        deadlineAt: '2026-10-15',
-        deadlineSource: 'tor',
         analysis: analysis({ targetPlatforms: ['web_app'] }),
       }),
       procurement({
@@ -711,11 +737,15 @@ describeMongo('ProcurementRepository', () => {
   test('summary counts only documents that turned out to be TORs', async () => {
     await seed([
       procurement({
-        documents: [
-          doc({ bytes: 2_000, role: 'main_tor' }),
-          doc({ member: 'b', filename: 'ร่างTOR.pdf', bytes: 1_000, role: 'tor_variant' }),
-          doc({ member: 'c', filename: 'CONTRACTOR.pdf', bytes: 500_000, role: 'not_tor' }),
-        ],
+        archive: {
+          zipId: 'zip-1',
+          documents: [
+            doc({ bytes: 2_000, role: 'main_tor' }),
+            doc({ member: 'b', filename: 'ร่างTOR.pdf', bytes: 1_000, role: 'tor_variant' }),
+            doc({ member: 'c', filename: 'CONTRACTOR.pdf', bytes: 500_000, role: 'not_tor' }),
+          ],
+          torAmbiguous: false,
+        },
       }),
     ]);
 
@@ -730,7 +760,7 @@ describeMongo('ProcurementRepository', () => {
       procurement({ projectId: 'a', budgetYear: 2569 }),
       procurement({ projectId: 'b', budgetYear: 2568 }),
       procurement({ projectId: 'c', budgetYear: 2569 }),
-      procurement({ projectId: 'd', budgetYear: null, detailCheckedAt: null }),
+      procurement({ projectId: 'd', budgetYear: null, detailReadAt: null }),
     ]);
 
     const { byYear } = await repository.summary();
@@ -773,26 +803,33 @@ describeMongo('ProcurementRepository', () => {
 
   test('held records can be read most urgent first, across pages', async () => {
     await seed([
-      procurement({ projectId: 'contracted', status: 'contracted' }),
-      procurement({ projectId: 'awarded', status: 'awarded' }),
-      procurement({ projectId: 'drafting', status: 'drafting', announceDate: '2026-08-02' }),
-      procurement({ projectId: 'cancelled', status: 'cancelled', announceDate: '2026-08-01' }),
-      procurement({ projectId: 'unknown', status: 'unknown' }),
-      procurement({ projectId: 'open-undated', status: 'open', deadlineAt: null }),
-      procurement({ projectId: 'open-later', status: 'open', deadlineAt: '2026-11-01' }),
+      procurement({ projectId: 'contracted', timeline: timeline({ status: 'contracted' }) }),
+      procurement({ projectId: 'awarded', timeline: timeline({ status: 'awarded' }) }),
+      procurement({
+        projectId: 'drafting',
+        timeline: timeline({ status: 'drafting' }),
+        announceDate: '2026-08-02',
+      }),
+      procurement({
+        projectId: 'cancelled',
+        timeline: timeline({ status: 'cancelled' }),
+        announceDate: '2026-08-01',
+      }),
+      procurement({ projectId: 'unknown', timeline: timeline({ status: 'unknown' }) }),
+      procurement({ projectId: 'open-undated', timeline: timeline({ deadlineAt: null }) }),
+      procurement({ projectId: 'open-later', timeline: timeline({ deadlineAt: '2026-11-01' }) }),
       procurement({
         projectId: 'open-sooner',
-        status: 'open',
-        deadlineAt: '2026-10-10T09:00:00.000Z',
+        timeline: timeline({ deadlineAt: '2026-10-10T09:00:00.000Z' }),
       }),
-      procurement({ projectId: 'open-unreadable', status: 'open', deadlineAt: 'soon' }),
+      procurement({ projectId: 'open-unreadable', timeline: timeline({ deadlineAt: 'soon' }) }),
     ]);
     // Stored before the status vocabulary changed: still open.
     await (
       await getDb()
     )
       .collection('procurements')
-      .updateOne({ _id: 'open-later' as never }, { $set: { status: 'invitation' } });
+      .updateOne({ _id: 'open-later' as never }, { $set: { 'timeline.status': 'invitation' } });
 
     const page = (offset: number) =>
       repository.find({ order: 'urgency', limit: 4, offset }).then((r) => r.items);
@@ -809,7 +846,7 @@ describeMongo('ProcurementRepository', () => {
       'awarded',
       'contracted',
     ]);
-    expect(ordered[1]?.status).toBe('open');
+    expect(ordered[1]?.timeline.status).toBe('open');
     expect((await repository.find({ order: 'urgency', limit: 4, offset: 0 })).total).toBe(9);
   });
 
@@ -858,9 +895,9 @@ describeMongo('ProcurementRepository', () => {
             state: 'Processing',
             outcome: 'processing',
             'status_history.$[entry].outcome': 'processing',
-            status: 'invitation',
+            'timeline.status': 'invitation',
           },
-          $unset: { attempts: '', milestones: '', timeline_checked_at: '' },
+          $unset: { attempts: '' },
         },
         { arrayFilters: [{ 'entry.outcome': 'downloading' }] },
       );
@@ -872,11 +909,9 @@ describeMongo('ProcurementRepository', () => {
       const record = await repository.get('legacy');
 
       expect(record?.outcome).toBe('downloading');
-      expect(record?.status).toBe('open');
+      expect(record?.timeline.status).toBe('open');
       expect(record?.statusHistory.map((entry) => entry.outcome)).toEqual(['downloading']);
       expect(record?.attempts).toBe(0);
-      expect(record?.milestones).toEqual(EMPTY_MILESTONES);
-      expect(record?.timelineCheckedAt).toBeNull();
     });
 
     test('are counted under the new outcome in the summary', async () => {
@@ -904,12 +939,15 @@ describeMongo('ProcurementRepository', () => {
       await repository.upsert(procurement({ projectId: 'a', updatedAt: at }));
       await repository.transition('a', 'tor_analysed');
 
-      await repository.amend('a', { status: 'open', timelineCheckedAt: at }, true);
+      await repository.amend(
+        'a',
+        { timeline: timeline({ status: 'awarded', lastReadAt: at }) },
+        true,
+      );
 
       const record = await repository.get('a');
       expect(record).toMatchObject({
-        status: 'open',
-        timelineCheckedAt: at,
+        timeline: { status: 'awarded', lastReadAt: at },
         outcome: 'tor_analysed',
       });
       expect(record?.updatedAt).not.toBe(at);
@@ -918,10 +956,14 @@ describeMongo('ProcurementRepository', () => {
     test('does not move updatedAt unless told something changed', async () => {
       await repository.upsert(procurement({ projectId: 'a', updatedAt: at }));
 
-      await repository.amend('a', { timelineCheckedAt: '2026-10-01T00:00:00.000Z' }, false);
+      await repository.amend(
+        'a',
+        { timeline: timeline({ lastReadAt: '2026-10-01T00:00:00.000Z' }) },
+        false,
+      );
 
       const record = await repository.get('a');
-      expect(record?.timelineCheckedAt).toBe('2026-10-01T00:00:00.000Z');
+      expect(record?.timeline.lastReadAt).toBe('2026-10-01T00:00:00.000Z');
       expect(record?.updatedAt).toBe(at);
     });
 
@@ -941,10 +983,14 @@ describeMongo('ProcurementRepository', () => {
     };
 
     test('is the records already read and not contracted, never-checked first and then the oldest', async () => {
-      await seedDue('recent', 'tor_analysed', { timelineCheckedAt: '2026-10-03T00:00:00.000Z' });
+      await seedDue('recent', 'tor_analysed', {
+        timeline: timeline({ lastReadAt: '2026-10-03T00:00:00.000Z' }),
+      });
       await seedDue('never', 'needs_review');
-      await seedDue('old', 'no_tor_package', { timelineCheckedAt: '2026-09-01T00:00:00.000Z' });
-      await seedDue('final', 'tor_analysed', { status: 'contracted' });
+      await seedDue('old', 'no_tor_package', {
+        timeline: timeline({ lastReadAt: '2026-09-01T00:00:00.000Z' }),
+      });
+      await seedDue('final', 'tor_analysed', { timeline: timeline({ status: 'contracted' }) });
       await repository.upsert(procurement({ projectId: 'queued' }));
 
       const due = await repository.dueForTimeline({ limit: 10, offset: 0 });
@@ -964,7 +1010,7 @@ describeMongo('ProcurementRepository', () => {
   describe('upsertMany, the way a sweep writes', () => {
     const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
 
-    test('inserts new records and fingerprints them', async () => {
+    test('inserts new records', async () => {
       const summary = await repository.upsertMany([
         procurement({ projectId: 'a' }),
         procurement({ projectId: 'b' }),
@@ -976,7 +1022,6 @@ describeMongo('ProcurementRepository', () => {
         changed: 0,
         unchanged: 0,
       });
-      expect((await repository.get('a'))?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
     test('a second sweep that sees the same data changes nothing, including updatedAt', async () => {
@@ -1002,7 +1047,7 @@ describeMongo('ProcurementRepository', () => {
       ]);
 
       const summary = await repository.upsertMany([
-        procurement({ projectId: 'a', projectMoney: 9_999_999 }),
+        procurement({ projectId: 'a', projectName: 'จ้างพัฒนาระบบ (แก้ไข)' }),
         procurement({ projectId: 'b' }),
       ]);
 

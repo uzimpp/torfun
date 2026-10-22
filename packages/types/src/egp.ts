@@ -33,7 +33,7 @@ export const STATE_LABELS: Record<IngestionState, string> = {
  * prepare before the invitation is published.
  *
  * The agency owns the truth and this system holds a reading of it, derived from
- * the project's e-GP announcement timeline (see `MilestonesSchema`), never from
+ * the project's e-GP announcement timeline (see `TimelineSchema`), never from
  * a model. `unknown` means no timeline has been read yet, not "something went
  * wrong".
  */
@@ -59,20 +59,6 @@ export const STATUS_LABELS: Record<ProcurementStatus, string> = {
   unknown: 'ยังไม่ทราบสถานะ',
 };
 
-/**
- * Where a bid deadline came from, best first: the timeline's bidding date, the
- * invitation announcement, then the TOR.
- */
-export const DeadlineSource = z.enum(['timeline', 'invitation', 'tor']);
-export type DeadlineSource = z.infer<typeof DeadlineSource>;
-
-/** Thai display labels for where a deadline was read from. */
-export const DEADLINE_SOURCE_LABELS: Record<DeadlineSource, string> = {
-  timeline: 'ไทม์ไลน์โครงการใน e-GP',
-  invitation: 'ประกาศเชิญชวน',
-  tor: 'เอกสาร TOR',
-};
-
 /** The stages of a tender e-GP's timeline can show, in lifecycle order. */
 export const MILESTONE_KEYS = [
   'drafted',
@@ -85,31 +71,53 @@ export const MILESTONE_KEYS = [
 export type MilestoneKey = (typeof MILESTONE_KEYS)[number];
 
 /**
- * When a stage was reached, in our own vocabulary rather than e-GP's announcement
- * codes. `at` is null where the stage is known to have happened but e-GP gives no
- * date for it.
+ * When each stage was reached, in our own vocabulary rather than e-GP's
+ * announcement codes. Null where there is no date: the stage is not reached, or
+ * e-GP gave it none. The status is worked out from the rows themselves, so it
+ * still counts a stage reached without a date.
  */
-const MilestoneSchema = z.object({ at: z.string().nullable() });
-export type Milestone = z.infer<typeof MilestoneSchema>;
-
-/** All six keys are always present: null means "not reached", never "absent". */
-export const MilestonesSchema = z.object({
-  drafted: MilestoneSchema.nullable(),
-  invited: MilestoneSchema.nullable(),
-  priced: MilestoneSchema.nullable(),
-  evaluated: MilestoneSchema.nullable(),
-  awarded: MilestoneSchema.nullable(),
-  contracted: MilestoneSchema.nullable(),
+export const StagesSchema = z.object({
+  drafted: z.string().nullable(),
+  invited: z.string().nullable(),
+  priced: z.string().nullable(),
+  evaluated: z.string().nullable(),
+  awarded: z.string().nullable(),
+  contracted: z.string().nullable(),
 });
-export type Milestones = z.infer<typeof MilestonesSchema>;
+export type Stages = z.infer<typeof StagesSchema>;
 
-export const EMPTY_MILESTONES: Milestones = {
+export const EMPTY_STAGES: Stages = {
   drafted: null,
   invited: null,
   priced: null,
   evaluated: null,
   awarded: null,
   contracted: null,
+};
+
+/** What this system read from a project's e-GP announcement timeline, and when. */
+export const TimelineSchema = z.object({
+  /** Where the agency's own e-GP lifecycle has reached. `open` is biddable. */
+  status: ProcurementStatus,
+  /** When the timeline was last read; null means never. */
+  lastReadAt: z.string().nullable(),
+  /** The last day for comments on the draft TOR; null when none is known. */
+  commentsCloseAt: z.string().nullable(),
+  /**
+   * The official bid deadline: e-GP's own bidding date, else the invitation's.
+   * A date the model read from the TOR stays in `analysis.deadlineAt`.
+   */
+  deadlineAt: z.string().nullable(),
+  stages: StagesSchema,
+});
+export type Timeline = z.infer<typeof TimelineSchema>;
+
+export const EMPTY_TIMELINE: Timeline = {
+  status: 'unknown',
+  lastReadAt: null,
+  commentsCloseAt: null,
+  deadlineAt: null,
+  stages: EMPTY_STAGES,
 };
 
 /**
@@ -126,7 +134,8 @@ export const EMPTY_MILESTONES: Milestones = {
  * that will be retried (the record stays Queued); `abandoned` is what it becomes
  * after the last attempt. A TOR Gemini reads as not software is not an outcome:
  * a confident answer drops the record (and tombstones it), an unsure one holds it
- * as `needs_review`.
+ * as `needs_review`. `out_of_scope` is a project whose Goods Category no
+ * software work is filed under (ADR-0021): kept, but nothing more is read for it.
  */
 export const IngestionOutcome = z.enum([
   'queued',
@@ -137,6 +146,7 @@ export const IngestionOutcome = z.enum([
   'analysis_failed',
   'no_tor_in_archive',
   'no_tor_package',
+  'out_of_scope',
   'error',
   'abandoned',
 ]);
@@ -168,6 +178,7 @@ export const OUTCOME_LABELS: Record<IngestionOutcome, string> = {
   analysis_failed: 'ได้ไฟล์ TOR แต่วิเคราะห์ไม่สำเร็จ',
   no_tor_in_archive: 'ไม่มี TOR ในไฟล์บีบอัด',
   no_tor_package: 'ไม่มีชุดเอกสาร TOR',
+  out_of_scope: 'นอกขอบเขตหมวดพัสดุ',
   error: 'ดึงข้อมูลผิดพลาด (จะลองใหม่)',
   abandoned: `ลองครบ ${MAX_RETRIEVAL_ATTEMPTS} ครั้งแล้ว`,
 };
@@ -186,6 +197,7 @@ export const OUTCOME_STATE: Record<IngestionOutcome, IngestionState> = {
   needs_review: 'Completed',
   analysis_failed: 'Completed',
   no_tor_in_archive: 'Completed',
+  out_of_scope: 'Completed',
   no_tor_package: 'Failed',
   abandoned: 'Failed',
 };
@@ -325,8 +337,6 @@ export const FeedSnapshotSchema = z.object({
   deptName: z.string(),
   deptCode: z.string(),
   announceDate: z.string().nullable(),
-  /** Null where the project's detail had not been read when it was dropped. */
-  budgetYear: z.number().int().nullable(),
   purchaseMethodName: z.string().nullable(),
 });
 export type FeedSnapshot = z.infer<typeof FeedSnapshotSchema>;
@@ -384,9 +394,35 @@ export const TorAnalysisSchema = z.object({
 export type TorAnalysis = z.infer<typeof TorAnalysisSchema>;
 
 /**
- * A procurement project discovered on the open-data API, plus everything the
- * TOR-retrieval stage has learned about it. One record per `projectId`, which
- * is the deduplication key the functional requirements call for.
+ * Who approved a held record for officers, and when. Its own field rather than
+ * an entry in `statusHistory`, which keeps only its last entries.
+ */
+export const ApprovalSchema = z.object({ by: z.string(), at: z.string() });
+export type Approval = z.infer<typeof ApprovalSchema>;
+
+export const ArchiveSchema = z.object({
+  zipId: z.string(),
+  /**
+   * Every candidate document found in the archive and what it turned out to
+   * be. A manifest, not files: the bytes are never persisted (ADR-0002).
+   */
+  documents: z.array(ArchiveDocumentSchema),
+  /**
+   * True where more than one document had an equal claim to being the TOR and
+   * the tie was broken by convention. Surfaced so an administrator can see the
+   * pipeline chose rather than meeting it in a wrong summary.
+   */
+  torAmbiguous: z.boolean(),
+});
+export type Archive = z.infer<typeof ArchiveSchema>;
+
+/**
+ * A procurement project found in e-GP's announcement feed, plus everything
+ * Retrieval and Analysis have learned about it. One record per `projectId`,
+ * which is the deduplication key the functional requirements call for.
+ *
+ * A field copied from an e-GP response keeps e-GP's name; one this system works
+ * out keeps its own (ADR-0021).
  */
 export const ProcurementSchema = z.object({
   projectId: z.string(),
@@ -395,36 +431,28 @@ export const ProcurementSchema = z.object({
   deptName: z.string(),
   deptSubName: z.string().nullable(),
   deptCode: z.string(),
-  /**
-   * The Thai Buddhist fiscal year the budget belongs to (2567–2569), not the
-   * announcement's year. Null until Retrieval reads the project detail; never guessed.
-   */
-  budgetYear: z.number().int().nullable(),
-  /** e-GP's own codes for the kind of buying and of goods, kept raw to be compared with the TOR reading later. Nothing filters on them. */
-  typeId: z.string().nullable(),
-  goodsId: z.string().nullable(),
-  /** When e-GP's project detail was last read; null means it has not been, and is asked for next Retrieval. */
-  detailCheckedAt: z.string().nullable(),
   announceDate: z.string().nullable(),
-  /** WHAT is bought: ซื้อ / จ้างทำของ / เช่า / จ้างก่อสร้าง / จ้างที่ปรึกษา. */
-  projectTypeName: z.string().nullable(),
   /** HOW it is tendered: e-bidding / คัดเลือก / เฉพาะเจาะจง. */
   purchaseMethodName: z.string().nullable(),
+  discoveredAt: z.string(),
+
+  /**
+   * The Thai Buddhist fiscal year the budget belongs to (2567–2569), not the
+   * announcement's year. Null until the project detail is read; never guessed.
+   */
+  budgetYear: z.number().int().nullable(),
+  /** e-GP's own codes for the kind of buying and of goods. */
+  typeId: z.string().nullable(),
+  goodsId: z.string().nullable(),
   /** What the agency budgeted for the work. */
   projectMoney: z.number().nullable(),
   /** ราคากลาง — the official reference price. Distinct from the budget, and
    *  from what the work eventually sold for. */
   priceBuild: z.number().nullable(),
-  /** Where the agency's own e-GP lifecycle has reached. `open` is biddable. Derived from `milestones`. */
-  status: ProcurementStatus,
-  /** The dates of the tender's stages, read from e-GP's announcement timeline. */
-  milestones: MilestonesSchema,
-  /** When the timeline was last read for this project; null = never. */
-  timelineCheckedAt: z.string().nullable(),
-  /** The bid deadline shown to officers; null when none is known. */
-  deadlineAt: z.string().nullable(),
-  /** Where `deadlineAt` came from; null exactly when `deadlineAt` is. */
-  deadlineSource: DeadlineSource.nullable(),
+  /** When e-GP's project detail was read; null means it has not been. */
+  detailReadAt: z.string().nullable(),
+
+  timeline: TimelineSchema,
 
   state: IngestionState,
   outcome: IngestionOutcome,
@@ -435,34 +463,14 @@ export const ProcurementSchema = z.object({
   attempts: z.number().int().nonnegative(),
   /** Why the record is held for review; null unless `outcome` is `needs_review`. */
   holdReason: HoldReason.nullable(),
-  /** The administrator who approved a held record for officers, and when; null otherwise. */
-  approvedBy: z.string().nullable(),
-  approvedAt: z.string().nullable(),
   statusHistory: z.array(StatusChangeSchema),
+  approved: ApprovalSchema.nullable(),
 
-  /** Handle for the announcement archive; null until the info call resolves it. */
-  zipId: z.string().nullable(),
-  /**
-   * Every candidate document found in the archive and what it turned out to
-   * be. A manifest, not files: the bytes are never persisted (ADR-0002).
-   */
-  documents: z.array(ArchiveDocumentSchema),
+  /** Null until the archive is fetched. */
+  archive: ArchiveSchema.nullable(),
   /** What Gemini read out of the main TOR; null until analysis succeeds. */
   analysis: TorAnalysisSchema.nullable(),
-  /**
-   * True where more than one document had an equal claim to being the TOR and
-   * the tie was broken by convention. Surfaced so an administrator can see the
-   * pipeline chose rather than meeting it in a wrong summary.
-   */
-  torAmbiguous: z.boolean(),
 
-  discoveredAt: z.string(),
-  /**
-   * A fingerprint of everything the agency owns on this record (name, dates,
-   * money, stage). A sweep compares it to tell a real change from a
-   * record that was merely seen again. Null on records from before it existed.
-   */
-  sourceHash: z.string().nullable(),
   /**
    * When anything about this record last changed: upstream data, or this
    * system's own work on it. Not bumped by a sweep that saw nothing new, so it
@@ -471,6 +479,27 @@ export const ProcurementSchema = z.object({
   updatedAt: z.string(),
 });
 export type Procurement = z.infer<typeof ProcurementSchema>;
+
+/** The deadline an officer is shown, and which kind it is. */
+export interface CurrentDeadline {
+  at: string;
+  /** `comments`: the last day to comment on a draft TOR. `bids`: the bid submission cutoff. */
+  kind: 'comments' | 'bids';
+  /** Read from the TOR by the model, not from e-GP: a person should check the source. */
+  readByModel: boolean;
+}
+
+export function currentDeadline(
+  procurement: Pick<Procurement, 'timeline' | 'analysis'>,
+): CurrentDeadline | null {
+  const { timeline, analysis } = procurement;
+  if (timeline.status === 'drafting' && timeline.commentsCloseAt) {
+    return { at: timeline.commentsCloseAt, kind: 'comments', readByModel: false };
+  }
+  if (timeline.deadlineAt) return { at: timeline.deadlineAt, kind: 'bids', readByModel: false };
+  if (analysis?.deadlineAt) return { at: analysis.deadlineAt, kind: 'bids', readByModel: true };
+  return null;
+}
 
 /**
  * Query contract for the existing Procurement listing endpoint.

@@ -143,7 +143,7 @@ export function ProcurementTable({
                         TOR <span className="tabular-nums">{tors}</span> ไฟล์
                       </span>
                       <span aria-hidden="true">·</span>
-                      <span>{STATUS_LABELS[record.status]}</span>
+                      <span>{STATUS_LABELS[record.timeline.status]}</span>
                       <span className="lg:hidden">
                         · ปีงบ <span className="tabular-nums">{record.budgetYear ?? '—'}</span>
                       </span>

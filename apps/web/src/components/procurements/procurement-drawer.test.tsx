@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 
 import { ProcurementDrawer } from './procurement-drawer';
 
@@ -17,30 +17,21 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: 16773380,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [{ state: 'Completed', outcome: 'tor_analysed', at: minutesAgo(10) }],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: minutesAgo(700),
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: null,
     updatedAt: minutesAgo(10),
     ...overrides,
   };
