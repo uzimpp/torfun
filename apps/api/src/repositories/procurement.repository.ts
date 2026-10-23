@@ -337,8 +337,9 @@ export interface ProcurementStore {
   ): Promise<Procurement | undefined>;
   /**
    * One page of the records whose timeline is due a fresh read: those already
-   * read (not Queued or Processing) and not yet contracted, the longest
-   * unchecked first. A contracted project is final and never comes back.
+   * read (not Queued or Processing), not out of scope and not yet contracted,
+   * the longest unchecked first. A contracted or out-of-scope project never
+   * comes back.
    */
   dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]>;
   /**
@@ -728,6 +729,7 @@ export class ProcurementRepository
     )
       .find({
         state: { $in: ['Completed', 'Failed'] },
+        outcome: { $ne: 'out_of_scope' },
         'timeline.status': { $ne: 'contracted' },
       })
       // Never read sorts first: null sorts before any date.

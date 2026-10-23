@@ -1,9 +1,9 @@
 import type { Procurement } from '@torfun/types';
 import type { ProcurementStore } from '../../repositories/procurement.repository';
 import { goodsInScope } from './admission';
-import type { AnnouncementClient } from './announcement-client';
+import type { AnnouncementClient, DraftListParams } from './announcement-client';
 import { DISCOVERY_SLOT, type LiveView } from './live-view';
-import { withDeadline, type RecordGuard } from './record-work';
+import { withDeadline, type RecordGuard, type RecordWork } from './record-work';
 import type { RunControl } from './run-control';
 import type { RunLedger } from './run-ledger';
 import { SiteClosedError, SiteLatchedError, type SiteGate } from './site-gate';
@@ -22,6 +22,68 @@ import { SiteClosedError, SiteLatchedError, type SiteGate } from './site-gate';
  * failed or was never taken is read again next Run. `data: null` leaves the
  * record as it was; any other failure spends an attempt, as Retrieval's does.
  */
+
+export type DetailWork = Pick<RecordWork, 'record' | 'guard' | 'site' | 'store' | 'note' | 'count'>;
+
+export type DetailReading =
+  | { kind: 'unavailable' }
+  | { kind: 'expired' }
+  | { kind: 'out_of_scope' }
+  | { kind: 'in_scope'; patch: Partial<Procurement>; params: DraftListParams | null };
+
+export async function admitByProcurementDetail(
+  announcements: AnnouncementClient,
+  work: DetailWork,
+): Promise<DetailReading> {
+  const { record, guard } = work;
+  const { projectId } = record;
+  const signal = guard.controller.signal;
+  const detail = await work.site(() => announcements.procurementDetail(projectId, signal));
+  if (guard.expired) return { kind: 'expired' };
+  if (detail === null) {
+    await work.note(
+      'discovery',
+      'e-GP gave no procurement detail for this project (data: null); it is asked again next Run.',
+    );
+    return { kind: 'unavailable' };
+  }
+  const fields = {
+    goodsId: detail.goodsId,
+    typeId: detail.typeId,
+    deptSubName: detail.deptSubName,
+    projectMoney: detail.projectMoney,
+    priceBuild: detail.priceBuild,
+  };
+
+  if (!goodsInScope(detail.goodsId)) {
+    await work.store.transition(
+      projectId,
+      'out_of_scope',
+      { ...fields, detailReadAt: new Date().toISOString() },
+      `Goods Category ${detail.goodsId} is not one software work is filed under (ADR-0021).`,
+    );
+    work.count('outOfScope');
+    return { kind: 'out_of_scope' };
+  }
+
+  let { budgetYear } = record;
+  if (budgetYear === null) {
+    const project = await work.site(() => announcements.projectDetail(projectId, signal));
+    if (guard.expired) return { kind: 'expired' };
+    if (project === null) {
+      await work.note(
+        'discovery',
+        'e-GP gave no project detail with a budget year for this project.',
+      );
+    }
+    budgetYear = project?.budgetYear ?? null;
+  }
+  return {
+    kind: 'in_scope',
+    patch: { ...fields, budgetYear, detailReadAt: new Date().toISOString() },
+    params: detail.draftListParams,
+  };
+}
 
 export interface DetailCandidate {
   record: Procurement;
@@ -83,6 +145,16 @@ export function createDetailWorker(run: {
     };
     const { projectId } = record;
     const signal = guard.controller.signal;
+    const work: DetailWork = {
+      record,
+      guard,
+      site,
+      store: repository,
+      note: (stage, error, kind) => ledger.note(record, stage, error, kind),
+      count: (outcome) => {
+        ledger.tally[outcome] += 1;
+      },
+    };
 
     let hold;
     try {
@@ -103,58 +175,15 @@ export function createDetailWorker(run: {
     try {
       await withDeadline(
         async () => {
-          const detail = await site(() => announcements.procurementDetail(projectId, signal));
-          if (guard.expired) return;
-          if (detail === null) {
-            await ledger.note(
-              record,
-              'discovery',
-              'e-GP gave no procurement detail for this project (data: null); it is asked again next Run.',
-            );
-            return;
-          }
-          const fields = {
-            goodsId: detail.goodsId,
-            typeId: detail.typeId,
-            deptSubName: detail.deptSubName,
-            projectMoney: detail.projectMoney,
-            priceBuild: detail.priceBuild,
-          };
-
-          if (!goodsInScope(detail.goodsId)) {
-            await repository.transition(
-              projectId,
-              'out_of_scope',
-              { ...fields, detailReadAt: new Date().toISOString() },
-              `Goods Category ${detail.goodsId} is not one software work is filed under (ADR-0021).`,
-            );
-            ledger.tally.outOfScope += 1;
-            return;
-          }
-
-          const project = await site(() => announcements.projectDetail(projectId, signal));
-          if (guard.expired) return;
-          const params = detail.draftListParams;
+          const reading = await admitByProcurementDetail(announcements, work);
+          if (reading.kind !== 'in_scope') return;
+          const { params } = reading;
           const commentsCloseAt =
             draft && params
               ? await site(() => announcements.commentsCloseAt(projectId, params, signal))
               : record.timeline.commentsCloseAt;
           if (guard.expired) return;
-
-          if (project === null) {
-            // The year is never guessed: it stays null, and the project goes on.
-            await ledger.note(
-              record,
-              'discovery',
-              'e-GP gave no project detail with a budget year for this project.',
-            );
-          }
-          const patch = {
-            ...fields,
-            budgetYear: project?.budgetYear ?? null,
-            detailReadAt: new Date().toISOString(),
-            timeline: { ...record.timeline, commentsCloseAt },
-          };
+          const patch = { ...reading.patch, timeline: { ...record.timeline, commentsCloseAt } };
           await repository.amend(projectId, patch, true);
           run.admitted({ ...record, ...patch });
         },

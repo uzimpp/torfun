@@ -1,6 +1,7 @@
 import type { Procurement } from '@torfun/types';
 import { readMovedInvitation, readRetrievedArchive, type AnalysisDeps } from './analysis-task';
-import type { AnnouncementClient } from './announcement-client';
+import type { AnnouncementClient, DraftListParams } from './announcement-client';
+import { admitByProcurementDetail } from './detail-turn';
 import type { Handoff, RecordWork } from './record-work';
 import type { RetrievalQueue } from './retrieval-queue';
 import { reviewTimeline, type TimelineReview } from './timeline';
@@ -8,8 +9,7 @@ import { reviewTimeline, type TimelineReview } from './timeline';
 /**
  * Retrieval: one project's turn at the gate. Its timeline, then the archive
  * lookup and download where there is an Archive to fetch, all in one gate hold.
- * What it fetched is handed back for Analysis. Discovery has read the project's
- * procurement detail before Retrieval sees it (ADR-0021).
+ * What it fetched is handed back for Analysis.
  */
 
 export interface RetrievalDeps {
@@ -65,14 +65,58 @@ async function readTimeline(deps: RetrievalDeps, work: RecordWork): Promise<Time
   return review;
 }
 
-/** A project already read: its timeline again, and the invitation only if that moved. */
+async function readCommentsCloseAt(
+  deps: RetrievalDeps,
+  work: RecordWork,
+  draftParams: () => Promise<DraftListParams | null>,
+): Promise<string | null> {
+  const { record, guard } = work;
+  const params = await draftParams();
+  if (guard.expired || !params) return record.timeline.commentsCloseAt;
+  const closes = await work.site(() =>
+    deps.announcements.commentsCloseAt(record.projectId, params, guard.controller.signal),
+  );
+  return closes ?? record.timeline.commentsCloseAt;
+}
+
 async function refresh(deps: RetrievalDeps, work: RecordWork): Promise<Handoff | undefined> {
+  let draftParams = async () =>
+    (
+      await work.site(() =>
+        deps.announcements.procurementDetail(work.record.projectId, work.guard.controller.signal),
+      )
+    )?.draftListParams ?? null;
+  if (work.record.detailReadAt === null) {
+    work.stage = 'discovery';
+    const reading = await admitByProcurementDetail(deps.announcements, work);
+    if (reading.kind === 'expired') return;
+    if (reading.kind === 'out_of_scope') {
+      work.endSiteSection();
+      return;
+    }
+    const params = reading.kind === 'in_scope' ? reading.params : null;
+    draftParams = async () => params;
+    if (reading.kind === 'in_scope') {
+      await work.store.amend(work.record.projectId, reading.patch, true);
+      work.record = { ...work.record, ...reading.patch };
+    }
+    work.stage = 'timeline';
+  }
   const { record } = work;
-  const review = await readTimeline(deps, work);
+  let review = await readTimeline(deps, work);
   if (work.guard.expired) return;
   if (review === null) {
     work.endSiteSection();
     return;
+  }
+  if (review.timeline.status === 'drafting') {
+    const commentsCloseAt = await readCommentsCloseAt(deps, work, draftParams);
+    if (work.guard.expired) return;
+    review = {
+      ...review,
+      timeline: { ...review.timeline, commentsCloseAt },
+      changed: review.changed || commentsCloseAt !== record.timeline.commentsCloseAt,
+    };
   }
 
   if (!review.invitationMoved) {

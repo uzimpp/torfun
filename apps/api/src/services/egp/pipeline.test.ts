@@ -1261,11 +1261,16 @@ describe('Discovery reads the procurement detail and admits by category (ADR-002
     await repository.upsert(unread());
     const log: string[] = [];
     const announcements = recording(
-      fakeAnnouncements({}, [], {}, {
-        procurementDetails: {
-          '66059313551': { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: '1008' },
+      fakeAnnouncements(
+        {},
+        [],
+        {},
+        {
+          procurementDetails: {
+            '66059313551': { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: '1008' },
+          },
         },
-      }),
+      ),
       log,
     );
     const resolveZipId = mock(async () => 'zip-1');
@@ -1291,9 +1296,14 @@ describe('Discovery reads the procurement detail and admits by category (ADR-002
     await repository.upsert(unread());
     const log: string[] = [];
     const announcements = recording(
-      fakeAnnouncements({}, [], {}, {
-        procurementDetails: { '66059313551': { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: null } },
-      }),
+      fakeAnnouncements(
+        {},
+        [],
+        {},
+        {
+          procurementDetails: { '66059313551': { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: null } },
+        },
+      ),
       log,
     );
 
@@ -1315,14 +1325,18 @@ describe('Discovery reads the procurement detail and admits by category (ADR-002
       const repository = new InMemoryProcurementStore();
       const log: string[] = [];
       const announcements = recording(
-        fakeAnnouncements({}, [], {}, {
-          commentsClose: { '69109238096': '2026-10-26T17:00:00.000Z' },
-        }),
+        fakeAnnouncements(
+          {},
+          [],
+          {},
+          {
+            commentsClose: { '69109238096': '2026-10-26T17:00:00.000Z' },
+          },
+        ),
         log,
       );
       await run(repository, {
-        discoverProjects: (context) =>
-          discoverProjects(context, feedListing('69109238096', type)),
+        discoverProjects: (context) => discoverProjects(context, feedListing('69109238096', type)),
         announcements,
       });
       return { log, record: await repository.get('69109238096') };
@@ -1399,14 +1413,22 @@ describe('Discovery reads the procurement detail and admits by category (ADR-002
   test('data: null leaves the project as it was, with no attempt spent', async () => {
     const repository = new InMemoryProcurementStore();
     await repository.upsert(unread());
-    const announcements = fakeAnnouncements({}, [], {}, {
-      procurementDetails: { '66059313551': null },
-    });
+    const announcements = fakeAnnouncements(
+      {},
+      [],
+      {},
+      {
+        procurementDetails: { '66059313551': null },
+      },
+    );
 
     const result = await run(repository, { announcements });
 
     expect(result.failures).toEqual([
-      expect.objectContaining({ projectId: '66059313551', error: expect.stringContaining('data: null') }),
+      expect.objectContaining({
+        projectId: '66059313551',
+        error: expect.stringContaining('data: null'),
+      }),
     ]);
     expect(announcements.calls).toEqual([]);
     expect(await repository.get('66059313551')).toMatchObject({
@@ -2184,6 +2206,264 @@ describe('runIngestion: the timeline', () => {
       await run(repository, archive);
 
       expect(calls.classify).toBe(1);
+    });
+  });
+
+  describe('a refresh and the procurement detail (ADR-0021)', () => {
+    const ID = '66059313599';
+    const CLOSES = '2026-10-26T17:00:00.000Z';
+    const DRAFT_TIMELINE = [row('B0', '2026-10-20T02:00:00.000Z')];
+    const withoutDetail = (overrides: Partial<Procurement> = {}) =>
+      read({ detailReadAt: null, projectMoney: null, ...overrides });
+    const drafting = (overrides: Partial<Procurement> = {}) =>
+      read({
+        timeline: {
+          ...EMPTY_TIMELINE,
+          status: 'drafting',
+          stages: { ...EMPTY_STAGES, drafted: '2026-10-20T00:00:00.000Z' },
+          lastReadAt: '2026-10-21T00:00:00.000Z',
+        },
+        ...overrides,
+      });
+    const refreshWith = (
+      repository: InMemoryProcurementStore,
+      announcements: ReturnType<typeof fakeAnnouncements>,
+      extra: Partial<IngestionDeps> = {},
+    ) => run(repository, { discoverProjects: noSweep, announcements, ...extra });
+
+    test('an old record costs one extra request once, then never', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+
+      const first = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      await refreshWith(repository, first);
+
+      expect(first.procurementDetailCalls).toEqual([ID]);
+      expect(first.detailCalls).toEqual([]);
+      expect(first.calls).toEqual([ID]);
+      expect(await repository.get(ID)).toMatchObject({
+        outcome: 'tor_analysed',
+        detailReadAt: expect.any(String),
+        goodsId: SAMPLE_PROCUREMENT_DETAIL.goodsId,
+        projectMoney: SAMPLE_PROCUREMENT_DETAIL.projectMoney,
+        priceBuild: SAMPLE_PROCUREMENT_DETAIL.priceBuild,
+        budgetYear: 2568,
+      });
+
+      const second = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      await refreshWith(repository, second);
+
+      expect(second.procurementDetailCalls).toEqual([]);
+      expect(second.calls).toEqual([ID]);
+    });
+
+    test('an old record with no budget year has it read in the same turn', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail({ budgetYear: null }));
+      const announcements = fakeAnnouncements({ [ID]: READ_TIMELINE });
+
+      await refreshWith(repository, announcements);
+
+      expect(announcements.detailCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.budgetYear).toBe(SAMPLE_DETAIL.budgetYear);
+    });
+
+    test('an old record found out of scope stops after the detail, and is never refreshed again', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+      const outside = fakeAnnouncements(
+        { [ID]: READ_TIMELINE },
+        null,
+        {},
+        {
+          procurementDetails: { [ID]: { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: '1008' } },
+        },
+      );
+      const { calls, deps: archive } = watch();
+
+      const result = await refreshWith(repository, outside, archive);
+
+      expect(outside.procurementDetailCalls).toEqual([ID]);
+      expect(outside.calls).toEqual([]);
+      expect(calls.zip).toEqual([]);
+      expect(result.outOfScope).toBe(1);
+      expect(await repository.get(ID)).toMatchObject({
+        state: 'Completed',
+        outcome: 'out_of_scope',
+        goodsId: '1008',
+        detailReadAt: expect.any(String),
+      });
+
+      const later = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      await refreshWith(repository, later);
+
+      expect(later.procurementDetailCalls).toEqual([]);
+      expect(later.calls).toEqual([]);
+    });
+
+    test('an out_of_scope record is never selected', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(read({ outcome: 'out_of_scope', analysis: null, archive: null }));
+      const announcements = fakeAnnouncements({ [ID]: READ_TIMELINE });
+
+      await refreshWith(repository, announcements);
+
+      expect(announcements.calls).toEqual([]);
+      expect(announcements.procurementDetailCalls).toEqual([]);
+    });
+
+    test('a drafting record re-reads the comment deadline; an open one does not', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(drafting());
+      const draftAnnouncements = fakeAnnouncements(
+        { [ID]: DRAFT_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+
+      await refreshWith(repository, draftAnnouncements);
+
+      expect(draftAnnouncements.procurementDetailCalls).toEqual([ID]);
+      expect(draftAnnouncements.commentsCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.timeline).toMatchObject({
+        status: 'drafting',
+        commentsCloseAt: CLOSES,
+      });
+
+      const openRepository = new InMemoryProcurementStore();
+      await openRepository.upsert(read());
+      const openAnnouncements = fakeAnnouncements(
+        { [ID]: READ_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+
+      await refreshWith(openRepository, openAnnouncements);
+
+      expect(openAnnouncements.procurementDetailCalls).toEqual([]);
+      expect(openAnnouncements.commentsCalls).toEqual([]);
+      expect((await openRepository.get(ID))?.timeline.commentsCloseAt).toBeNull();
+    });
+
+    test('an old drafting record reads its detail once and asks the comment deadline with it', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(drafting({ detailReadAt: null }));
+      const announcements = fakeAnnouncements(
+        { [ID]: DRAFT_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+
+      await refreshWith(repository, announcements);
+
+      expect(announcements.procurementDetailCalls).toEqual([ID]);
+      expect(announcements.commentsCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.timeline.commentsCloseAt).toBe(CLOSES);
+    });
+
+    test('a draft whose detail was read without its feed type gets its comment deadline at the first refresh', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(procurement({ projectId: ID, budgetYear: null, detailReadAt: null }));
+
+      const admitted = fakeAnnouncements(
+        { [ID]: DRAFT_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+      await refreshWith(repository, admitted);
+
+      expect(admitted.commentsCalls).toEqual([]);
+      expect(await repository.get(ID)).toMatchObject({
+        outcome: 'tor_analysed',
+        timeline: { status: 'drafting', commentsCloseAt: null },
+      });
+
+      const refreshed = fakeAnnouncements(
+        { [ID]: DRAFT_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+      await refreshWith(repository, refreshed);
+
+      expect(refreshed.commentsCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.timeline.commentsCloseAt).toBe(CLOSES);
+    });
+
+    test('a failed detail on a refresh is logged, leaves the record as it was, and is asked again', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+      const failing = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      failing.procurementDetail = async () => {
+        throw new UpstreamError('HTTP 500');
+      };
+
+      const result = await refreshWith(repository, failing);
+
+      expect(result.failures).toEqual([
+        expect.objectContaining({ projectId: ID, stage: 'discovery', error: 'HTTP 500' }),
+      ]);
+      expect(await repository.get(ID)).toMatchObject({
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        detailReadAt: null,
+      });
+
+      const answering = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      await refreshWith(repository, answering);
+
+      expect(answering.procurementDetailCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.detailReadAt).toEqual(expect.any(String));
+    });
+
+    test('data: null on a refresh leaves the detail unread, and the timeline is still read', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+      const announcements = fakeAnnouncements(
+        { [ID]: READ_TIMELINE },
+        null,
+        {},
+        {
+          procurementDetails: { [ID]: null },
+        },
+      );
+
+      await refreshWith(repository, announcements);
+
+      expect(announcements.calls).toEqual([ID]);
+      expect(await repository.get(ID)).toMatchObject({
+        outcome: 'tor_analysed',
+        detailReadAt: null,
+      });
+    });
+
+    test('a refusal on a refresh detail stops the Run', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+      const refusing = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      refusing.procurementDetail = async () => {
+        throw new RateLimitedError('https://site.test/x', 429);
+      };
+
+      const result = await refreshWith(repository, refusing);
+
+      expect(result.aborted).toBe(true);
+      expect(refusing.calls).toEqual([]);
+      expect((await repository.get(ID))?.detailReadAt).toBeNull();
     });
   });
 
