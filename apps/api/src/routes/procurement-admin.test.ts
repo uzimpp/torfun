@@ -76,6 +76,11 @@ describe('administrator actions on a procurement', () => {
       method: 'DELETE' as const,
       url: `/api/ingestion/procurements/${ID}?allowReimport=false`,
     },
+    {
+      name: 'read anyway',
+      method: 'POST' as const,
+      url: `/api/ingestion/procurements/${ID}/read-anyway`,
+    },
   ];
 
   describe.each(actions)('$name', (action) => {
@@ -226,6 +231,75 @@ describe('administrator actions on a procurement', () => {
       });
 
       expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe('POST read-anyway', () => {
+    const putOutOfScope = () => store.transition(ID, 'out_of_scope', { goodsId: '1008' });
+    const readingAnyway = async (startRun: (input: StartRunInput) => Promise<void>) => {
+      const original = app.ingestionService.startRun;
+      app.ingestionService.startRun = startRun;
+      try {
+        return await app.inject({ method: 'POST', url: actions[3]!.url, cookies: admin() });
+      } finally {
+        app.ingestionService.startRun = original;
+      }
+    };
+
+    test('202, one Run for that project alone, and the record is Queued with its detail still read', async () => {
+      await putOutOfScope();
+      const startRun = mock(async (input: StartRunInput) => {
+        await input.beforeRun?.();
+      });
+
+      const response = await readingAnyway(startRun);
+
+      expect(response.statusCode).toBe(202);
+      expect(startRun).toHaveBeenCalledTimes(1);
+      expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ onlyProject: ID }));
+      expect(await store.get(ID)).toMatchObject({
+        outcome: 'queued',
+        detailReadAt: held.detailReadAt,
+      });
+    });
+
+    test('409 for a record that is not out of scope, and no Run is started', async () => {
+      const startRun = mock(async () => {});
+
+      const response = await readingAnyway(startRun);
+
+      expect(response.statusCode).toBe(409);
+      expect((response.json() as { message: string }).message).toMatch(/[฀-๿]/);
+      expect(startRun).not.toHaveBeenCalled();
+      expect(await store.get(ID)).toEqual(held);
+    });
+
+    test('404 for an unknown project', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/ingestion/procurements/nope/read-anyway',
+        cookies: admin(),
+      });
+
+      expect(response.statusCode).toBe(404);
+    });
+
+    test('an officer never sees the out-of-scope record', async () => {
+      await putOutOfScope();
+
+      const detail = await app.inject({
+        method: 'GET',
+        url: `/api/tors/${ID}`,
+        cookies: officer(),
+      });
+      const list = await app.inject({
+        method: 'GET',
+        url: '/api/tors?outcome=out_of_scope',
+        cookies: officer(),
+      });
+
+      expect(detail.statusCode).toBe(404);
+      expect((list.json() as { total: number }).total).toBe(0);
     });
   });
 

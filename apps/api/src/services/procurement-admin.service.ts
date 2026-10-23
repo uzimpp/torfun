@@ -117,30 +117,50 @@ export class ProcurementAdminService {
       throw new NotFoundError(`ไม่พบโครงการ ${projectId} ในรายการที่ถูกคัดออก`);
     }
     const feed = tombstone.feed ?? null;
-    try {
-      await this.startRun({
-        onlyProject: projectId,
-        beforeRun: async () => {
-          // The record first: if lifting the tombstone then failed, the project
-          // would still be held back, never gone along with its snapshot.
-          if (feed) await this.store.upsert(queuedRecord(projectId, feed, this.now()));
-          await this.removeTombstone(projectId, by);
-        },
-      });
-    } catch (error) {
-      // The only conflict a start can meet is a Run already going; say so in
-      // the words the administrator reads, since the message is shown as it is.
-      if (error instanceof ConflictError) {
-        throw new ConflictError(
-          'มีการดึงข้อมูลกำลังทำงานอยู่ กรุณารอให้เสร็จก่อนแล้วลองกู้คืนอีกครั้ง',
-        );
-      }
-      throw error;
-    }
+    await this.readOneProject(projectId, async () => {
+      // The record first: if lifting the tombstone then failed, the project
+      // would still be held back, never gone along with its snapshot.
+      if (feed) await this.store.upsert(queuedRecord(projectId, feed, this.now()));
+      await this.removeTombstone(projectId, by);
+    });
     this.logger.info(
       { projectId, by },
       'egp: an administrator restored a tombstone, one read queued',
     );
+  }
+
+  async readAnyway(projectId: string, by: string): Promise<void> {
+    const record = await this.getOrThrow(projectId);
+    if (record.outcome !== 'out_of_scope') {
+      throw new ConflictError(
+        `โครงการ ${projectId} ไม่ได้อยู่นอกขอบเขต จึงไม่ต้องสั่งอ่านเอกสารต่อ`,
+      );
+    }
+    await this.readOneProject(projectId, async () => {
+      await this.store.transition(
+        projectId,
+        'queued',
+        { attempts: 0 },
+        `Read anyway despite Goods Category ${record.goodsId}, asked by ${by}`,
+      );
+    });
+    this.logger.info(
+      { projectId, by },
+      'egp: an administrator asked for an out-of-scope project to be read anyway',
+    );
+  }
+
+  private async readOneProject(projectId: string, beforeRun: () => Promise<void>): Promise<void> {
+    try {
+      await this.startRun({ onlyProject: projectId, beforeRun });
+    } catch (error) {
+      // The only conflict a start can meet is a Run already going; say so in
+      // the words the administrator reads, since the message is shown as it is.
+      if (error instanceof ConflictError) {
+        throw new ConflictError('มีการดึงข้อมูลกำลังทำงานอยู่ กรุณารอให้เสร็จก่อนแล้วลองอีกครั้ง');
+      }
+      throw error;
+    }
   }
 
   /** Replace a record with the tombstone that stops it coming back. */

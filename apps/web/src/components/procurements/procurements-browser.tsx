@@ -9,6 +9,7 @@ import { AdminLoadError } from '@/components/admin/admin-load-error';
 import { ADMIN_LINK, AdminPage, EmptyState } from '@/components/admin/admin-ui';
 import {
   ProjectActionDialog,
+  REMOVES_RECORD,
   type ProjectAction,
 } from '@/components/ingestion/project-action-dialog';
 import { useNow } from '@/components/ingestion/use-now';
@@ -309,7 +310,7 @@ export function ProcurementsBrowser({ initialUrl }: { initialUrl: ProcurementUrl
         onActionDone={(action) => {
           list.reload();
           selected.reload();
-          if (action !== 'approve') closeRecord();
+          if (REMOVES_RECORD.has(action)) closeRecord();
         }}
       />
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { Ban, Check, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Ban, Check, FileSearch, MoreHorizontal, Trash2 } from 'lucide-react';
 import type { Procurement } from '@torfun/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,11 +11,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { ProjectAction } from './project-action-dialog';
 
-/**
- * The administrator's actions on one row. Approve is offered only where there is
- * something to approve — a record held for review. Choosing one only names the
- * action; the table owns the confirmation.
- */
 export function ProjectActionMenu({
   record,
   onChoose,
@@ -35,6 +30,12 @@ export function ProjectActionMenu({
           <DropdownMenuItem onClick={() => onChoose('approve')}>
             <Check aria-hidden="true" />
             อนุมัติ
+          </DropdownMenuItem>
+        ) : null}
+        {record.outcome === 'out_of_scope' ? (
+          <DropdownMenuItem onClick={() => onChoose('readAnyway')}>
+            <FileSearch aria-hidden="true" />
+            อ่านเอกสารต่อ
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem onClick={() => onChoose('nonSoftware')}>

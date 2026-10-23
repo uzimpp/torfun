@@ -67,6 +67,7 @@ const OUTCOMES: IngestionOutcome[] = [
   'queued',
   'analysis_failed',
   'no_tor_package',
+  'out_of_scope',
 ];
 
 describe('what a Business Development Officer may see', () => {
@@ -104,6 +105,7 @@ describe('what a Business Development Officer may see', () => {
         'outcome=queued',
         'outcome=needs_review',
         'outcome=analysis_failed',
+        'outcome=out_of_scope',
         'state=Queued',
         'state=Failed',
         'outcome=queued&state=Queued',
