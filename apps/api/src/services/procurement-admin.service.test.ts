@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { fakeAnnouncements } from '../testing/announcement-client';
+import { fakeAnnouncements, SAMPLE_PROCUREMENT_DETAIL } from '../testing/announcement-client';
 import { EMPTY_TIMELINE, type Procurement, type Tombstone } from '@torfun/types';
 import { ConflictError, NotFoundError } from '../core/errors';
 import { silentLogger } from '../testing/gated-ingestion';
@@ -434,5 +434,218 @@ describe('restoring a tombstone, end to end through a real Run', () => {
       outcome: 'no_tor_package',
     });
     expect(await store.listTombstones()).toEqual([]);
+  });
+});
+
+describe('reading an out-of-scope project anyway', () => {
+  const outOfScope = (overrides: Partial<Procurement> = {}) =>
+    record({
+      state: 'Completed',
+      outcome: 'out_of_scope',
+      holdReason: null,
+      analysis: null,
+      archive: null,
+      goodsId: '1008',
+      attempts: 2,
+      ...overrides,
+    });
+
+  test('queues it for a Run of that project alone, its detail kept read, and records who asked', async () => {
+    const { store, service, runs } = await build([outOfScope()]);
+
+    await service.readAnyway('66059313551', 'napa');
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.onlyProject).toBe('66059313551');
+    const queued = await store.get('66059313551');
+    expect(queued).toMatchObject({
+      state: 'Queued',
+      outcome: 'queued',
+      attempts: 0,
+      goodsId: '1008',
+      detailReadAt: '2026-09-01T00:00:00.000Z',
+    });
+    expect(queued?.statusHistory.at(-1)?.detail).toContain('napa');
+  });
+
+  test.each(['queued', 'needs_review', 'tor_analysed', 'no_tor_package'] as const)(
+    'a record that is %s is not out of scope, so it is refused and no Run is asked for',
+    async (outcome) => {
+      const { store, service, runs } = await build([record({ outcome })]);
+
+      await expect(service.readAnyway('66059313551', 'napa')).rejects.toBeInstanceOf(ConflictError);
+
+      expect(runs).toEqual([]);
+      expect((await store.get('66059313551'))?.outcome).toBe(outcome);
+    },
+  );
+
+  test('an unknown project is not found, and no Run is asked for', async () => {
+    const { service, runs } = await build([]);
+
+    await expect(service.readAnyway('nope', 'napa')).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(runs).toEqual([]);
+  });
+
+  test('a Run already going refuses it, and the record stays out of scope', async () => {
+    const store = new InMemoryProcurementStore();
+    await store.upsert(outOfScope());
+    const service = new ProcurementAdminService(
+      store,
+      async () => {
+        throw new ConflictError('An ingestion run is already in progress.');
+      },
+      silentLogger,
+    );
+
+    await expect(service.readAnyway('66059313551', 'napa')).rejects.toBeInstanceOf(ConflictError);
+
+    expect((await store.get('66059313551'))?.outcome).toBe('out_of_scope');
+  });
+});
+
+describe('reading an out-of-scope project anyway, end to end through real Runs', () => {
+  const ID = '66059313551';
+  const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(100, 0x20)]);
+  const analysis = {
+    summary: 'บำรุงรักษาระบบเรดาร์',
+    scopeOfWork: [],
+    budgetThb: null,
+    deadlineAt: null,
+    durationDays: null,
+    techStack: [],
+    targetPlatforms: [],
+    requiredQualifications: [],
+    reason: 'งานซ่อมบำรุงอุปกรณ์',
+  };
+  const outOfScopeDetail = { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: '1008' };
+
+  async function readThenRefresh(isSoftware: boolean) {
+    const store = new InMemoryProcurementStore();
+    await store.upsert(
+      record({
+        state: 'Completed',
+        outcome: 'out_of_scope',
+        holdReason: null,
+        analysis: null,
+        archive: null,
+        goodsId: '1008',
+      }),
+    );
+    const announcements = fakeAnnouncements(
+      {},
+      [],
+      {},
+      { procurementDetails: { [ID]: outOfScopeDetail } },
+    );
+    const zipsAsked: string[] = [];
+    const deps = (): IngestionDeps => ({
+      discoverProjects: async () => ({
+        records: [],
+        notEBidding: 0,
+        tombstoned: 0,
+        truncated: 0,
+        drafts: [],
+        failures: [],
+        rateLimited: false,
+        unreachable: false,
+        complete: true,
+        cursor: {},
+        ranAt: new Date().toISOString(),
+      }),
+      resolveZipId: async (projectId) => {
+        zipsAsked.push(projectId);
+        return 'zip-1';
+      },
+      downloadArchive: async () => new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
+      extractTorPdfs: () => ({
+        torFiles: [
+          {
+            member: 'Attach_TOR_1.pdf',
+            filename: 'Attach_TOR_1.pdf',
+            bytes: pdf.byteLength,
+            namePattern: 'canonical',
+            payload: new Uint8Array(pdf),
+          },
+        ],
+        members: ['Attach_TOR_1.pdf'],
+        unsafeSkipped: [],
+      }),
+      classifyDocument: async () => ({
+        isTor: true,
+        torKind: 'final',
+        whatThisIs: 'ขอบเขตของงาน',
+        analysis,
+        judgement: { isSoftware, confidence: 'high' as const, reason: analysis.reason },
+        readMode: 'pdf' as const,
+      }),
+      readInvitation: async () => ({ documents: [], bidAt: null }),
+      announcements,
+      sleep: async () => {},
+      recordDeadlineMs: 60_000,
+    });
+    const ingestion = new IngestionService(
+      store,
+      testEnv(),
+      silentLogger,
+      {
+        lease: new InMemoryIngestionLease(),
+        runLog: new InMemoryScheduleStore(),
+        runs: new InMemoryIngestionRunStore(),
+        stats: noStats,
+      },
+      deps,
+    );
+    const finished = async () => {
+      while ((await ingestion.summary()).runInProgress) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    };
+    const admin = new ProcurementAdminService(
+      store,
+      (input) => ingestion.startRun(input),
+      silentLogger,
+    );
+
+    const asked = () => ({
+      timeline: [...announcements.calls],
+      detail: [...announcements.procurementDetailCalls],
+      zip: [...zipsAsked],
+    });
+
+    await admin.readAnyway(ID, 'napa');
+    await finished();
+    const read = asked();
+
+    await ingestion.startRun({});
+    await finished();
+    const total = asked();
+    const refresh = {
+      timeline: total.timeline.slice(read.timeline.length),
+      detail: total.detail.slice(read.detail.length),
+    };
+    return { store, read, refresh };
+  }
+
+  test('the project is retrieved and analysed with no detail request, and a later refresh does not put it back out of scope', async () => {
+    const { store, read, refresh } = await readThenRefresh(true);
+
+    expect(read).toEqual({ timeline: [ID], detail: [], zip: [ID] });
+    const shown = await store.get(ID);
+    expect(shown).toMatchObject({ outcome: 'tor_analysed', goodsId: '1008' });
+    expect(isVisibleTo('officer', shown!)).toBe(true);
+
+    expect(refresh).toEqual({ timeline: [ID], detail: [] });
+    expect((await store.get(ID))?.outcome).toBe('tor_analysed');
+  });
+
+  test('Analysis still decides: a TOR that is not software is dropped as usual', async () => {
+    const { store } = await readThenRefresh(false);
+
+    expect(await store.get(ID)).toBeUndefined();
+    expect(await store.listTombstones()).toEqual([
+      expect.objectContaining({ projectId: ID, reason: 'ai_not_software' }),
+    ]);
   });
 });
