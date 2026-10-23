@@ -1003,7 +1003,7 @@ describeMongo('ProcurementRepository', () => {
       await repository.transition(projectId, outcome, patch);
     };
 
-    test('is the records already read and not contracted, never-checked first and then the oldest', async () => {
+    test('is the records already read, in scope and not contracted, never-checked first and then the oldest', async () => {
       await seedDue('recent', 'tor_analysed', {
         timeline: timeline({ lastReadAt: '2026-10-03T00:00:00.000Z' }),
       });
@@ -1012,6 +1012,7 @@ describeMongo('ProcurementRepository', () => {
         timeline: timeline({ lastReadAt: '2026-09-01T00:00:00.000Z' }),
       });
       await seedDue('final', 'tor_analysed', { timeline: timeline({ status: 'contracted' }) });
+      await seedDue('outside', 'out_of_scope');
       await repository.upsert(procurement({ projectId: 'queued' }));
 
       const due = await repository.dueForTimeline({ limit: 10, offset: 0 });

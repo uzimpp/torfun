@@ -159,6 +159,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       .filter(
         (record) =>
           (record.state === 'Completed' || record.state === 'Failed') &&
+          record.outcome !== 'out_of_scope' &&
           record.timeline.status !== 'contracted',
       )
       .sort(
