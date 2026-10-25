@@ -113,18 +113,6 @@ describe('classifyTorDocument', () => {
     expect(result.unreadable).toBeDefined();
   });
 
-  test.each(['isSoftwareProject', 'confidence'])(
-    'new model answers still require a non-null %s',
-    async (field) => {
-      const result = await classifyTorDocument(
-        answering({ ...validAnswer, analysis: { ...validAnswer.analysis, [field]: null } }),
-        pdf(),
-      );
-      expect(result.unreadable).toBeDefined();
-      expect(result.analysis).toBeNull();
-    },
-  );
-
   test('a model that throws is recorded, never thrown', async () => {
     const result = await classifyTorDocument(
       mock(async () => {

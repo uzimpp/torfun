@@ -11,6 +11,7 @@ import { ApiError, fetchTor } from '@/lib/api';
 
 export type TorReviewData = {
   projectId: string;
+  publicationRemovedAt?: string | null;
   title: string;
   agency: string;
   budget: number | null;
@@ -28,6 +29,7 @@ export type TorReviewData = {
   durationDays: number | null;
   platforms: string[];
   matchScore: number | null;
+  publicationRemovedAt?: string | null;
 };
 
 export interface TorReviewState {
@@ -42,6 +44,7 @@ function toReviewData(procurement: Procurement): TorReviewData {
   const analysis = procurement.analysis;
   return {
     projectId: procurement.projectId,
+    publicationRemovedAt: procurement.publicationRemovedAt ?? null,
     title: procurement.projectName,
     agency: procurement.deptName,
     budget: procurement.projectMoney,
@@ -59,6 +62,7 @@ function toReviewData(procurement: Procurement): TorReviewData {
     durationDays: analysis?.durationDays ?? null,
     platforms: analysis?.targetPlatforms ?? [],
     matchScore: null,
+    publicationRemovedAt: procurement.publicationRemovedAt,
   };
 }
 
