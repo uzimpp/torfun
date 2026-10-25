@@ -1,5 +1,5 @@
 import { MongoServerError, ObjectId, type Collection, type Db } from 'mongodb';
-import type { TorReport } from '@torfun/types';
+import type { ReviewTorReport, TorReport, TorReportFilter, TorReportReview } from '@torfun/types';
 
 interface ReportDocument {
   _id: ObjectId;
@@ -14,12 +14,29 @@ interface ReportDocument {
   details: string | null;
   status: TorReport['status'];
   created_at: string;
+  review?: {
+    reviewer_id: string;
+    reviewer_username: string;
+    reviewer_full_name: string;
+    reviewer_email: string | null;
+    reviewed_at: string;
+    note: string | null;
+  };
 }
+
+export type ReviewReportResult =
+  | { kind: 'reviewed'; report: TorReport }
+  | { kind: 'not_found' | 'already_reviewed' | 'project_missing' };
 
 export interface TorReportStore {
   /** Null means this user already has a pending report for this TOR. */
   create(report: Omit<TorReport, 'id'>): Promise<TorReport | null>;
-  list(limit: number, offset: number): Promise<{ items: TorReport[]; total: number }>;
+  list(
+    limit: number,
+    offset: number,
+    status?: TorReportFilter,
+  ): Promise<{ items: TorReport[]; total: number }>;
+  review(id: string, input: ReviewTorReport, review: TorReportReview): Promise<ReviewReportResult>;
 }
 
 function toDomain(document: ReportDocument): TorReport {
@@ -38,6 +55,18 @@ function toDomain(document: ReportDocument): TorReport {
     details: document.details,
     status: document.status,
     createdAt: document.created_at,
+    review: document.review
+      ? {
+          reviewer: {
+            id: document.review.reviewer_id,
+            username: document.review.reviewer_username,
+            fullName: document.review.reviewer_full_name,
+            email: document.review.reviewer_email,
+          },
+          reviewedAt: document.review.reviewed_at,
+          note: document.review.note,
+        }
+      : null,
   };
 }
 
@@ -61,6 +90,7 @@ export class TorReportRepository implements TorReportStore {
           },
         );
         await collection.createIndex({ created_at: -1, _id: -1 });
+        await collection.createIndex({ status: 1, created_at: -1, _id: -1 });
         return collection;
       })
       .catch((error: unknown) => {
@@ -94,12 +124,87 @@ export class TorReportRepository implements TorReportStore {
     }
   }
 
-  async list(limit: number, offset: number): Promise<{ items: TorReport[]; total: number }> {
+  async list(
+    limit: number,
+    offset: number,
+    status: TorReportFilter = 'pending',
+  ): Promise<{ items: TorReport[]; total: number }> {
     const collection = await this.collection();
+    const filter = status === 'all' ? {} : { status };
     const [documents, total] = await Promise.all([
-      collection.find().sort({ created_at: -1, _id: -1 }).skip(offset).limit(limit).toArray(),
-      collection.countDocuments(),
+      collection.find(filter).sort({ created_at: -1, _id: -1 }).skip(offset).limit(limit).toArray(),
+      collection.countDocuments(filter),
     ]);
     return { items: documents.map(toDomain), total };
+  }
+
+  async review(
+    id: string,
+    input: ReviewTorReport,
+    review: TorReportReview,
+  ): Promise<ReviewReportResult> {
+    if (!ObjectId.isValid(id)) return { kind: 'not_found' };
+    const collection = await this.collection();
+    const db = await this.getDb();
+    const session = db.client.startSession();
+    try {
+      // One transaction: a report must never say "removed" while its TOR is
+      // still published. Conditional writes also settle concurrent reviewers.
+      return await session.withTransaction(
+        async () => {
+          const report = await collection.findOne({ _id: new ObjectId(id) }, { session });
+          if (!report) return { kind: 'not_found' } as const;
+          if (report.status !== 'pending') return { kind: 'already_reviewed' } as const;
+          const procurements = db.collection<{
+            _id: string;
+            publication_removed_at?: string | null;
+          }>('procurements');
+          if (
+            input.action === 'remove_tor' &&
+            !(await procurements.findOne(
+              { _id: report.project_id },
+              { session, projection: { _id: 1 } },
+            ))
+          ) {
+            return { kind: 'project_missing' } as const;
+          }
+          const updated = await collection.findOneAndUpdate(
+            { _id: report._id, status: 'pending' },
+            {
+              $set: {
+                status: input.action === 'dismiss' ? 'dismissed' : 'removed',
+                review: {
+                  reviewer_id: review.reviewer.id,
+                  reviewer_username: review.reviewer.username,
+                  reviewer_full_name: review.reviewer.fullName,
+                  reviewer_email: review.reviewer.email,
+                  reviewed_at: review.reviewedAt,
+                  note: review.note,
+                },
+              },
+            },
+            { session, returnDocument: 'after' },
+          );
+          if (!updated) return { kind: 'already_reviewed' } as const;
+          if (input.action === 'remove_tor') {
+            await procurements.updateOne(
+              { _id: report.project_id, publication_removed_at: null },
+              {
+                $set: {
+                  publication_removed_at: review.reviewedAt,
+                  publication_removed_by: review.reviewer.id,
+                  publication_removed_report_id: id,
+                },
+              },
+              { session },
+            );
+          }
+          return { kind: 'reviewed', report: toDomain(updated) } as const;
+        },
+        { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } },
+      );
+    } finally {
+      await session.endSession();
+    }
   }
 }

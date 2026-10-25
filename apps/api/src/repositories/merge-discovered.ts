@@ -54,8 +54,14 @@ export function mergeDiscovered(
     outcome: existing.outcome,
     attempts: existing.attempts,
     holdReason: existing.holdReason,
+    ...(existing.publicationRemovedAt !== undefined
+      ? { publicationRemovedAt: existing.publicationRemovedAt }
+      : {}),
     statusHistory: existing.statusHistory,
     approved: existing.approved,
+    ...(existing.publicationRemovedAt !== undefined
+      ? { publicationRemovedAt: existing.publicationRemovedAt }
+      : {}),
     archive: existing.archive,
     analysis: existing.analysis,
     discoveredAt: existing.discoveredAt,

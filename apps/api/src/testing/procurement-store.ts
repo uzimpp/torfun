@@ -126,6 +126,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
   async find(options: FindOptions): Promise<FindResult> {
     const items = [...this.records.values()].filter(
       (record) =>
+        (!options.excludeRemoved || !record.publicationRemovedAt) &&
         (!options.state || record.state === options.state) &&
         (!options.outcome || record.outcome === options.outcome) &&
         (!options.status || record.timeline.status === options.status) &&
