@@ -34,6 +34,28 @@ export const CreateTorReportSchema = z
   });
 export type CreateTorReport = z.infer<typeof CreateTorReportSchema>;
 
+export const TorReportStatus = z.enum(['pending', 'dismissed', 'removed']);
+export type TorReportStatus = z.infer<typeof TorReportStatus>;
+export type TorReportFilter = TorReportStatus | 'all';
+export const TOR_REPORT_STATUS_LABELS: Record<TorReportStatus, string> = {
+  pending: 'รอตรวจสอบ',
+  dismissed: 'ปิดรายงานแล้ว',
+  removed: 'นำ TOR ออกแล้ว',
+};
+
+export const ReviewTorReportSchema = z
+  .object({
+    action: z.enum(['dismiss', 'remove_tor']),
+    note: z.string().trim().max(2000, 'บันทึกต้องไม่เกิน 2,000 ตัวอักษร').optional(),
+  })
+  .strict();
+export type ReviewTorReport = z.infer<typeof ReviewTorReportSchema>;
+export interface TorReportReview {
+  reviewer: TorReport['reporter'];
+  reviewedAt: string;
+  note: string | null;
+}
+
 /** A report records what the person saw; it never changes publication itself. */
 export interface TorReport {
   id: string;
@@ -43,7 +65,8 @@ export interface TorReport {
   reporter: { id: string; username: string; fullName: string; email: string | null };
   reason: TorReportReason;
   details: string | null;
-  status: 'pending';
+  status: TorReportStatus;
+  review?: TorReportReview | null;
   createdAt: string;
 }
 
@@ -60,7 +83,20 @@ export const TorReportResponseSchema = z.object({
   }),
   reason: TorReportReason,
   details: z.string().nullable(),
-  status: z.literal('pending'),
+  status: TorReportStatus,
+  review: z
+    .object({
+      reviewer: z.object({
+        id: z.string(),
+        username: z.string(),
+        full_name: z.string(),
+        email: z.string().nullable(),
+      }),
+      reviewed_at: z.string().datetime(),
+      note: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   created_at: z.string().datetime(),
 });
 export type TorReportResponse = z.infer<typeof TorReportResponseSchema>;
@@ -68,6 +104,7 @@ export type TorReportResponse = z.infer<typeof TorReportResponseSchema>;
 export const TorReportListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   offset: z.coerce.number().int().nonnegative().default(0),
+  status: z.enum(['pending', 'dismissed', 'removed', 'all']).default('pending'),
 });
 export const TorReportListResponseSchema = z.object({
   items: z.array(TorReportResponseSchema),

@@ -273,6 +273,8 @@ export const ProcurementSchema = z.object({
   state: IngestionState,
   outcome: IngestionOutcome,
   holdReason: z.enum(['ai_low_confidence', 'ai_not_software_low', 'partial_read']).nullish(),
+  /** Admin publication decision, independent of the agency's procurement status. */
+  publicationRemovedAt: z.string().datetime().nullish(),
   statusHistory: z.array(StatusChangeSchema),
 
   /** Handle for the announcement archive; null until the info call resolves it. */

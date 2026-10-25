@@ -52,6 +52,9 @@ export function mergeDiscovered(
     state: existing.state,
     outcome: existing.outcome,
     holdReason: existing.holdReason,
+    ...(existing.publicationRemovedAt !== undefined
+      ? { publicationRemovedAt: existing.publicationRemovedAt }
+      : {}),
     statusHistory: existing.statusHistory,
     zipId: existing.zipId,
     zipBytes: existing.zipBytes,

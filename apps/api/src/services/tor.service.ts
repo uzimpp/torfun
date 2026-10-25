@@ -23,7 +23,7 @@ export class TorService {
 
   list(options: FindOptions, includeHeld = false): Promise<FindResult> {
     const filters = resolveProcurementListOptions(
-      { ...options, excludeHeld: !includeHeld },
+      { ...options, excludeHeld: !includeHeld, excludeRemoved: !includeHeld },
       this.now(),
     );
     return filters ? this.procurements.find(filters) : Promise.resolve({ items: [], total: 0 });
@@ -31,7 +31,10 @@ export class TorService {
 
   async get(projectId: string, includeHeld = false): Promise<Procurement> {
     const procurement = await this.procurements.get(projectId);
-    if (!procurement || (!includeHeld && procurement.outcome === 'needs_review')) {
+    if (
+      !procurement ||
+      (!includeHeld && (procurement.outcome === 'needs_review' || procurement.publicationRemovedAt))
+    ) {
       throw new NotFoundError(`No ingested project ${projectId}`);
     }
     return procurement;

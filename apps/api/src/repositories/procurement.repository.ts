@@ -80,6 +80,7 @@ interface ProcurementDocument {
   state: IngestionState;
   outcome: IngestionOutcome;
   hold_reason?: Procurement['holdReason'];
+  publication_removed_at?: string | null;
   status_history: StatusChange[];
   zip_id: string | null;
   zip_bytes?: number | null;
@@ -133,6 +134,9 @@ function toDomain(document: ProcurementDocument): Procurement {
         : document.purchase_method_name === E_BIDDING_METHOD),
     state: document.state,
     outcome: document.outcome,
+    ...(document.publication_removed_at !== undefined
+      ? { publicationRemovedAt: document.publication_removed_at }
+      : {}),
     ...(document.hold_reason !== undefined
       ? {
           holdReason: document.outcome === 'needs_review' ? document.hold_reason : null,
@@ -219,6 +223,8 @@ export interface FindOptions {
   excludeAwarded?: boolean;
   /** Held records are admin-only, even when their coarse state is Completed. */
   excludeHeld?: boolean;
+  /** Site-admin publication decisions must survive discovery and retrieval. */
+  excludeRemoved?: boolean;
   /** Every term must occur in at least one entry of analysis.techStack. */
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
@@ -391,6 +397,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       filter.status = alias ? { $in: [options.status, alias] } : options.status;
     }
     if (options.excludeHeld) clauses.push({ outcome: { $ne: 'needs_review' } });
+    if (options.excludeRemoved) filter.publication_removed_at = null;
     if (options.excludeAwarded) filter.winner = null;
     if (options.eBidding !== undefined) {
       clauses.push({

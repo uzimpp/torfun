@@ -48,8 +48,9 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/tors`                          | user   | Search, filter and paginate procurements          |
 | GET    | `/tors/:projectId`               | user   | One procurement by its project id                 |
 | GET    | `/tors/:projectId/source`        | user   | Download the original TOR PDF                     |
-| POST   | `/tors/:projectId/reports`       | user   | Report a TOR for admin review (US-14 / FR-35)      |
+| POST   | `/tors/:projectId/reports`       | user   | Report a TOR for admin review                     |
 | GET    | `/admin/tor-reports`             | admin  | Shared report queue, newest first                 |
+| PATCH  | `/admin/tor-reports/:reportId`   | admin  | Dismiss a report or remove its TOR from publication |
 | GET    | `/companies/search?q=`           | user   | Typeahead over Thai company names                 |
 | POST   | `/companies`                     | user   | Creates a Company and joins the caller to it      |
 | GET    | `/companies/me`                  | user   | The caller's Company; `404` when they have none   |
@@ -95,11 +96,29 @@ reporter's identity from their account and snapshots the TOR title and agency.
 It returns `201`; another pending report from the same user for that TOR returns
 `409`. Different users can report the same TOR.
 
-Reports persist in `tor_reports`, independently of procurements. Every admin can
-read the queue with `limit` (default 25, maximum 100) and `offset`. Reporting does
-not change publication or ingestion status. Review decisions belong to #80 and
-are not implemented here. Index setup is idempotent and runs lazily; for deployment,
-see `docs/migrations/2026-10-11-tor-reports.js`.
+Reports persist in `tor_reports`. Every active admin can read the queue with
+`limit` (default 25, maximum 100), `offset`, and `status` (`pending`, `dismissed`,
+`removed`, or `all`; default `pending`). The reporter's identity stays visible.
+
+For US-21 / FR-43 (#80), `PATCH /api/admin/tor-reports/:reportId` accepts
+`{ "action": "dismiss" | "remove_tor", "note"?: "..." }`. Notes are trimmed and
+limited to 2,000 characters. Each decision records the verified administrator's
+identity and time. A report can only be decided once; stale requests return `409`.
+Decisions are per report, including when several users report the same TOR.
+
+Dismissal leaves publication unchanged. Removal marks the procurement with
+`publication_removed_at`, `publication_removed_by`, and `publication_removed_report_id`.
+Officers can no longer list, open, download, or report that TOR. Admins retain
+the original record and source, and rediscovery or retrieval does not republish it.
+The agency's own procurement status and ingestion outcome are not changed.
+Reporting by itself never changes publication.
+
+Review decisions and publication removal commit in one MongoDB transaction, so
+a replica set is required (Atlas already provides one). A failed write rolls back
+the decision, and competing reviewers cannot overwrite each other. Index setup
+is idempotent and runs lazily; deployment setup is in
+`docs/migrations/2026-10-15-tor-report-review.js`. Legacy pending reports need no
+backfill; missing publication metadata means published.
 
 ## Shared Atlas record compatibility
 

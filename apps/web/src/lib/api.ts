@@ -11,6 +11,8 @@ import type {
   CreateTorReport,
   TorReportResponse,
   TorReportListResponse,
+  TorReportFilter,
+  ReviewTorReport,
 } from '@torfun/types';
 
 /**
@@ -106,8 +108,22 @@ export function submitTorReport(
   });
 }
 
-export function fetchTorReports(offset = 0, signal?: AbortSignal): Promise<TorReportListResponse> {
-  return request(`/api/admin/tor-reports?limit=25&offset=${offset}`, { signal });
+export function fetchTorReports(
+  offset = 0,
+  signal?: AbortSignal,
+  status: TorReportFilter = 'pending',
+): Promise<TorReportListResponse> {
+  return request(`/api/admin/tor-reports?limit=25&offset=${offset}&status=${status}`, { signal });
+}
+
+export function reviewTorReport(
+  reportId: string,
+  input: ReviewTorReport,
+): Promise<TorReportResponse> {
+  return request(`/api/admin/tor-reports/${encodeURIComponent(reportId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
 }
 
 export async function downloadTor(projectId: string): Promise<Blob> {

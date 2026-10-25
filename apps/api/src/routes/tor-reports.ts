@@ -5,6 +5,7 @@ import {
   TorReportListQuerySchema,
   TorReportListResponseSchema,
   TorReportResponseSchema,
+  ReviewTorReportSchema,
   type TorReport,
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
@@ -26,6 +27,18 @@ function toResponse(report: TorReport) {
     details: report.details,
     status: report.status,
     created_at: report.createdAt,
+    review: report.review
+      ? {
+          reviewer: {
+            id: report.review.reviewer.id,
+            username: report.review.reviewer.username,
+            full_name: report.review.reviewer.fullName,
+            email: report.review.reviewer.email,
+          },
+          reviewed_at: report.review.reviewedAt,
+          note: report.review.note,
+        }
+      : null,
   };
 }
 
@@ -61,9 +74,29 @@ export const torReportRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) => {
-      const { limit, offset } = request.query;
-      const result = await app.torReportService.list(limit, offset);
+      const { limit, offset, status } = request.query;
+      const result = await app.torReportService.list(request.user.user_id, limit, offset, status);
       return { items: result.items.map(toResponse), total: result.total, limit, offset };
     },
+  );
+
+  app.patch(
+    '/admin/tor-reports/:reportId',
+    {
+      onRequest: requireAdmin,
+      schema: {
+        params: z.object({ reportId: z.string().regex(/^[a-f\d]{24}$/i) }),
+        body: ReviewTorReportSchema,
+        response: { 200: TorReportResponseSchema },
+      },
+    },
+    async (request) =>
+      toResponse(
+        await app.torReportService.review(
+          request.user.user_id,
+          request.params.reportId,
+          request.body,
+        ),
+      ),
   );
 };

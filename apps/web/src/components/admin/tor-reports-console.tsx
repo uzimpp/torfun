@@ -1,30 +1,54 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { Flag, RefreshCw } from 'lucide-react';
-import { TOR_REPORT_REASON_LABELS } from '@torfun/types';
-import { Badge } from '@/components/ui/badge';
+import { useEffect, useState } from 'react';
+import { CheckCircle2, Flag, RefreshCw, X } from 'lucide-react';
+import {
+  TOR_REPORT_STATUS_LABELS,
+  type ReviewTorReport,
+  type TorReportFilter,
+  type TorReportResponse,
+} from '@torfun/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useTorReportsData } from './use-tor-reports-data';
-
-const dateFormat = new Intl.DateTimeFormat('th-TH', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-  timeZone: 'Asia/Bangkok',
-});
+import { TorReportCard } from './tor-report-card';
+import { TorReportReviewDialog } from './tor-report-review-dialog';
 
 export function TorReportsConsole() {
   const [offset, setOffset] = useState(0);
-  const { data, loading, error, refresh } = useTorReportsData(offset);
+  const [status, setStatus] = useState<TorReportFilter>('pending');
+  const [selection, setSelection] = useState<{
+    report: TorReportResponse;
+    action: ReviewTorReport['action'];
+  } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const { data, loading, error, refresh, reviewReport } = useTorReportsData(offset, status);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setMessage(null), 6000);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  async function confirm(input: ReviewTorReport) {
+    if (!selection) return;
+    await reviewReport(selection.report.id, input);
+    setSelection(null);
+    setOffset(0);
+    setMessage(
+      input.action === 'dismiss'
+        ? 'ปิดรายงานแล้ว การเผยแพร่ TOR ไม่เปลี่ยนแปลง'
+        : 'นำ TOR ออกจากการเผยแพร่แล้ว',
+    );
+  }
+
   return (
     <main className="page-fill mx-auto w-full max-w-5xl space-y-6 p-6 lg:p-10">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">รายงาน TOR จากผู้ใช้</h1>
           <p className="text-muted-foreground mt-2 text-sm">
-            รายงานที่รอผู้ดูแลระบบตรวจสอบ การรายงานไม่เปลี่ยนสถานะการเผยแพร่ TOR
+            ตรวจสอบรายงาน ปิดรายงาน หรือนำ TOR ออกจากการเผยแพร่ พร้อมประวัติการตัดสินใจ
           </p>
         </div>
         <Button type="button" variant="outline" onClick={refresh} disabled={loading}>
@@ -32,6 +56,28 @@ export function TorReportsConsole() {
           {loading ? 'กำลังโหลด…' : 'รีเฟรช'}
         </Button>
       </header>
+      <div className="flex flex-wrap items-center gap-3">
+        <label htmlFor="report-status" className="text-sm font-medium">
+          สถานะรายงาน
+        </label>
+        <select
+          id="report-status"
+          value={status}
+          disabled={loading}
+          onChange={(event) => {
+            setStatus(event.target.value as TorReportFilter);
+            setOffset(0);
+          }}
+          className="bg-background rounded-lg border px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          {Object.entries(TOR_REPORT_STATUS_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+          <option value="all">ทั้งหมด</option>
+        </select>
+      </div>
       {error && (
         <p role="alert" className="text-destructive rounded-xl border p-4 text-sm">
           {error}
@@ -60,44 +106,10 @@ export function TorReportsConsole() {
               <ul className="space-y-4">
                 {data.items.map((report) => (
                   <li key={report.id}>
-                    <Card>
-                      <CardContent className="space-y-4 p-5 sm:p-6">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <Badge variant="outline">รอตรวจสอบ</Badge>
-                          <time
-                            dateTime={report.created_at}
-                            className="text-muted-foreground text-xs"
-                          >
-                            {dateFormat.format(new Date(report.created_at))}
-                          </time>
-                        </div>
-                        <div>
-                          <h2 className="leading-relaxed font-semibold">
-                            <Link
-                              href={`/tor/${encodeURIComponent(report.project_id)}`}
-                              className="text-primary hover:underline"
-                            >
-                              {report.project_name}
-                            </Link>
-                          </h2>
-                          <p className="text-muted-foreground mt-1 text-xs">
-                            {report.dept_name} · รหัส {report.project_id}
-                          </p>
-                        </div>
-                        <div className="bg-muted/60 space-y-2 rounded-lg p-4 text-sm">
-                          <p className="font-medium">{TOR_REPORT_REASON_LABELS[report.reason]}</p>
-                          {report.details && (
-                            <p className="wrap-anywhere whitespace-pre-wrap">{report.details}</p>
-                          )}
-                        </div>
-                        <p className="text-muted-foreground text-sm wrap-anywhere">
-                          ผู้รายงาน: {report.reporter.full_name || report.reporter.username}
-                          {report.reporter.email
-                            ? ` · ${report.reporter.email}`
-                            : ` · ${report.reporter.username}`}
-                        </p>
-                      </CardContent>
-                    </Card>
+                    <TorReportCard
+                      report={report}
+                      onReview={(target, action) => setSelection({ report: target, action })}
+                    />
                   </li>
                 ))}
               </ul>
@@ -126,6 +138,32 @@ export function TorReportsConsole() {
           </>
         )
       )}
+      {selection && (
+        <TorReportReviewDialog
+          key={`${selection.report.id}-${selection.action}`}
+          report={selection.report}
+          action={selection.action}
+          onCancel={() => setSelection(null)}
+          onConfirm={confirm}
+        />
+      )}
+      <div role="status" aria-atomic="true">
+        {message && (
+          <div className="bg-popover fixed right-4 bottom-4 z-50 flex max-w-[calc(100%-2rem)] items-center gap-3 rounded-xl border p-4 shadow-lg">
+            <CheckCircle2 aria-hidden="true" className="size-5 shrink-0 text-emerald-600" />
+            <p className="text-sm">{message}</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="ปิดข้อความแจ้งเตือน"
+              onClick={() => setMessage(null)}
+            >
+              <X aria-hidden="true" />
+            </Button>
+          </div>
+        )}
+      </div>
     </main>
   );
 }

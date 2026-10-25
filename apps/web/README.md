@@ -35,7 +35,7 @@ it for a deployment means a rebuild, not a restart.
 | `/company-experiences` | user   | The same record, guided, as step two of registration |
 | `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log |
 | `/tor/:projectId`      | user   | Read, download, or report a TOR                     |
-| `/admin/tor-reports`   | admin  | Read the shared queue of user reports               |
+| `/admin/tor-reports`   | admin  | Review, dismiss, or unpublish reported TORs; read decision history |
 | any unmatched URL      | public | `not-found.tsx`: a 404 with its own search field    |
 
 Protected pages redirect from the server component; the session cookie is
