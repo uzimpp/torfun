@@ -103,6 +103,16 @@ describe('createAnnouncementFeed', () => {
     });
   });
 
+  test('asks the https process host directly, not process3, which only redirects to it', async () => {
+    const seen = answering(200, feed([], 0));
+
+    await createAnnouncementFeed().day('1108', 'D0', '2026-10-05');
+
+    const url = new URL(seen[0]!);
+    expect(url.protocol).toBe('https:');
+    expect(url.host).toBe('process.gprocurement.go.th');
+  });
+
   test('decodes the Windows-874 the feed is served in', async () => {
     const prefix = feed([item('69109044981, e-bidding, X', 'TITLE')]).split('TITLE');
     const thai = new Uint8Array([0xbb, 0xc3, 0xd0, 0xa1, 0xd2, 0xc8]); // ประกาศ

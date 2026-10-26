@@ -145,7 +145,7 @@ export function ProcurementTable({
                       <span aria-hidden="true">·</span>
                       <span>{STATUS_LABELS[record.status]}</span>
                       <span className="lg:hidden">
-                        · ปีงบ <span className="tabular-nums">{record.budgetYear}</span>
+                        · ปีงบ <span className="tabular-nums">{record.budgetYear ?? '—'}</span>
                       </span>
                       <span className="md:hidden">
                         · <span className="tabular-nums">{formatThb(record.projectMoney)}</span> บาท
@@ -162,7 +162,7 @@ export function ProcurementTable({
                     {formatThb(record.projectMoney)}
                   </td>
                   <td className="hidden text-right tabular-nums lg:table-cell lg:px-3 lg:py-2 lg:align-top">
-                    {record.budgetYear}
+                    {record.budgetYear ?? '—'}
                   </td>
                   <td
                     className="col-start-2 row-start-1 md:px-1 md:py-1.5 md:align-top"

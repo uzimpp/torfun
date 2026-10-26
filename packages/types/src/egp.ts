@@ -325,7 +325,8 @@ export const FeedSnapshotSchema = z.object({
   deptName: z.string(),
   deptCode: z.string(),
   announceDate: z.string().nullable(),
-  budgetYear: z.number().int(),
+  /** Null where the project's detail had not been read when it was dropped. */
+  budgetYear: z.number().int().nullable(),
   purchaseMethodName: z.string().nullable(),
 });
 export type FeedSnapshot = z.infer<typeof FeedSnapshotSchema>;
@@ -394,12 +395,15 @@ export const ProcurementSchema = z.object({
   deptName: z.string(),
   deptSubName: z.string().nullable(),
   deptCode: z.string(),
-  /** The Thai Buddhist fiscal year the budget belongs to (2567–2569), not the announcement's year. */
-  budgetYear: z.number().int(),
+  /**
+   * The Thai Buddhist fiscal year the budget belongs to (2567–2569), not the
+   * announcement's year. Null until Retrieval reads the project detail; never guessed.
+   */
+  budgetYear: z.number().int().nullable(),
   /** e-GP's own codes for the kind of buying and of goods, kept raw to be compared with the TOR reading later. Nothing filters on them. */
   typeId: z.string().nullable(),
   goodsId: z.string().nullable(),
-  /** When e-GP's project detail was last read; null means the year may still be a guess from the announcement date. */
+  /** When e-GP's project detail was last read; null means it has not been, and is asked for next Retrieval. */
   detailCheckedAt: z.string().nullable(),
   announceDate: z.string().nullable(),
   /** WHAT is bought: ซื้อ / จ้างทำของ / เช่า / จ้างก่อสร้าง / จ้างที่ปรึกษา. */
@@ -565,8 +569,7 @@ export type ProcurementListResponse = z.infer<typeof ProcurementListResponseSche
 export const IngestionFailureSchema = z.object({
   projectId: z.string(),
   projectName: z.string().nullable(),
-  /** Which step failed: registry resolution, discovery, timeline, info lookup, download, extract, analysis. */
-  stage: z.enum(['dept', 'discovery', 'timeline', 'info', 'download', 'extract', 'analysis']),
+  stage: z.enum(['discovery', 'timeline', 'info', 'download', 'extract', 'analysis']),
   /**
    * `no_tor`: upstream answered that the project published no TOR (no package, or
    * an archive with none in it) — logged, but nothing to fix. `fault`: anything
@@ -579,22 +582,6 @@ export const IngestionFailureSchema = z.object({
 });
 export type IngestionFailure = z.infer<typeof IngestionFailureSchema>;
 
-/**
- * What the open-data API last said about this key's daily allowance. It is a
- * hard cap (1,000 requests a day, observed), shared by everything using the key,
- * so the pipeline plans a sweep against it and an administrator can see it.
- */
-/** What a full discovery sweep costs in open-data requests (~270 queries plus lookups). For planning and display. */
-export const OPEN_DATA_SWEEP_CALLS = 300;
-
-export const OpenDataQuotaSchema = z.object({
-  /** Requests left today as of `observedAt`; 0 means refused until the day turns over. */
-  remainingDay: z.number().int().nonnegative(),
-  limitDay: z.number().int().positive().nullable(),
-  observedAt: z.string(),
-});
-export type OpenDataQuota = z.infer<typeof OpenDataQuotaSchema>;
-
 export const IngestionSummarySchema = z.object({
   total: z.number().int(),
   byState: z.record(IngestionState, z.number().int()),
@@ -605,8 +592,6 @@ export const IngestionSummarySchema = z.object({
   totalTorBytes: z.number().int(),
   failureCount: z.number().int(),
   lastRunAt: z.string().nullable(),
-  /** The open-data API's daily allowance as last seen; null until a sweep has read it. */
-  openDataQuota: OpenDataQuotaSchema.nullable(),
   /**
    * Whether a retrieval run is executing right now. Authoritative, so the UI
    * never has to infer "still running" from the absence of Processing rows —

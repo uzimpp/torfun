@@ -1,4 +1,8 @@
-import type { AnnouncementClient, ProjectDetail } from '../services/egp/announcement-client';
+import type {
+  AnnouncementClient,
+  ProcurementDetail,
+  ProjectDetail,
+} from '../services/egp/announcement-client';
 import type { AnnouncementRow } from '../services/egp/milestones';
 
 /** What the fake answers for a project detail no test asked about. */
@@ -7,6 +11,21 @@ export const SAMPLE_DETAIL: ProjectDetail = {
   typeId: '03',
   goodsId: '4016',
   deptSubName: 'สำนักเทคโนโลยีสารสนเทศ',
+};
+
+export const SAMPLE_PROCUREMENT_DETAIL: ProcurementDetail = {
+  goodsId: '4016',
+  typeId: '03',
+  deptSubName: 'สำนักเทคโนโลยีสารสนเทศ',
+  projectMoney: 23248000,
+  priceBuild: 23198991,
+  draftListParams: {
+    methodId: '16',
+    projectVersion: '4',
+    typeProject: '9',
+    stepId: 'U03',
+    typeId: '03',
+  },
 };
 
 /**
@@ -20,12 +39,28 @@ export function fakeAnnouncements(
   timelines: Record<string, AnnouncementRow[] | null> = {},
   otherwise: AnnouncementRow[] | null = null,
   details: Record<string, ProjectDetail | null> = {},
-): AnnouncementClient & { calls: string[]; detailCalls: string[] } {
+  {
+    procurementDetails = {},
+    commentsClose = {},
+  }: {
+    procurementDetails?: Record<string, ProcurementDetail | null>;
+    commentsClose?: Record<string, string | null>;
+  } = {},
+): AnnouncementClient & {
+  calls: string[];
+  detailCalls: string[];
+  procurementDetailCalls: string[];
+  commentsCalls: string[];
+} {
   const calls: string[] = [];
   const detailCalls: string[] = [];
+  const procurementDetailCalls: string[] = [];
+  const commentsCalls: string[] = [];
   return {
     calls,
     detailCalls,
+    procurementDetailCalls,
+    commentsCalls,
     async timeline(projectId) {
       calls.push(projectId);
       const own = timelines[projectId];
@@ -35,6 +70,15 @@ export function fakeAnnouncements(
       detailCalls.push(projectId);
       const own = details[projectId];
       return own === undefined ? SAMPLE_DETAIL : own;
+    },
+    async procurementDetail(projectId) {
+      procurementDetailCalls.push(projectId);
+      const own = procurementDetails[projectId];
+      return own === undefined ? SAMPLE_PROCUREMENT_DETAIL : own;
+    },
+    async commentsCloseAt(projectId) {
+      commentsCalls.push(projectId);
+      return commentsClose[projectId] ?? null;
     },
   };
 }

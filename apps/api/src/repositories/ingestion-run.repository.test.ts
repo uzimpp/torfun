@@ -28,15 +28,12 @@ const run = (id: string, endedAt: string, overrides: Partial<IngestionRun> = {})
   endedAt,
   durationMs: 60_000,
   trigger: 'scheduled',
-  runners: 2,
   counts: {
     discovered: 10,
     newRecords: 2,
     changedRecords: 1,
     unchangedRecords: 7,
-    discoverySkipped: false,
     discoveryStopped: null,
-    rejectedNonRegistry: 3,
     attempted: 2,
     refreshed: 5,
     archivesRetrieved: 2,
@@ -81,6 +78,20 @@ describeMongo('IngestionRunRepository', () => {
     await stored.updateOne({ _id: 'a' as never }, { $set: { peak_rss_bytes: 512_000_000 } });
 
     expect(await runs.recent(10)).toEqual([written]);
+  });
+
+  test('a run logged before ADR-0020 still reads back with its runners and skipped sweep', async () => {
+    const written = run('a', '2026-10-01T00:01:00.000Z');
+    await runs.record(written);
+    const stored = (await getDb()).collection('ingestion_runs');
+    await stored.updateOne(
+      { _id: 'a' as never },
+      { $set: { runners: 2, 'counts.discovery_skipped': true } },
+    );
+
+    expect(await runs.recent(10)).toEqual([
+      { ...written, runners: 2, counts: { ...written.counts!, discoverySkipped: true } },
+    ]);
   });
 
   test('recent runs come newest first, as many as asked for', async () => {
