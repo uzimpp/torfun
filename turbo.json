@@ -8,6 +8,7 @@
       "dependsOn": ["^build"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"],
       "env": [
+        "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
         "EGP_*",
         "GOOGLE_*",
@@ -38,6 +39,7 @@
     "test": {
       "dependsOn": ["^build"],
       "env": [
+        "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
         "EGP_*",
         "GOOGLE_*",
@@ -57,6 +59,7 @@
       "dependsOn": ["build"],
       "outputs": ["playwright-report/**"],
       "env": [
+        "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
         "EGP_*",
         "GOOGLE_*",

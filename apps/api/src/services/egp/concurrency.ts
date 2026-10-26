@@ -1,30 +1,55 @@
-/**
- * Apply `work` to every item with at most `limit` running at once, returning
- * the results in the order of the input.
- *
- * Order matters to the caller: the results feed `assignDocumentRoles`, whose
- * tie-breaks depend on the order documents arrive in, so a pool that returned
- * them in completion order would change which TOR wins.
- *
- * A worker takes the next unclaimed index, so no item is started twice and no
- * more than `limit` are in flight. The first failure rejects the whole call.
- */
-export async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  work: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
+export interface Limiter {
+  /** Run `call` once a place is free; the place is given back however it ends. */
+  run<T>(call: () => Promise<T>): Promise<T>;
+  /** Take a place and hold it until the returned function is called (once counts). */
+  acquire(): Promise<() => void>;
+  /**
+   * Take a place only if one is free now, without waiting: null if none is, or
+   * if anyone is already waiting (they asked first).
+   */
+  tryAcquire(): (() => void) | null;
+}
 
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const index = next;
-      next += 1;
-      results[index] = await work(items[index] as T, index);
-    }
+/**
+ * At most `size` holders at once, across every caller that shares it. Waiters
+ * are served in the order they asked.
+ */
+export function createLimiter(size: number): Limiter {
+  let held = 0;
+  const waiting: Array<() => void> = [];
+
+  const releaser = () => {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = waiting.shift();
+      if (next) next();
+      else held -= 1;
+    };
   };
 
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
+  const acquire = async (): Promise<() => void> => {
+    if (held < size) held += 1;
+    // The place is handed over by the releaser, so `held` is not touched here.
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+    return releaser();
+  };
+
+  return {
+    acquire,
+    tryAcquire() {
+      if (held >= size || waiting.length > 0) return null;
+      held += 1;
+      return releaser();
+    },
+    async run(call) {
+      const release = await acquire();
+      try {
+        return await call();
+      } finally {
+        release();
+      }
+    },
+  };
 }

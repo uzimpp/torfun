@@ -1,4 +1,9 @@
-import { IngestionStage, type IngestionFailure, type IngestionRun } from '@torfun/types';
+import {
+  IngestionStage,
+  type IngestionFailure,
+  type IngestionRun,
+  type InFlightWork,
+} from '@torfun/types';
 import { formatElapsed } from './status-tracking';
 
 /**
@@ -10,7 +15,6 @@ import { formatElapsed } from './status-tracking';
 export const STAGE_ORDER = IngestionStage.options;
 
 export const STAGE_LABELS: Record<IngestionStage, string> = {
-  dept: 'ระบุหน่วยงาน',
   discovery: 'ค้นหาประกาศ',
   timeline: 'อ่านไทม์ไลน์',
   info: 'อ่านข้อมูลประกาศ',
@@ -18,6 +22,27 @@ export const STAGE_LABELS: Record<IngestionStage, string> = {
   extract: 'แยกไฟล์ TOR',
   analysis: 'วิเคราะห์ด้วย AI',
 };
+
+/**
+ * What the live view says a piece of work is doing, in plain words: Discovery
+ * looking for announcements (naming the agency when it has one), Analysis being
+ * the model reading, and every step before it fetching documents.
+ */
+export function liveWorkLabel(work: Pick<InFlightWork, 'stage' | 'projectName'>): string {
+  if (work.stage === 'discovery') {
+    const agency = discoveryAgency(work.projectName);
+    return agency ? `กำลังค้นหาประกาศ · ${agency}` : 'กำลังค้นหาประกาศ';
+  }
+  return work.stage === 'analysis' ? 'AI กำลังอ่าน' : 'กำลังดึงเอกสาร';
+}
+
+/** The agency out of Discovery's '<agency> / <type> / <day>', or null without one. */
+function discoveryAgency(reading: string): string | null {
+  const parts = reading.split(' / ');
+  if (parts.length < 3) return null;
+  const agency = parts.slice(0, -2).join(' / ').trim();
+  return agency && agency !== '-' ? agency : null;
+}
 
 export function formatDuration(ms: number | null): string {
   if (ms === null) return '—';

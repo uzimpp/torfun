@@ -96,11 +96,7 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
     '/ingestion/run',
     {
       schema: {
-        body: z
-          .object({
-            forceDiscovery: z.boolean().optional(),
-          })
-          .default({}),
+        body: z.object({}).default({}),
         response: {
           202: z.object({ started: z.literal(true), message: z.string() }),
           409: z.object({ message: z.string() }),

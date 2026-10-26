@@ -101,6 +101,13 @@ describe('ProcurementDrawer status', () => {
   });
 });
 
+describe('ProcurementDrawer facts', () => {
+  test('shows a dash for a year not read yet', () => {
+    renderDrawer({ record: record({ budgetYear: null }) });
+    expect(screen.getByText('ปีงบประมาณ').nextElementSibling).toHaveTextContent('—');
+  });
+});
+
 describe('ProcurementDrawer while loading', () => {
   test('is described and says it is loading', () => {
     renderDrawer({ record: null });

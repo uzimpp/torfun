@@ -163,7 +163,7 @@ function FactsSection({ record }: { record: Procurement }) {
         </Fact>
         <Fact label="สถานะโครงการ">{STATUS_LABELS[record.status]}</Fact>
         <Fact label="ปีงบประมาณ" numeric>
-          {record.budgetYear}
+          {record.budgetYear ?? '—'}
         </Fact>
         <Fact label="งบประมาณ (บาท)" numeric>
           {formatThb(record.projectMoney)}

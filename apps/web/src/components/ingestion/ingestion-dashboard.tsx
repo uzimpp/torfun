@@ -42,8 +42,8 @@ function MonitoringSkeleton() {
 }
 
 /**
- * Operations and monitoring for e-GP ingestion: run control, what the runners
- * are doing now, where every record stands, how runs have gone, and the failure
+ * Operations and monitoring for e-GP ingestion: run control, what the Run
+ * is doing now, where every record stands, how runs have gone, and the failure
  * log. Browsing the records themselves lives on /admin/procurements.
  */
 export function IngestionDashboard() {

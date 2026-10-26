@@ -146,8 +146,9 @@ describe('mergeDiscovered', () => {
       deptSubName: 'สำนักเทคโนโลยีสารสนเทศ',
       detailCheckedAt: '2026-10-08T00:00:00.000Z',
     });
+    // As Discovery builds it now: from the feed alone, with no year (ADR-0020).
     const incoming = procurement({
-      budgetYear: 2570,
+      budgetYear: null,
       typeId: null,
       goodsId: null,
       deptSubName: null,
