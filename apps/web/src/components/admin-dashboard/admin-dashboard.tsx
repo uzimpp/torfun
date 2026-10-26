@@ -44,7 +44,7 @@ export function AdminDashboard() {
         <div className="grid gap-10 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)]">
           <div className="flex min-w-0 flex-col gap-10">
             <div className="flex flex-col gap-4">
-              <AttentionRow chips={attentionChips(summary, failures, asOf)} />
+              <AttentionRow chips={attentionChips(summary, failures)} />
               <KpiStrip tiles={kpiTiles(summary, asOf)} />
             </div>
 

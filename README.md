@@ -70,8 +70,9 @@ gcloud iam service-accounts add-iam-policy-binding \
 ```
 
 Then log in as shown above and restart `bun run dev`. IAM changes take a minute or
-two. Records that failed analysis keep their stored archives, so a retry does not
-re-download.
+two. Records that failed analysis are not retried: archives are never stored
+(ADR-0002), so reading one again would mean downloading it again. Later Runs
+re-read their timeline, and the invitation alone if its date moved.
 
 | Error in the failure log                    | Fix                                                                          |
 | ------------------------------------------- | ---------------------------------------------------------------------------- |

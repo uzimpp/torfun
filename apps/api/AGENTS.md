@@ -77,12 +77,14 @@ the `mongosh` invocation in a header comment.
 `services/egp/` is the upstream adapter. A run is started, not awaited — a pass
 takes minutes, and progress is observed through the state the admin UI polls.
 
-Three behaviours in `pipeline.ts` are load-bearing:
+Three behaviours of a Run (`pipeline.ts` and the modules it wires, listed in its
+header) are load-bearing:
 
 - **A rate-limit response aborts the run.** The right answer to a site saying stop
-  is to stop, leaving the rest Queued.
+  is to stop, leaving the rest Queued. Archives already downloaded are still
+  analysed and stored; nothing further is asked of the site.
 - **Every other failure is recorded and the pass continues**, into the
-  admin-visible log.
+  admin-visible log. The one other stop is a site that no longer answers (below).
 - **Path-traversal members in an archive are surfaced, never dropped.**
 
 Discovery (`services/egp/discovery.ts`) reads the announcement feed
@@ -97,19 +99,37 @@ stored from the feed alone, with `budgetYear`, `typeId`, `goodsId` and
 `deptSubName` null: they come from its project detail
 (`AnnouncementClient.projectDetail`, the getProjectDetail endpoint), which
 Retrieval reads in the record's own gate turn (ADR-0020). Until then the year is
-null, never guessed. Its requests go through the same gate as retrieval's, and a
-refusal there ends the Run with nothing retrieved; the cursor is stored either
-way, and only a finished sweep counts for `DISCOVERY_MAX_AGE_MS`. The open-data
+null, never guessed. Each agency-day is saved as soon as it is read, and its new
+projects join Retrieval's queue at once. Every Run reads the new days; the cursor
+covers exactly the days read in full, even when the sweep is cut short. The open-data
 client is kept for a future winner lookup and is not used for discovery. Never
 call the process5 search endpoints: they sit behind Cloudflare Turnstile
 (ADR-0018).
 
-Several records can be worked on at once (`EGP_RUNNERS`, default 2), but the
-upstream site is reached through one gate (`services/egp/site-gate.ts`): one
-request in flight across all runners, a pause after each, turns handed out by
-tier (new days, fresh, refresh, history; ADR-0020), and a refusal latches it so
-every runner stops. Only the model's reading of a TOR overlaps. Do not call the
-site from anywhere that bypasses the gate.
+A Run has three stages side by side (ADR-0020): Discovery, one Retrieval worker
+taking one project at a time, and Analysis, one task per downloaded Archive. The
+upstream site is reached through one gate (`services/egp/site-gate.ts`), shared
+by Discovery and Retrieval: one request in flight, a pause after each, and when
+it frees the next turn goes to the best tier waiting: new days, then fresh
+(never read), then refresh, then history. Do not call the site from anywhere
+that bypasses the gate.
+
+Analysis never touches the site, so it is the only work that overlaps the gate.
+`ANALYSIS_CONCURRENCY` (default 8) bounds model calls in flight across the whole
+Run, and the waiting room, the Archives held in memory waiting for or under
+Analysis, has as many places. A fresh project takes a place before its turn; a
+refresh whose invitation moved takes one only if one is free, else it goes to
+the back of the queue. While the room is full the gate keeps serving Discovery
+and refreshes.
+
+How a Run stops: a refusal (429/403) latches the gate; `SITE_UNREACHABLE_AFTER`
+requests in a row with no answer, Discovery's and Retrieval's counted together,
+close it; so does an administrator's stop or a lost lease. Either way no further
+request is made and nothing new is taken from the queue; projects not taken
+are left as they were, with no attempt spent. Analysis finishes the Archives it holds and stores
+them. Otherwise the Run ends once Discovery is done, the queue is empty and every
+Analysis has settled. A record's deadline (`recordDeadlineMs`) covers its gate
+turn; its Analysis has a deadline of the same length.
 
 Per candidate the turn is one gate hold: the project detail first while
 `detailCheckedAt` is null (every new record), then the announcement timeline
@@ -133,10 +153,10 @@ or without a tombstone, remove or restore a tombstone) live in
 the audience rule. Restoring is a Run like any other, asked for through
 `startRun({ onlyProject, beforeRun })`, which retrieves that one project. In
 `beforeRun`, once the lease is held, the tombstone is lifted and the record
-rebuilt from the feed snapshot the tombstone keeps (`feed-record.ts`). A
-tombstone written before snapshots has nothing to rebuild from, so its restore
-also passes `forceDiscovery` and finds the project only if the sweep's days
-include it.
+rebuilt from the feed snapshot the tombstone keeps (`feed-record.ts`). A one-project
+Run skips Discovery, so a tombstone written before snapshots has nothing to
+rebuild from: the project comes back only if a later Run's days include it, and
+the restore says so in the failure log.
 
 All `/api/ingestion/*` routes are admin-only, enforced once for the plugin scope.
 

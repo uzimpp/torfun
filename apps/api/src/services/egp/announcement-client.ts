@@ -1,5 +1,11 @@
 import { egpGet, UpstreamError } from './client';
-import { BROWSER_HEADERS, GREEN_BOOK_URL, PROJECT_DETAIL_URL } from './constants';
+import {
+  BROWSER_HEADERS,
+  GREEN_BOOK_URL,
+  PROCUREMENT_DETAIL_URL,
+  PROJECT_DETAIL_URL,
+  TOR_ZIP_LIST_URL,
+} from './constants';
 import type { AnnouncementRow } from './milestones';
 
 /**
@@ -23,6 +29,21 @@ export interface AnnouncementClient {
    * a year is the one thing a record cannot be stored without.
    */
   projectDetail(projectId: string, signal?: AbortSignal): Promise<ProjectDetail | null>;
+  /**
+   * The project's procurement detail: its Goods Category, Budget and Reference
+   * Price, and what its draft list is asked with. Null on `data: null`.
+   */
+  procurementDetail(projectId: string, signal?: AbortSignal): Promise<ProcurementDetail | null>;
+  /**
+   * The last day for comments on the project's latest draft version, as e-GP
+   * sends it (`17:00Z` is Bangkok midnight of the next day). Null where there is
+   * no draft list or the latest version gives no date.
+   */
+  commentsCloseAt(
+    projectId: string,
+    params: DraftListParams,
+    signal?: AbortSignal,
+  ): Promise<string | null>;
 }
 
 export interface ProjectDetail {
@@ -30,6 +51,25 @@ export interface ProjectDetail {
   typeId: string | null;
   goodsId: string | null;
   deptSubName: string | null;
+}
+
+/** The parameters getTorZipList wants beside the project id, as getProcurementDetail gives them. */
+export interface DraftListParams {
+  methodId: string;
+  projectVersion: string;
+  typeProject: string;
+  stepId: string;
+  typeId: string;
+}
+
+export interface ProcurementDetail {
+  goodsId: string | null;
+  typeId: string | null;
+  deptSubName: string | null;
+  projectMoney: number | null;
+  priceBuild: number | null;
+  /** Null where any parameter is missing, so the draft list cannot be asked for. */
+  draftListParams: DraftListParams | null;
 }
 
 /** The body as JSON, or an upstream failure naming what was asked for. */
@@ -50,6 +90,22 @@ function parseYear(value: unknown): number | null {
 const textOrNull = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() !== '' ? value : null;
 
+function parseAmount(value: unknown): number | null {
+  const amount =
+    typeof value === 'string' && /^\d+(\.\d+)?$/.test(value.trim()) ? Number(value) : value;
+  return typeof amount === 'number' && Number.isFinite(amount) ? amount : null;
+}
+
+function parseDraftListParams(data: Record<string, unknown>): DraftListParams | null {
+  const methodId = textOrNull(data.methodId);
+  const projectVersion = textOrNull(data.projectVersion);
+  const typeProject = textOrNull(data.typeProject);
+  const stepId = textOrNull(data.stepId);
+  const typeId = textOrNull(data.typeId);
+  if (!methodId || !projectVersion || !typeProject || !stepId || !typeId) return null;
+  return { methodId, projectVersion, typeProject, stepId, typeId };
+}
+
 interface GreenBookResponse {
   data?: { greenBookAnnouncementTypeLinkDto?: unknown } | null;
 }
@@ -61,6 +117,19 @@ interface ProjectDetailResponse {
     goodsId?: unknown;
     deptSubName?: unknown;
   } | null;
+}
+
+interface ProcurementDetailResponse {
+  data?: Record<string, unknown> | null;
+}
+
+interface DraftVersionRow {
+  commentFDate?: unknown;
+  webDate?: unknown;
+}
+
+interface TorZipListResponse {
+  data?: (DraftVersionRow | null)[] | null;
 }
 
 export function createAnnouncementClient(): AnnouncementClient {
@@ -113,6 +182,50 @@ export function createAnnouncementClient(): AnnouncementClient {
         goodsId: textOrNull(data.goodsId),
         deptSubName: textOrNull(data.deptSubName),
       };
+    },
+
+    async procurementDetail(projectId, signal) {
+      const response = await egpGet(
+        PROCUREMENT_DETAIL_URL,
+        { projectId },
+        BROWSER_HEADERS,
+        signal,
+        'lookup',
+      );
+      const { data } = await readJson<ProcurementDetailResponse>(
+        response,
+        `procurement detail endpoint for ${projectId}`,
+      );
+      if (!data) return null;
+      return {
+        goodsId: textOrNull(data.goodsId),
+        typeId: textOrNull(data.typeId),
+        deptSubName: textOrNull(data.deptSubName),
+        projectMoney: parseAmount(data.projectMoney),
+        priceBuild: parseAmount(data.priceBuild),
+        draftListParams: parseDraftListParams(data),
+      };
+    },
+
+    async commentsCloseAt(projectId, params, signal) {
+      const response = await egpGet(
+        TOR_ZIP_LIST_URL,
+        { projectId, ...params },
+        BROWSER_HEADERS,
+        signal,
+        'lookup',
+      );
+      const { data } = await readJson<TorZipListResponse>(
+        response,
+        `draft list endpoint for ${projectId}`,
+      );
+      if (!Array.isArray(data)) return null;
+      const published = (row: DraftVersionRow | null) => textOrNull(row?.webDate) ?? '';
+      const latest = data.reduce<DraftVersionRow | null | undefined>(
+        (best, row) => (best === undefined || published(row) > published(best) ? row : best),
+        undefined,
+      );
+      return textOrNull(latest?.commentFDate);
     },
   };
 }
