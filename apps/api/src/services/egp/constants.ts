@@ -33,6 +33,12 @@ export const GREEN_BOOK_URL =
 /** One project's detail on the same service as greenBook: its real budget year, codes and sub-agency (ADR-0019). */
 export const PROJECT_DETAIL_URL =
   'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getProjectDetail';
+/** One project's Goods Category, Budget and Reference Price, on the same service (ADR-0021). It has no budget year. */
+export const PROCUREMENT_DETAIL_URL =
+  'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getProcurementDetail';
+/** A draft's versions, each with the last day for comments on it (ADR-0021). */
+export const TOR_ZIP_LIST_URL =
+  'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getTorZipList';
 
 /**
  * The Source Registry, keyed by the Thai name a human would query with. What
