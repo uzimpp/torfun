@@ -10,8 +10,8 @@ export type DetailFields = Pick<
 
 /**
  * Read one project's detail from e-GP: the fields to set, or why there are none.
- * Used by Discovery for a project not yet stored and by record work for one
- * stored before the detail was read (ADR-0019).
+ * Read in a record's retrieval turn, before its timeline, while its
+ * `detailCheckedAt` is null (ADR-0020).
  *
  * A refusal is thrown, not returned: it is the site saying stop, and the caller
  * that stops the Run has to see it. Call it inside a SiteGate hold.
@@ -31,15 +31,4 @@ export async function readProjectDetail(
     if (error instanceof RateLimitedError) throw error;
     return { error: error instanceof Error ? error.message : String(error) };
   }
-}
-
-/** The detail fields of a record, as Discovery carries them onto the next one. */
-export function detailOf(record: DetailFields): DetailFields {
-  return {
-    budgetYear: record.budgetYear,
-    typeId: record.typeId,
-    goodsId: record.goodsId,
-    deptSubName: record.deptSubName,
-    detailCheckedAt: record.detailCheckedAt,
-  };
 }

@@ -1,4 +1,4 @@
-import type { IngestionOps } from '@torfun/types';
+import type { InFlightWork, IngestionOps } from '@torfun/types';
 
 /**
  * Test data shaped like `GET /api/ingestion/ops`: every daily series has one
@@ -23,6 +23,41 @@ export function dailyWindow<T extends object>(
 
 export const ZERO_THROUGHPUT = { completed: 0, held: 0, failed: 0 };
 export const ZERO_DISCOVERED = { discovered: 0 };
+
+/**
+ * What a streaming Run reports as in flight: Discovery reading one agency-day
+ * (no project of its own), the project in its turn at the site, and one under
+ * Analysis.
+ */
+export function inFlightFixture(since = '2026-10-05T03:00:00.000Z'): InFlightWork[] {
+  return [
+    {
+      slot: 0,
+      projectId: '-',
+      projectName: 'กรมสรรพากร / D0 / 2026-10-05',
+      stage: 'discovery',
+      fresh: true,
+      since,
+    },
+    {
+      slot: 1,
+      projectId: '69109288963',
+      projectName: 'จ้างพัฒนาระบบบริหารงานบุคคล',
+      stage: 'download',
+      fresh: true,
+      since,
+    },
+    {
+      slot: 2,
+      projectId: '69109288001',
+      projectName: 'จ้างพัฒนาแอปพลิเคชันบริการประชาชน',
+      stage: 'analysis',
+      fresh: true,
+      since,
+    },
+  ];
+}
+
 export function opsFixture(overrides: Partial<IngestionOps> = {}): IngestionOps {
   return {
     live: {

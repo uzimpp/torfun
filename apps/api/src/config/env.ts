@@ -51,11 +51,10 @@ export const EnvSchema = z.object({
   // --- e-GP ingestion (Thai government procurement) ---
   // Open-data API key. Register at https://opend.data.go.th/register_api/
   EGP_API_KEY: z.string().min(1, 'EGP_API_KEY is required'),
-  // Records worked on at once. They share the upstream site through one gate, so
-  // the site still sees single-file requests with the usual pause between them
-  // whatever this is; it only lets the model read one TOR while another downloads.
-  // Three at most: a third adds memory, not speed.
-  EGP_RUNNERS: z.coerce.number().int().min(1).max(3).default(2),
+  // Calls to the model (Gemini) in flight at once, across every project of a
+  // Run. Vertex's quota and the bill count calls, so size this to the quota.
+  // It also bounds the Archives held in memory waiting to be read (ADR-0020).
+  ANALYSIS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(8),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

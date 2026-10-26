@@ -69,7 +69,7 @@ async function build(options: { records?: number; heartbeatMs?: number } = {}) {
   const asked: string[] = [];
   const service = new IngestionService(
     store,
-    testEnv({ EGP_RUNNERS: 1 }),
+    testEnv(),
     silentLogger,
     {
       lease,
