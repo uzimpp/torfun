@@ -48,7 +48,6 @@ function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSu
     totalTorBytes: 0,
     failureCount: 4,
     lastRunAt: '2026-09-30T10:00:00.000Z',
-    openDataQuota: null,
     runInProgress: false,
     runStartedAt: null,
     stopRequested: false,
@@ -291,47 +290,6 @@ describe('AdminDashboard', () => {
 
     expect(screen.getByText('ทุกอย่างปกติ')).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'ต้องดูแล' })).not.toBeInTheDocument();
-  });
-
-  test('system health shows the open-data quota when it is known', () => {
-    mockedHook.mockReturnValue(
-      data({
-        summary: summary({
-          openDataQuota: {
-            remainingDay: 450,
-            limitDay: 1000,
-            observedAt: '2026-09-30T11:00:00.000Z',
-          },
-        }),
-      }),
-    );
-    render(<AdminDashboard />);
-
-    expect(screen.getByRole('meter', { name: 'โควตา open-data วันนี้' })).toHaveAttribute(
-      'aria-valuenow',
-      '450',
-    );
-    expect(screen.getByText('450/1,000')).toBeInTheDocument();
-  });
-
-  test('system health shows a reading from an earlier Bangkok day as unknown, without a meter', () => {
-    mockedHook.mockReturnValue(
-      data({
-        summary: summary({
-          // 22:00 on 29 September in Bangkok; NOW is the evening of the 30th.
-          openDataQuota: {
-            remainingDay: 0,
-            limitDay: 1000,
-            observedAt: '2026-09-29T15:00:00.000Z',
-          },
-        }),
-      }),
-    );
-    render(<AdminDashboard />);
-
-    expect(screen.queryByRole('meter')).not.toBeInTheDocument();
-    expect(screen.queryByText('0/1,000')).not.toBeInTheDocument();
-    expect(screen.getByText('ยังไม่ทราบ')).toBeInTheDocument();
   });
 
   test('an ended session says so and links back to sign-in, with no retry button', () => {

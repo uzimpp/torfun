@@ -2,8 +2,8 @@ import { describe, expect, mock, test } from 'bun:test';
 import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 import { fakeAnnouncements, SAMPLE_DETAIL } from '../../testing/announcement-client';
 import { InMemoryProcurementStore } from '../../testing/procurement-store';
-import { RateLimitedError, UpstreamError } from './client';
-import { E_BIDDING_METHOD } from './constants';
+import { RateLimitedError, UnreachableError, UpstreamError } from './client';
+import { E_BIDDING_METHOD, FEED_BACKFILL_REQUESTS_PER_RUN } from './constants';
 import type { AnnouncementFeed } from './announcement-feed';
 import { discoverProjects, type DiscoveryResult, type SweepContext } from './discovery';
 import type { AnnouncementRow } from './milestones';
@@ -90,7 +90,6 @@ const sweepContext: SweepContext = {
   site: (_tier, call) => call(),
   cursor: {},
   tombstonedIds: async () => new Set(),
-  storedRecords: async () => [],
   today: '2026-09-09',
   save: async () => {},
 };
@@ -513,11 +512,15 @@ describe('a discovery sweep inside the Run', () => {
 
   test('a Run for one project that the site refused does not blame the queue', async () => {
     const repository = await queued();
+    const announcements = fakeAnnouncements({}, []);
+    announcements.timeline = async () => {
+      throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
+    };
 
     const result = await runIngestion(
       repository,
       { logger, onlyProject: '66059313551' },
-      deps({ discoverProjects: async () => sweepResult({ rateLimited: true }) }),
+      deps({ announcements }),
     );
 
     expect(result.failures.some((failure) => failure.error.includes('not in the queue'))).toBe(
@@ -560,11 +563,11 @@ describe('a discovery sweep inside the Run', () => {
     const repository = await queued();
 
     await run(repository, { discoverProjects: async () => sweepResult({ rateLimited: true }) });
-    expect(await repository.lastDiscoveryAt()).toBeNull();
+    expect((await repository.summary()).lastRunAt).toBeNull();
 
     const result = await run(repository, { discoverProjects: async () => sweepResult() });
     expect(result.discoveryStopped).toBeNull();
-    expect(await repository.lastDiscoveryAt()).not.toBeNull();
+    expect((await repository.summary()).lastRunAt).not.toBeNull();
   });
 });
 
@@ -680,84 +683,36 @@ describe('a sweep that only re-sees what it already has', () => {
 });
 
 describe('when discovery runs', () => {
-  const HOUR = 60 * 60 * 1000;
-  const hoursAgo = (hours: number) => new Date(Date.now() - hours * HOUR).toISOString();
-
-  /** A run against a store that was last swept `lastSweepHoursAgo` ago, with one queued record. */
-  async function runWith(
-    lastSweepHoursAgo: number | null,
-    options: { discoveryMaxAgeMs?: number; forceDiscovery?: boolean },
-    complete = true,
-  ) {
+  test('every Run sweeps, however soon after the last: there is no skip (ADR-0020)', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(procurement());
-    if (lastSweepHoursAgo !== null) await repository.markRun(hoursAgo(lastSweepHoursAgo));
-    const discover = mock(async () => ({
-      records: [],
-      notEBidding: 0,
-      tombstoned: 0,
-      truncated: 0,
-      failures: [],
-      rateLimited: false,
-      unreachable: false,
-      complete,
-      cursor: {},
-      ranAt: new Date().toISOString(),
-    }));
+    const discover = mock(async (context: SweepContext) => deps().discoverProjects(context));
 
-    const result = await runIngestion(
-      repository,
-      { logger, ...options },
-      deps({ discoverProjects: discover }),
-    );
-    return { result, discover, repository };
-  }
+    await run(repository, { discoverProjects: discover });
+    await run(repository, { discoverProjects: discover });
 
-  test('a recent sweep is not repeated, but queued records are still retrieved', async () => {
-    const { result, discover, repository } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR });
-
-    expect(discover).not.toHaveBeenCalled();
-    expect(result.discoverySkipped).toBe(true);
-    expect(result.attempted).toBe(1);
-    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
+    expect(discover).toHaveBeenCalledTimes(2);
   });
 
-  test('skipping a sweep does not pretend one happened', async () => {
-    const { repository } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR });
+  test('two Runs back to back both read the new days', async () => {
+    const repository = new InMemoryProcurementStore();
+    const asked: string[] = [];
+    const feed: AnnouncementFeed = {
+      async day(deptId, type, day) {
+        asked.push(`${deptId}:${type}:${day}`);
+        return { announced: 0, items: [], withoutId: 0 };
+      },
+    };
+    const sweep = (context: SweepContext) =>
+      discoverProjects({ ...context, today: '2026-10-07' }, feed);
 
-    const last = (await repository.summary()).lastRunAt;
-    expect(Date.now() - Date.parse(last!)).toBeGreaterThan(0.9 * HOUR);
-  });
+    await run(repository, { discoverProjects: sweep });
+    const first = asked.filter((key) => key.endsWith('2026-10-07')).length;
+    asked.length = 0;
+    await run(repository, { discoverProjects: sweep });
+    const second = asked.filter((key) => key.endsWith('2026-10-07')).length;
 
-  test('a sweep with a day it could not read is not counted, so the next Run sweeps again', async () => {
-    const { repository } = await runWith(null, { discoveryMaxAgeMs: 6 * HOUR }, false);
-
-    expect((await repository.summary()).lastRunAt).toBeNull();
-  });
-
-  test('a stale sweep is repeated', async () => {
-    const { result, discover } = await runWith(7, { discoveryMaxAgeMs: 6 * HOUR });
-
-    expect(discover).toHaveBeenCalledTimes(1);
-    expect(result.discoverySkipped).toBe(false);
-  });
-
-  test('a sweep that was never made is made', async () => {
-    const { discover } = await runWith(null, { discoveryMaxAgeMs: 6 * HOUR });
-
-    expect(discover).toHaveBeenCalledTimes(1);
-  });
-
-  test('an administrator can force a sweep however recent the last was', async () => {
-    const { discover } = await runWith(1, { discoveryMaxAgeMs: 6 * HOUR, forceDiscovery: true });
-
-    expect(discover).toHaveBeenCalledTimes(1);
-  });
-
-  test('with no age limit configured it always sweeps, as before', async () => {
-    const { discover } = await runWith(0.01, {});
-
-    expect(discover).toHaveBeenCalledTimes(1);
+    expect(first).toBeGreaterThan(0);
+    expect(second).toBe(first);
   });
 });
 
@@ -953,33 +908,37 @@ describe('the analysis pool', () => {
     extracted({ member: `Attach_TOR_${letter}.pdf`, filename: `Attach_TOR_${letter}.pdf` }),
   );
 
-  test('reads at most two PDFs of an archive at once, and keeps their order', async () => {
+  test('reads no more PDFs at once than the limit, and keeps their order', async () => {
     const repository = new InMemoryProcurementStore();
     let inFlight = 0;
     let peak = 0;
     const seen: string[] = [];
 
-    await run(repository, {
-      extractTorPdfs: () => ({
-        torFiles: four,
-        members: four.map((pdf) => pdf.member),
-        unsafeSkipped: [],
+    await runIngestion(
+      repository,
+      { logger, analysisConcurrency: 2 },
+      deps({
+        extractTorPdfs: () => ({
+          torFiles: four,
+          members: four.map((pdf) => pdf.member),
+          unsafeSkipped: [],
+        }),
+        classifyDocument: async (pdf) => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          seen.push(pdf.byteLength.toString());
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          inFlight -= 1;
+          return {
+            isTor: false,
+            torKind: null,
+            whatThisIs: 'ไม่ใช่ TOR',
+            analysis: null,
+            judgement: null,
+          };
+        },
       }),
-      classifyDocument: async (pdf) => {
-        inFlight += 1;
-        peak = Math.max(peak, inFlight);
-        seen.push(pdf.byteLength.toString());
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        inFlight -= 1;
-        return {
-          isTor: false,
-          torKind: null,
-          whatThisIs: 'ไม่ใช่ TOR',
-          analysis: null,
-          judgement: null,
-        };
-      },
-    });
+    );
 
     expect(peak).toBe(2);
     const record = await repository.get('66059313551');
@@ -1242,14 +1201,14 @@ describe('a record the model drops', () => {
   });
 });
 
-describe('the project detail (ADR-0019)', () => {
-  /** Stored before the detail was read: its year is a guess from the announcement date. */
-  const old = (overrides: Partial<Procurement> = {}) =>
-    procurement({ budgetYear: 2570, detailCheckedAt: null, ...overrides });
+describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
+  /** As Discovery stores it: from the feed alone, with no year yet. */
+  const fresh = (overrides: Partial<Procurement> = {}) =>
+    procurement({ budgetYear: null, detailCheckedAt: null, ...overrides });
 
-  test('a record stored before it is read gets its detail first, then is retrieved as usual', async () => {
+  test('a new record gets its detail first, inside its turn, then is retrieved as usual', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(old());
+    await repository.upsert(fresh());
     const order: string[] = [];
     const announcements = fakeAnnouncements({}, []);
     announcements.projectDetail = async () => {
@@ -1283,9 +1242,32 @@ describe('the project detail (ADR-0019)', () => {
     expect(announcements.detailCalls).toEqual([]);
   });
 
-  test('a detail that cannot be read is logged, and the record goes on with its old year', async () => {
+  test('a detail that cannot be read is logged, and the record is still downloaded and analysed with no year', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(old({ state: 'Completed', outcome: 'tor_analysed' }));
+    await repository.upsert(fresh());
+    const announcements = fakeAnnouncements({}, [], { '66059313551': null });
+
+    const result = await run(repository, { announcements });
+
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        projectId: '66059313551',
+        error: expect.stringContaining('no project detail with a budget year'),
+      }),
+    ]);
+    expect(result.archivesRetrieved).toBe(1);
+    expect(await repository.get('66059313551')).toMatchObject({
+      budgetYear: null,
+      detailCheckedAt: null,
+      outcome: 'tor_analysed',
+    });
+  });
+
+  test('a detail that fails on a record already read leaves its year as it was', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(
+      fresh({ budgetYear: 2570, state: 'Completed', outcome: 'tor_analysed' }),
+    );
     const announcements = fakeAnnouncements({}, []);
     announcements.projectDetail = async () => {
       throw new UpstreamError('HTTP 500');
@@ -1306,7 +1288,7 @@ describe('the project detail (ADR-0019)', () => {
 
   test('a refusal on the detail stops the Run and puts the record back without spending an attempt', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(old());
+    await repository.upsert(fresh());
     const announcements = fakeAnnouncements({}, []);
     announcements.projectDetail = async () => {
       throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
@@ -1319,7 +1301,7 @@ describe('the project detail (ADR-0019)', () => {
     expect(await repository.get('66059313551')).toMatchObject({ outcome: 'queued', attempts: 0 });
   });
 
-  test('a refusal on a new project’s detail during discovery marks the Run aborted', async () => {
+  test('a project the feed lists is stored without its detail, which its retrieval then reads', async () => {
     const repository = new InMemoryProcurementStore();
     const item = {
       projectId: '69109044981',
@@ -1331,18 +1313,28 @@ describe('the project detail (ADR-0019)', () => {
     const feed: AnnouncementFeed = {
       day: async () => ({ announced: 1, items: [item], withoutId: 0 }),
     };
+    const order: string[] = [];
     const announcements = fakeAnnouncements({}, []);
     announcements.projectDetail = async () => {
-      throw new RateLimitedError('https://process5.gprocurement.go.th/…', 403);
+      order.push('detail');
+      return SAMPLE_DETAIL;
+    };
+    announcements.timeline = async () => {
+      order.push('timeline');
+      return [];
     };
 
-    const result = await run(repository, {
-      discoverProjects: (context) => discoverProjects(context, feed, announcements),
+    await run(repository, {
+      discoverProjects: (context) => discoverProjects(context, feed),
       announcements,
     });
 
-    expect(result).toMatchObject({ aborted: true, discoveryStopped: 'rate_limited', attempted: 0 });
-    expect(await repository.get('69109044981')).toBeUndefined();
+    expect(order).toEqual(['detail', 'timeline']);
+    expect(await repository.get('69109044981')).toMatchObject({
+      budgetYear: 2569,
+      detailCheckedAt: expect.any(String),
+      outcome: 'tor_analysed',
+    });
   });
 });
 
@@ -1362,16 +1354,19 @@ describe('a run for one project only', () => {
       ranAt: '2026-09-09T00:00:00.000Z',
     }));
 
-  test('sweeps, then reads that project once and leaves the rest of the queue untouched', async () => {
+  test('makes no sweep, reads that project once and leaves the rest of the queue untouched', async () => {
     const repository = new InMemoryProcurementStore();
+    for (const projectId of ids) await repository.upsert(procurement({ projectId }));
     const resolveZipId = mock(async (_projectId: string) => 'zip-1');
+    const discover = sweep();
 
     const result = await runIngestion(
       repository,
       { logger, onlyProject: '66059313552' },
-      deps({ discoverProjects: sweep(), resolveZipId }),
+      deps({ discoverProjects: discover, resolveZipId }),
     );
 
+    expect(discover).not.toHaveBeenCalled();
     expect(resolveZipId).toHaveBeenCalledTimes(1);
     expect(resolveZipId.mock.calls[0]?.[0]).toBe('66059313552');
     expect(result.attempted).toBe(1);
@@ -1380,16 +1375,19 @@ describe('a run for one project only', () => {
     expect((await repository.get('66059313553'))?.outcome).toBe('queued');
   });
 
-  test('a project the sweep did not find is reported, not silently skipped, and nothing is fetched', async () => {
+  test('a project not in the queue is reported, not silently skipped, and nothing is fetched', async () => {
     const repository = new InMemoryProcurementStore();
+    for (const projectId of ids) await repository.upsert(procurement({ projectId }));
     const resolveZipId = mock(async (_projectId: string) => 'zip-1');
+    const discover = sweep();
 
     const result = await runIngestion(
       repository,
       { logger, onlyProject: '99999999999' },
-      deps({ discoverProjects: sweep(), resolveZipId }),
+      deps({ discoverProjects: discover, resolveZipId }),
     );
 
+    expect(discover).not.toHaveBeenCalled();
     expect(resolveZipId).not.toHaveBeenCalled();
     expect(result.attempted).toBe(0);
     expect(result.failures).toEqual([
@@ -1399,7 +1397,7 @@ describe('a run for one project only', () => {
   });
 });
 
-describe('two runners sharing the site', () => {
+describe('Retrieval and Analysis sharing the Run', () => {
   const ids = ['66059313551', '66059313552', '66059313553', '66059313554'];
   const many = (): Partial<IngestionDeps> => ({
     discoverProjects: async () => ({
@@ -1415,11 +1413,8 @@ describe('two runners sharing the site', () => {
       ranAt: '2026-09-09T00:00:00.000Z',
     }),
   });
-  const runWith = (
-    repository: InMemoryProcurementStore,
-    runners: number,
-    overrides: Partial<IngestionDeps>,
-  ) => runIngestion(repository, { logger, runners }, deps({ ...many(), ...overrides }));
+  const runWith = (repository: InMemoryProcurementStore, overrides: Partial<IngestionDeps>) =>
+    runIngestion(repository, { logger }, deps({ ...many(), ...overrides }));
   const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
   test('never has more than one request to the site in flight, while the model reads in parallel', async () => {
@@ -1436,13 +1431,13 @@ describe('two runners sharing the site', () => {
     };
 
     const repository = new InMemoryProcurementStore();
-    await runWith(repository, 2, {
+    await runWith(repository, {
       resolveZipId: () => site('zip-1'),
       downloadArchive: () => site(new Uint8Array([0x50, 0x4b, 0x03, 0x04])),
       classifyDocument: async () => {
         reading += 1;
         maxReading = Math.max(maxReading, reading);
-        // Longer than the other runner's two site requests, so the readings must overlap.
+        // Longer than the next record's two site requests, so the readings must overlap.
         await tick();
         await tick();
         await tick();
@@ -1463,11 +1458,11 @@ describe('two runners sharing the site', () => {
     for (const id of ids) expect((await repository.get(id))?.outcome).toBe('tor_analysed');
   });
 
-  test('a refusal from the site stops both runners at once and leaves the rest queued', async () => {
+  test('a refusal from the site stops the Run at once and leaves the rest queued', async () => {
     let siteCalls = 0;
     const repository = new InMemoryProcurementStore();
 
-    const result = await runWith(repository, 2, {
+    const result = await runWith(repository, {
       resolveZipId: async () => {
         siteCalls += 1;
         await tick();
@@ -1475,13 +1470,109 @@ describe('two runners sharing the site', () => {
       },
     });
 
-    // One request made, one refusal; the second runner never reached the site.
+    // One request made, one refusal; no other record reached the site.
     expect(siteCalls).toBe(1);
     expect(result.aborted).toBe(true);
     for (const id of ids) expect((await repository.get(id))?.outcome).toBe('queued');
-    // The refusal is logged once, and the second runner's stop is not a second failure.
+    // The refusal is logged once, and the records not started are not failures.
     expect(result.failures.filter((failure) => failure.stage === 'info')).toHaveLength(1);
     expect(result.failed).toBe(1);
+  });
+});
+
+describe('the Analysis limit and the waiting room (ADR-0020)', () => {
+  const ids = ['66059313551', '66059313552'];
+  const pair = ['A', 'B'].map((letter) =>
+    extracted({ member: `Attach_TOR_${letter}.pdf`, filename: `Attach_TOR_${letter}.pdf` }),
+  );
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 3));
+  const base = (): Partial<IngestionDeps> => ({
+    discoverProjects: async () => ({
+      records: ids.map((projectId) => procurement({ projectId })),
+      notEBidding: 0,
+      tombstoned: 0,
+      truncated: 0,
+      failures: [],
+      rateLimited: false,
+      unreachable: false,
+      complete: true,
+      cursor: {},
+      ranAt: '2026-09-09T00:00:00.000Z',
+    }),
+    extractTorPdfs: () => ({
+      torFiles: pair,
+      members: pair.map((pdf) => pdf.member),
+      unsafeSkipped: [],
+    }),
+  });
+  const classified = {
+    isTor: true,
+    torKind: 'final' as const,
+    whatThisIs: 'ขอบเขตของงาน',
+    analysis,
+    judgement,
+    readMode: 'pdf' as const,
+  };
+
+  test('never more model calls in flight than the limit, across every archive of the Run', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const call = async <T>(value: T): Promise<T> => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await tick();
+      inFlight -= 1;
+      return value;
+    };
+
+    const repository = new InMemoryProcurementStore();
+    await runIngestion(
+      repository,
+      { logger, analysisConcurrency: 1 },
+      deps({
+        ...base(),
+        classifyDocument: () => call(classified),
+        readInvitation: () => call({ documents: [], bidAt: null }),
+      }),
+    );
+
+    expect(peak).toBe(1);
+    for (const id of ids) expect((await repository.get(id))?.outcome).toBe('tor_analysed');
+  });
+
+  test('a full room keeps the next record from the gate until an Archive leaves it', async () => {
+    const events: string[] = [];
+
+    const repository = new InMemoryProcurementStore();
+    await runIngestion(
+      repository,
+      { logger, analysisConcurrency: 1 },
+      deps({
+        ...base(),
+        resolveZipId: async (projectId) => {
+          events.push(`site ${projectId}`);
+          return 'zip-1';
+        },
+        classifyDocument: async () => {
+          // Long enough that the next record would reach the site meanwhile.
+          await tick();
+          await tick();
+          return classified;
+        },
+        readInvitation: async (_archive, projectId) => {
+          await tick();
+          events.push(`analysed ${projectId}`);
+          return { documents: [], bidAt: null };
+        },
+      }),
+    );
+
+    expect(events).toEqual([
+      'site 66059313551',
+      'analysed 66059313551',
+      'site 66059313552',
+      'analysed 66059313552',
+    ]);
   });
 });
 
@@ -1958,9 +2049,11 @@ describe('runIngestion: the timeline', () => {
         read({ projectId: 'fresh', timelineCheckedAt: '2026-10-02T00:00:00.000Z' }),
       );
       await repository.upsert(read({ projectId: 'never', timelineCheckedAt: null }));
+      // Queued before the Run, as Discovery would have left it.
+      await repository.upsert(procurement());
       const announcements = fakeAnnouncements({}, []);
 
-      await run(repository, { announcements });
+      await run(repository, { discoverProjects: noSweep, announcements });
 
       expect(announcements.calls).toEqual([NEW, 'never', 'stale', 'fresh']);
     });
@@ -1968,6 +2061,7 @@ describe('runIngestion: the timeline', () => {
     test('a run for one project does not refresh the others', async () => {
       const repository = new InMemoryProcurementStore();
       await repository.upsert(read());
+      await repository.upsert(procurement());
       const announcements = fakeAnnouncements({}, []);
 
       await runIngestion(repository, { logger, onlyProject: NEW }, deps({ announcements }));
@@ -2018,21 +2112,23 @@ describe('runIngestion: the timeline', () => {
 });
 
 describe('progress reported while a run works', () => {
-  test('shows each record in flight at the stage it is in, and what is left in the queue', async () => {
+  test('shows Discovery, the record in its turn and each Archive under Analysis, and what is left in the queue', async () => {
     const repository = new InMemoryProcurementStore();
-    let latest = null as RunProgress | null;
-    const seen: RunProgress[] = [];
-    const watched = (inside: string) => () => {
-      if (latest) seen.push({ ...latest, inFlight: latest.inFlight.map((work) => ({ ...work })) });
-      return inside;
-    };
+    const all: RunProgress[] = [];
+    const copy = (progress: RunProgress) => ({
+      ...progress,
+      inFlight: progress.inFlight.map((work) => ({ ...work })),
+    });
+    const at: Record<string, RunProgress> = {};
+    let secondTurn: () => void = () => {};
+    const secondReached = new Promise<void>((resolve) => (secondTurn = resolve));
 
     await runIngestion(
       repository,
       {
         logger,
         onProgress: (progress) => {
-          latest = progress;
+          all.push(copy(progress));
         },
       },
       deps({
@@ -2051,9 +2147,14 @@ describe('progress reported while a run works', () => {
           cursor: {},
           ranAt: '2026-09-09T00:00:00.000Z',
         }),
-        resolveZipId: async () => watched('zip-1')(),
+        resolveZipId: async (projectId) => {
+          at[projectId] = all.at(-1)!;
+          if (projectId === 'b') secondTurn();
+          return 'zip-1';
+        },
         classifyDocument: async () => {
-          watched('')();
+          // The first Archive is still being read when the next record takes its turn.
+          await secondReached;
           return {
             isTor: true,
             torKind: 'final',
@@ -2066,29 +2167,26 @@ describe('progress reported while a run works', () => {
       }),
     );
 
-    expect(seen.map(({ inFlight, queueRemaining }) => ({ inFlight, queueRemaining }))).toEqual([
-      {
-        inFlight: [
-          expect.objectContaining({ slot: 0, projectId: 'a', stage: 'info', fresh: true }),
-        ],
-        queueRemaining: 1,
-      },
-      {
-        inFlight: [expect.objectContaining({ projectId: 'a', stage: 'analysis' })],
-        queueRemaining: 1,
-      },
-      {
-        inFlight: [
-          expect.objectContaining({ projectId: 'b', projectName: 'ระบบบัญชี', stage: 'info' }),
-        ],
-        queueRemaining: 0,
-      },
-      {
-        inFlight: [expect.objectContaining({ projectId: 'b', stage: 'analysis' })],
-        queueRemaining: 0,
-      },
+    expect(all[0]?.inFlight).toEqual([
+      expect.objectContaining({ slot: 0, projectId: '-', stage: 'discovery' }),
     ]);
-    expect(latest).toEqual({ inFlight: [], queueRemaining: 0 });
+    expect(at['a']).toEqual({
+      inFlight: [expect.objectContaining({ slot: 1, projectId: 'a', stage: 'info', fresh: true })],
+      queueRemaining: 1,
+    });
+    expect(at['b']).toEqual({
+      inFlight: [
+        expect.objectContaining({
+          slot: 1,
+          projectId: 'b',
+          projectName: 'ระบบบัญชี',
+          stage: 'info',
+        }),
+        expect.objectContaining({ slot: 2, projectId: 'a', stage: 'analysis' }),
+      ],
+      queueRemaining: 0,
+    });
+    expect(all.at(-1)).toEqual({ inFlight: [], queueRemaining: 0 });
   });
 });
 
@@ -2107,7 +2205,7 @@ describe('runIngestion: the timing log', () => {
       deps({
         discoverProjects: async (context) => ({
           ...(await deps().discoverProjects(context)),
-          requests: { newDays: 4, historyDays: 2, details: 1 },
+          requests: { newDays: 4, historyDays: 2 },
         }),
         classifyDocument: async (pdf) => {
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -2128,7 +2226,6 @@ describe('runIngestion: the timing log', () => {
     expect(timing.requests).toEqual({
       newDays: 4,
       historyDays: 2,
-      details: 1,
       retrievalTurns: 1,
       refreshTurns: 0,
     });
@@ -2138,5 +2235,587 @@ describe('runIngestion: the timing log', () => {
     expect(timing.wallMs).toBeGreaterThanOrEqual(timing.analysisBusyMs);
     const { busyMs, pausedMs, idleMs } = timing.gate;
     expect(busyMs + pausedMs + idleMs).toBeLessThanOrEqual(timing.wallMs);
+  });
+});
+
+describe('a Run that streams Discovery, Retrieval and Analysis (ADR-0020)', () => {
+  const TODAY = '2026-10-07';
+  const FOUND = '66109000001';
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  /**
+   * The real sweep over a fake feed, and every site call written to one log in
+   * the order the site would have seen it. The pause is a real (short) wait, so
+   * a Retrieval turn and a feed request can both be waiting when the gate frees.
+   */
+  function streaming(listed: Record<string, string[]> = {}) {
+    const log: string[] = [];
+    const feed: AnnouncementFeed = {
+      async day(deptId, type, day) {
+        log.push(`feed ${day === TODAY ? 'new' : 'history'} ${deptId}:${type}:${day}`);
+        const ids = listed[`${deptId}:${type}:${day}`] ?? [];
+        return {
+          announced: ids.length,
+          withoutId: 0,
+          items: ids.map((projectId) => ({
+            projectId,
+            title: 'ประกวดราคาจ้างพัฒนาระบบ',
+            methodName: E_BIDDING_METHOD,
+            announcementName: 'ประกาศเชิญชวน',
+            announcedOn: null,
+          })),
+        };
+      },
+    };
+    const announcements = fakeAnnouncements({}, []);
+    const timeline = announcements.timeline;
+    announcements.timeline = async (projectId, signal) => {
+      log.push(`timeline ${projectId}`);
+      return timeline(projectId, signal);
+    };
+    const overrides: Partial<IngestionDeps> = {
+      discoverProjects: (context) => discoverProjects({ ...context, today: TODAY }, feed),
+      announcements,
+      resolveZipId: async (projectId) => {
+        log.push(`zip ${projectId}`);
+        return 'zip-1';
+      },
+      downloadArchive: async () => {
+        log.push('download');
+        return new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+      },
+      sleep: () => wait(1),
+    };
+    return { log, overrides };
+  }
+
+  const history = (log: string[]) => log.filter((line) => line.startsWith('feed history'));
+
+  test('a project found on the first new day is retrieved before the last history day is read', async () => {
+    const repository = new InMemoryProcurementStore();
+    const { log, overrides } = streaming({ [`0305:D0:${TODAY}`]: [FOUND] });
+
+    await runIngestion(repository, { logger }, deps(overrides));
+
+    const retrieved = log.indexOf(`timeline ${FOUND}`);
+    expect(retrieved).toBeGreaterThan(-1);
+    expect(retrieved).toBeLessThan(log.lastIndexOf(history(log).at(-1)!));
+    expect((await repository.get(FOUND))?.outcome).toBe('tor_analysed');
+  }, 20_000);
+
+  test('the Run does not end before Discovery has used its history share', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement());
+    const { log, overrides } = streaming();
+
+    await runIngestion(repository, { logger }, deps(overrides));
+
+    expect(history(log)).toHaveLength(FEED_BACKFILL_REQUESTS_PER_RUN);
+    // The queue was done long before; the Run still waited for the sweep.
+    expect(log.indexOf('download')).toBeLessThan(log.length - 1);
+    expect(log.at(-1)).toStartWith('feed history');
+  }, 20_000);
+
+  test('while the model reads, the gate goes on serving Discovery', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement());
+    const { log, overrides } = streaming();
+
+    await runIngestion(
+      repository,
+      { logger },
+      deps({
+        ...overrides,
+        classifyDocument: async (pdf) => {
+          log.push('model start');
+          await wait(40);
+          log.push('model end');
+          return deps().classifyDocument(pdf);
+        },
+      }),
+    );
+
+    const during = log.slice(log.indexOf('model start'), log.indexOf('model end'));
+    expect(during.filter((line) => line.startsWith('feed')).length).toBeGreaterThan(3);
+  }, 20_000);
+
+  /** Three projects queued before the Run; the first one's Archive is read slowly. */
+  async function threeQueued() {
+    const repository = new InMemoryProcurementStore();
+    for (const projectId of ['q1', 'q2', 'q3']) {
+      await repository.upsert(procurement({ projectId, announceDate: `2026-08-0${projectId[1]}` }));
+    }
+    return repository;
+  }
+  const slowModel = (log: string[]): Partial<IngestionDeps> => ({
+    classifyDocument: async (pdf) => {
+      await wait(30);
+      log.push('model end');
+      return deps().classifyDocument(pdf);
+    },
+  });
+  const order = async (repository: InMemoryProcurementStore) =>
+    (await repository.find({ state: 'Queued', limit: 10, offset: 0 })).items.map(
+      (record) => record.projectId,
+    );
+
+  test('a refusal mid-Run: no further site call, the Archive in hand is still analysed and stored', async () => {
+    const repository = await threeQueued();
+    const queuedOrder = await order(repository);
+    const [first, second, third] = queuedOrder as [string, string, string];
+    const { log, overrides } = streaming();
+    const timeline = overrides.announcements!.timeline;
+
+    const result = await runIngestion(
+      repository,
+      { logger },
+      deps({
+        ...overrides,
+        ...slowModel(log),
+        announcements: {
+          ...overrides.announcements!,
+          timeline: async (projectId, signal) => {
+            if (projectId === second) {
+              log.push(`refused ${projectId}`);
+              throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
+            }
+            return timeline(projectId, signal);
+          },
+        },
+      }),
+    );
+
+    const refused = log.indexOf(`refused ${second}`);
+    expect(refused).toBeGreaterThan(-1);
+    // Nothing more was asked of the site; only the model finished its reading.
+    expect(log.slice(refused + 1)).toEqual(['model end']);
+    expect(result.aborted).toBe(true);
+    expect(result.stopped).toBeNull();
+    expect(result.discoveryStopped).toBe('rate_limited');
+    expect((await repository.get(first))?.outcome).toBe('tor_analysed');
+    for (const id of [second, third]) {
+      expect(await repository.get(id)).toMatchObject({ state: 'Queued', attempts: 0 });
+    }
+    expect(log).not.toContain(`timeline ${third}`);
+  }, 20_000);
+
+  test('an administrator stop: no further site call, the Archive in hand is stored, and it is not a refusal', async () => {
+    const repository = await threeQueued();
+    const [first, second, third] = (await order(repository)) as [string, string, string];
+    const { log, overrides } = streaming();
+    let stop = false;
+
+    const result = await runIngestion(
+      repository,
+      { logger, stopRequested: () => stop },
+      deps({
+        ...overrides,
+        ...slowModel(log),
+        downloadArchive: async () => {
+          log.push('download');
+          stop = true; // asked while the first record downloads
+          return new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+        },
+      }),
+    );
+
+    const asked = log.indexOf('download');
+    expect(log.slice(asked + 1)).toEqual(['model end']);
+    expect(result.stopped).toBe('admin');
+    expect(result.aborted).toBe(false);
+    expect(result.discoveryStopped).toBeNull();
+    expect(result.attempted).toBe(1);
+    expect((await repository.get(first))?.outcome).toBe('tor_analysed');
+    for (const id of [second, third]) {
+      expect(await repository.get(id)).toMatchObject({ state: 'Queued', attempts: 0 });
+    }
+    expect(await repository.listFailures()).toEqual([]);
+  }, 20_000);
+
+  test('a refresh whose invitation moved while the room is full waits its turn behind the queue, and does not deadlock', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement({ projectId: 'new' }));
+    await repository.upsert(
+      procurement({
+        projectId: 'read',
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        milestones: { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } },
+        timelineCheckedAt: '2026-10-01T00:00:00.000Z',
+        deadlineAt: '2026-10-25T00:00:00.000Z',
+        deadlineSource: 'invitation',
+      }),
+    );
+    const log: string[] = [];
+    const announcements = fakeAnnouncements(
+      { read: [{ announceType: 'D0', announceDate: '2026-09-27T02:00:00.000Z' }] },
+      [],
+    );
+    const timeline = announcements.timeline;
+    announcements.timeline = async (projectId, signal) => {
+      log.push(`timeline ${projectId}`);
+      return timeline(projectId, signal);
+    };
+
+    const result = await runIngestion(
+      repository,
+      // One place: the new project's Archive fills the room while the refresh has its turn.
+      { logger, analysisConcurrency: 1 },
+      deps({
+        discoverProjects: async (context) => ({
+          ...(await deps().discoverProjects(context)),
+          records: [],
+        }),
+        announcements,
+        downloadArchive: async () => {
+          log.push('download');
+          return new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+        },
+        classifyDocument: async (pdf) => {
+          await wait(20);
+          log.push('model end');
+          return deps().classifyDocument(pdf);
+        },
+        readInvitation: async (_archive, projectId) => {
+          log.push(`invitation ${projectId}`);
+          return {
+            documents: [],
+            bidAt: projectId === 'read' ? '2026-10-30T00:00:00.000Z' : null,
+          };
+        },
+      }),
+    );
+
+    expect(log).toEqual([
+      'timeline new',
+      'download',
+      // The room is full: no download now, and nothing written.
+      'timeline read',
+      'model end',
+      'invitation new',
+      // Back behind the queue, it took a place before its turn, then fetched.
+      'timeline read',
+      'download',
+      'invitation read',
+    ]);
+    expect(result.refreshed).toBe(1);
+    expect(await repository.get('read')).toMatchObject({
+      deadlineAt: '2026-10-30T00:00:00.000Z',
+      milestones: { invited: { at: '2026-09-27T00:00:00.000Z' } },
+    });
+    expect((await repository.get('new'))?.outcome).toBe('tor_analysed');
+  });
+
+  test('a model call that outlives its record deadline keeps its place in the room until it settles', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement({ projectId: 'a', announceDate: '2026-08-02' }));
+    await repository.upsert(procurement({ projectId: 'b', announceDate: '2026-08-01' }));
+    const log: string[] = [];
+    const announcements = fakeAnnouncements({}, []);
+    const timeline = announcements.timeline;
+    announcements.timeline = async (projectId, signal) => {
+      log.push(`timeline ${projectId}`);
+      return timeline(projectId, signal);
+    };
+    let calls = 0;
+
+    const result = await runIngestion(
+      repository,
+      { logger, analysisConcurrency: 1 },
+      deps({
+        discoverProjects: async (context) => ({
+          ...(await deps().discoverProjects(context)),
+          records: [],
+        }),
+        announcements,
+        recordDeadlineMs: 20,
+        classifyDocument: async (pdf) => {
+          calls += 1;
+          if (calls === 1) {
+            // Far past the deadline, then it answers after all.
+            await wait(80);
+            log.push('late model call settled');
+          }
+          return deps().classifyDocument(pdf);
+        },
+      }),
+    );
+
+    // The first record was given up at its deadline, but the second did not
+    // start until the model had let go of the first Archive.
+    expect(log).toEqual(['timeline a', 'late model call settled', 'timeline b']);
+    expect(await repository.get('a')).toMatchObject({ outcome: 'error', attempts: 1 });
+    expect((await repository.get('b'))?.outcome).toBe('tor_analysed');
+    expect(result.attempted).toBe(2);
+  });
+});
+
+describe('a site that stops answering, counted across the whole Run', () => {
+  const silence = () => new UnreachableError('transport error: timed out');
+  const nothing = {
+    records: [],
+    notEBidding: 0,
+    tombstoned: 0,
+    truncated: 0,
+    failures: [],
+    rateLimited: false,
+    unreachable: false,
+    complete: true,
+    cursor: {},
+    ranAt: '2026-09-09T00:00:00.000Z',
+  };
+
+  /**
+   * Discovery's feed requests are scripted: each step is a request that gets no
+   * answer ('silent') or one that does ('answered'), or a wait for Retrieval's
+   * next timeline request to be done (the first also hands it two projects).
+   * Retrieval's timelines answer as `timelines` says.
+   */
+  async function scripted(
+    steps: Array<'silent' | 'answered' | 'retrieval'>,
+    timelines: Array<'silent' | 'answered'>,
+  ) {
+    const repository = new InMemoryProcurementStore();
+    // Handed to Retrieval by Discovery, at its first 'retrieval' step, so the
+    // order of requests is the script's and not a race.
+    const found = [
+      procurement({ projectId: 'q1', announceDate: '2026-08-02' }),
+      procurement({ projectId: 'q2', announceDate: '2026-08-01' }),
+    ];
+    let handed = false;
+    const log: string[] = [];
+    const turnsDone: Array<() => void> = [];
+    const turnDone = () => new Promise<void>((resolve) => turnsDone.push(resolve));
+    let waiting = turnDone();
+    const announcements = fakeAnnouncements({}, []);
+    let turn = 0;
+    announcements.timeline = async (projectId) => {
+      const answer = timelines[turn++] ?? 'answered';
+      log.push(`timeline ${projectId} ${answer}`);
+      // Discovery goes on at once, so its next request is at the gate (a better
+      // tier) before the next record's.
+      turnsDone.shift()?.();
+      if (answer === 'silent') throw silence();
+      return [];
+    };
+
+    const result = await runIngestion(
+      repository,
+      { logger },
+      deps({
+        announcements,
+        discoverProjects: async (context) => {
+          for (const step of steps) {
+            if (step === 'retrieval') {
+              if (!handed) {
+                handed = true;
+                await context.save({ records: found, failures: [], cursor: {} });
+              }
+              await waiting;
+              waiting = turnDone();
+              continue;
+            }
+            try {
+              await context.site('new_day', async () => {
+                log.push(`feed ${step}`);
+                if (step === 'silent') throw silence();
+              });
+            } catch (error) {
+              // A request with no answer is the sweep's own failure; it goes on.
+              if (error instanceof UnreachableError) continue;
+              log.push(`feed turned away: ${(error as Error).name}`);
+              break;
+            }
+          }
+          return { ...nothing, complete: false };
+        },
+      }),
+    );
+    return { result, repository, log };
+  }
+
+  test('Discovery and Retrieval timeouts interleaved stop the Run as unreachable', async () => {
+    const { result, repository, log } = await scripted(
+      ['silent', 'retrieval', 'silent', 'answered'],
+      ['silent'],
+    );
+
+    expect(log).toEqual([
+      'feed silent',
+      'timeline q1 silent',
+      'feed silent',
+      // The third silence in a row closed the gate: nothing more reached the site.
+      'feed turned away: SiteClosedError',
+    ]);
+    expect(result.discoveryStopped).toBe('unreachable');
+    expect(result.aborted).toBe(false);
+    // q1's timeout came before the site was known to be down: an ordinary
+    // transport failure. q2 was never started.
+    expect(await repository.get('q1')).toMatchObject({ outcome: 'error', attempts: 1 });
+    expect(await repository.get('q2')).toMatchObject({ state: 'Queued', attempts: 0 });
+  });
+
+  test('the record whose timeout shows the site is down goes back to the queue without spending an attempt', async () => {
+    const { result, repository, log } = await scripted(
+      ['silent', 'silent', 'retrieval', 'answered'],
+      ['silent'],
+    );
+
+    expect(log).toEqual([
+      'feed silent',
+      'feed silent',
+      'timeline q1 silent',
+      'feed turned away: SiteClosedError',
+    ]);
+    expect(result.discoveryStopped).toBe('unreachable');
+    expect(await repository.get('q1')).toMatchObject({ outcome: 'queued', attempts: 0 });
+    expect(await repository.get('q2')).toMatchObject({ outcome: 'queued', attempts: 0 });
+    expect(result.failures.map((failure) => failure.projectId)).toEqual(['q1']);
+  });
+
+  test('a request answered in between starts the count again', async () => {
+    const { result, log } = await scripted(
+      ['silent', 'retrieval', 'silent', 'silent'],
+      ['answered', 'answered'],
+    );
+
+    expect(log.filter((line) => line.startsWith('feed'))).toEqual([
+      'feed silent',
+      'feed silent',
+      'feed silent',
+    ]);
+    expect(log).toContain('timeline q1 answered');
+    expect(result.discoveryStopped).toBeNull();
+  });
+});
+
+describe('a full room, a hanging site, and a deadline that fires mid-write', () => {
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const nothing = async (context: SweepContext) => ({
+    ...(await deps().discoverProjects(context)),
+    records: [],
+  });
+  const logged = (log: string[], timelines: Record<string, AnnouncementRow[] | null> = {}) => {
+    const announcements = fakeAnnouncements(timelines, []);
+    const timeline = announcements.timeline;
+    announcements.timeline = async (projectId, signal) => {
+      log.push(`timeline ${projectId}`);
+      return timeline(projectId, signal);
+    };
+    return announcements;
+  };
+
+  test('a full room holds back fresh work, not the refreshes queued behind it', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement({ projectId: 'f1', announceDate: '2026-08-02' }));
+    await repository.upsert(procurement({ projectId: 'f2', announceDate: '2026-08-01' }));
+    await repository.upsert(
+      procurement({
+        projectId: 'r',
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        milestones: { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } },
+        timelineCheckedAt: '2026-10-01T00:00:00.000Z',
+      }),
+    );
+    const log: string[] = [];
+    const [first, second] = (
+      await repository.find({ state: 'Queued', limit: 10, offset: 0 })
+    ).items.map((record) => record.projectId) as [string, string];
+
+    await runIngestion(
+      repository,
+      { logger, analysisConcurrency: 1 },
+      deps({
+        discoverProjects: nothing,
+        // An unchanged timeline: the refresh needs no download, so no place.
+        announcements: logged(log, {
+          r: [{ announceType: 'D0', announceDate: '2026-09-20T02:00:00.000Z' }],
+        }),
+        classifyDocument: async (pdf) => {
+          await wait(30);
+          log.push('model end');
+          return deps().classifyDocument(pdf);
+        },
+      }),
+    );
+
+    expect(log).toEqual([
+      `timeline ${first}`,
+      // The first Archive fills the room; the refresh has its turn meanwhile.
+      'timeline r',
+      'model end',
+      `timeline ${second}`,
+      'model end',
+    ]);
+  });
+
+  test('requests the record deadline cancelled count as unanswered: three stop the Run as unreachable', async () => {
+    const repository = new InMemoryProcurementStore();
+    for (const [index, projectId] of ['h1', 'h2', 'h3', 'h4'].entries()) {
+      await repository.upsert(procurement({ projectId, announceDate: `2026-08-0${9 - index}` }));
+    }
+    const asked: string[] = [];
+    const announcements = fakeAnnouncements({}, []);
+    // A site that hangs: nothing comes back until the deadline cancels the request.
+    announcements.timeline = (projectId, signal) =>
+      new Promise((_resolve, reject) => {
+        asked.push(projectId);
+        signal?.addEventListener('abort', () =>
+          reject(new UpstreamError('Request cancelled: https://process5.gprocurement.go.th/…')),
+        );
+      });
+
+    const result = await runIngestion(
+      repository,
+      { logger },
+      deps({ discoverProjects: nothing, announcements, recordDeadlineMs: 20 }),
+    );
+
+    expect(asked).toEqual(['h1', 'h2', 'h3']);
+    expect(result.discoveryStopped).toBe('unreachable');
+    for (const id of ['h1', 'h2']) {
+      expect(await repository.get(id)).toMatchObject({ outcome: 'error', attempts: 1 });
+    }
+    // The third showed the site is down: not the record's fault.
+    expect(await repository.get('h3')).toMatchObject({ outcome: 'queued', attempts: 0 });
+    expect(await repository.get('h4')).toMatchObject({ outcome: 'queued', attempts: 0 });
+  });
+
+  test('a deadline that fires between two writes of an outcome leaves only the failure stored and counted', async () => {
+    class SlowNotes extends InMemoryProcurementStore {
+      override async recordFailures(
+        failures: Parameters<InMemoryProcurementStore['recordFailures']>[0],
+      ) {
+        // The note before the outcome is slow to store: the deadline fires meanwhile.
+        if (failures.some((failure) => failure.error.includes('no candidate could be read'))) {
+          await wait(50);
+        }
+        return super.recordFailures(failures);
+      }
+    }
+    const repository = new SlowNotes();
+    await repository.upsert(procurement());
+
+    const result = await runIngestion(
+      repository,
+      { logger },
+      deps({
+        discoverProjects: nothing,
+        recordDeadlineMs: 20,
+        classifyDocument: async () => ({
+          isTor: false,
+          torKind: null,
+          whatThisIs: '',
+          analysis: null,
+          judgement: null,
+          unreadable: '429 Resource exhausted',
+        }),
+      }),
+    );
+    await wait(60);
+
+    expect(await repository.get('66059313551')).toMatchObject({ outcome: 'error', attempts: 1 });
+    expect(result).toMatchObject({ failed: 1, torAnalysed: 0, held: 0, dropped: 0 });
   });
 });

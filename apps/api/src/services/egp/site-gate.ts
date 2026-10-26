@@ -1,23 +1,23 @@
 import { RateLimitedError } from './client';
 
 /**
- * What lets more than one runner share the upstream site without breaking the
- * terms it is used under.
+ * What lets Discovery and the Retrieval worker share the upstream site without
+ * breaking the terms it is used under.
  *
  * `gprocurement.go.th` is reached under a research authorisation, and the code
  * keeps to its spirit: single-file requests, a politeness delay between them,
  * and a hard stop on a rate-limit response (there is no volume cap; ADR-0015).
- * Several runners could each honour those on their own and still, together,
- * break them. So the terms live in one place that every runner
- * goes through:
+ * Discovery and Retrieval run side by side in a Run (ADR-0020), and each could
+ * honour those on its own and still, together, break them. So the terms live in
+ * one place that every request of the Run goes through:
  *
- *  - at most one site section in flight, across all runners;
+ *  - at most one site section in flight, Discovery's or Retrieval's;
  *  - a pause after each, taken before the next may begin;
  *  - when it frees, the best tier waiting goes next (`GATE_TIERS`), first come
  *    first served within a tier. A worse tier can wait, but not for ever: a Run
  *    does not end until its work is done (ADR-0020);
  *  - released even when the section throws, and never before it has settled;
- *  - a refusal latches it, and every runner — waiting or arriving later — is
+ *  - a refusal latches it, and every caller — waiting or arriving later — is
  *    refused in turn without touching the site.
  *
  * Work that is not a site request (the model reading a PDF) runs outside it.
@@ -30,7 +30,10 @@ import { RateLimitedError } from './client';
 export const GATE_TIERS = ['new_day', 'fresh', 'refresh', 'history'] as const;
 export type GateTier = (typeof GATE_TIERS)[number];
 
-/** Raised to a runner that did not itself meet a refusal but must stop as if it had. */
+/**
+ * Raised to a caller, Discovery or Retrieval, that did not itself meet a
+ * refusal but must stop as if it had.
+ */
 export class SiteLatchedError extends RateLimitedError {
   constructor() {
     super('the upstream site', 429);
@@ -38,6 +41,25 @@ export class SiteLatchedError extends RateLimitedError {
     this.name = 'SiteLatchedError';
   }
 }
+
+/**
+ * Raised to a caller of a gate closed for a reason other than a refusal: an
+ * administrator's stop, a lost lease, a site that stopped answering. Not a
+ * rate limit, so nothing that meets it reads it as the site saying no.
+ */
+export class SiteClosedError extends Error {
+  /** `unreachable` where the site stopped answering; `stopped` for every other reason. */
+  constructor(readonly reason: SiteClosedReason = 'stopped') {
+    super(
+      reason === 'unreachable'
+        ? 'Upstream site access is closed: the site stopped answering.'
+        : 'Upstream site access is closed: the Run is stopping.',
+    );
+    this.name = 'SiteClosedError';
+  }
+}
+
+export type SiteClosedReason = 'unreachable' | 'stopped';
 
 export interface SiteGateHold {
   /**
@@ -55,6 +77,12 @@ export interface SiteGate {
   acquire(tier: GateTier): Promise<SiteGateHold>;
   /** Stop all site access: pending and future acquirers are refused. */
   latch(): void;
+  /**
+   * Stop all site access for a reason that is not a refusal: pending and future
+   * acquirers get `SiteClosedError`. A section in flight finishes as usual. A
+   * latch, before or after, wins.
+   */
+  close(reason?: SiteClosedReason): void;
   /** How many are waiting for the gate right now. */
   readonly pending: number;
   /** Where the gate's time has gone since it was made, up to now. */
@@ -80,7 +108,11 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
   const now = deps.now ?? Date.now;
   let held = false;
   let latched = false;
-  type Waiter = { grant: (hold: SiteGateHold) => void; refuse: () => void };
+  let closed: SiteClosedReason | false = false;
+  type Waiter = {
+    grant: (hold: SiteGateHold) => void;
+    refuse: (error: Error) => void;
+  };
   // One line per tier, in GATE_TIERS order.
   const waiting: Record<GateTier, Waiter[]> = { new_day: [], fresh: [], refresh: [], history: [] };
   const nextWaiter = () => {
@@ -100,6 +132,11 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
     since = at;
   };
 
+  const refuseAll = (error: () => Error) => {
+    for (const tier of GATE_TIERS)
+      for (const waiter of waiting[tier].splice(0)) waiter.refuse(error());
+  };
+
   const makeHold = (): SiteGateHold => {
     let released = false;
     holds += 1;
@@ -112,8 +149,8 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
           enter('paused');
           await deps.pause();
         }
-        const next = nextWaiter();
-        if (next && !latched) next.grant(makeHold());
+        const next = latched || closed ? undefined : nextWaiter();
+        if (next) next.grant(makeHold());
         else {
           held = false;
           enter('idle');
@@ -125,18 +162,25 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
   const gate: SiteGate = {
     async acquire(tier) {
       if (latched) throw new SiteLatchedError();
+      if (closed) throw new SiteClosedError(closed);
       if (!held) {
         held = true;
         return makeHold();
       }
-      return new Promise<SiteGateHold>((grant, reject) => {
-        waiting[tier].push({ grant, refuse: () => reject(new SiteLatchedError()) });
+      return new Promise<SiteGateHold>((grant, refuse) => {
+        waiting[tier].push({ grant, refuse });
       });
     },
 
     latch() {
       latched = true;
-      for (const tier of GATE_TIERS) for (const waiter of waiting[tier].splice(0)) waiter.refuse();
+      refuseAll(() => new SiteLatchedError());
+    },
+
+    close(reason = 'stopped') {
+      if (latched || closed) return;
+      closed = reason;
+      refuseAll(() => new SiteClosedError(reason));
     },
 
     get pending() {

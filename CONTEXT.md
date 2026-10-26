@@ -11,7 +11,7 @@ hundred that don't.
 **Procurement**:
 One government procurement project, identified upstream by an 11-digit
 `projectId`. The single record the whole system is built around — it carries what
-the open-data API published, what the retrieval stage fetched, and what the AI
+the announcement feed published, what the retrieval stage fetched, and what the AI
 read.
 _Avoid_: Tor, IngestionRecord, Project, Announcement, Opportunity
 
@@ -29,20 +29,39 @@ _Avoid_: package, bundle, zip file
 ### Pipeline stages
 
 **Discovery**:
-The cheap, broad sweep of the open-data API that finds Procurements and buckets
-them by a heuristic over their Thai titles.
+The stage that reads e-GP's announcement feed (RSS), one Source Registry agency,
+one announcement type (draft TOR B0, invitation D0) and one day per request, and
+admits the e-bidding projects that have no tombstone. No title is consulted.
+Each new project is stored as Queued at once and handed to Retrieval.
 _Avoid_: crawl, scrape, scan
 
 **Retrieval**:
-The slow, rate-limited, per-run-capped stage that fetches a Procurement's Archive,
-stores its documents, and has them read. Deliberately separate from Discovery.
+One turn at the Gate per Procurement: its project detail (until it has been read
+once), its announcement timeline (greenBook), the Archive lookup and the
+download. No per-Run cap (ADR-0015). The Archive is held in memory for Analysis
+and never stored (ADR-0002, TOR documents are not stored).
 _Avoid_: download, fetch, ingest
 
 **Run**:
-One execution of Discovery followed by Retrieval, bounded by a per-run download
-cap and never overlapping another. What a Site Administrator starts and what the
-failure log is grouped by.
+One execution of Discovery, Retrieval and Analysis side by side, never
+overlapping another Run. It ends when all three are done, or once the Gate is
+closed — by a refusal, a site that stopped answering, or an administrator's
+stop — and Analysis has finished the Archives it holds. What a Site
+Administrator starts and what the failure log is grouped by.
 _Avoid_: job, sweep, batch, ingestion
+
+**Gate**:
+The one way a Run reaches e-GP: one request at a time, a pause after each, the
+next turn to the best tier waiting (new days, never-read projects, refreshes,
+history). A refusal latches it; any other stop closes it. Either way no further
+request is made that Run.
+_Avoid_: lock, throttle, rate limiter
+
+**Waiting room**:
+The Archives a Run holds in memory, waiting for or under Analysis. It has as many
+places as Analysis has model calls (`ANALYSIS_CONCURRENCY`); when it is full,
+Retrieval of new projects waits.
+_Avoid_: buffer, cache
 
 **Source Registry**:
 The fixed list of Thai agency names the system collects under. Membership is a
@@ -85,12 +104,6 @@ is the only reliable signal that a Procurement is still open to a bid.
 _Avoid_: contractor, vendor, supplier, awardee
 
 ### What the system infers
-
-**Software Class**:
-How likely a Procurement is to be software work, guessed from its Thai title
-alone. Directional triage — good enough to order a queue, never good enough to
-quote as a statistic or to filter on without a human path around it.
-_Avoid_: category, classification, type
 
 **Document Role**:
 What a document inside an Archive turned out to be — the main TOR, a draft or

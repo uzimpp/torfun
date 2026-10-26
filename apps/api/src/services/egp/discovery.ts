@@ -1,21 +1,18 @@
 import type { IngestionFailure, Procurement } from '@torfun/types';
 import type { FeedCursor } from '../../repositories/procurement.repository';
 import { admit } from './admission';
-import { createAnnouncementClient, type AnnouncementClient } from './announcement-client';
 import { createAnnouncementFeed, type AnnouncementFeed, type FeedItem } from './announcement-feed';
-import { RateLimitedError, UnreachableError } from './client';
+import { RateLimitedError } from './client';
 import {
   FEED_ANNOUNCEMENT_TYPES,
   FEED_BACKFILL_REQUESTS_PER_RUN,
   FEED_HISTORY_DAYS,
   FEED_REGISTRY,
-  SITE_UNREACHABLE_AFTER,
   type FeedAnnouncementType,
 } from './constants';
 import { convertDateToISO } from './dates';
 import { queuedRecord } from './feed-record';
-import { detailOf, readProjectDetail, type DetailFields } from './project-detail';
-import type { GateTier } from './site-gate';
+import { SiteClosedError, SiteLatchedError, type GateTier } from './site-gate';
 
 /**
  * Stage 1 of the pipeline: e-GP's announcement feed, asked agency by agency and
@@ -25,10 +22,10 @@ import type { GateTier } from './site-gate';
  * so a sweep is a grid of those, and the cursor remembers, per agency and type,
  * the range of days already read in full. A sweep asks about the days after that
  * range (and today, still filling), then a share of the year before it. A
- * project not stored yet has its detail read before it is kept, because the
- * feed does not say which year's budget it spends (ADR-0019). Every request
- * goes to gprocurement.go.th, the site the downloads use, so each is made
- * through the SiteGate like theirs (`site`).
+ * project is stored from the feed alone: the feed does not say which year's
+ * budget it spends, so its year stays null until Retrieval reads its project
+ * detail (ADR-0020). Every request goes to gprocurement.go.th, the site the
+ * downloads use, so each is made through the SiteGate like theirs (`site`).
  */
 
 /** Which of these project ids have a tombstone. */
@@ -43,8 +40,6 @@ export interface SweepContext {
   /** The days already read in full, per agency and announcement type; see `cursorKey`. */
   cursor: FeedCursor;
   tombstonedIds: TombstoneLookup;
-  /** The records already stored for these project ids; their detail is not read again. */
-  storedRecords: (projectIds: string[]) => Promise<Procurement[]>;
   /** Today as a Bangkok calendar day, `YYYY-MM-DD`. */
   today: string;
   /**
@@ -52,6 +47,8 @@ export interface SweepContext {
    * while the sweep goes on and a Run that stops early keeps what it found.
    */
   save: (batch: SweepBatch) => Promise<void>;
+  /** Told which agency-day is about to be asked, for the Run's live view. */
+  reading?: (what: string) => void;
 }
 
 /** What one agency-day of the sweep added: records, failures, and the unit's new range. */
@@ -79,18 +76,19 @@ export interface DiscoveryResult {
    */
   rateLimited: boolean;
   /**
-   * `SITE_UNREACHABLE_AFTER` requests in a row got no answer, and the sweep
-   * stopped there. Like a refusal, the caller stops the Run.
+   * The Run closed the gate because the site stopped answering: its last
+   * `SITE_UNREACHABLE_AFTER` requests, Discovery's and Retrieval's alike, got no
+   * answer (the count is kept where every request passes, in the pipeline).
    */
   unreachable: boolean;
   /**
-   * Every agency's new days were read. Only then does the sweep count as done,
-   * so a Run soon after skips it; one with a failed day must be asked again.
+   * Every agency's new days were read, and the sweep was not stopped. Only then
+   * is it recorded as the last finished sweep.
    */
   complete: boolean;
   ranAt: string;
   /** Requests made, by kind, for the Run's timing log. Absent where no sweep was made. */
-  requests?: { newDays: number; historyDays: number; details: number };
+  requests?: { newDays: number; historyDays: number };
 }
 
 /** One cell of the sweep's grid: an agency's announcements of one type. */
@@ -120,28 +118,21 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function toRecord(
-  agency: Unit['agency'],
-  item: FeedItem,
-  day: string,
-  detail: DetailFields,
-): Procurement {
-  return {
-    ...queuedRecord(
-      item.projectId,
-      {
-        projectName: item.title,
-        // The feed is asked per agency, so the agency is the one asked about.
-        deptName: agency.deptName,
-        deptCode: agency.deptId,
-        announceDate: convertDateToISO(item.announcedOn ?? day),
-        budgetYear: detail.budgetYear,
-        purchaseMethodName: item.methodName,
-      },
-      new Date(),
-    ),
-    ...detail,
-  };
+function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurement {
+  return queuedRecord(
+    item.projectId,
+    {
+      projectName: item.title,
+      // The feed is asked per agency, so the agency is the one asked about.
+      deptName: agency.deptName,
+      deptCode: agency.deptId,
+      announceDate: convertDateToISO(item.announcedOn ?? day),
+      // Not in the feed, and never guessed: Retrieval reads it from the project detail.
+      budgetYear: null,
+      purchaseMethodName: item.methodName,
+    },
+    new Date(),
+  );
 }
 
 /**
@@ -154,15 +145,14 @@ function toRecord(
  *     A unit never read asks only about today here; history covers the rest.
  *  2. History: from the day before each unit's range back towards
  *     `FEED_HISTORY_DAYS` ago, newest first, until `FEED_BACKFILL_REQUESTS_PER_RUN`
- *     requests (feed and detail alike) have been spent. The next sweep carries
+ *     feed requests have been spent. The next sweep carries
  *     on where this one stopped.
  *
  * Within a day every unit is asked before the next day, so a refusal leaves the
  * agencies at about the same place. A range only ever grows by a contiguous day:
  * a unit whose day failed stops moving in that direction this sweep, and the
- * next sweep asks that day again. A day where a new project's detail could not
- * be read counts as failed too, so that project is found again. Today is never
- * added to a range, because it is still filling.
+ * next sweep asks that day again. Today is never added to a range, because it
+ * is still filling.
  *
  * Admission is the agency (the feed is asked per agency), the tender method and
  * the tombstone. The title is not consulted (ADR-0014).
@@ -170,7 +160,6 @@ function toRecord(
 export async function discoverProjects(
   context: SweepContext,
   feed: AnnouncementFeed = createAnnouncementFeed(),
-  announcements: AnnouncementClient = createAnnouncementClient(),
 ): Promise<DiscoveryResult> {
   const { today } = context;
   const yesterday = addDays(today, -1);
@@ -184,25 +173,17 @@ export async function discoverProjects(
   let truncated = 0;
   let rateLimited = false;
   let unreachable = false;
-  /** Requests in a row that got no answer at all. */
-  let silent = 0;
-  const halted = () => rateLimited || unreachable;
+  /** The Run closed the gate for its own reasons (an administrator's stop, say). */
+  let closed = false;
+  const halted = () => rateLimited || unreachable || closed;
   /** Requests made so far, so history can be held to its share. */
   let requests = 0;
   let pass: 'newDays' | 'historyDays' = 'newDays';
-  const byKind = { newDays: 0, historyDays: 0, details: 0 };
-  /** A request at the tier of the pass it is made in, a detail read included. */
+  const byKind = { newDays: 0, historyDays: 0 };
+  /** A request at the tier of the pass it is made in. */
   const site = async <T>(call: () => Promise<T>): Promise<T> => {
     requests += 1;
-    try {
-      const answer = await context.site(pass === 'newDays' ? 'new_day' : 'history', call);
-      silent = 0;
-      return answer;
-    } catch (error) {
-      silent = error instanceof UnreachableError ? silent + 1 : 0;
-      if (silent >= SITE_UNREACHABLE_AFTER) unreachable = true;
-      throw error;
-    }
+    return context.site(pass === 'newDays' ? 'new_day' : 'history', call);
   };
 
   const units: Unit[] = FEED_REGISTRY.flatMap((agency) =>
@@ -232,36 +213,37 @@ export async function discoverProjects(
     savedFailures = failures.length;
   };
 
-  const log = (projectId: string, projectName: string, error: string) =>
-    failures.push({ projectId, projectName, stage: 'discovery', kind: 'fault', error, at: now() });
   const fail = (unit: Unit, day: string, error: string) =>
-    log('-', `${unit.agency.deptName} / ${unit.type} / ${day}`, error);
+    failures.push({
+      projectId: '-',
+      projectName: `${unit.agency.deptName} / ${unit.type} / ${day}`,
+      stage: 'discovery',
+      kind: 'fault',
+      error,
+      at: now(),
+    });
   const failWith = (unit: Unit, day: string, error: unknown) => {
+    // The gate turned this request away before it reached the site: the Run is
+    // stopping. Nothing failed on this day, so nothing is logged against it; a
+    // refusal met by Retrieval is logged there.
+    if (error instanceof SiteClosedError) {
+      if (error.reason === 'unreachable') unreachable = true;
+      else closed = true;
+      return;
+    }
+    if (error instanceof SiteLatchedError) {
+      rateLimited = true;
+      return;
+    }
     fail(unit, day, error instanceof Error ? error.message : String(error));
     if (error instanceof RateLimitedError) rateLimited = true;
-  };
-
-  /** A new project's detail, or null where it could not be read (logged). */
-  const readDetail = async (unit: Unit, day: string, item: FeedItem) => {
-    try {
-      byKind.details += 1;
-      const result = await site(() => readProjectDetail(announcements, item.projectId));
-      if ('fields' in result) return result.fields;
-      log(
-        item.projectId,
-        item.title,
-        `Not stored, and ${unit.type} / ${day} will be read again next Run: ${result.error}`,
-      );
-    } catch (error) {
-      failWith(unit, day, error);
-    }
-    return null;
   };
 
   /** Ask the feed about one unit's day and admit what it lists. False where the day could not be read. */
   const read = async (unit: Unit, day: string): Promise<boolean> => {
     let answer;
     byKind[pass] += 1;
+    context.reading?.(`${unit.agency.deptName} / ${unit.type} / ${day}`);
     try {
       answer = await site(() => feed.day(unit.agency.deptId, unit.type, day));
     } catch (error) {
@@ -286,13 +268,6 @@ export async function discoverProjects(
     const registry = new Set([unit.agency.deptName]);
     const ids = answer.items.map((item) => item.projectId);
     const ruledOut = ids.length > 0 ? await context.tombstonedIds(ids) : new Set<string>();
-    const stored = new Map(
-      (ids.length > 0 ? await context.storedRecords(ids) : []).map((record) => [
-        record.projectId,
-        detailOf(record),
-      ]),
-    );
-    let complete = true;
 
     for (const item of answer.items) {
       const row = {
@@ -309,15 +284,7 @@ export async function discoverProjects(
           break;
         case 'admit': {
           const seen = byProjectId.get(item.projectId);
-          const detail = seen
-            ? detailOf(seen.record)
-            : (stored.get(item.projectId) ?? (await readDetail(unit, day, item)));
-          if (detail === null) {
-            if (halted()) return false;
-            complete = false;
-            break;
-          }
-          const record = toRecord(unit.agency, item, day, detail);
+          const record = toRecord(unit.agency, item, day);
           // Seen as both a draft and an invitation, the invitation dates it; seen
           // twice as the same type (a re-announcement), the newer one does.
           if (
@@ -336,7 +303,7 @@ export async function discoverProjects(
           break;
       }
     }
-    return complete;
+    return true;
   };
 
   // 1. New days, oldest first.
@@ -372,8 +339,6 @@ export async function discoverProjects(
   history: for (let day = yesterday; day >= oldest && !halted(); day = addDays(day, -1)) {
     for (const unit of units) {
       if (stalledOld.has(unit.key) || day !== nextOld(unit)) continue;
-      // Checked before each day, not each request: a day begun is finished, so
-      // its new projects can take the share a little past the limit.
       if (requests - historyStart >= FEED_BACKFILL_REQUESTS_PER_RUN) break history;
       const ok = await read(unit, day);
       if (ok) {

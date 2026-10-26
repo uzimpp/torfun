@@ -89,6 +89,11 @@ describe('ProcurementTable', () => {
     expect(status).not.toHaveTextContent(/อยู่ในขั้นนี้|ลองแล้ว/);
   });
 
+  test('shows a dash for a year not read yet, never a guess', () => {
+    renderTable([record({ budgetYear: null })]);
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('ปีงบ —');
+  });
+
   test('while loading, holds the table open with placeholder rows and says it is busy', () => {
     renderTable([], true);
     expect(screen.getByRole('table')).toHaveAttribute('aria-busy', 'true');

@@ -16,9 +16,9 @@ interface CountsDocument {
   new_records: number;
   changed_records: number;
   unchanged_records: number;
-  discovery_skipped: boolean;
+  /** Written by Runs before ADR-0020 only. */
+  discovery_skipped?: boolean;
   discovery_stopped: RunCounts['discoveryStopped'];
-  rejected_non_registry: number;
   attempted: number;
   refreshed: number;
   archives_retrieved: number;
@@ -37,7 +37,8 @@ interface RunDocument {
   ended_at: Date;
   duration_ms: number;
   trigger: IngestionRun['trigger'];
-  runners: number;
+  /** Written by Runs before ADR-0020 only. */
+  runners?: number;
   counts: CountsDocument | null;
   error: string | null;
   tokens: IngestionRun['tokens'];
@@ -49,9 +50,7 @@ function countsToDocument(counts: RunCounts): CountsDocument {
     new_records: counts.newRecords,
     changed_records: counts.changedRecords,
     unchanged_records: counts.unchangedRecords,
-    discovery_skipped: counts.discoverySkipped,
     discovery_stopped: counts.discoveryStopped,
-    rejected_non_registry: counts.rejectedNonRegistry,
     attempted: counts.attempted,
     refreshed: counts.refreshed,
     archives_retrieved: counts.archivesRetrieved,
@@ -70,9 +69,10 @@ function countsFromDocument(document: CountsDocument): RunCounts {
     newRecords: document.new_records,
     changedRecords: document.changed_records,
     unchangedRecords: document.unchanged_records,
-    discoverySkipped: document.discovery_skipped,
+    ...(document.discovery_skipped !== undefined
+      ? { discoverySkipped: document.discovery_skipped }
+      : {}),
     discoveryStopped: document.discovery_stopped,
-    rejectedNonRegistry: document.rejected_non_registry,
     attempted: document.attempted,
     refreshed: document.refreshed,
     archivesRetrieved: document.archives_retrieved,
@@ -107,7 +107,6 @@ export class IngestionRunRepository implements IngestionRunStore {
       ended_at: new Date(run.endedAt),
       duration_ms: run.durationMs,
       trigger: run.trigger,
-      runners: run.runners,
       counts: run.counts ? countsToDocument(run.counts) : null,
       error: run.error,
       tokens: run.tokens,
@@ -128,7 +127,7 @@ export class IngestionRunRepository implements IngestionRunStore {
       endedAt: document.ended_at.toISOString(),
       durationMs: document.duration_ms,
       trigger: document.trigger,
-      runners: document.runners,
+      ...(document.runners !== undefined ? { runners: document.runners } : {}),
       counts: document.counts ? countsFromDocument(document.counts) : null,
       error: document.error,
       tokens: {

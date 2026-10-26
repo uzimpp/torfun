@@ -23,7 +23,6 @@ function summary(overrides: Partial<IngestionSummaryResponse> = {}): IngestionSu
     totalTorBytes: 0,
     failureCount: 4,
     lastRunAt: '2026-09-30T10:00:00.000Z',
-    openDataQuota: null,
     runInProgress: false,
     runStartedAt: null,
     stopRequested: false,
@@ -168,7 +167,7 @@ describe('runState', () => {
 
 describe('attentionChips', () => {
   const keys = (s: IngestionSummaryResponse, f: IngestionFailure[] = []) =>
-    attentionChips(s, f, NOW).map((chip) => chip.key);
+    attentionChips(s, f).map((chip) => chip.key);
 
   test('nothing to look at is an empty row', () => {
     expect(keys(summary({ byOutcome: { queued: 10, tor_analysed: 5 } }))).toEqual([]);
@@ -178,7 +177,6 @@ describe('attentionChips', () => {
     const chips = attentionChips(
       summary({ byOutcome: { needs_review: 3, analysis_failed: 1, abandoned: 1 } }),
       [],
-      NOW,
     );
     expect(chips).toEqual([
       expect.objectContaining({
@@ -203,7 +201,7 @@ describe('attentionChips', () => {
     });
     expect(keys(s, [refused])).toEqual(['refused']);
     expect(keys(s, [{ ...refused, at: '2026-09-29T08:00:00.000Z' }])).toEqual([]);
-    expect(attentionChips(s, [refused], NOW)[0]?.label).toBe('รอบล้มเหลวเพราะเว็บปฏิเสธ (429)');
+    expect(attentionChips(s, [refused])[0]?.label).toBe('รอบล้มเหลวเพราะเว็บปฏิเสธ (429)');
   });
 
   test('unknown timeline codes in the last run are counted once per code', () => {
@@ -215,17 +213,7 @@ describe('attentionChips', () => {
     const chips = attentionChips(
       summary({ byOutcome: {} }),
       [code('X1'), code('X1'), code('X2')],
-      NOW,
     );
     expect(chips).toEqual([expect.objectContaining({ key: 'unknownCodes', count: 2 })]);
-  });
-
-  test('a low open-data quota is flagged only when the quota is known', () => {
-    const low = summary({
-      byOutcome: {},
-      openDataQuota: { remainingDay: 50, limitDay: 1000, observedAt: '2026-09-30T09:00:00.000Z' },
-    });
-    expect(keys(low)).toEqual(['quota']);
-    expect(keys(summary({ byOutcome: {}, openDataQuota: null }))).toEqual([]);
   });
 });

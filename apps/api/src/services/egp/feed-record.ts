@@ -11,8 +11,8 @@ export function queuedRecord(projectId: string, feed: FeedSnapshot, now: Date): 
   return {
     projectId,
     ...feed,
-    // From the project detail, which Discovery lays over this. A restored
-    // record has none, so record work reads it before anything else.
+    // From the project detail, which Retrieval reads first in the record's
+    // turn (ADR-0020). Until then they are null, the year too.
     deptSubName: null,
     typeId: null,
     goodsId: null,
