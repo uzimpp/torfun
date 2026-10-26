@@ -35,7 +35,6 @@ function summary(runInProgress: boolean): IngestionSummaryResponse {
     totalTorBytes: 0,
     failureCount: 0,
     lastRunAt: null,
-    openDataQuota: null,
     runInProgress,
     runStartedAt: null,
     stopRequested: false,

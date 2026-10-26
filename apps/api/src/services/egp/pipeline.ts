@@ -143,11 +143,9 @@ export interface RunResult {
   /**
    * Why a sweep that began did not finish: the site refused it, or stopped
    * answering. Null when it finished, never began, or was stopped by the Run
-   * itself (`stopped` says why). `budget` is no longer produced; runs logged
-   * when discovery read the open-data API may carry it.
+   * itself (`stopped` says why).
    */
-  discoveryStopped: 'rate_limited' | 'unreachable' | 'budget' | null;
-  rejectedNonRegistry: number;
+  discoveryStopped: 'rate_limited' | 'unreachable' | null;
   attempted: number;
   /** Projects already read whose timeline was read again to refresh their status. */
   refreshed: number;
@@ -540,8 +538,6 @@ export async function runIngestion(
     changedRecords: sweep?.sync.changed ?? 0,
     unchangedRecords: sweep?.sync.unchanged ?? 0,
     discoveryStopped: ending.discoveryStopped,
-    // The feed is asked per agency, so nothing arrives from outside the registry.
-    rejectedNonRegistry: 0,
     attempted: ledger.attempted,
     ...ledger.tally,
     aborted: ending.aborted,

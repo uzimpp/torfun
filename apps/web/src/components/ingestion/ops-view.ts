@@ -15,7 +15,6 @@ import { formatElapsed } from './status-tracking';
 export const STAGE_ORDER = IngestionStage.options;
 
 export const STAGE_LABELS: Record<IngestionStage, string> = {
-  dept: 'ระบุหน่วยงาน',
   discovery: 'ค้นหาประกาศ',
   timeline: 'อ่านไทม์ไลน์',
   info: 'อ่านข้อมูลประกาศ',

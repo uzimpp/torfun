@@ -145,7 +145,7 @@ describe('liveWorkLabel', () => {
   });
 
   test('every step before Analysis is fetching documents; Analysis is the model reading', () => {
-    for (const stage of ['dept', 'timeline', 'info', 'download', 'extract'] as const) {
+    for (const stage of ['timeline', 'info', 'download', 'extract'] as const) {
       expect(liveWorkLabel({ stage, projectName: 'งาน' })).toBe('กำลังดึงเอกสาร');
     }
     expect(liveWorkLabel({ stage: 'analysis', projectName: 'งาน' })).toBe('AI กำลังอ่าน');
