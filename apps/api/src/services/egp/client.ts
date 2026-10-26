@@ -76,6 +76,26 @@ export class UnreachableError extends UpstreamError {
   }
 }
 
+/**
+ * The site answered with a web page where it sends data: the notice it puts in
+ * front of every endpoint while it is closed. Every request after would get the
+ * same page, so a Run stops at the first.
+ */
+export class SiteUnavailableError extends UpstreamError {
+  constructor(title: string) {
+    super(`e-GP sent a web page instead of data, so the site is likely closed: "${title}"`);
+    this.name = 'SiteUnavailableError';
+  }
+}
+
+function pageTitle(html: string): string {
+  const title = /<title>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.trim();
+  if (!title) return '(untitled)';
+  return title.replace(/&#(x[0-9a-f]+|\d+);/gi, (_, code: string) =>
+    String.fromCodePoint(code[0] === 'x' ? parseInt(code.slice(1), 16) : Number(code)),
+  );
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -222,10 +242,15 @@ export async function egpGet(
   kind: 'download' | 'lookup' = 'download',
 ): Promise<Response> {
   const lookup = kind === 'lookup';
-  return fetchWithRetry(
+  const response = await fetchWithRetry(
     buildUrl(endpoint, params),
     { headers },
     lookup ? POLITENESS.lookupTimeoutMs : POLITENESS.torTimeoutMs,
     { signal, maxRetries: lookup ? 0 : undefined },
   );
+  if (lookup) {
+    const head = (await response.clone().text()).trimStart().slice(0, 4096);
+    if (/^<(!doctype html|html)[\s>]/i.test(head)) throw new SiteUnavailableError(pageTitle(head));
+  }
+  return response;
 }

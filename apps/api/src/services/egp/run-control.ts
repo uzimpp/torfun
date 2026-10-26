@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { UnreachableError } from './client';
+import { SiteUnavailableError, UnreachableError } from './client';
 import { SITE_UNREACHABLE_AFTER } from './constants';
 import type { RecordGuard } from './record-work';
 import type { SiteGate } from './site-gate';
@@ -12,8 +12,8 @@ import type { SiteGate } from './site-gate';
  * stop does not read as the site saying no.
  */
 
-/** Why a Run stopped: the site refused, stopped answering, an administrator asked, the lease was lost, or the store failed. */
-export type StopReason = 'refused' | 'unreachable' | 'admin' | 'lease' | 'error';
+/** Why a Run stopped: the site refused, stopped answering, put up a page in place of data, an administrator asked, the lease was lost, or the store failed. */
+export type StopReason = 'refused' | 'unreachable' | 'unavailable' | 'admin' | 'lease' | 'error';
 
 /**
  * Where the Run stands. `reason` is the first reason it stopped for. A request
@@ -32,7 +32,7 @@ export interface RunEnding {
   /** An administrator's stop, where that was the reason; else null. */
   stopped: 'admin' | null;
   /** Why a sweep that began did not finish, where the site is the reason. */
-  discoveryStopped: 'rate_limited' | 'unreachable' | null;
+  discoveryStopped: 'rate_limited' | 'unreachable' | 'unavailable' | null;
 }
 
 /**
@@ -49,11 +49,14 @@ export function runEnding(
   return {
     aborted: stopped?.refused ?? false,
     stopped: stopped?.reason === 'admin' ? 'admin' : null,
-    discoveryStopped: sweep?.rateLimited
-      ? 'rate_limited'
-      : stopped?.siteDown || sweep?.unreachable
-        ? 'unreachable'
-        : null,
+    discoveryStopped:
+      stopped?.reason === 'unavailable'
+        ? 'unavailable'
+        : sweep?.rateLimited
+          ? 'rate_limited'
+          : stopped?.siteDown || sweep?.unreachable
+            ? 'unreachable'
+            : null,
   };
 }
 
@@ -101,7 +104,9 @@ export function createRunControl(options: {
     }
     if (status.kind === 'stopped') return;
     status = { kind: 'stopped', reason, refused: reason === 'refused', siteDown: false };
-    if (reason !== 'refused') gate.close(reason === 'unreachable' ? 'unreachable' : 'stopped');
+    if (reason !== 'refused') {
+      gate.close(reason === 'unreachable' || reason === 'unavailable' ? reason : 'stopped');
+    }
     options.onStop();
   };
 
@@ -146,7 +151,14 @@ export function createRunControl(options: {
           halt('unreachable');
           if (status.kind === 'stopped') status = { ...status, siteDown: true };
         }
-        if (unanswered && siteDown() && record) record.siteDown = true;
+        if (error instanceof SiteUnavailableError && !siteDown()) {
+          logger.warn('egp: the site sent a web page in place of data; the Run stops here');
+          halt('unavailable');
+          if (status.kind === 'stopped') status = { ...status, siteDown: true };
+        }
+        if ((unanswered || error instanceof SiteUnavailableError) && siteDown() && record) {
+          record.siteDown = true;
+        }
         throw error;
       }
     },

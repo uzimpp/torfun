@@ -59,6 +59,13 @@ describe('runResult', () => {
     });
   });
 
+  test('a Run that met e-GP closed says so', () => {
+    expect(runResult(run({ counts: counts({ discoveryStopped: 'unavailable' }) }))).toEqual({
+      label: 'ล้มเหลว · e-GP ปิดให้บริการ',
+      tone: 'error',
+    });
+  });
+
   test('a refusal from the site is a failure, even where an admin also stopped it', () => {
     expect(runResult(run({ counts: counts({ aborted: true, stopped: 'admin' }) }))).toEqual({
       label: 'ล้มเหลว · เว็บปฏิเสธ',
