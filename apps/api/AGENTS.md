@@ -124,7 +124,9 @@ and refreshes.
 
 How a Run stops: a refusal (429/403) latches the gate; `SITE_UNREACHABLE_AFTER`
 requests in a row with no answer, Discovery's and Retrieval's counted together,
-close it; so does an administrator's stop or a lost lease. Either way no further
+close it; so does a single lookup answered with a web page in place of data (the
+notice e-GP puts up while closed, `SiteUnavailableError`), an administrator's
+stop or a lost lease. Either way no further
 request is made and nothing new is taken from the queue; projects not taken
 are left as they were, with no attempt spent. Analysis finishes the Archives it holds and stores
 them. Otherwise the Run ends once Discovery is done, the queue is empty and every

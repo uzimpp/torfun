@@ -48,18 +48,20 @@ export class SiteLatchedError extends RateLimitedError {
  * rate limit, so nothing that meets it reads it as the site saying no.
  */
 export class SiteClosedError extends Error {
-  /** `unreachable` where the site stopped answering; `stopped` for every other reason. */
+  /** `unreachable` where the site stopped answering, `unavailable` where it sent a page in place of data; `stopped` for every other reason. */
   constructor(readonly reason: SiteClosedReason = 'stopped') {
     super(
       reason === 'unreachable'
         ? 'Upstream site access is closed: the site stopped answering.'
-        : 'Upstream site access is closed: the Run is stopping.',
+        : reason === 'unavailable'
+          ? 'Upstream site access is closed: the site is unavailable.'
+          : 'Upstream site access is closed: the Run is stopping.',
     );
     this.name = 'SiteClosedError';
   }
 }
 
-export type SiteClosedReason = 'unreachable' | 'stopped';
+export type SiteClosedReason = 'unreachable' | 'unavailable' | 'stopped';
 
 export interface SiteGateHold {
   /**

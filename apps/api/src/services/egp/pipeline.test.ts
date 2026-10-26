@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'bun:test';
 import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
 import { fakeAnnouncements, SAMPLE_DETAIL } from '../../testing/announcement-client';
 import { InMemoryProcurementStore } from '../../testing/procurement-store';
-import { RateLimitedError, UnreachableError, UpstreamError } from './client';
+import { RateLimitedError, SiteUnavailableError, UnreachableError, UpstreamError } from './client';
 import { E_BIDDING_METHOD, FEED_BACKFILL_REQUESTS_PER_RUN } from './constants';
 import type { AnnouncementFeed } from './announcement-feed';
 import { discoverProjects, type DiscoveryResult, type SweepContext } from './discovery';
@@ -2817,5 +2817,63 @@ describe('a full room, a hanging site, and a deadline that fires mid-write', () 
 
     expect(await repository.get('66059313551')).toMatchObject({ outcome: 'error', attempts: 1 });
     expect(result).toMatchObject({ failed: 1, torAnalysed: 0, held: 0, dropped: 0 });
+  });
+});
+
+describe('a site that sends a web page in place of data', () => {
+  test('stops the Run at the first: one failure, no attempt spent, nothing more asked', async () => {
+    const repository = new InMemoryProcurementStore();
+    const log: string[] = [];
+    const announcements = fakeAnnouncements({}, []);
+    announcements.timeline = async (projectId) => {
+      log.push(`timeline ${projectId}`);
+      throw new SiteUnavailableError('แจ้งปิดระบบ e-GP ชั่วคราว');
+    };
+
+    const result = await runIngestion(
+      repository,
+      { logger },
+      deps({
+        announcements,
+        discoverProjects: async (context) => {
+          await context.save({
+            records: [
+              procurement({ projectId: 'q1', announceDate: '2026-08-02' }),
+              procurement({ projectId: 'q2', announceDate: '2026-08-01' }),
+            ],
+            failures: [],
+            cursor: {},
+          });
+          for (let day = 0; day < 3; day++) {
+            try {
+              await context.site('history', async () => log.push(`feed ${day}`));
+            } catch (error) {
+              log.push(`feed turned away: ${(error as Error).name}`);
+              break;
+            }
+          }
+          return {
+            records: [],
+            notEBidding: 0,
+            tombstoned: 0,
+            truncated: 0,
+            failures: [],
+            rateLimited: false,
+            unreachable: true,
+            complete: false,
+            cursor: {},
+            ranAt: '2026-09-09T00:00:00.000Z',
+          };
+        },
+      }),
+    );
+
+    expect(log).toEqual(['feed 0', 'timeline q1', 'feed turned away: SiteClosedError']);
+    expect(result.discoveryStopped).toBe('unavailable');
+    expect(result.aborted).toBe(false);
+    expect(result.failures.map((failure) => failure.projectId)).toEqual(['q1']);
+    expect(result.failures[0]?.error).toContain('แจ้งปิดระบบ e-GP ชั่วคราว');
+    expect(await repository.get('q1')).toMatchObject({ outcome: 'queued', attempts: 0 });
+    expect(await repository.get('q2')).toMatchObject({ outcome: 'queued', attempts: 0 });
   });
 });

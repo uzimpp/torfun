@@ -78,7 +78,8 @@ export interface DiscoveryResult {
   /**
    * The Run closed the gate because the site stopped answering: its last
    * `SITE_UNREACHABLE_AFTER` requests, Discovery's and Retrieval's alike, got no
-   * answer (the count is kept where every request passes, in the pipeline).
+   * answer (the count is kept where every request passes, in the pipeline), or
+   * one answered with a web page in place of data.
    */
   unreachable: boolean;
   /**
@@ -227,8 +228,8 @@ export async function discoverProjects(
     // stopping. Nothing failed on this day, so nothing is logged against it; a
     // refusal met by Retrieval is logged there.
     if (error instanceof SiteClosedError) {
-      if (error.reason === 'unreachable') unreachable = true;
-      else closed = true;
+      if (error.reason === 'stopped') closed = true;
+      else unreachable = true;
       return;
     }
     if (error instanceof SiteLatchedError) {

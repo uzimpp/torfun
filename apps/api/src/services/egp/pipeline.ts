@@ -145,7 +145,7 @@ export interface RunResult {
    * answering. Null when it finished, never began, or was stopped by the Run
    * itself (`stopped` says why).
    */
-  discoveryStopped: 'rate_limited' | 'unreachable' | null;
+  discoveryStopped: 'rate_limited' | 'unreachable' | 'unavailable' | null;
   attempted: number;
   /** Projects already read whose timeline was read again to refresh their status. */
   refreshed: number;
