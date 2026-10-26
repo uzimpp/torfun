@@ -61,93 +61,6 @@ function build(
   return { service, lease, schedule, runs, open, calls };
 }
 
-describe('the number of runners', () => {
-  const recordsInProgress = async (runners: number) => {
-    const store = new InMemoryProcurementStore();
-    const { deps } = gatedDeps();
-    const base = (id: string) => ({
-      projectId: id,
-      projectName: 'จ้างพัฒนาระบบสารสนเทศ',
-      deptName: 'x',
-      deptSubName: null,
-      deptCode: '1',
-      budgetYear: 2568,
-      typeId: null,
-      goodsId: null,
-      detailCheckedAt: '2026-09-01T00:00:00.000Z',
-      announceDate: null,
-      projectTypeName: null,
-      purchaseMethodName: null,
-      projectMoney: null,
-      priceBuild: null,
-      status: 'open' as const,
-      milestones: EMPTY_MILESTONES,
-      timelineCheckedAt: null,
-      deadlineAt: null,
-      deadlineSource: null,
-      state: 'Queued' as const,
-      outcome: 'queued' as const,
-      attempts: 0,
-      holdReason: null,
-      approvedBy: null,
-      approvedAt: null,
-      statusHistory: [],
-      zipId: null,
-      documents: [],
-      analysis: null,
-      torAmbiguous: false,
-      discoveredAt: '2026-09-09T00:00:00.000Z',
-      sourceHash: null,
-      updatedAt: '2026-09-09T00:00:00.000Z',
-    });
-    for (const id of ['1', '2', '3']) await store.upsert(base(id));
-
-    let release: () => void = () => {};
-    const held = new Promise<void>((resolve) => (release = resolve));
-    const service = new IngestionService(
-      store,
-      testEnv({ EGP_RUNNERS: runners }),
-      silentLogger,
-      {
-        lease: new InMemoryIngestionLease(),
-        runLog: new InMemoryScheduleStore(),
-        runs: new InMemoryIngestionRunStore(),
-        stats: noStats,
-      },
-      () => ({
-        ...deps,
-        discoverProjects: async () => ({
-          records: [],
-          notEBidding: 0,
-          tombstoned: 0,
-          truncated: 0,
-          failures: [],
-          rateLimited: false,
-          unreachable: false,
-          complete: true,
-          cursor: {},
-          ranAt: new Date().toISOString(),
-        }),
-        resolveZipId: async () => {
-          await held;
-          return null;
-        },
-      }),
-    );
-    await service.startRun({ forceDiscovery: true });
-    await settle();
-    const { items } = await store.find({ outcome: 'downloading', limit: 50, offset: 0 });
-    release();
-    await settle();
-    return items.length;
-  };
-
-  test('is the configured number of records taken up at once', async () => {
-    expect(await recordsInProgress(1)).toBe(1);
-    expect(await recordsInProgress(2)).toBe(2);
-  });
-});
-
 describe('IngestionService.startRun', () => {
   test('returns at once, and the run shows as in progress until it finishes', async () => {
     const { service, open } = build();
@@ -324,26 +237,14 @@ describe('runMayContinue', () => {
 });
 
 describe('IngestionService and the discovery sweep', () => {
-  const finish = async (service: IngestionService, open: () => void, force = false) => {
-    await service.startRun({ ...(force ? { forceDiscovery: true } : {}) });
+  test('every Run sweeps, however soon after the last (ADR-0020)', async () => {
+    const { service, open, calls } = build();
+
+    await service.startRun({});
     open();
     await settle();
-  };
-
-  test('a second run soon after the first does not sweep upstream again', async () => {
-    const { service, open, calls } = build();
-
-    await finish(service, open);
-    await finish(service, open);
-
-    expect(calls.discover).toBe(1);
-  });
-
-  test('an administrator can force the sweep', async () => {
-    const { service, open, calls } = build();
-
-    await finish(service, open);
-    await finish(service, open, true);
+    await service.startRun({});
+    await settle();
 
     expect(calls.discover).toBe(2);
   });
@@ -359,7 +260,6 @@ describe('the run log', () => {
 
   test('a finished run is logged once, with how it was started, its counts and the tokens it spent', async () => {
     const { service, runs, open } = build({
-      env: { EGP_RUNNERS: 3 },
       usage: [usage(1000, 200, 50), usage(500, 100, 25)],
     });
 
@@ -372,7 +272,6 @@ describe('the run log', () => {
     const [run] = runs.runs;
     expect(run).toMatchObject({
       trigger: 'manual',
-      runners: 3,
       error: null,
       tokens: { prompt: 1500, output: 300, thoughts: 75, total: 1875, calls: 2 },
       counts: { discovered: 0, attempted: 0, aborted: false, stopped: null },
@@ -381,8 +280,13 @@ describe('the run log', () => {
       run?.durationMs ?? -1,
     );
     expect(run).not.toHaveProperty('peakRssBytes');
+    // There are no runners to count any more; only Runs logged before carry it.
+    expect(run).not.toHaveProperty('runners');
+    // `discoverySkipped` is kept in the schema for Runs logged before every Run swept.
     expect(Object.keys(run?.counts ?? {}).sort()).toEqual(
-      Object.keys(RunCountsSchema.shape).sort(),
+      Object.keys(RunCountsSchema.shape)
+        .filter((key) => key !== 'discoverySkipped')
+        .sort(),
     );
   });
 
@@ -411,10 +315,10 @@ describe('the run log', () => {
   test("one run's tokens are not counted again in the next", async () => {
     const { service, runs, open } = build({ usage: [usage(10, 2, 1)] });
 
-    await service.startRun({ forceDiscovery: true });
+    await service.startRun({});
     open();
     await settle();
-    await service.startRun({ forceDiscovery: true });
+    await service.startRun({});
     await settle();
 
     expect(runs.runs.map((run) => run.tokens.calls)).toEqual([1, 1]);
@@ -465,7 +369,7 @@ describe('the heartbeat of a live run', () => {
     const held = new Promise<void>((resolve) => (release = resolve));
     const service = new IngestionService(
       store,
-      testEnv({ EGP_RUNNERS: 1 }),
+      testEnv(),
       silentLogger,
       {
         lease,
@@ -495,7 +399,7 @@ describe('the heartbeat of a live run', () => {
       }),
     );
 
-    await service.startRun({ forceDiscovery: true });
+    await service.startRun({});
     await new Promise((resolve) => setTimeout(resolve, 50));
     const live = (await lease.current(new Date()))?.live;
     release();
@@ -503,7 +407,7 @@ describe('the heartbeat of a live run', () => {
 
     expect(live?.inFlight).toEqual([
       expect.objectContaining({
-        slot: 0,
+        slot: 1,
         projectId: '67019000001',
         projectName: 'จ้างพัฒนาระบบสารสนเทศ',
         stage: 'info',

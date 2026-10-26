@@ -185,7 +185,7 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
         <DaysLeftBadge item={item} today={today} />
         <ProcurementStatusBadge status={item.status} />
         <span data-numeric className="text-muted-foreground font-mono text-xs">
-          ปีงบประมาณ {item.budgetYear}
+          ปีงบประมาณ {item.budgetYear ?? '—'}
         </span>
         <ProcurementDeadline deadlineAt={item.deadlineAt} status={item.status} />
       </div>

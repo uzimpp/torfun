@@ -159,13 +159,6 @@ describe('ingestion route access and procurement query validation', () => {
       }
     };
 
-    test('can ask for a fresh discovery sweep, and the service is told', async () => {
-      const { response, startRun } = await start({ forceDiscovery: true });
-
-      expect(response.statusCode).toBe(202);
-      expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ forceDiscovery: true }));
-    });
-
     test('passes the service only the options it defines, so a caller cannot name a single project', async () => {
       // `onlyProject` is how a restore is scoped to one record; that path has its own
       // route and its own audit, and is not open to this one.
@@ -175,13 +168,8 @@ describe('ingestion route access and procurement query validation', () => {
       });
 
       expect(response.statusCode).toBe(202);
-      expect(startRun).toHaveBeenCalledWith({ forceDiscovery: true });
-    });
-
-    test('does not force a sweep unless asked', async () => {
-      const { startRun } = await start({});
-
-      expect(startRun).toHaveBeenCalledWith(expect.not.objectContaining({ forceDiscovery: true }));
+      // A sweep can no longer be skipped, so there is nothing to force (ADR-0020).
+      expect(startRun).toHaveBeenCalledWith({});
     });
   });
 

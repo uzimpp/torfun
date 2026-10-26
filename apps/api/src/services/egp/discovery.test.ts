@@ -1,10 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import type { Procurement } from '@torfun/types';
 import type { FeedCursor } from '../../repositories/procurement.repository';
-import { fakeAnnouncements, SAMPLE_DETAIL } from '../../testing/announcement-client';
-import type { AnnouncementClient } from './announcement-client';
 import type { AnnouncementFeed, FeedDay, FeedItem } from './announcement-feed';
-import { RateLimitedError, UnreachableError, UpstreamError } from './client';
+import { RateLimitedError, UpstreamError } from './client';
 import {
   E_BIDDING_METHOD,
   FEED_BACKFILL_REQUESTS_PER_RUN,
@@ -12,7 +9,7 @@ import {
   type FeedAnnouncementType,
 } from './constants';
 import { addDays, bangkokToday, cursorKey, discoverProjects, type SweepBatch } from './discovery';
-import { queuedRecord } from './feed-record';
+import { SiteClosedError, SiteLatchedError } from './site-gate';
 
 const TODAY = '2026-10-07';
 const CUSTOMS = '0305';
@@ -70,30 +67,26 @@ const caughtUp = () => everyUnit({ from: addDays(TODAY, -364), to: addDays(TODAY
 
 /** What the last `sweep` handed to `save`, batch by batch. */
 const saved: SweepBatch[] = [];
+/** Requests the last `sweep` made to the site, whatever they were for. */
+let siteCalls = 0;
 
-function sweep(
-  feed: AnnouncementFeed,
-  cursor: FeedCursor = {},
-  tombstoned: string[] = [],
-  {
-    stored = [],
-    announcements = fakeAnnouncements(),
-  }: { stored?: Procurement[]; announcements?: AnnouncementClient } = {},
-) {
+function sweep(feed: AnnouncementFeed, cursor: FeedCursor = {}, tombstoned: string[] = []) {
   saved.length = 0;
+  siteCalls = 0;
   return discoverProjects(
     {
-      site: (_tier, call) => call(),
+      site: (_tier, call) => {
+        siteCalls += 1;
+        return call();
+      },
       cursor,
       tombstonedIds: async (ids) => new Set(ids.filter((id) => tombstoned.includes(id))),
-      storedRecords: async (ids) => stored.filter((record) => ids.includes(record.projectId)),
       today: TODAY,
       save: async (batch) => {
         saved.push(batch);
       },
     },
     feed,
-    announcements,
   );
 }
 
@@ -212,16 +205,98 @@ describe('discoverProjects: which days it asks about', () => {
     });
   });
 
-  test('three requests in a row with no answer stop the sweep: the site is unreachable', async () => {
-    const silent = Object.fromEntries(
-      UNITS.map((unit) => [`${unit}:${TODAY}`, new UnreachableError('transport error: timed out')]),
+  test('a gate closed by the Run stops the sweep quietly: not a refusal, nothing logged, not complete', async () => {
+    const { feed } = fakeFeed();
+    let calls = 0;
+    saved.length = 0;
+
+    const result = await discoverProjects(
+      {
+        site: async (_tier, call) => {
+          calls += 1;
+          if (calls > 1) throw new SiteClosedError();
+          return call();
+        },
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        save: async (batch) => {
+          saved.push(batch);
+        },
+      },
+      feed,
     );
-    const { feed, asked } = fakeFeed(silent);
 
-    const result = await sweep(feed, caughtUp());
+    expect(calls).toBe(2);
+    expect(result.rateLimited).toBe(false);
+    expect(result.complete).toBe(false);
+    expect(result.failures).toEqual([]);
+  });
 
+  test('a refusal another stage met stops the sweep as refused, without logging it twice', async () => {
+    const { feed } = fakeFeed();
+
+    const result = await discoverProjects(
+      {
+        site: async () => {
+          throw new SiteLatchedError();
+        },
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        save: async () => {},
+      },
+      feed,
+    );
+
+    expect(result.rateLimited).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
+
+  test('it says which agency-day it is about to ask', async () => {
+    const said: string[] = [];
+    await discoverProjects(
+      {
+        site: (_tier, call) => call(),
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        save: async () => {},
+        reading: (what) => said.push(what),
+      },
+      fakeFeed().feed,
+    );
+
+    expect(said).toHaveLength(UNITS.length);
+    expect(said[0]).toContain(TODAY);
+  });
+
+  test('a gate closed because the site stopped answering stops the sweep as unreachable', async () => {
+    // The silence is counted in the pipeline, across every request of the Run;
+    // the sweep learns of it from the gate.
+    const { feed } = fakeFeed();
+    let calls = 0;
+
+    const result = await discoverProjects(
+      {
+        site: async (_tier, call) => {
+          calls += 1;
+          if (calls > 2) throw new SiteClosedError('unreachable');
+          return call();
+        },
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        save: async () => {},
+      },
+      feed,
+    );
+
+    expect(calls).toBe(3);
     expect(result.unreachable).toBe(true);
-    expect(asked).toHaveLength(3);
+    expect(result.rateLimited).toBe(false);
+    expect(result.complete).toBe(false);
+    expect(result.failures).toEqual([]);
   });
 
   test('only a sweep that read every new day is complete', async () => {
@@ -231,19 +306,6 @@ describe('discoverProjects: which days it asks about', () => {
       [`${CUSTOMS}:B0:${TODAY}`]: new UpstreamError('HTTP 500'),
     });
     expect((await sweep(feed, caughtUp())).complete).toBe(false);
-  });
-
-  test('an answer in between resets the count, so scattered timeouts do not stop it', async () => {
-    const silent = (index: number) => [
-      `${UNITS[index]}:${TODAY}`,
-      new UnreachableError('transport error: timed out'),
-    ];
-    const { feed, asked } = fakeFeed(Object.fromEntries([0, 1, 3, 4].map(silent)));
-
-    const result = await sweep(feed, caughtUp());
-
-    expect(result.unreachable).toBe(false);
-    expect(asked).toHaveLength(UNITS.length);
   });
 
   test('each agency-day is saved as soon as it is read, so a refusal loses nothing before it', async () => {
@@ -269,26 +331,26 @@ describe('discoverProjects: which days it asks about', () => {
 });
 
 describe('discoverProjects: what it admits', () => {
-  test('a new e-bidding item becomes a Queued record with the year from its project detail', async () => {
-    const { feed } = fakeFeed({
+  test('a new e-bidding item is stored from the feed alone, its year left for Retrieval', async () => {
+    const { feed, asked } = fakeFeed({
       [`${CUSTOMS}:D0:${TODAY}`]: listing([item('69109044981', { announcedOn: '2026-10-07' })]),
     });
-    const announcements = fakeAnnouncements();
 
-    const result = await sweep(feed, caughtUp(), [], { announcements });
+    const result = await sweep(feed, caughtUp());
 
-    expect(announcements.detailCalls).toEqual(['69109044981']);
+    // Only the feed was asked: the project detail is read in its retrieval turn.
+    expect(siteCalls).toBe(asked.length);
     expect(result.records).toHaveLength(1);
     expect(result.records[0]).toMatchObject({
       projectId: '69109044981',
       deptName: 'กรมศุลกากร',
       deptCode: CUSTOMS,
-      // Announced in October, which a date guess would have made 2570.
-      budgetYear: 2569,
-      typeId: '03',
-      goodsId: '4016',
-      deptSubName: SAMPLE_DETAIL.deptSubName,
-      detailCheckedAt: expect.any(String),
+      // Not guessed from the announcement date (ADR-0020).
+      budgetYear: null,
+      typeId: null,
+      goodsId: null,
+      deptSubName: null,
+      detailCheckedAt: null,
       state: 'Queued',
       status: 'unknown',
       projectMoney: null,
@@ -347,77 +409,37 @@ describe('discoverProjects: what it admits', () => {
     expect(result.failures.every((failure) => failure.stage === 'discovery')).toBe(true);
   });
 
-  test('a project already stored is not asked about again', async () => {
-    const { feed } = fakeFeed({ [`${CUSTOMS}:D0:${TODAY}`]: listing([item('69109044981')]) });
-    const announcements = fakeAnnouncements();
-    const stored = queuedRecord(
-      '69109044981',
-      {
-        projectName: 'เดิม',
-        deptName: 'กรมศุลกากร',
-        deptCode: CUSTOMS,
-        announceDate: null,
-        budgetYear: 2568,
-        purchaseMethodName: E_BIDDING_METHOD,
-      },
-      new Date(),
-    );
-
-    const result = await sweep(feed, caughtUp(), [], { stored: [stored], announcements });
-
-    expect(announcements.detailCalls).toEqual([]);
-    expect(result.records.map((record) => record.projectId)).toEqual(['69109044981']);
-  });
-
-  test('a new project whose detail cannot be read is not stored, and its day is read again', async () => {
-    const { feed } = fakeFeed({
+  test('a day with new projects is read in full, and its range moves, with no detail request', async () => {
+    const { feed, asked } = fakeFeed({
       [`${CUSTOMS}:D0:2026-10-06`]: listing([item('69109044981'), item('69109044982')]),
     });
-    const announcements = fakeAnnouncements({}, null, { '69109044981': null });
     const cursor = everyUnit({ from: addDays(TODAY, -364), to: '2026-10-05' });
 
-    const result = await sweep(feed, cursor, [], { announcements });
+    const result = await sweep(feed, cursor);
 
-    expect(result.records.map((record) => record.projectId)).toEqual(['69109044982']);
-    expect(result.cursor[cursorKey(CUSTOMS, 'D0')]).toBeUndefined();
-    expect(result.cursor[cursorKey(CUSTOMS, 'B0')]?.to).toBe('2026-10-06');
-    expect(result.failures).toEqual([
-      expect.objectContaining({
-        projectId: '69109044981',
-        stage: 'discovery',
-        error: expect.stringContaining('no project detail with a budget year'),
-      }),
+    expect(siteCalls).toBe(asked.length);
+    expect(result.records.map((record) => record.projectId)).toEqual([
+      '69109044981',
+      '69109044982',
     ]);
-    expect(result.rateLimited).toBe(false);
+    expect(result.cursor[cursorKey(CUSTOMS, 'D0')]?.to).toBe('2026-10-06');
+    expect(result.failures).toEqual([]);
+    expect(result.complete).toBe(true);
   });
 
-  test('a refusal on a project detail stops the sweep, with that project not stored', async () => {
-    const { feed, asked } = fakeFeed({
-      [`${CUSTOMS}:B0:${TODAY}`]: listing([item('69109044981')]),
-    });
-    const announcements = fakeAnnouncements();
-    announcements.projectDetail = async () => {
-      throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
-    };
-
-    const result = await sweep(feed, caughtUp(), [], { announcements });
-
-    expect(result.rateLimited).toBe(true);
-    expect(asked).toHaveLength(1);
-    expect(result.records).toEqual([]);
-  });
-
-  test('detail requests made while reading history count towards its share', async () => {
+  test('the history share counts feed requests only, however many projects it finds', async () => {
     const five = ['1', '2', '3', '4', '5'].map((n) => item(`6910904498${n}`));
     const { feed, asked } = fakeFeed({ [`${CUSTOMS}:B0:2026-10-06`]: listing(five) });
 
-    await sweep(feed);
+    const result = await sweep(feed);
 
-    // Today for every unit, then 60 history requests, five of them details.
-    expect(asked).toHaveLength(UNITS.length + 55);
+    // Today for every unit, then the whole share of history days.
+    expect(asked).toHaveLength(UNITS.length + FEED_BACKFILL_REQUESTS_PER_RUN);
+    expect(siteCalls).toBe(asked.length);
+    expect(result.records).toHaveLength(5);
   });
 
-  test('it reports its requests by kind: new days, history days and project details', async () => {
+  test('it reports its requests by kind: new days and history days', async () => {
     const { feed, asked } = fakeFeed({
       [`${CUSTOMS}:D0:${TODAY}`]: listing([item('69109044981')]),
       [`${CUSTOMS}:B0:2026-10-06`]: listing([item('69109044982')]),
@@ -428,7 +450,6 @@ describe('discoverProjects: what it admits', () => {
     expect(result.requests).toEqual({
       newDays: UNITS.length,
       historyDays: asked.length - UNITS.length,
-      details: 2,
     });
   });
 

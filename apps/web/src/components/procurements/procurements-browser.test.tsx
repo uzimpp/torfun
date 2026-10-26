@@ -109,7 +109,6 @@ const summary = {
   totalTorBytes: 0,
   failureCount: 0,
   lastRunAt: null,
-  openDataQuota: null,
   runInProgress: false,
   runStartedAt: null,
   stopRequested: false,
