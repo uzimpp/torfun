@@ -9,7 +9,6 @@ import type {
   IngestionState,
   IngestionStats,
   IngestionSummary,
-  OpenDataQuota,
   Procurement,
   ProcurementStatus,
   StatusChange,
@@ -327,9 +326,6 @@ export interface ProcurementStore {
   requeueStale(cutoff: string): Promise<number>;
   recordFailures(failures: IngestionFailure[]): Promise<void>;
   markRun(at: string): Promise<void>;
-  /** The open-data API's daily allowance as last read, or null if never read. */
-  openDataQuota(): Promise<OpenDataQuota | null>;
-  recordOpenDataQuota(quota: OpenDataQuota): Promise<void>;
   /** How far the announcement feed has been read, per agency and type; empty before the first sweep. */
   feedCursor(): Promise<FeedCursor>;
   /** Store where these units of the feed now stand; units not named are left as they were. */
@@ -368,7 +364,6 @@ export interface ProcurementDataSource extends ProcurementStore, AgencyNameSourc
   listFailures(): Promise<IngestionFailure[]>;
 }
 
-const QUOTA_ID = 'open_data_quota';
 const FEED_CURSOR_ID = 'feed_cursor';
 
 interface FeedCursorDocument {
@@ -442,13 +437,6 @@ function fromTombstoneDocument(document: TombstoneDocument): Tombstone {
   };
 }
 
-interface QuotaDocument {
-  _id: string;
-  remaining_day: number;
-  limit_day: number | null;
-  observed_at: string;
-}
-
 /** `kind` is absent on failures logged before it existed. */
 interface FailureDocument extends Omit<IngestionFailure, 'kind'> {
   _id?: unknown;
@@ -512,10 +500,6 @@ export class ProcurementRepository
 
   private async failuresCollection(): Promise<Collection<FailureDocument>> {
     return (await this.getDb()).collection<FailureDocument>('ingestion_failures');
-  }
-
-  private async quotaDocuments(): Promise<Collection<QuotaDocument>> {
-    return (await this.getDb()).collection<QuotaDocument>(INGESTION_META_COLLECTION);
   }
 
   private async feedCursorDocuments(): Promise<Collection<FeedCursorDocument>> {
@@ -870,33 +854,6 @@ export class ProcurementRepository
     await (await this.meta()).updateOne({ _id: 'last_run' }, { $set: { at } }, { upsert: true });
   }
 
-  async openDataQuota(): Promise<OpenDataQuota | null> {
-    const document = await (await this.quotaDocuments()).findOne({ _id: QUOTA_ID });
-    return document
-      ? {
-          remainingDay: document.remaining_day,
-          limitDay: document.limit_day,
-          observedAt: document.observed_at,
-        }
-      : null;
-  }
-
-  async recordOpenDataQuota(quota: OpenDataQuota): Promise<void> {
-    await (
-      await this.quotaDocuments()
-    ).updateOne(
-      { _id: QUOTA_ID },
-      {
-        $set: {
-          remaining_day: quota.remainingDay,
-          limit_day: quota.limitDay,
-          observed_at: quota.observedAt,
-        },
-      },
-      { upsert: true },
-    );
-  }
-
   async feedCursor(): Promise<FeedCursor> {
     return (await (await this.feedCursorDocuments()).findOne({ _id: FEED_CURSOR_ID }))?.units ?? {};
   }
@@ -990,7 +947,6 @@ export class ProcurementRepository
       totalTorBytes: torRows[0]?.bytes ?? 0,
       failureCount,
       lastRunAt: lastRun?.at ?? null,
-      openDataQuota: await this.openDataQuota(),
       // Owned by the service layer, which is what actually starts a run.
       runInProgress: false,
       runStartedAt: null,

@@ -33,7 +33,6 @@ const summary = (overrides: Partial<IngestionSummaryResponse> = {}): IngestionSu
   totalTorBytes: 0,
   failureCount: 0,
   lastRunAt: '2026-09-30T10:00:00.000Z',
-  openDataQuota: null,
   runInProgress: false,
   runStartedAt: null,
   stopRequested: false,
@@ -226,40 +225,6 @@ describe('the status bar', () => {
     expect(within(statusBar()).getByRole('button', { name: 'กำลังหยุด' })).toBeDisabled();
   });
 
-  test('carries today’s open-data quota, compactly', () => {
-    mockedRun.mockReturnValue(
-      runData({
-        summary: summary({
-          openDataQuota: {
-            remainingDay: 450,
-            limitDay: 1000,
-            observedAt: new Date().toISOString(),
-          },
-        }),
-      }),
-    );
-    render(<IngestionDashboard />);
-
-    expect(within(statusBar()).getByText('โควตา 450/1,000')).toBeInTheDocument();
-  });
-
-  test('a quota not read today is unknown, not a stale figure', () => {
-    mockedRun.mockReturnValue(
-      runData({
-        summary: summary({
-          openDataQuota: {
-            remainingDay: 0,
-            limitDay: 1000,
-            observedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
-          },
-        }),
-      }),
-    );
-    render(<IngestionDashboard />);
-
-    expect(within(statusBar()).getByText('โควตา ยังไม่ทราบ')).toBeInTheDocument();
-  });
-
   test('the gear opens the schedule settings in a dialog, and Escape closes it', async () => {
     mockedRun.mockReturnValue(runData());
     render(<IngestionDashboard />);
@@ -361,7 +326,7 @@ describe('live work', () => {
   test('every step before Analysis reads as fetching documents', () => {
     mockedRun.mockReturnValue(running());
     const since = new Date().toISOString();
-    const stages = ['dept', 'timeline', 'info', 'download', 'extract'] as const;
+    const stages = ['timeline', 'info', 'download', 'extract'] as const;
     mockedOps.mockReturnValue(
       liveWith(
         stages.map((stage, index) => ({
@@ -461,7 +426,6 @@ describe('run history', () => {
                 changedRecords: 0,
                 unchangedRecords: 18,
                 discoveryStopped: null,
-                rejectedNonRegistry: 0,
                 attempted: 9,
                 refreshed: 2,
                 archivesRetrieved: 8,

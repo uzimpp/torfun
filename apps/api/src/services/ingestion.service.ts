@@ -92,7 +92,6 @@ function countsOf(result: RunResult): RunCounts {
     changedRecords: result.changedRecords,
     unchangedRecords: result.unchangedRecords,
     discoveryStopped: result.discoveryStopped,
-    rejectedNonRegistry: result.rejectedNonRegistry,
     attempted: result.attempted,
     refreshed: result.refreshed,
     archivesRetrieved: result.archivesRetrieved,
