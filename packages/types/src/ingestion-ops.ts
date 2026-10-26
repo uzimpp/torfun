@@ -60,8 +60,7 @@ export const RunCountsSchema = z.object({
   unchangedRecords: z.number().int(),
   /** Only on Runs logged before every Run swept (ADR-0020). */
   discoverySkipped: z.boolean().optional(),
-  discoveryStopped: z.enum(['rate_limited', 'unreachable', 'budget']).nullable(),
-  rejectedNonRegistry: z.number().int(),
+  discoveryStopped: z.enum(['rate_limited', 'unreachable']).nullable(),
   attempted: z.number().int(),
   refreshed: z.number().int(),
   archivesRetrieved: z.number().int(),
