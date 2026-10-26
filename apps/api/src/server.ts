@@ -27,3 +27,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.exit(0);
   });
 }
+
+// Request-based Cloud Run must be driven by the authenticated worker endpoint,
+// not by a timer after the response has returned. Local development can poll.
+if (env.NODE_ENV === 'development') app.notificationWorkerService.start(env.NOTIFICATION_POLL_MS);

@@ -97,3 +97,15 @@ test('signing in is not presented as a step of registration', () => {
     screen.queryByRole('navigation', { name: 'ขั้นตอนการตั้งค่าบัญชี' }),
   ).not.toBeInTheDocument();
 });
+
+test('password sign-in resumes an allowlisted notification link', async () => {
+  window.history.replaceState(null, '', '/login?next=%2Fnotifications');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
+  try {
+    render(<LoginPage />);
+    fireEvent.submit(screen.getByRole('button', { name: 'เข้าสู่ระบบ' }).closest('form')!);
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/notifications'));
+  } finally {
+    window.history.replaceState(null, '', '/');
+  }
+});

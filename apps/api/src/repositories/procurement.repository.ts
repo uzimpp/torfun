@@ -1,4 +1,4 @@
-import type { Collection, Db } from 'mongodb';
+import { ObjectId, type Collection, type Db } from 'mongodb';
 import type {
   ArchiveDocument,
   IngestionFailure,
@@ -88,6 +88,7 @@ interface ProcurementDocument {
   tor_ambiguous: boolean;
   discovered_at: string;
   updated_at: string;
+  publication_removed_at?: string | null;
 }
 
 function toDomain(document: ProcurementDocument): Procurement {
@@ -126,6 +127,9 @@ function toDomain(document: ProcurementDocument): Procurement {
     torAmbiguous: document.tor_ambiguous,
     discoveredAt: document.discovered_at,
     updatedAt: document.updated_at,
+    ...(document.publication_removed_at !== undefined
+      ? { publicationRemovedAt: document.publication_removed_at }
+      : {}),
   };
 }
 
@@ -164,6 +168,9 @@ function toDocument(record: Procurement): ProcurementDocument {
     tor_ambiguous: record.torAmbiguous,
     discovered_at: record.discoveredAt,
     updated_at: record.updatedAt,
+    ...(record.publicationRemovedAt !== undefined
+      ? { publication_removed_at: record.publicationRemovedAt }
+      : {}),
   };
 }
 
@@ -247,8 +254,111 @@ interface FailureDocument extends IngestionFailure {
   _id?: unknown;
 }
 
+interface ChangeDocument {
+  _id: ObjectId;
+  record: ProcurementDocument;
+  created_at: Date;
+  lease_until?: Date;
+  lease_token?: string;
+  attempts: number;
+  done?: boolean;
+  expires_at?: Date;
+}
+
+export interface ProcurementChange {
+  id: string;
+  record: Procurement;
+  leaseToken: string;
+}
+
 export class ProcurementRepository implements ProcurementStore, AgencyNameSource {
   constructor(private readonly getDb: () => Promise<Db>) {}
+
+  /** Storage outbox: the evidence and its change record either both commit or neither does. */
+  private async persist(document: ProcurementDocument, insert: boolean): Promise<void> {
+    const db = await this.getDb();
+    const session = db.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const records = db.collection<ProcurementDocument>('procurements');
+        if (insert) await records.insertOne(document, { session });
+        else await records.updateOne({ _id: document._id }, { $set: document }, { session });
+        await db.collection<ChangeDocument>('notification_procurement_changes').insertOne(
+          {
+            _id: new ObjectId(),
+            record: document,
+            created_at: new Date(),
+            attempts: 0,
+          },
+          { session },
+        );
+      });
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async claimNotificationChange(now: Date): Promise<ProcurementChange | null> {
+    const leaseToken = crypto.randomUUID();
+    const row = await (
+      await this.getDb()
+    )
+      .collection<ChangeDocument>('notification_procurement_changes')
+      .findOneAndUpdate(
+        {
+          done: { $ne: true },
+          $or: [{ lease_until: { $exists: false } }, { lease_until: { $lte: now } }],
+        },
+        {
+          $set: { lease_token: leaseToken, lease_until: new Date(now.getTime() + 120000) },
+          $inc: { attempts: 1 },
+        },
+        { sort: { _id: 1 }, returnDocument: 'after' },
+      );
+    return row ? { id: row._id.toString(), record: toDomain(row.record), leaseToken } : null;
+  }
+
+  async finishNotificationChange(change: ProcurementChange): Promise<void> {
+    await (
+      await this.getDb()
+    )
+      .collection<ChangeDocument>('notification_procurement_changes')
+      .updateOne(
+        { _id: new ObjectId(change.id), lease_token: change.leaseToken },
+        {
+          $set: { done: true, expires_at: new Date(Date.now() + 30 * 86400000) },
+          $unset: { lease_until: '', lease_token: '' },
+        },
+      );
+  }
+
+  /** A bounded reconciliation read also picks up profile edits and accounts joining later. */
+  async notificationPage(after: string, limit: number): Promise<Procurement[]> {
+    const records = await (
+      await this.records()
+    )
+      .find({ _id: { $gt: after } })
+      .sort({ _id: 1 })
+      .limit(limit)
+      .toArray();
+    return records.map(toDomain);
+  }
+
+  async isPublished(projectId: string): Promise<boolean> {
+    return Boolean(
+      await (
+        await this.getDb()
+      )
+        .collection<ProcurementDocument>('procurements')
+        .findOne({ _id: projectId, publication_removed_at: null }, { projection: { _id: 1 } }),
+    );
+  }
+
+  async notificationRecords(projectIds: string[]): Promise<Procurement[]> {
+    return (await (await this.records()).find({ _id: { $in: projectIds } }).toArray()).map(
+      toDomain,
+    );
+  }
 
   private async records(): Promise<Collection<ProcurementDocument>> {
     return (await this.getDb()).collection<ProcurementDocument>('procurements');
@@ -269,6 +379,14 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
    * the retrieval sort is a collection scan on every run.
    */
   async ensureIndexes(): Promise<void> {
+    await (
+      await this.getDb()
+    )
+      .collection('notification_procurement_changes')
+      .createIndexes([
+        { key: { done: 1, lease_until: 1, _id: 1 } },
+        { key: { expires_at: 1 }, expireAfterSeconds: 0 },
+      ]);
     await (
       await this.records()
     ).createIndexes([
@@ -295,12 +413,12 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
 
     if (!existing) {
       const document = toDocument(record);
-      await collection.insertOne(document);
+      await this.persist(document, true);
       return toDomain(document);
     }
 
     const merged = toDocument(mergeDiscovered(toDomain(existing), record));
-    await collection.replaceOne({ _id: record.projectId }, merged);
+    await this.persist(merged, false);
     return toDomain(merged);
   }
 
@@ -329,7 +447,7 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       status_history: [...existing.status_history, entry],
       updated_at: at,
     };
-    await collection.replaceOne({ _id: projectId }, updated);
+    await this.persist(updated, false);
     return toDomain(updated);
   }
 

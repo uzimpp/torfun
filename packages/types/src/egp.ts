@@ -271,6 +271,8 @@ export const ProcurementSchema = z.object({
 
   discoveredAt: z.string(),
   updatedAt: z.string(),
+  /** Set by publication review when available; notification readers must honour it. */
+  publicationRemovedAt: z.string().nullable().optional(),
 });
 export type Procurement = z.infer<typeof ProcurementSchema>;
 

@@ -89,3 +89,10 @@ extractions and must be verified against the original TOR before bidding.
 
 `/health` is the container probe. `/health/dependencies` makes real, billed calls
 upstream, so it is something an administrator asks, never something polled.
+
+## Notifications
+
+Inbox, per-event preferences, verified email and LINE OA delivery are described in
+[the notification setup and worker guide](../../docs/notifications.md). Run the
+index migration before deployment; external channels remain disabled until
+configured. Production delivery uses the authenticated worker endpoint.

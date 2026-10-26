@@ -334,3 +334,71 @@ export function updateAdminUser(id: string, patch: AdminUserPatch): Promise<Admi
     body: JSON.stringify(patch),
   });
 }
+
+// Notification contracts are shared with Fastify; the wire format stays snake_case.
+export function fetchNotifications(filter: 'all' | 'unread' = 'all', offset = 0) {
+  return request<import('@torfun/types').NotificationListResponse>(
+    `/api/notifications?filter=${filter}&limit=20&offset=${offset}`,
+  );
+}
+export function fetchNotificationSettings() {
+  return request<import('@torfun/types').NotificationSettingsResponse>(
+    '/api/notifications/settings',
+  );
+}
+export function saveNotificationPreferences(
+  preferences: import('@torfun/types').NotificationPreferences,
+) {
+  return request<import('@torfun/types').NotificationSettingsResponse>(
+    '/api/notifications/settings',
+    { method: 'PUT', body: JSON.stringify(preferences) },
+  );
+}
+export function updateNotification(id: string, action: 'read' | 'dismiss') {
+  return request<{ ok: true }>(`/api/notifications/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action }),
+  });
+}
+export function readAllNotifications() {
+  return request<{ ok: true }>('/api/notifications/read-all', { method: 'POST' });
+}
+export function requestNotificationEmail(email: string) {
+  return request<{ ok: true }>('/api/notifications/email', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+export function verifyNotificationEmail(token: string) {
+  return request<import('@torfun/types').NotificationSettingsResponse>(
+    '/api/notifications/email/verify',
+    { method: 'POST', body: JSON.stringify({ token }) },
+  );
+}
+export function disconnectNotificationChannel(channel: 'email' | 'line') {
+  return request<import('@torfun/types').NotificationSettingsResponse>(
+    `/api/notifications/${channel}`,
+    { method: 'DELETE' },
+  );
+}
+export function linkNotificationLine(linkToken: string) {
+  return request<{ url: string }>('/api/notifications/line/link', {
+    method: 'POST',
+    body: JSON.stringify({ link_token: linkToken }),
+  });
+}
+export function fetchTorMatch(projectId: string) {
+  return request<import('@torfun/types').NotificationMatchResponse>(
+    `/api/matching/${encodeURIComponent(projectId)}`,
+  );
+}
+export type NotificationFailure = import('@torfun/types').NotificationDeliveryFailureResponse;
+export function fetchNotificationFailures() {
+  return request<NotificationFailure[]>('/api/admin/notifications/deliveries');
+}
+export function retryNotificationDelivery(id: string) {
+  return request<{ ok: true }>(
+    `/api/admin/notifications/deliveries/${encodeURIComponent(id)}/retry`,
+    { method: 'POST' },
+  );
+}

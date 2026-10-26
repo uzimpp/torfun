@@ -16,10 +16,14 @@
         "JWT_SECRET",
         "LOG_LEVEL",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "dev": {
@@ -45,10 +49,14 @@
         "JWT_SECRET",
         "LOG_LEVEL",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "test:e2e": {
@@ -63,10 +71,14 @@
         "JWT_SECRET",
         "LOG_LEVEL",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "clean": {
