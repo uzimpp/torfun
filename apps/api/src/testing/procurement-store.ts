@@ -4,7 +4,6 @@ import {
   type IngestionFailure,
   type IngestionOutcome,
   type IngestionSummary,
-  type OpenDataQuota,
   type Procurement,
   type Tombstone,
 } from '@torfun/types';
@@ -32,7 +31,6 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly failures: IngestionFailure[] = [];
   private readonly tombstones = new Map<string, Tombstone>();
   private lastRunAt: string | null = null;
-  private quota: OpenDataQuota | null = null;
   private cursor: FeedCursor = {};
 
   async ensureIndexes(): Promise<void> {
@@ -84,11 +82,13 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
     // The same counting rule as the real repository's bulk write.
-    const summary: UpsertSummary = { created: 0, changed: 0, unchanged: 0 };
+    const summary: UpsertSummary = { created: 0, createdIds: [], changed: 0, unchanged: 0 };
     for (const record of records) {
       const existing = this.records.get(record.projectId);
-      if (!existing) summary.created += 1;
-      else if (hasUpstreamChange(existing, record)) summary.changed += 1;
+      if (!existing) {
+        summary.created += 1;
+        summary.createdIds.push(record.projectId);
+      } else if (hasUpstreamChange(existing, record)) summary.changed += 1;
       else summary.unchanged += 1;
       await this.upsert(
         existing ? record : { ...record, sourceHash: record.sourceHash ?? hashSource(record) },
@@ -192,18 +192,6 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     this.lastRunAt = at;
   }
 
-  async openDataQuota(): Promise<OpenDataQuota | null> {
-    return this.quota;
-  }
-
-  async recordOpenDataQuota(quota: OpenDataQuota): Promise<void> {
-    this.quota = quota;
-  }
-
-  async lastDiscoveryAt(): Promise<string | null> {
-    return this.lastRunAt;
-  }
-
   async feedCursor(): Promise<FeedCursor> {
     return structuredClone(this.cursor);
   }
@@ -238,7 +226,6 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       totalTorBytes: 0,
       failureCount: this.failures.length,
       lastRunAt: this.lastRunAt,
-      openDataQuota: this.quota,
       runInProgress: false,
       runStartedAt: null,
       stopRequested: false,

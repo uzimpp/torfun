@@ -45,21 +45,22 @@ Self-registration always creates a BD officer. Admin is granted, never claimed.
                    apps/web (Next.js)
 ```
 
-Two stages, deliberately separate. **Discovery** reads e-GP's announcement feed,
-one Source Registry agency and one day at a time, for e-bidding draft TORs and
-invitations, and admits those not tombstoned; the title is never consulted. It
-asks about the days since the last Run first, then a share of the past year
-(ADR-0018). A new project is stored from the feed alone; its e-GP project
-detail, for its real budget year, is read in its Retrieval turn, and the year
-stays empty until then, never guessed (ADR-0020). The
-open-data API is not read: it holds only signed contracts (ADR-0004). Both
-stages reach `gprocurement.go.th`. **Retrieval** downloads the announcement
-archive for each admitted one, newest first, and extracts TOR PDFs. Each
-project's status and bid deadline come from its e-GP announcement timeline
-(greenBook), read first; projects already read have the timeline read again on
-later Runs, oldest check first, and are retrieved again only if the invitation
-moved. Discovery is one request per agency per day, plus one per new project;
-retrieval is several per project and the model's reading on top. A record
+Three stages run side by side in each Run (ADR-0020). **Discovery** reads
+e-GP's announcement feed, one Source Registry agency and one day at a time, for
+e-bidding draft TORs and invitations, and admits those not tombstoned; the title
+is never consulted. It asks about the days since the last Run first, then a share
+of the past year (ADR-0018). A new project is stored as Queued from the feed
+alone and handed to Retrieval at once. **Retrieval** is one turn at the site per
+project: its e-GP project detail until read once, for its real budget year
+(empty until then, never guessed), its announcement timeline (greenBook), for
+status and bid deadline, then the announcement archive, from which TOR PDFs are
+extracted. Never-read projects go first, newest announcement first; projects
+already read have the timeline read again, oldest check first, and are retrieved
+again only if the invitation moved. The open-data API is not read: it holds only
+signed contracts (ADR-0004). **Analysis** is Gemini reading the archive's TOR
+PDFs; it never touches e-GP, so it is the only stage that overlaps another's
+requests. Discovery and Retrieval reach `gprocurement.go.th` through one gate,
+one request at a time. A record
 carries both a coarse `state` (Queued → Processing → Completed/Failed) and a finer `outcome`, because "no TOR was ever published" is a
 legitimate upstream answer rather than a failure, and an admin needs to tell them
 apart.
@@ -75,7 +76,7 @@ which is the point.
 `robots.txt: Disallow: /`; this project operates under a research authorisation
 whose own limits are not recorded in this repository. What the code does to stay
 within the spirit of it: requests are single-file through one gate, the politeness
-delay follows each, a rate-limit or forbidden response stops every runner at once,
+delay follows each, a rate-limit or forbidden response closes the gate for the rest of the Run,
 and only one Run goes at a time. Every request to the site is one of these: the
 announcement feed Discovery reads (one agency, one type, one day), and for each
 project its project detail (until it has been read once), its announcement

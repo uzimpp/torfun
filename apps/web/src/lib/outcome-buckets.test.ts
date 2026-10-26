@@ -105,7 +105,6 @@ describe('countTiles', () => {
     totalTorBytes: 0,
     failureCount: 4,
     lastRunAt: null,
-    openDataQuota: null,
     runInProgress: false,
     runStartedAt: null,
     stopRequested: false,

@@ -103,10 +103,10 @@ export class ProcurementAdminService {
    * Run holds the lease: a refused start leaves the tombstone standing, and a
    * sweep already running cannot admit the project in the gap.
    *
-   * A tombstone written before the snapshot was kept has nothing to rebuild
-   * from, so that Run is also told to sweep, in the hope the feed lists the
-   * project again. The feed is read by date, so for an older project it will
-   * not, and the Run says so in the failure log.
+   * A one-project Run makes no sweep (ADR-0020), so a tombstone written before
+   * the snapshot was kept has nothing to rebuild from: the project comes back
+   * only if a later Run's days include it, and this Run says so in the failure
+   * log.
    */
   async restoreTombstone(projectId: string, by: string): Promise<void> {
     // Looked for before a Run is asked for, so a project with no tombstone never
@@ -119,7 +119,6 @@ export class ProcurementAdminService {
     const feed = tombstone.feed ?? null;
     try {
       await this.startRun({
-        ...(feed ? {} : { forceDiscovery: true }),
         onlyProject: projectId,
         beforeRun: async () => {
           // The record first: if lifting the tombstone then failed, the project

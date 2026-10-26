@@ -970,7 +970,12 @@ describeMongo('ProcurementRepository', () => {
         procurement({ projectId: 'b' }),
       ]);
 
-      expect(summary).toEqual({ created: 2, changed: 0, unchanged: 0 });
+      expect(summary).toEqual({
+        created: 2,
+        createdIds: ['a', 'b'],
+        changed: 0,
+        unchanged: 0,
+      });
       expect((await repository.get('a'))?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
@@ -985,7 +990,7 @@ describeMongo('ProcurementRepository', () => {
         procurement({ projectId: 'b' }),
       ]);
 
-      expect(summary).toEqual({ created: 0, changed: 0, unchanged: 2 });
+      expect(summary).toEqual({ created: 0, createdIds: [], changed: 0, unchanged: 2 });
       expect((await repository.get('a'))?.updatedAt).toBe(at(1));
       expect((await repository.get('b'))?.updatedAt).toBe(at(2));
     });
@@ -1001,7 +1006,7 @@ describeMongo('ProcurementRepository', () => {
         procurement({ projectId: 'b' }),
       ]);
 
-      expect(summary).toEqual({ created: 0, changed: 1, unchanged: 1 });
+      expect(summary).toEqual({ created: 0, createdIds: [], changed: 1, unchanged: 1 });
       expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['a', 'b']);
     });
 
@@ -1015,30 +1020,12 @@ describeMongo('ProcurementRepository', () => {
     });
 
     test('an empty sweep is a no-op', async () => {
-      expect(await repository.upsertMany([])).toEqual({ created: 0, changed: 0, unchanged: 0 });
-    });
-  });
-
-  describe('the open-data daily quota', () => {
-    const quota = { remainingDay: 640, limitDay: 1000, observedAt: '2026-09-30T18:00:00.000Z' };
-
-    test('is unknown until a sweep has read it', async () => {
-      expect(await repository.openDataQuota()).toBeNull();
-      expect((await repository.summary()).openDataQuota).toBeNull();
-    });
-
-    test('is remembered, and shown in the summary', async () => {
-      await repository.recordOpenDataQuota(quota);
-
-      expect(await repository.openDataQuota()).toEqual(quota);
-      expect((await repository.summary()).openDataQuota).toEqual(quota);
-    });
-
-    test('the latest reading replaces the last', async () => {
-      await repository.recordOpenDataQuota(quota);
-      await repository.recordOpenDataQuota({ ...quota, remainingDay: 0 });
-
-      expect((await repository.openDataQuota())?.remainingDay).toBe(0);
+      expect(await repository.upsertMany([])).toEqual({
+        created: 0,
+        createdIds: [],
+        changed: 0,
+        unchanged: 0,
+      });
     });
   });
 

@@ -3,6 +3,11 @@ export interface Limiter {
   run<T>(call: () => Promise<T>): Promise<T>;
   /** Take a place and hold it until the returned function is called (once counts). */
   acquire(): Promise<() => void>;
+  /**
+   * Take a place only if one is free now, without waiting: null if none is, or
+   * if anyone is already waiting (they asked first).
+   */
+  tryAcquire(): (() => void) | null;
 }
 
 /**
@@ -13,10 +18,7 @@ export function createLimiter(size: number): Limiter {
   let held = 0;
   const waiting: Array<() => void> = [];
 
-  const acquire = async (): Promise<() => void> => {
-    if (held < size) held += 1;
-    // The place is handed over by the releaser, so `held` is not touched here.
-    else await new Promise<void>((resolve) => waiting.push(resolve));
+  const releaser = () => {
     let released = false;
     return () => {
       if (released) return;
@@ -27,8 +29,20 @@ export function createLimiter(size: number): Limiter {
     };
   };
 
+  const acquire = async (): Promise<() => void> => {
+    if (held < size) held += 1;
+    // The place is handed over by the releaser, so `held` is not touched here.
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+    return releaser();
+  };
+
   return {
     acquire,
+    tryAcquire() {
+      if (held >= size || waiting.length > 0) return null;
+      held += 1;
+      return releaser();
+    },
     async run(call) {
       const release = await acquire();
       try {

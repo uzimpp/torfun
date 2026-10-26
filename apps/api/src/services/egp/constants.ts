@@ -33,6 +33,12 @@ export const GREEN_BOOK_URL =
 /** One project's detail on the same service as greenBook: its real budget year, codes and sub-agency (ADR-0019). */
 export const PROJECT_DETAIL_URL =
   'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getProjectDetail';
+/** One project's Goods Category, Budget and Reference Price, on the same service (ADR-0021). It has no budget year. */
+export const PROCUREMENT_DETAIL_URL =
+  'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getProcurementDetail';
+/** A draft's versions, each with the last day for comments on it (ADR-0021). */
+export const TOR_ZIP_LIST_URL =
+  'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getTorZipList';
 
 /**
  * The Source Registry, keyed by the Thai name a human would query with. What
@@ -194,12 +200,3 @@ export const TOR_MEMBER_PATTERNS = [
   { label: 'canonical' as const, pattern: /(^|\/)Attach_TOR_[^/]*\.pdf$/i },
   { label: 'loose' as const, pattern: /(^|\/)[^/]*TOR[^/]*\.pdf$/i },
 ];
-
-/**
- * A discovery sweep younger than this is not repeated. A sweep asks only about
- * the days it has not read, plus today and a share of history, so repeating it
- * spends requests on the same site the downloads use for little news. Six hours
- * matches the shortest Schedule, so every scheduled Run sweeps; a full day would
- * skip the next day's Run whenever it started a few seconds early.
- */
-export const DISCOVERY_MAX_AGE_MS = 6 * 60 * 60 * 1000;
