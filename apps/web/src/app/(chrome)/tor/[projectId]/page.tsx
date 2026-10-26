@@ -12,8 +12,8 @@ export default async function TorReviewRoute({
 }: {
   params: Promise<{ projectId: string }>;
 }) {
-  await requireUser();
   const { projectId } = await params;
+  await requireUser(`/tor/${encodeURIComponent(projectId)}`);
 
   return <TorReviewContent projectId={projectId} />;
 }
