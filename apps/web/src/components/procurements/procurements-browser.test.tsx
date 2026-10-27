@@ -78,6 +78,7 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     discoveredAt: '2026-09-01T00:00:00.000Z',
     timeline: { ...EMPTY_TIMELINE, status: 'open' },
     approved: null,
+    unpublished: null,
     archive: {
       zipId: 'Z1',
       documents: [

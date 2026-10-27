@@ -6,3 +6,4 @@ export * from './egp';
 export * from './procurement-dates';
 export * from './schedule';
 export * from './ingestion-ops';
+export * from './tor-report';

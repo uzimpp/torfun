@@ -35,6 +35,7 @@ const held: Procurement = {
   discoveredAt: '2026-09-09T00:00:00.000Z',
   timeline: { ...EMPTY_TIMELINE, status: 'open' },
   approved: null,
+  unpublished: null,
   archive: { zipId: 'zip-1', documents: [], torAmbiguous: false },
   updatedAt: '2026-09-09T00:00:00.000Z',
 };

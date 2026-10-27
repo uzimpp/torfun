@@ -43,6 +43,7 @@ function procurement(projectId: string, outcome: IngestionOutcome): Procurement 
     discoveredAt: '2026-09-16T00:00:00.000Z',
     timeline: { ...EMPTY_TIMELINE, status: 'drafting' },
     approved: outcome === 'tor_analysed' ? { by: 'somchai', at: '2026-09-17T00:00:00.000Z' } : null,
+    unpublished: null,
     archive: {
       zipId: 'zip-1',
       documents: [
@@ -246,6 +247,47 @@ describe('what a Business Development Officer may see', () => {
       });
       expect(response.statusCode).toBe(404);
       expect((response.json() as { message: string }).message).toContain('No ingested project');
+    });
+  });
+
+  describe('a TOR taken off publication', () => {
+    let unpublishedApp: Awaited<ReturnType<typeof buildApp>>;
+
+    beforeAll(async () => {
+      const procurements = new InMemoryProcurementStore();
+      await procurements.upsert({
+        ...procurement('p-unpublished', 'tor_analysed'),
+        unpublished: { by: 'somchai', at: '2026-09-18T00:00:00.000Z', reportId: 'report-1' },
+      });
+      unpublishedApp = await buildApp(testEnv({ LOG_LEVEL: 'fatal' }), { procurements });
+    });
+
+    afterAll(async () => {
+      await unpublishedApp.close();
+    });
+
+    const get = (url: string, role: User['role']) =>
+      unpublishedApp.inject({
+        method: 'GET',
+        url,
+        cookies: {
+          [ACCESS_COOKIE]: unpublishedApp.jwt.sign({ user_id: 'user-1', username: 'tester', role }),
+        },
+      });
+
+    test("is gone from an officer's list, detail and source", async () => {
+      const list = await get('/api/tors', 'business_development_officer');
+      expect(list.json()).toMatchObject({ items: [], total: 0 });
+      for (const url of ['/api/tors/p-unpublished', '/api/tors/p-unpublished/source']) {
+        expect((await get(url, 'business_development_officer')).statusCode).toBe(404);
+      }
+    });
+
+    test('stays with an administrator, with who took it off and on which report', async () => {
+      expect((await get('/api/tors', 'admin')).json()).toMatchObject({ total: 1 });
+      expect((await get('/api/tors/p-unpublished', 'admin')).json()).toMatchObject({
+        unpublished: { by: 'somchai', reportId: 'report-1' },
+      });
     });
   });
 });

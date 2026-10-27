@@ -21,8 +21,14 @@ export function audienceOf(role: User['role']): Audience {
  */
 export const OFFICER_VISIBLE_OUTCOME = 'tor_analysed' as const satisfies IngestionOutcome;
 
+/** What an officer's listing is narrowed to: an analysed TOR still on publication. */
+export const OFFICER_VISIBLE = { outcome: OFFICER_VISIBLE_OUTCOME, published: true } as const;
+
 export function isVisibleTo(audience: Audience, procurement: Procurement): boolean {
-  return audience === 'admin' || procurement.outcome === OFFICER_VISIBLE_OUTCOME;
+  return (
+    audience === 'admin' ||
+    (procurement.outcome === OFFICER_VISIBLE_OUTCOME && procurement.unpublished === null)
+  );
 }
 
 /**

@@ -28,7 +28,7 @@ import {
   type RunResult,
 } from './egp/pipeline';
 import type { ModelUsage } from './vertex/vertex-ai';
-import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, presentTo, type Audience } from './audience';
+import { isVisibleTo, OFFICER_VISIBLE, presentTo, type Audience } from './audience';
 
 /**
  * Application-level policy over the e-GP ingestion pipeline.
@@ -196,16 +196,16 @@ export class IngestionService {
   }
 
   /**
-   * An officer's query is narrowed to analysed TORs here, after whatever they
-   * sent, so no `outcome` in the request can widen it back out. The held list
-   * comes most urgent first, so a page of it never hides an open tender.
+   * An officer's query is narrowed to published, analysed TORs here, after
+   * whatever they sent, so no `outcome` in the request can widen it back out.
+   * The held list comes most urgent first, so a page of it never hides an open
+   * tender.
    */
   async list(
     options: FindOptions,
     audience: Audience,
   ): Promise<{ items: Procurement[]; total: number }> {
-    const narrowed =
-      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME };
+    const narrowed = audience === 'admin' ? options : { ...options, ...OFFICER_VISIBLE };
     const filters = resolveProcurementListOptions(
       narrowed.outcome === 'needs_review' ? { ...narrowed, order: 'urgency' } : narrowed,
     );

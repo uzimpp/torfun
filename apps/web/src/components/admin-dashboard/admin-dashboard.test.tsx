@@ -80,6 +80,7 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     discoveredAt: '2026-09-01T00:00:00.000Z',
     timeline: EMPTY_TIMELINE,
     approved: null,
+    unpublished: null,
     archive: null,
     updatedAt: '2026-09-30T11:55:00.000Z',
     ...overrides,

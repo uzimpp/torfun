@@ -400,6 +400,18 @@ export type TorAnalysis = z.infer<typeof TorAnalysisSchema>;
 export const ApprovalSchema = z.object({ by: z.string(), at: z.string() });
 export type Approval = z.infer<typeof ApprovalSchema>;
 
+/**
+ * Who took a record off publication, when, and on which TOR report. Officers no
+ * longer see the record; administrators keep it, its source included, and no
+ * sweep or retrieval puts it back.
+ */
+export const UnpublicationSchema = z.object({
+  by: z.string(),
+  at: z.string(),
+  reportId: z.string(),
+});
+export type Unpublication = z.infer<typeof UnpublicationSchema>;
+
 export const ArchiveSchema = z.object({
   zipId: z.string(),
   /**
@@ -465,6 +477,7 @@ export const ProcurementSchema = z.object({
   holdReason: HoldReason.nullable(),
   statusHistory: z.array(StatusChangeSchema),
   approved: ApprovalSchema.nullable(),
+  unpublished: UnpublicationSchema.nullable(),
 
   /** Null until the archive is fetched. */
   archive: ArchiveSchema.nullable(),

@@ -126,6 +126,7 @@ const record: Procurement = {
   holdReason: null,
   statusHistory: [],
   approved: null,
+  unpublished: null,
   archive: null,
   analysis: null,
   updatedAt: '2026-09-30T00:00:00.000Z',

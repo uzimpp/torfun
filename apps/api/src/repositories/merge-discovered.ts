@@ -56,6 +56,7 @@ export function mergeDiscovered(
     holdReason: existing.holdReason,
     statusHistory: existing.statusHistory,
     approved: existing.approved,
+    unpublished: existing.unpublished,
     archive: existing.archive,
     analysis: existing.analysis,
     discoveredAt: existing.discoveredAt,

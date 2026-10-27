@@ -7,7 +7,7 @@ import type {
   ProcurementStore,
 } from '../repositories/procurement.repository';
 import { downloadArchive, extractTorPdfs } from './egp/tor-package';
-import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, presentTo, type Audience } from './audience';
+import { isVisibleTo, OFFICER_VISIBLE, presentTo, type Audience } from './audience';
 
 export interface TorSource {
   filename: string;
@@ -22,13 +22,12 @@ export class TorService {
   ) {}
 
   /**
-   * An officer's query is narrowed to analysed TORs here, after whatever they
-   * sent, so no `outcome` in the request can widen it back out. Search shows
-   * the tenders with the most days left first.
+   * An officer's query is narrowed to published, analysed TORs here, after
+   * whatever they sent, so no `outcome` in the request can widen it back out.
+   * Search shows the tenders with the most days left first.
    */
   async list(options: FindOptions, audience: Audience): Promise<FindResult> {
-    const narrowed =
-      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME };
+    const narrowed = audience === 'admin' ? options : { ...options, ...OFFICER_VISIBLE };
     const filters = resolveProcurementListOptions({ ...narrowed, order: 'daysLeft' }, this.now());
     if (!filters) return { items: [], total: 0 };
     const { items, total } = await this.procurements.find(filters);

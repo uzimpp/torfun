@@ -70,6 +70,7 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     discoveredAt: '2026-09-09T00:00:00.000Z',
     timeline: timeline(),
     approved: null,
+    unpublished: null,
     archive: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,

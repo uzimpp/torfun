@@ -31,6 +31,7 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     discoveredAt: minutesAgo(700),
     timeline: { ...EMPTY_TIMELINE, status: 'open' },
     approved: null,
+    unpublished: null,
     archive: null,
     updatedAt: minutesAgo(10),
     ...overrides,

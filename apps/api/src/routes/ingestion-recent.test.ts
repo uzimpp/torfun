@@ -32,6 +32,7 @@ function procurement(projectId: string, updatedAt: string): Procurement {
     holdReason: null,
     statusHistory: [],
     approved: null,
+    unpublished: null,
     archive: null,
     analysis: null,
     discoveredAt: '2026-09-01T00:00:00.000Z',

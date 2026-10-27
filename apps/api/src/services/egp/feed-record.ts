@@ -30,6 +30,7 @@ export function queuedRecord(projectId: string, feed: FeedSnapshot, now: Date): 
     holdReason: null,
     statusHistory: [{ state: 'Queued', outcome: 'queued', at: timestamp }],
     approved: null,
+    unpublished: null,
 
     archive: null,
     analysis: null,

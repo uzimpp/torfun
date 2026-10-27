@@ -89,6 +89,7 @@ interface ProcurementDocument {
   hold_reason?: HoldReason | null;
   status_history: StatusChange[];
   approved: { by: string; at: string } | null;
+  unpublished: { by: string; at: string; report_id: string } | null;
   archive: ArchiveRecordDocument | null;
   analysis: TorAnalysis | null;
   /** The feed's fingerprint (`hashSource`); absent on records written before sweeps were fingerprinted. */
@@ -157,6 +158,13 @@ function toDomain(document: ProcurementDocument): Procurement {
       outcome: outcomeFromStored(entry.outcome),
     })),
     approved: document.approved,
+    unpublished: document.unpublished
+      ? {
+          by: document.unpublished.by,
+          at: document.unpublished.at,
+          reportId: document.unpublished.report_id,
+        }
+      : null,
     archive: archive
       ? {
           zipId: archive.zip_id,
@@ -199,6 +207,13 @@ function toDocument(record: Procurement, sourceHash: string | null): Procurement
     hold_reason: record.holdReason,
     status_history: record.statusHistory,
     approved: record.approved,
+    unpublished: record.unpublished
+      ? {
+          by: record.unpublished.by,
+          at: record.unpublished.at,
+          report_id: record.unpublished.reportId,
+        }
+      : null,
     archive: archive
       ? {
           zip_id: archive.zipId,
@@ -233,6 +248,8 @@ export interface FindOptions {
    * the record (ADR-0021).
    */
   detailRead?: boolean;
+  /** Only records still published to officers (true) or taken off publication (false). */
+  published?: boolean;
   deptName?: string;
   budgetYear?: number;
   /** Filter to one stage of the agency's own lifecycle. */
@@ -784,6 +801,9 @@ export class ProcurementRepository
     }
     if (options.detailRead !== undefined) {
       filter.detail_read_at = options.detailRead ? { $ne: null } : null;
+    }
+    if (options.published !== undefined) {
+      filter.unpublished = options.published ? null : { $ne: null };
     }
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.budgetYear) filter.budget_year = options.budgetYear;
