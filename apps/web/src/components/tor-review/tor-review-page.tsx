@@ -1,6 +1,5 @@
-import { Banknote, Bookmark, CalendarDays, Gavel, Clock3 } from 'lucide-react';
+import { Banknote, CalendarDays, Gavel, Clock3 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { deadlineLabel, deadlineText } from '@/lib/deadline-display';
 import { formatThaiDate } from '@/lib/format-date';
@@ -8,6 +7,7 @@ import { ProcurementStatusBadge } from '@/components/search/procurement-status-b
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { TorDownloadButton } from './tor-download-button';
+import { TorFavoriteButton } from './tor-favorite-button';
 
 const bahtFormat = new Intl.NumberFormat('th-TH');
 
@@ -69,16 +69,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               )}
             </div>
             <div className="mt-6 grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="w-full min-w-0"
-                aria-label="บันทึก TOR นี้"
-              >
-                <Bookmark aria-hidden="true" />
-                บันทึก TOR
-              </Button>
+              <TorFavoriteButton projectId={tor.projectId} />
               <TorDownloadButton projectId={tor.projectId} />
             </div>
           </div>
