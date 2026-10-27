@@ -1,8 +1,8 @@
 name: CI
 
 on:
+  # Every PR, stacked ones included: a PR into a feature branch is reviewed too.
   pull_request:
-    branches: [develop, main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -14,6 +14,18 @@ permissions:
 jobs:
   lint-typecheck-test:
     runs-on: ubuntu-latest
+    # The repository tests exercise real Mongo query and sort semantics, which a
+    # fake cannot verify. Same image as docker-compose so local and CI agree.
+    services:
+      mongodb:
+        image: mongodb/mongodb-atlas-local:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -32,15 +44,12 @@ jobs:
 
       - name: Unit tests
         run: bun run test
+        env:
+          # The atlas-local image is a one-node replica set; connect to it directly.
+          MONGODB_TEST_URI: mongodb://localhost:27017/torfun-test?directConnection=true
 
       - name: Build
         run: bun run build
-        env:
-          # Dummy values so build-time env validation passes; real secrets are
-          # injected at deploy/runtime, never baked into the CI build.
-          MONGODB_URI: mongodb://localhost:27017/torfun-ci
-          JWT_SECRET: ci-build-secret-ci-build-secret-1234
-          GOOGLE_CLOUD_PROJECT: torfun-ci
 
   e2e:
     runs-on: ubuntu-latest
@@ -61,10 +70,6 @@ jobs:
 
       - name: Build web
         run: bunx turbo build --filter=@torfun/web
-        env:
-          MONGODB_URI: mongodb://localhost:27017/torfun-ci
-          JWT_SECRET: ci-build-secret-ci-build-secret-1234
-          GOOGLE_CLOUD_PROJECT: torfun-ci
 
       - name: Run Playwright e2e tests
         run: bun run test:e2e
