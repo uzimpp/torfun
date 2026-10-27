@@ -350,9 +350,9 @@ describe('discoverProjects: what it admits', () => {
       typeId: null,
       goodsId: null,
       deptSubName: null,
-      detailCheckedAt: null,
+      detailReadAt: null,
       state: 'Queued',
-      status: 'unknown',
+      timeline: { status: 'unknown' },
       projectMoney: null,
     });
     expect(result.records[0]!.announceDate).toStartWith('2026-10-07');

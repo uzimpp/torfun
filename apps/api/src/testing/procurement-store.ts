@@ -28,6 +28,7 @@ import { hashSource, hasUpstreamChange } from '../repositories/source-hash';
  */
 export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly records = new Map<string, Procurement>();
+  private readonly hashes = new Map<string, string>();
   private readonly failures: IngestionFailure[] = [];
   private readonly tombstones = new Map<string, Tombstone>();
   private lastRunAt: string | null = null;
@@ -44,23 +45,26 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async upsert(record: Procurement): Promise<Procurement> {
     const existing = this.records.get(record.projectId);
-    if (!existing) {
-      this.records.set(record.projectId, record);
-      return record;
-    }
-    // The same merge rule the real repository uses, so a pipeline test cannot
-    // pass against a fake that keeps different fields.
-    const merged = mergeDiscovered(existing, record);
-    this.records.set(merged.projectId, merged);
-    return merged;
+    const stored = existing
+      ? mergeDiscovered(existing, record, this.changed(existing, record))
+      : record;
+    this.records.set(stored.projectId, stored);
+    this.hashes.set(stored.projectId, hashSource(record));
+    return stored;
+  }
+
+  private changed(existing: Procurement, incoming: Procurement): boolean {
+    return hasUpstreamChange(this.hashes.get(existing.projectId) ?? null, existing, incoming);
   }
 
   async tombstone(tombstone: Tombstone): Promise<void> {
     this.tombstones.set(tombstone.projectId, tombstone);
     this.records.delete(tombstone.projectId);
+    this.hashes.delete(tombstone.projectId);
   }
 
   async remove(projectId: string): Promise<boolean> {
+    this.hashes.delete(projectId);
     return this.records.delete(projectId);
   }
 
@@ -88,11 +92,9 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       if (!existing) {
         summary.created += 1;
         summary.createdIds.push(record.projectId);
-      } else if (hasUpstreamChange(existing, record)) summary.changed += 1;
+      } else if (this.changed(existing, record)) summary.changed += 1;
       else summary.unchanged += 1;
-      await this.upsert(
-        existing ? record : { ...record, sourceHash: record.sourceHash ?? hashSource(record) },
-      );
+      await this.upsert(record);
     }
     return summary;
   }
@@ -126,8 +128,9 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       (record) =>
         (!options.state || record.state === options.state) &&
         (!options.outcome || record.outcome === options.outcome) &&
-        (!options.status || record.status === options.status) &&
-        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow),
+        (!options.status || record.timeline.status === options.status) &&
+        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow) &&
+        (options.detailRead === undefined || (record.detailReadAt !== null) === options.detailRead),
     );
     return {
       items: items.slice(options.offset, options.offset + options.limit),
@@ -156,11 +159,12 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       .filter(
         (record) =>
           (record.state === 'Completed' || record.state === 'Failed') &&
-          record.status !== 'contracted',
+          record.outcome !== 'out_of_scope' &&
+          record.timeline.status !== 'contracted',
       )
       .sort(
         (a, b) =>
-          (a.timelineCheckedAt ?? '').localeCompare(b.timelineCheckedAt ?? '') ||
+          (a.timeline.lastReadAt ?? '').localeCompare(b.timeline.lastReadAt ?? '') ||
           a.projectId.localeCompare(b.projectId),
       )
       .slice(page.offset, page.offset + page.limit);

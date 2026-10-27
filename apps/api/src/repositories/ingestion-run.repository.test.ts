@@ -33,6 +33,7 @@ const run = (id: string, endedAt: string, overrides: Partial<IngestionRun> = {})
     newRecords: 2,
     changedRecords: 1,
     unchangedRecords: 7,
+    outOfScope: 3,
     discoveryStopped: null,
     attempted: 2,
     refreshed: 5,
@@ -91,6 +92,17 @@ describeMongo('IngestionRunRepository', () => {
 
     expect(await runs.recent(10)).toEqual([
       { ...written, runners: 2, counts: { ...written.counts!, discoverySkipped: true } },
+    ]);
+  });
+
+  test('a run logged before ADR-0021 reads back as having found nothing out of scope', async () => {
+    const written = run('a', '2026-10-01T00:01:00.000Z');
+    await runs.record(written);
+    const stored = (await getDb()).collection('ingestion_runs');
+    await stored.updateOne({ _id: 'a' as never }, { $unset: { 'counts.out_of_scope': '' } });
+
+    expect(await runs.recent(10)).toEqual([
+      { ...written, counts: { ...written.counts!, outOfScope: 0 } },
     ]);
   });
 

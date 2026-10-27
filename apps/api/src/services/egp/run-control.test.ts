@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { FastifyBaseLogger } from 'fastify';
-import { UnreachableError } from './client';
+import { SiteUnavailableError, UnreachableError } from './client';
 import { SITE_UNREACHABLE_AFTER } from './constants';
 import type { RecordGuard } from './record-work';
 import { createRunControl, runEnding, type RunStatus, type StopReason } from './run-control';
@@ -97,6 +97,15 @@ describe('runEnding', () => {
     });
   });
 
+  test("an unavailable site shows as Discovery's, even where the sweep saw it as closed", () => {
+    expect(
+      runEnding(stopped('unavailable', { siteDown: true }), {
+        rateLimited: false,
+        unreachable: true,
+      }).discoveryStopped,
+    ).toBe('unavailable');
+  });
+
   test("a silent site shows as Discovery's even with no sweep", () => {
     expect(runEnding(stopped('admin', { siteDown: true }), null).discoveryStopped).toBe(
       'unreachable',
@@ -166,6 +175,25 @@ describe('createRunControl', () => {
       siteDown: true,
     });
     expect(record.siteDown).toBe(true);
+  });
+
+  test('stops at the first sign of an unavailable site, and marks the record that met it', async () => {
+    const { run, gate } = control();
+    const record = guard();
+
+    await expect(
+      run.askSite(() => Promise.reject(new SiteUnavailableError('closed')), record),
+    ).rejects.toBeInstanceOf(SiteUnavailableError);
+
+    expect(run.status).toEqual({
+      kind: 'stopped',
+      reason: 'unavailable',
+      refused: false,
+      siteDown: true,
+    });
+    expect(record.siteDown).toBe(true);
+    const turnedAway = await gate.acquire('fresh').catch((e: unknown) => e);
+    expect((turnedAway as SiteClosedError).reason).toBe('unavailable');
   });
 
   test('any answer, an error included, resets the streak', async () => {

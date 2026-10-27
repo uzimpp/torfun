@@ -36,7 +36,6 @@ describe('buildTombstone', () => {
         deptName: 'กรมศุลกากร',
         deptCode: '0305',
         announceDate: '2026-10-05T00:00:00.000Z',
-        budgetYear: 2570,
         purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
       },
     });
@@ -45,7 +44,6 @@ describe('buildTombstone', () => {
       deptName: 'กรมศุลกากร',
       deptCode: '0305',
       announceDate: '2026-10-05T00:00:00.000Z',
-      budgetYear: 2570,
       purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     });
   });

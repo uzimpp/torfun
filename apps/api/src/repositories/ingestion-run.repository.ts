@@ -16,6 +16,8 @@ interface CountsDocument {
   new_records: number;
   changed_records: number;
   unchanged_records: number;
+  /** Absent on Runs before ADR-0021, which found none. */
+  out_of_scope?: number;
   /** Written by Runs before ADR-0020 only. */
   discovery_skipped?: boolean;
   discovery_stopped: RunCounts['discoveryStopped'];
@@ -50,6 +52,7 @@ function countsToDocument(counts: RunCounts): CountsDocument {
     new_records: counts.newRecords,
     changed_records: counts.changedRecords,
     unchanged_records: counts.unchangedRecords,
+    out_of_scope: counts.outOfScope,
     discovery_stopped: counts.discoveryStopped,
     attempted: counts.attempted,
     refreshed: counts.refreshed,
@@ -69,6 +72,7 @@ function countsFromDocument(document: CountsDocument): RunCounts {
     newRecords: document.new_records,
     changedRecords: document.changed_records,
     unchangedRecords: document.unchanged_records,
+    outOfScope: document.out_of_scope ?? 0,
     ...(document.discovery_skipped !== undefined
       ? { discoverySkipped: document.discovery_skipped }
       : {}),

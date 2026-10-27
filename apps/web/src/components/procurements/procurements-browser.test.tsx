@@ -1,7 +1,12 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { EMPTY_MILESTONES, HOLD_REASON_LABELS, type Procurement } from '@torfun/types';
+import {
+  EMPTY_TIMELINE,
+  HOLD_REASON_LABELS,
+  type ArchiveDocument,
+  type Procurement,
+} from '@torfun/types';
 
 import { ApiError } from '@/lib/api';
 import { EMPTY_PROCUREMENT_URL, type ProcurementUrlState } from './procurement-filter-values';
@@ -50,35 +55,16 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: 1_500_000,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: 'Z1',
-    documents: [
-      {
-        member: 'tor.pdf',
-        filename: 'tor.pdf',
-        bytes: 1_048_576,
-        role: 'main_tor',
-        namePattern: 'canonical',
-        note: '',
-      } as Procurement['documents'][number],
-    ],
     analysis: {
       summary: 'พัฒนาระบบบริหารงานบุคคล',
       scopeOfWork: [],
@@ -89,9 +75,23 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
       targetPlatforms: [],
       requiredQualifications: [],
     },
-    torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: {
+      zipId: 'Z1',
+      documents: [
+        {
+          member: 'tor.pdf',
+          filename: 'tor.pdf',
+          bytes: 1_048_576,
+          role: 'main_tor',
+          namePattern: 'canonical',
+          note: '',
+        } as ArchiveDocument,
+      ],
+      torAmbiguous: false,
+    },
     updatedAt: '2026-09-01T00:00:00.000Z',
     ...overrides,
   };
@@ -293,7 +293,7 @@ describe('the drawer', () => {
 
     expect(lastHref()).toBe('/admin/procurements?status=open&page=2&id=67109288963');
     const drawer = await screen.findByRole('dialog', { name: /ประกวดราคาจ้างพัฒนาระบบสารสนเทศ/ });
-    expect(within(drawer).getByRole('button', { name: /ดาวน์โหลด TOR/ })).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: /ดูเอกสาร TOR/ })).toBeInTheDocument();
     expect(within(drawer).getByText(/สรุปจาก AI/)).toBeInTheDocument();
     expect(within(drawer).getByText('พัฒนาระบบบริหารงานบุคคล')).toBeInTheDocument();
   });

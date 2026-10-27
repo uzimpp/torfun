@@ -1,11 +1,17 @@
-import type { ArchiveDocument, Procurement, SoftwareJudgement, TorAnalysis } from '@torfun/types';
+import type {
+  Archive,
+  ArchiveDocument,
+  Procurement,
+  SoftwareJudgement,
+  Timeline,
+  TorAnalysis,
+} from '@torfun/types';
 import type { DocumentClassification, ReadMode } from '../vertex/classify-document';
-import { decideDeadline } from './deadline';
+import { officialDeadline } from './deadline';
 import { decideOutcome } from './decision';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
 import type { InvitationResult } from './invitation';
 import { withDeadline, type Handoff, type RecordWork } from './record-work';
-import type { TimelinePatch } from './timeline';
 import { buildTombstone } from './tombstone';
 import type { ExtractionResult } from './tor-package';
 
@@ -122,12 +128,12 @@ export function readRetrievedArchive(
 
     // Note what is NOT here: extraction.torFiles carries the PDF payloads,
     // and they stop at this line. Only the manifest is persisted (ADR-0002).
-    const patch: Partial<Procurement> = {
+    const archiveRead: Archive = {
       zipId,
       documents: analysed.documents,
-      analysis: analysed.analysis,
       torAmbiguous: analysed.torAmbiguous,
     };
+    const patch: Partial<Procurement> = { archive: archiveRead, analysis: analysed.analysis };
 
     // The TOR was read either way. What the model's judgement may do is
     // decided in one place: only a confident, whole-document answer
@@ -142,15 +148,18 @@ export function readRetrievedArchive(
       // Read even with no TOR: an administrator still sees the deadline.
       const invitation = await deps.readInvitation(archive, record.projectId);
       if (guard.expired) return;
-      patch.documents = [...analysed.documents, ...invitation.documents];
-      Object.assign(
-        patch,
-        decideDeadline(current, {
-          priced: current.milestones.priced?.at ?? null,
-          invitationBidAt: invitation.bidAt,
-          torDeadline: analysed.analysis?.deadlineAt ?? null,
-        }),
-      );
+      patch.archive = {
+        ...archiveRead,
+        documents: [...analysed.documents, ...invitation.documents],
+      };
+      patch.timeline = {
+        ...current.timeline,
+        deadlineAt: officialDeadline(
+          current.timeline.deadlineAt,
+          current.timeline.stages,
+          invitation.bidAt,
+        ),
+      };
     }
 
     if (analysed.analysis !== null && analysed.judgement !== null && decision) {
@@ -208,33 +217,39 @@ export function readRetrievedArchive(
 export function readMovedInvitation(
   deps: AnalysisDeps,
   work: RecordWork,
-  fetched: { archive: Uint8Array; timeline: TimelinePatch },
+  fetched: { archive: Uint8Array; zipId: string; timeline: Timeline },
 ): Handoff {
   const { record, guard } = work;
-  const { archive, timeline } = fetched;
+  const { archive, zipId, timeline } = fetched;
   return async () => {
     work.stage = 'analysis';
     const invitation = await deps.readInvitation(archive, record.projectId);
     if (guard.expired) return;
     const reread = new Set(invitation.documents.map((document) => document.member));
+    const kept = record.archive ?? { zipId, documents: [], torAmbiguous: false };
     await work.store.amend(
       record.projectId,
       {
-        ...timeline,
-        documents: [
-          ...record.documents.filter(
-            (document) =>
-              document.role !== 'invitation' &&
-              document.role !== 'bidding_document' &&
-              !reread.has(document.member),
+        timeline: {
+          ...timeline,
+          deadlineAt: officialDeadline(
+            record.timeline.deadlineAt,
+            timeline.stages,
+            invitation.bidAt,
           ),
-          ...invitation.documents,
-        ],
-        ...decideDeadline(record, {
-          priced: timeline.milestones.priced?.at ?? null,
-          invitationBidAt: invitation.bidAt,
-          torDeadline: record.analysis?.deadlineAt ?? null,
-        }),
+        },
+        archive: {
+          ...kept,
+          documents: [
+            ...kept.documents.filter(
+              (document) =>
+                document.role !== 'invitation' &&
+                document.role !== 'bidding_document' &&
+                !reread.has(document.member),
+            ),
+            ...invitation.documents,
+          ],
+        },
       },
       true,
     );

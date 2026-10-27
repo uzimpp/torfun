@@ -238,7 +238,19 @@ describe('the site gate', () => {
       expect(starts(log)).toEqual(['a', 'b', 'c']);
     });
 
-    test('new days, then fresh, then refresh, then history', async () => {
+    test('a procurement detail waiter goes before a fresh waiter that arrived first', async () => {
+      const { gate, use, section, log } = harness();
+      const hold = await gate.acquire('history');
+
+      const fresh = use(section('fresh'), undefined, 'fresh');
+      const detail = use(section('detail'), undefined, 'detail');
+      await hold.release();
+      await Promise.all([fresh, detail]);
+
+      expect(starts(log)).toEqual(['detail', 'fresh']);
+    });
+
+    test('new days, then procurement details, then fresh, then refresh, then history', async () => {
       const { gate, use, section, log } = harness();
       const hold = await gate.acquire('history');
 
@@ -247,7 +259,7 @@ describe('the site gate', () => {
       await hold.release();
       await Promise.all(waiters);
 
-      expect(starts(log)).toEqual(['new_day', 'fresh', 'refresh', 'history']);
+      expect(starts(log)).toEqual(['new_day', 'detail', 'fresh', 'refresh', 'history']);
     });
 
     test('a free gate is taken at once, whatever the tier', async () => {

@@ -1,8 +1,7 @@
 import { Banknote, CalendarDays, Gavel, Clock3 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { DEADLINE_SOURCE_LABELS } from '@torfun/types';
-import { deadlineText } from '@/lib/deadline-display';
+import { deadlineLabel, deadlineText } from '@/lib/deadline-display';
 import { formatThaiDate } from '@/lib/format-date';
 import { ProcurementStatusBadge } from '@/components/search/procurement-status-badge';
 import type { TorReviewData } from './use-tor-review-data';
@@ -53,20 +52,19 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
             </p>
             <div
               role="group"
-              aria-label="กำหนดยื่นข้อเสนอ"
+              aria-label={deadlineLabel(tor.deadline)}
               className="border-border mt-5 border-t pt-4"
             >
               <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
                 <Clock3 aria-hidden="true" className="size-4 text-amber-600" />
-                กำหนดยื่นข้อเสนอ
+                {deadlineLabel(tor.deadline)}
               </p>
               <p data-numeric className="mt-2 text-lg font-medium">
-                {deadlineText(tor.submissionDeadline, tor.status)}
+                {deadlineText(tor.deadline, tor.status)}
               </p>
-              {tor.deadlineSource && (
+              {tor.deadline?.readByModel && (
                 <p className="text-muted-foreground mt-1 text-xs">
-                  ที่มา: {DEADLINE_SOURCE_LABELS[tor.deadlineSource]} —
-                  โปรดตรวจสอบกับเอกสารต้นฉบับก่อนตัดสินใจ
+                  อ่านจากเอกสาร TOR โดย AI — โปรดตรวจสอบกับเอกสารต้นฉบับก่อนตัดสินใจ
                 </p>
               )}
             </div>

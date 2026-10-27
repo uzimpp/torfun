@@ -43,6 +43,20 @@ export const procurementAdminRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
+  app.post(
+    '/ingestion/procurements/:projectId/read-anyway',
+    {
+      schema: {
+        params: ProjectParams,
+        response: { 202: z.object({ started: z.literal(true) }), ...notFoundOrConflict },
+      },
+    },
+    async (request, reply) => {
+      await app.procurementAdminService.readAnyway(request.params.projectId, request.user.username);
+      return reply.code(202).send({ started: true as const });
+    },
+  );
+
   app.delete(
     '/ingestion/procurements/:projectId',
     {

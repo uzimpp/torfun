@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { EMPTY_MILESTONES, ACCESS_COOKIE, type IngestionOutcome, type Procurement, type User } from '@torfun/types';
+import {
+  EMPTY_TIMELINE,
+  ACCESS_COOKIE,
+  type IngestionOutcome,
+  type Procurement,
+  type User,
+} from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -22,40 +28,35 @@ function procurement(projectId: string, outcome: IngestionOutcome): Procurement 
     budgetYear: 2569,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
-    status: 'drafting',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: outcome === 'tor_analysed' || outcome === 'needs_review' ? 'Completed' : 'Queued',
     outcome,
     attempts: 0,
     holdReason: outcome === 'needs_review' ? 'partial_read' : null,
     // An approved record is the one an officer can see that an administrator touched.
-    approvedBy: outcome === 'tor_analysed' ? 'somchai' : null,
-    approvedAt: outcome === 'tor_analysed' ? '2026-09-17T00:00:00.000Z' : null,
     statusHistory: [],
-    zipId: 'zip-1',
-    documents: [
-      {
-        member: 'Attach_TOR_1.pdf',
-        filename: 'Attach_TOR_1.pdf',
-        bytes: 1,
-        namePattern: 'canonical',
-        role: 'main_tor',
-        note: '',
-      },
-    ],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-16T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'drafting' },
+    approved: outcome === 'tor_analysed' ? { by: 'somchai', at: '2026-09-17T00:00:00.000Z' } : null,
+    archive: {
+      zipId: 'zip-1',
+      documents: [
+        {
+          member: 'Attach_TOR_1.pdf',
+          filename: 'Attach_TOR_1.pdf',
+          bytes: 1,
+          namePattern: 'canonical',
+          role: 'main_tor',
+          note: '',
+        },
+      ],
+      torAmbiguous: false,
+    },
     updatedAt: '2026-09-16T00:00:00.000Z',
   };
 }
@@ -66,6 +67,7 @@ const OUTCOMES: IngestionOutcome[] = [
   'queued',
   'analysis_failed',
   'no_tor_package',
+  'out_of_scope',
 ];
 
 describe('what a Business Development Officer may see', () => {
@@ -103,6 +105,7 @@ describe('what a Business Development Officer may see', () => {
         'outcome=queued',
         'outcome=needs_review',
         'outcome=analysis_failed',
+        'outcome=out_of_scope',
         'state=Queued',
         'state=Failed',
         'outcome=queued&state=Queued',
@@ -174,8 +177,7 @@ describe('what a Business Development Officer may see', () => {
         cookies: admin(),
       });
       expect(response.json() as Procurement).toMatchObject({
-        approvedBy: 'somchai',
-        approvedAt: '2026-09-17T00:00:00.000Z',
+        approved: { by: 'somchai', at: '2026-09-17T00:00:00.000Z' },
       });
     });
   });

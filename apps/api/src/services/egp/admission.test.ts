@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { admit, type Admission } from './admission';
+import { admit, goodsInScope, type Admission } from './admission';
 import { E_BIDDING_METHOD } from './constants';
 
 const expectedNames = new Set(['กรมศุลกากร']);
@@ -69,5 +69,19 @@ describe('admit', () => {
 
   test.each(cases)('$name', ({ input, tombstoned, expected }) => {
     expect(admit(input, expectedNames, new Set(tombstoned))).toBe(expected);
+  });
+});
+
+describe('goodsInScope', () => {
+  test.each([
+    ['4010', true],
+    ['4016', true],
+    ['99', true],
+    [null, true],
+    ['1008', false],
+    ['5005', false],
+    ['6011', false],
+  ] as const)('Goods Category %p is in scope: %p', (goodsId, expected) => {
+    expect(goodsInScope(goodsId)).toBe(expected);
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { EMPTY_MILESTONES, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
+import { EMPTY_TIMELINE, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -14,30 +14,21 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2569,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: '1 ตุลาคม 2569',
-    projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'e-bidding',
     projectMoney: 4_500_000,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: 'zip-1',
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-16T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: { zipId: 'zip-1', documents: [], torAmbiguous: false },
     updatedAt: '2026-09-16T00:00:00.000Z',
     ...overrides,
   };

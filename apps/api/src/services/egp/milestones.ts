@@ -1,16 +1,16 @@
 import {
-  EMPTY_MILESTONES,
+  EMPTY_STAGES,
   MILESTONE_KEYS,
   type MilestoneKey,
-  type Milestones,
   type ProcurementStatus,
+  type Stages,
 } from '@torfun/types';
 import { convertTimelineDate } from './dates';
 
 /**
  * Turns e-GP's announcement timeline into our own vocabulary.
  *
- * The site's codes are used once, here, to set a milestone, and are not kept. A
+ * The site's codes are used once, here, to set a stage, and are not kept. A
  * code not listed is not guessed at: it changes nothing and is handed back so
  * the pipeline can log it.
  */
@@ -42,14 +42,17 @@ const STATUS_BY_MILESTONE: Record<MilestoneKey, ProcurementStatus> = {
   contracted: 'contracted',
 };
 
-export interface MilestoneReading {
-  milestones: Milestones;
+export interface StageReading {
+  stages: Stages;
+  /** The stage of the highest one reached, dated or not; `unknown` where none is. */
+  status: ProcurementStatus;
   /** One row per distinct code that is not mapped. */
   unrecognised: AnnouncementRow[];
 }
 
-export function readMilestones(rows: readonly AnnouncementRow[]): MilestoneReading {
-  const milestones: Milestones = { ...EMPTY_MILESTONES };
+export function readStages(rows: readonly AnnouncementRow[]): StageReading {
+  const stages: Stages = { ...EMPTY_STAGES };
+  const reached = new Set<MilestoneKey>();
   const unrecognised = new Map<string, AnnouncementRow>();
 
   for (const row of rows) {
@@ -58,17 +61,17 @@ export function readMilestones(rows: readonly AnnouncementRow[]): MilestoneReadi
       if (!unrecognised.has(row.announceType)) unrecognised.set(row.announceType, row);
       continue;
     }
+    reached.add(key);
     // ISO strings of equal shape order by time, and a date outranks none.
     const at = convertTimelineDate(row.announceDate);
-    const kept = milestones[key]?.at ?? null;
-    milestones[key] = { at: kept !== null && (at === null || kept > at) ? kept : at };
+    const kept = stages[key];
+    stages[key] = kept !== null && (at === null || kept > at) ? kept : at;
   }
 
-  return { milestones, unrecognised: [...unrecognised.values()] };
-}
-
-/** The stage of the highest milestone reached; `unknown` where none is. */
-export function statusFromMilestones(milestones: Milestones): ProcurementStatus {
-  const highest = [...MILESTONE_KEYS].reverse().find((key) => milestones[key] !== null);
-  return highest ? STATUS_BY_MILESTONE[highest] : 'unknown';
+  const highest = [...MILESTONE_KEYS].reverse().find((key) => reached.has(key));
+  return {
+    stages,
+    status: highest ? STATUS_BY_MILESTONE[highest] : 'unknown',
+    unrecognised: [...unrecognised.values()],
+  };
 }

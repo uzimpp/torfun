@@ -21,7 +21,9 @@ bun run build && bun run start           # production build
 Configuration comes from `.env` in this directory — copy `.env.example` and read
 its comments, which cover how to authenticate to Google in each environment.
 A local MongoDB (`docker compose up -d mongodb` from the repo root) is needed for
-`bun run dev` and for the repository tests, which run against real Mongo.
+`bun run dev` and for the repository tests, which run against real Mongo. They
+skip unless `MONGODB_TEST_URI` (or `MONGODB_URI`) is set; for the local image use
+`MONGODB_TEST_URI='mongodb://127.0.0.1:27017/torfun-test?directConnection=true'`.
 
 ## Endpoints
 

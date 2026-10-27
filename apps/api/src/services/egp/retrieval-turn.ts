@@ -1,16 +1,15 @@
 import type { Procurement } from '@torfun/types';
 import { readMovedInvitation, readRetrievedArchive, type AnalysisDeps } from './analysis-task';
-import type { AnnouncementClient } from './announcement-client';
-import { readProjectDetail } from './project-detail';
+import type { AnnouncementClient, DraftListParams } from './announcement-client';
+import { admitByProcurementDetail } from './detail-turn';
 import type { Handoff, RecordWork } from './record-work';
 import type { RetrievalQueue } from './retrieval-queue';
 import { reviewTimeline, type TimelineReview } from './timeline';
 
 /**
- * Retrieval: one project's turn at the gate. The project detail where it was
- * never read, its timeline, then the archive lookup and download where there is
- * an Archive to fetch, all in one gate hold. What it fetched is handed back for
- * Analysis.
+ * Retrieval: one project's turn at the gate. Its timeline, then the archive
+ * lookup and download where there is an Archive to fetch, all in one gate hold.
+ * What it fetched is handed back for Analysis.
  */
 
 export interface RetrievalDeps {
@@ -34,8 +33,6 @@ export async function takeTurn(
   work: RecordWork,
   fresh: boolean,
 ): Promise<Handoff | undefined> {
-  await catchUpDetail(deps, work);
-  if (work.guard.expired) return;
   return fresh ? retrieve(deps, work) : refresh(deps, work);
 }
 
@@ -58,7 +55,7 @@ async function readTimeline(deps: RetrievalDeps, work: RecordWork): Promise<Time
     );
     return null;
   }
-  const review = reviewTimeline(record, rows, new Date().toISOString());
+  const review = reviewTimeline(record.timeline, rows, new Date().toISOString());
   for (const unknown of review.unrecognised) {
     await work.note(
       'timeline',
@@ -68,46 +65,67 @@ async function readTimeline(deps: RetrievalDeps, work: RecordWork): Promise<Time
   return review;
 }
 
-/**
- * Discovery stores a project from the feed alone, so a record whose detail
- * was never read (`detailCheckedAt` null) gets it first, in the same gate hold
- * as its timeline (ADR-0020). A failure is logged and the record carries on
- * with the year it has, null for a new one, never guessed; the next Run asks
- * again. A refusal is thrown on and stops the Run as usual.
- */
-async function catchUpDetail(deps: RetrievalDeps, work: RecordWork): Promise<void> {
+async function readCommentsCloseAt(
+  deps: RetrievalDeps,
+  work: RecordWork,
+  draftParams: () => Promise<DraftListParams | null>,
+): Promise<string | null> {
   const { record, guard } = work;
-  if (record.detailCheckedAt !== null) return;
-  const read = await work.site(() =>
-    readProjectDetail(deps.announcements, record.projectId, guard.controller.signal),
+  const params = await draftParams();
+  if (guard.expired || !params) return record.timeline.commentsCloseAt;
+  const closes = await work.site(() =>
+    deps.announcements.commentsCloseAt(record.projectId, params, guard.controller.signal),
   );
-  if (guard.expired) return;
-  if ('error' in read) return work.note('timeline', read.error);
-  // Only a change an officer can see counts as news.
-  const visible =
-    read.fields.budgetYear !== record.budgetYear || read.fields.deptSubName !== record.deptSubName;
-  await work.store.amend(record.projectId, read.fields, visible);
-  // Later steps read this record (a tombstone keeps its year), so it must be current.
-  work.record = { ...record, ...read.fields };
+  return closes ?? record.timeline.commentsCloseAt;
 }
 
-/** A project already read: its timeline again, and the invitation only if that moved. */
 async function refresh(deps: RetrievalDeps, work: RecordWork): Promise<Handoff | undefined> {
+  let draftParams = async () =>
+    (
+      await work.site(() =>
+        deps.announcements.procurementDetail(work.record.projectId, work.guard.controller.signal),
+      )
+    )?.draftListParams ?? null;
+  if (work.record.detailReadAt === null) {
+    work.stage = 'discovery';
+    const reading = await admitByProcurementDetail(deps.announcements, work);
+    if (reading.kind === 'expired') return;
+    if (reading.kind === 'out_of_scope') {
+      work.endSiteSection();
+      return;
+    }
+    const params = reading.kind === 'in_scope' ? reading.params : null;
+    draftParams = async () => params;
+    if (reading.kind === 'in_scope') {
+      await work.store.amend(work.record.projectId, reading.patch, true);
+      work.record = { ...work.record, ...reading.patch };
+    }
+    work.stage = 'timeline';
+  }
   const { record } = work;
-  const review = await readTimeline(deps, work);
+  let review = await readTimeline(deps, work);
   if (work.guard.expired) return;
   if (review === null) {
     work.endSiteSection();
     return;
   }
+  if (review.timeline.status === 'drafting') {
+    const commentsCloseAt = await readCommentsCloseAt(deps, work, draftParams);
+    if (work.guard.expired) return;
+    review = {
+      ...review,
+      timeline: { ...review.timeline, commentsCloseAt },
+      changed: review.changed || commentsCloseAt !== record.timeline.commentsCloseAt,
+    };
+  }
 
   if (!review.invitationMoved) {
     work.count('refreshed');
     // A read that found nothing new is not news: only its time is kept.
-    const patch = review.changed
-      ? review.patch
-      : { timelineCheckedAt: review.patch.timelineCheckedAt };
-    await work.store.amend(record.projectId, patch, review.changed);
+    const timeline = review.changed
+      ? review.timeline
+      : { ...record.timeline, lastReadAt: review.timeline.lastReadAt };
+    await work.store.amend(record.projectId, { timeline }, review.changed);
     work.endSiteSection();
     return;
   }
@@ -133,7 +151,7 @@ async function refresh(deps: RetrievalDeps, work: RecordWork): Promise<Handoff |
   // or a failed re-read would leave it looking already done.
   await work.store.amend(
     record.projectId,
-    { timelineCheckedAt: review.patch.timelineCheckedAt },
+    { timeline: { ...record.timeline, lastReadAt: review.timeline.lastReadAt } },
     false,
   );
 
@@ -152,7 +170,7 @@ async function refresh(deps: RetrievalDeps, work: RecordWork): Promise<Handoff |
   }
   const archive = await download(deps, work, zipId);
   if (!archive) return;
-  return readMovedInvitation(deps.analysis, work, { archive, timeline: review.patch });
+  return readMovedInvitation(deps.analysis, work, { archive, zipId, timeline: review.timeline });
 }
 
 /** A project never read: its timeline, then its archive retrieved, to be read by Analysis. */
@@ -162,8 +180,8 @@ async function retrieve(deps: RetrievalDeps, work: RecordWork): Promise<Handoff 
   if (guard.expired) return;
   let current: Procurement = record;
   if (review !== null) {
-    await work.store.amend(record.projectId, review.patch, true);
-    current = { ...record, ...review.patch };
+    await work.store.amend(record.projectId, { timeline: review.timeline }, true);
+    current = { ...record, timeline: review.timeline };
   }
 
   work.stage = 'info';

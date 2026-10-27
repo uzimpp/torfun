@@ -32,6 +32,7 @@ export function gatedDeps(fail = false) {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,

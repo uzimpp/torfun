@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, test } from 'vitest';
-import { EMPTY_MILESTONES, OUTCOME_LABELS, STATUS_LABELS, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, OUTCOME_LABELS, STATUS_LABELS, type Procurement } from '@torfun/types';
 
 import { ProcurementTable } from './procurement-table';
 
@@ -17,30 +17,21 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: 16773380,
     priceBuild: null,
-    status: 'unknown',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [{ state: 'Completed', outcome: 'tor_analysed', at: minutesAgo(10) }],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: minutesAgo(700),
-    sourceHash: null,
+    timeline: EMPTY_TIMELINE,
+    approved: null,
+    archive: null,
     updatedAt: minutesAgo(10),
     ...overrides,
   };
@@ -59,7 +50,13 @@ const renderTable = (items: Procurement[], loading = false) =>
 
 describe('ProcurementTable', () => {
   test('shows each value in Thai, with no English enum name anywhere in the row', () => {
-    renderTable([record({ state: 'Queued', outcome: 'error', status: 'contracted' })]);
+    renderTable([
+      record({
+        state: 'Queued',
+        outcome: 'error',
+        timeline: { ...EMPTY_TIMELINE, status: 'contracted' },
+      }),
+    ]);
 
     const row = screen.getAllByRole('row')[1]!;
     expect(row).toHaveTextContent(OUTCOME_LABELS.error);
@@ -69,7 +66,7 @@ describe('ProcurementTable', () => {
   });
 
   test('says a status that has not been read yet', () => {
-    renderTable([record({ status: 'unknown' })]);
+    renderTable([record({ timeline: EMPTY_TIMELINE })]);
     expect(screen.getAllByRole('row')[1]).toHaveTextContent(STATUS_LABELS.unknown);
   });
 

@@ -8,6 +8,7 @@ const counts = (overrides: Partial<RunCounts> = {}): RunCounts => ({
   newRecords: 12,
   changedRecords: 0,
   unchangedRecords: 18,
+  outOfScope: 0,
   discoveryStopped: null,
   attempted: 9,
   refreshed: 2,
@@ -55,6 +56,13 @@ describe('runResult', () => {
   test('a Run whose site stopped answering has failed', () => {
     expect(runResult(run({ counts: counts({ discoveryStopped: 'unreachable' }) }))).toEqual({
       label: 'ล้มเหลว · เว็บไม่ตอบ',
+      tone: 'error',
+    });
+  });
+
+  test('a Run that met e-GP closed says so', () => {
+    expect(runResult(run({ counts: counts({ discoveryStopped: 'unavailable' }) }))).toEqual({
+      label: 'ล้มเหลว · e-GP ปิดให้บริการ',
       tone: 'error',
     });
   });

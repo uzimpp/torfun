@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ExternalLink } from 'lucide-react';
 import {
-  DEADLINE_SOURCE_LABELS,
+  currentDeadline,
   HOLD_REASON_LABELS,
   MILESTONE_KEYS,
   OUTCOME_LABELS,
@@ -26,7 +26,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { LoadError } from '@/lib/api-errors';
-import { deadlineText } from '@/lib/deadline-display';
+import { deadlineLabel, deadlineText } from '@/lib/deadline-display';
 import { formatThaiDate } from '@/lib/format-date';
 import { bucketOfOutcome } from '@/lib/outcome-buckets';
 import { cn } from '@/lib/utils';
@@ -101,17 +101,15 @@ function ReviewSection({ record }: { record: Procurement }) {
       </Section>
     );
   }
-  if (record.approvedBy) {
+  if (record.approved) {
     return (
       <Section title="การอนุมัติ">
         <p className="text-sm">
-          อนุมัติโดย {record.approvedBy}
-          {record.approvedAt ? (
-            <span className="text-muted-foreground">
-              {' '}
-              · {formatThaiDate(record.approvedAt, { withTime: true })}
-            </span>
-          ) : null}
+          อนุมัติโดย {record.approved.by}
+          <span className="text-muted-foreground">
+            {' '}
+            · {formatThaiDate(record.approved.at, { withTime: true })}
+          </span>
         </p>
       </Section>
     );
@@ -161,7 +159,7 @@ function FactsSection({ record }: { record: Procurement }) {
             <span className="text-muted-foreground block">{record.deptSubName}</span>
           ) : null}
         </Fact>
-        <Fact label="สถานะโครงการ">{STATUS_LABELS[record.status]}</Fact>
+        <Fact label="สถานะโครงการ">{STATUS_LABELS[record.timeline.status]}</Fact>
         <Fact label="ปีงบประมาณ" numeric>
           {record.budgetYear ?? '—'}
         </Fact>
@@ -171,7 +169,6 @@ function FactsSection({ record }: { record: Procurement }) {
         <Fact label="ราคากลาง (บาท)" numeric>
           {formatThb(record.priceBuild)}
         </Fact>
-        {record.projectTypeName ? <Fact label="ประเภท">{record.projectTypeName}</Fact> : null}
         {record.purchaseMethodName ? (
           <Fact label="วิธีจัดหา">{record.purchaseMethodName}</Fact>
         ) : null}
@@ -184,39 +181,35 @@ function FactsSection({ record }: { record: Procurement }) {
 }
 
 function TimelineSection({ record }: { record: Procurement }) {
+  const { timeline } = record;
+  const deadline = currentDeadline(record);
   return (
     <Section title="กำหนดการ">
       <p className="text-sm">
-        <span className="text-muted-foreground">กำหนดยื่นข้อเสนอ </span>
-        <span className="font-medium">{deadlineText(record.deadlineAt, record.status)}</span>
-        {record.deadlineSource ? (
+        <span className="text-muted-foreground">{deadlineLabel(deadline)} </span>
+        <span className="font-medium">{deadlineText(deadline, timeline.status)}</span>
+        {deadline?.readByModel ? (
           <span className="text-muted-foreground block text-xs">
-            ที่มา: {DEADLINE_SOURCE_LABELS[record.deadlineSource]}
+            อ่านจากเอกสาร TOR โดย AI โปรดตรวจสอบกับต้นฉบับ
           </span>
         ) : null}
       </p>
       <ol aria-label="ขั้นตอนใน e-GP" className="flex flex-col gap-1.5 border-l pl-4">
         {MILESTONE_KEYS.map((key) => {
-          const milestone = record.milestones[key];
+          const at = timeline.stages[key];
           return (
             <li key={key} className="flex flex-wrap justify-between gap-x-3 text-sm">
-              <span className={milestone ? undefined : 'text-muted-foreground'}>
+              <span className={at ? undefined : 'text-muted-foreground'}>
                 {MILESTONE_LABELS[key]}
               </span>
-              <span className="text-muted-foreground text-xs">
-                {milestone
-                  ? milestone.at
-                    ? formatThaiDate(milestone.at)
-                    : 'ถึงแล้ว ไม่ระบุวันที่'
-                  : 'ยังไม่ถึง'}
-              </span>
+              <span className="text-muted-foreground text-xs">{at ? formatThaiDate(at) : '—'}</span>
             </li>
           );
         })}
       </ol>
       <p className="text-muted-foreground text-xs">
-        {record.timelineCheckedAt
-          ? `อ่านไทม์ไลน์ล่าสุด ${formatThaiDate(record.timelineCheckedAt, { withTime: true })}`
+        {timeline.lastReadAt
+          ? `อ่านไทม์ไลน์ล่าสุด ${formatThaiDate(timeline.lastReadAt, { withTime: true })}`
           : 'ยังไม่เคยอ่านไทม์ไลน์ของโครงการนี้'}
       </p>
     </Section>
@@ -224,16 +217,17 @@ function TimelineSection({ record }: { record: Procurement }) {
 }
 
 function DocumentsSection({ record }: { record: Procurement }) {
-  if (record.documents.length === 0) return null;
+  const { archive } = record;
+  if (!archive || archive.documents.length === 0) return null;
   return (
     <Section title="เอกสารในไฟล์บีบอัด">
-      {record.torAmbiguous ? (
+      {archive.torAmbiguous ? (
         <p className={cn('text-xs', STATUS_STYLE.needsReview.text)}>
           พบเอกสารที่อ้างเป็น TOR มากกว่าหนึ่งฉบับ ระบบเลือกตามแบบแผนชื่อไฟล์ โปรดตรวจสอบ
         </p>
       ) : null}
       <ul className="flex flex-col divide-y">
-        {record.documents.map((file) => (
+        {archive.documents.map((file) => (
           <li key={file.member} className="flex flex-col gap-0.5 py-2 text-sm">
             <span className="font-medium break-all">{file.filename}</span>
             <span className="text-muted-foreground text-xs">

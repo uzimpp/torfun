@@ -11,7 +11,7 @@ import {
   Search,
   WifiOff,
 } from 'lucide-react';
-import type { Procurement } from '@torfun/types';
+import { currentDeadline, type Procurement } from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -183,11 +183,11 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <DaysLeftBadge item={item} today={today} />
-        <ProcurementStatusBadge status={item.status} />
+        <ProcurementStatusBadge status={item.timeline.status} />
         <span data-numeric className="text-muted-foreground font-mono text-xs">
           ปีงบประมาณ {item.budgetYear ?? '—'}
         </span>
-        <ProcurementDeadline deadlineAt={item.deadlineAt} status={item.status} />
+        <ProcurementDeadline deadline={currentDeadline(item)} status={item.timeline.status} />
       </div>
 
       <ProcurementTiming item={item} />

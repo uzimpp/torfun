@@ -48,6 +48,7 @@
         "JWT_SECRET",
         "LOG_LEVEL",
         "MONGODB_DB",
+        "MONGODB_TEST_URI",
         "MONGODB_URI",
         "NEXT_PUBLIC_*",
         "PORT",

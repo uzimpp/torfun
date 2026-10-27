@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { CalendarDays, Clock3 } from 'lucide-react';
-import { daysUntil, procurementDay, type Procurement } from '@torfun/types';
+import { currentDeadline, daysUntil, procurementDay, type Procurement } from '@torfun/types';
 import { cn } from '@/lib/utils';
 
 const dateFormat = new Intl.DateTimeFormat('th-TH', {
@@ -13,18 +13,18 @@ const formatDate = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z
 
 /** The days-left badge: biggest on open tenders, a hint on drafts, nothing otherwise. */
 export function DaysLeftBadge({ item, today }: { item: Procurement; today: string }) {
-  const deadline = procurementDay(item.deadlineAt);
+  const deadline = procurementDay(currentDeadline(item)?.at);
   const remaining = deadline ? daysUntil(deadline, today) : null;
   const base = 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm tabular-nums';
 
-  if (item.status === 'drafting') {
+  if (item.timeline.status === 'drafting') {
     return (
       <span className={cn(base, 'bg-primary/10 text-primary font-medium')}>
         เตรียมตัวก่อนเปิดรับข้อเสนอ
       </span>
     );
   }
-  if (item.status !== 'open' || remaining === null) return null;
+  if (item.timeline.status !== 'open' || remaining === null) return null;
   if (remaining < 0) {
     return (
       <span className={cn(base, 'bg-muted text-muted-foreground')}>
@@ -46,10 +46,11 @@ export function DaysLeftBadge({ item, today }: { item: Procurement; today: strin
   );
 }
 
-/** Announcement date and deadline, with where the deadline came from. */
 export function ProcurementTiming({ item }: { item: Procurement }) {
-  const deadline = procurementDay(item.deadlineAt);
+  const current = currentDeadline(item);
+  const deadline = procurementDay(current?.at);
   const published = procurementDay(item.announceDate);
+  const closes = current?.kind === 'comments' ? 'ปิดรับฟังความคิดเห็น' : 'กำหนดส่งตาม TOR';
 
   return (
     <div className="mt-3">
@@ -60,10 +61,8 @@ export function ProcurementTiming({ item }: { item: Procurement }) {
             ประกาศ {formatDate(published)}
           </span>
         )}
-        <span>
-          {deadline ? `กำหนดส่งตาม TOR ${formatDate(deadline)}` : 'ยังไม่ทราบวันปิดรับข้อเสนอ'}
-        </span>
-        {deadline && item.deadlineSource === 'tor' && (
+        <span>{deadline ? `${closes} ${formatDate(deadline)}` : 'ยังไม่ทราบวันปิดรับข้อเสนอ'}</span>
+        {deadline && current?.readByModel && (
           <span>
             วันที่สกัดโดย AI ·{' '}
             <Link
