@@ -32,6 +32,7 @@ export default async function NotFound() {
       <SiteHeader
         user={user ? { username: user.username, role: user.role } : null}
         withSearch={false}
+        initialTheme={theme}
       />
 
       <main className="landing-grid page-fill flex flex-1 flex-col justify-center px-4 py-16 [--header-h:calc(4rem_+_1px)] sm:px-6 lg:px-10 lg:[--header-h:calc(4.5rem_+_1px)]">
@@ -75,7 +76,7 @@ export default async function NotFound() {
         </div>
       </main>
 
-      <SiteFooter signedIn={user !== null} initialTheme={theme} />
+      <SiteFooter signedIn={user !== null} />
     </>
   );
 }

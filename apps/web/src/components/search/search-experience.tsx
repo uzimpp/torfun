@@ -2,18 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { exampleQueries } from '@/components/layout/nav-config';
 import { ProcurementFilters } from './procurement-filters';
 import { ScrollButtons } from './scroll-buttons';
 import {
   parseSearchFilters,
   parseSearchPage,
-  preservedSearchEntries,
   searchHref,
   type SearchFilterValues,
 } from './search-filter-values';
 import { RESULT_ROW_SELECTOR, SearchResults } from './search-results';
-import { TorSearchField } from './tor-search-field';
 
 const DEBOUNCE_MS = 350;
 
@@ -130,27 +127,10 @@ export function SearchExperience({
 
   return (
     <>
-      <header>
-        <p className="text-primary text-sm font-medium">โอกาสงานภาครัฐ</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">ค้นหาประกาศ TOR</h1>
-        <p className="text-muted-foreground mt-2 text-sm">
-          เตรียมตัวตั้งแต่ร่าง TOR และติดตามกำหนดปิดรับข้อเสนอ
-        </p>
-      </header>
-      <TorSearchField
-        size="hero"
-        value={value}
-        onValueChange={setValue}
-        onSubmit={setQuery}
-        preservedParams={preservedSearchEntries(filters)}
-        autoFocus={initialFilters.query === ''}
-        suggestions={value === '' ? exampleQueries : undefined}
-        className="mt-6"
-      />
-
-      <div className="mt-8 grid items-start gap-6 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-10">
+      <div className="grid items-start gap-6 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-10">
         <ProcurementFilters key={filterPanelKey} values={filters} onApply={applyFilters} />
         <section ref={resultsRef} aria-label="ผลการค้นหา" className="min-w-0 scroll-mt-24">
+          <h1 className="mb-2 text-3xl font-semibold tracking-tight">ค้นหาประกาศ TOR</h1>
           <SearchResults
             key={`${searchHref(filters)}::${page}`}
             filters={filters}

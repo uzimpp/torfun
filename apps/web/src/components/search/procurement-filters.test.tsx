@@ -17,23 +17,59 @@ describe('ProcurementFilters', () => {
   test('renders the supported controls as one GET form', async () => {
     const user = userEvent.setup();
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} />);
+    expect(screen.queryByRole('link', { name: 'ล้างทั้งหมด' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ล้างตัวกรอง' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^ตัวกรอง/ }));
 
     const form = screen.getByRole('button', { name: 'ใช้ตัวกรอง' }).closest('form');
     expect(form).toHaveAttribute('action', '/search');
     expect(form).toHaveAttribute('method', 'get');
-    expect(screen.getByRole('slider', { name: 'งบประมาณต่ำสุด (บาท)' })).toBeInTheDocument();
-    expect(screen.getAllByRole('slider')).toHaveLength(2);
+    expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'ทุกขั้นตอน' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'หมายเหตุเกี่ยวกับช่วงวันที่ปิดรับข้อเสนอ' }),
+    ).toHaveAttribute('aria-describedby', 'deadlineFrom-hint');
+    expect(document.getElementById('deadlineFrom-hint')).toHaveTextContent(
+      'กำหนดส่งค้นจาก TOR ที่วิเคราะห์สำเร็จแล้วเท่านั้น โปรดตรวจสอบวันปิดรับจากต้นฉบับ',
+    );
+    expect(
+      screen.getByRole('button', { name: 'หมายเหตุเกี่ยวกับเวลาที่เหลือก่อนปิดรับ' }),
+    ).toHaveAttribute('aria-describedby', 'deadline-days-hint');
+    expect(screen.getAllByRole('tooltip')).toHaveLength(4);
+    expect(document.getElementById('deadline-days-hint')).toHaveTextContent(
+      'เฉพาะประกาศเชิญชวนที่ยังไม่มีผู้ชนะ อ้างอิงวันในประเทศไทย',
+    );
+    expect(
+      screen.queryByText('เลือกจัดทำ TOR เพื่อเตรียมตัวก่อนประกาศเชิญชวน'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText('ขั้นต่ำ')).toHaveAttribute('name', 'minBudget');
+    expect(screen.getByLabelText('สูงสุด')).toHaveAttribute('name', 'maxBudget');
+    expect(screen.getByLabelText('ปีงบประมาณ (พ.ศ.)')).toHaveValue('all');
+    expect(screen.queryByLabelText('ค้นหาปีงบประมาณ')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'หมายเหตุเกี่ยวกับงบประมาณ' })).toHaveAttribute(
+      'aria-describedby',
+      'budget-hint',
+    );
+    expect(document.getElementById('budget-hint')).toHaveTextContent(
+      'เว้นช่องสูงสุดว่างไว้ - ไม่จำกัดงบประมาณสูงสุด',
+    );
+    expect(screen.getAllByRole('tooltip')).toHaveLength(4);
     expect(screen.getByLabelText('กำหนดส่งถึง')).toHaveAttribute('type', 'date');
     expect(screen.getByLabelText('ประกาศตั้งแต่')).toHaveAttribute('type', 'date');
     expect(screen.getByLabelText('เว็บแอปพลิเคชัน')).toHaveAttribute('name', 'targetPlatforms');
-    expect(screen.getByLabelText('คำค้นในชื่อโครงการ / ชื่อหน่วยงาน')).toHaveAttribute(
+    expect(screen.getByLabelText('คำค้นในชื่อโครงการ')).toHaveAttribute(
       'name',
       'industry',
     );
+    expect(screen.getByRole('button', { name: 'หมายเหตุเกี่ยวกับคำค้นในชื่อโครงการ' })).toHaveAttribute(
+      'aria-describedby',
+      'industry-hint',
+    );
+    expect(document.getElementById('industry-hint')).toHaveTextContent(
+      'คำค้นไม่ใช่หมวดอุตสาหกรรมที่ยืนยันแล้ว',
+    );
     expect(screen.queryByLabelText('สถานที่ดำเนินงาน')).not.toBeInTheDocument();
     expect(screen.getByText(/TOR ที่วิเคราะห์สำเร็จแล้วเท่านั้น/)).toBeInTheDocument();
-    expect(screen.getByText(/ไม่ใช่หมวดอุตสาหกรรมที่ยืนยันแล้ว/)).toBeInTheDocument();
   });
 
   test('collapses mobile controls while keeping the desktop sidebar available', async () => {
@@ -50,7 +86,77 @@ describe('ProcurementFilters', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
+<<<<<<< HEAD
   test('chooses a days-left preset and applies the method without conflicting date bounds', async () => {
+=======
+  test('searches and selects one fiscal year from the checkbox list', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} onApply={onApply} />);
+
+    const currentYear =
+      Number(
+        new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Bangkok',
+          year: 'numeric',
+        }).format(new Date()),
+      ) + 543;
+    const latestYear = String(currentYear);
+    const previousYear = String(currentYear - 1);
+    await user.selectOptions(screen.getByLabelText('ปีงบประมาณ (พ.ศ.)'), 'select');
+    expect(screen.getByLabelText(`ปีงบประมาณ ${latestYear}`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`ปีงบประมาณ ${previousYear}`)).toBeInTheDocument();
+    await user.type(screen.getByLabelText('ค้นหาปีงบประมาณ'), previousYear);
+    expect(screen.queryByLabelText(`ปีงบประมาณ ${latestYear}`)).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText(`ปีงบประมาณ ${previousYear}`));
+    expect(screen.getByLabelText(`ปีงบประมาณ ${previousYear}`)).toBeChecked();
+    await user.clear(screen.getByLabelText('ค้นหาปีงบประมาณ'));
+    await user.click(screen.getByLabelText(`ปีงบประมาณ ${latestYear}`));
+    expect(screen.getByLabelText(`ปีงบประมาณ ${latestYear}`)).toBeChecked();
+    expect(screen.getByLabelText(`ปีงบประมาณ ${previousYear}`)).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }));
+
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ year: latestYear }));
+  });
+
+  test('selects suggested and custom technologies and applies them as comma-separated terms', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} onApply={onApply} />);
+
+    await user.click(screen.getByRole('button', { name: 'เพิ่มเทคโนโลยี React' }));
+    await user.type(screen.getByRole('searchbox', { name: 'ค้นหาเทคโนโลยี' }), 'Python');
+    await user.click(screen.getByRole('button', { name: 'เพิ่มเทคโนโลยี Python' }));
+    await user.type(screen.getByRole('searchbox', { name: 'ค้นหาเทคโนโลยี' }), 'Rust');
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('button', { name: 'ลบเทคโนโลยี React' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ลบเทคโนโลยี Python' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ลบเทคโนโลยี Rust' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }));
+
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({ techStack: 'React, Python, Rust' }),
+    );
+  });
+
+  test('updates fiscal year options at the Thai calendar year boundary', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2028-01-01T00:00:00+07:00'));
+    try {
+      render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} />);
+      fireEvent.change(screen.getByLabelText('ปีงบประมาณ (พ.ศ.)'), { target: { value: 'select' } });
+
+      expect(screen.getByLabelText('ปีงบประมาณ 2571')).toBeInTheDocument();
+      expect(screen.getByLabelText('ปีงบประมาณ 2568')).toBeInTheDocument();
+      expect(screen.queryByLabelText('ปีงบประมาณ 2567')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('chooses exact deadline days and applies the method without conflicting date bounds', async () => {
+>>>>>>> 13cfc3a (polish uxui of search and filter page)
     const user = userEvent.setup();
     const onApply = vi.fn();
     render(
@@ -66,7 +172,13 @@ describe('ProcurementFilters', () => {
       />,
     );
     await user.selectOptions(screen.getByLabelText('วิธีจัดซื้อจัดจ้าง'), 'true');
+<<<<<<< HEAD
     await user.click(screen.getByRole('button', { name: '14 วันขึ้นไป' }));
+=======
+    await user.selectOptions(screen.getByLabelText('เวลาที่เหลือก่อนปิดรับ'), '3');
+    expect(screen.getByLabelText('จำนวนวัน')).toBeDisabled();
+    expect(screen.getByLabelText('จำนวนวัน')).toHaveValue(3);
+>>>>>>> 13cfc3a (polish uxui of search and filter page)
     expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }));
     expect(onApply).toHaveBeenCalledWith(
@@ -74,22 +186,52 @@ describe('ProcurementFilters', () => {
         query: 'ระบบ',
         status: 'open',
         eBidding: 'true',
+<<<<<<< HEAD
         minDaysLeft: '14',
+=======
+        deadlineDays: '3',
+        deadlineMode: 'within',
+>>>>>>> 13cfc3a (polish uxui of search and filter page)
         deadlineFrom: '',
         deadlineTo: '',
       }),
     );
   });
 
-  test('supports a custom count and clears it when switching to drafting', async () => {
+  test('supports a custom deadline and clears it when switching to drafting', async () => {
     const user = userEvent.setup();
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} />);
     await user.click(screen.getByRole('button', { name: /^ตัวกรอง/ }));
+<<<<<<< HEAD
     await user.type(screen.getByLabelText('เหลืออย่างน้อยกี่วัน (0 = ปิดรับวันนี้ก็ได้)'), '2');
     expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('open');
     await user.selectOptions(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง'), 'drafting');
     expect(screen.getByLabelText('เหลืออย่างน้อยกี่วัน (0 = ปิดรับวันนี้ก็ได้)')).toHaveValue(null);
+=======
+    expect(screen.getByLabelText('จำนวนวัน')).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText('เวลาที่เหลือก่อนปิดรับ'), 'custom');
+    expect(screen.getByLabelText('จำนวนวัน')).toBeEnabled();
+    await user.type(screen.getByLabelText('จำนวนวัน'), '2');
+    expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('invitation');
+    await user.selectOptions(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง'), 'drafting_tor');
+    expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('drafting_tor');
+    expect(screen.getByLabelText('เวลาที่เหลือก่อนปิดรับ')).toHaveValue('');
+    expect(screen.getByLabelText('จำนวนวัน')).toBeDisabled();
+>>>>>>> 13cfc3a (polish uxui of search and filter page)
     expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).not.toBeDisabled();
+  });
+
+  test('shows the number field only for a custom deadline and submits its value', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} onApply={onApply} />);
+
+    expect(screen.getByLabelText('จำนวนวัน')).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText('เวลาที่เหลือก่อนปิดรับ'), 'custom');
+    await user.type(screen.getByLabelText('จำนวนวัน'), '12');
+    await user.click(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }));
+
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ deadlineDays: '12' }));
   });
 
   test('date fields submit the selected announcement and closing bounds', async () => {
@@ -116,7 +258,7 @@ describe('ProcurementFilters', () => {
     );
   });
 
-  test('one budget slider submits both bounds and supports keyboard adjustments', async () => {
+  test('budget minimum and maximum inputs submit both bounds', async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();
     render(
@@ -125,33 +267,28 @@ describe('ProcurementFilters', () => {
         onApply={onApply}
       />,
     );
-    const minimum = screen.getByRole('slider', { name: 'งบประมาณต่ำสุด (บาท)' });
-    minimum.focus();
-    await user.keyboard('{ArrowRight}');
-    expect(minimum).toHaveAttribute('aria-valuetext', '501,000 บาท');
-    const maximum = screen.getByRole('slider', { name: 'งบประมาณสูงสุด (บาท)' });
-    maximum.focus();
-    await user.keyboard('{ArrowLeft}');
+    await user.clear(screen.getByLabelText('ขั้นต่ำ'));
+    await user.type(screen.getByLabelText('ขั้นต่ำ'), '501000');
+    await user.clear(screen.getByLabelText('สูงสุด'));
+    await user.type(screen.getByLabelText('สูงสุด'), '4999000');
     fireEvent.submit(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }).closest('form')!);
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ minBudget: '501000', maxBudget: '4999000' }),
     );
   });
 
-  test('adjusting the minimum leaves an unspecified maximum uncapped', async () => {
+  test('budget minimum works with an unspecified maximum', async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} onApply={onApply} />);
-    screen.getByRole('slider', { name: 'งบประมาณต่ำสุด (บาท)' }).focus();
-    await user.keyboard('{ArrowRight}');
+    await user.type(screen.getByLabelText('ขั้นต่ำ'), '1000');
     fireEvent.submit(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }).closest('form')!);
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ minBudget: '1000', maxBudget: '' }),
     );
   });
 
-  test('preserves a bookmarked budget above the normal slider scale and clears its upper cap at the end', async () => {
-    const user = userEvent.setup();
+  test('preserves bookmarked budget bounds above the former slider scale', () => {
     const onApply = vi.fn();
     render(
       <ProcurementFilters
@@ -163,15 +300,9 @@ describe('ProcurementFilters', () => {
     expect(onApply).toHaveBeenLastCalledWith(
       expect.objectContaining({ minBudget: '120000000', maxBudget: '180000000' }),
     );
-    screen.getByRole('slider', { name: 'งบประมาณสูงสุด (บาท)' }).focus();
-    await user.keyboard('{End}');
-    fireEvent.submit(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }).closest('form')!);
-    expect(onApply).toHaveBeenLastCalledWith(
-      expect.objectContaining({ minBudget: '120000000', maxBudget: '' }),
-    );
   });
 
-  test('clears an active criterion through the live search callback without losing other criteria', async () => {
+  test('clears an active criterion through its chip without losing other criteria', async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();
     const values = {
@@ -183,29 +314,44 @@ describe('ProcurementFilters', () => {
     render(<ProcurementFilters values={values} onApply={onApply} />);
     await user.click(screen.getByRole('link', { name: 'ล้างตัวกรอง เฉพาะ e-bidding' }));
     expect(onApply).toHaveBeenLastCalledWith({ ...values, eBidding: '' });
-    await user.click(screen.getByRole('link', { name: 'ล้างทั้งหมด' }));
-    expect(onApply).toHaveBeenLastCalledWith({ ...EMPTY_SEARCH_FILTERS, query: 'ระบบ' });
   });
 
-  test('shows active state and clears filters without losing the search words', () => {
+  test('clears selected filters immediately while keeping the search query', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
     const values = {
       ...EMPTY_SEARCH_FILTERS,
-      query: 'ระบบโรงพยาบาล',
+      query: 'ระบบ',
+      status: 'invitation' as const,
+      eBidding: 'true' as const,
+      publishedFrom: '2026-10-01',
       minBudget: '500000',
-      techStack: 'React, PostgreSQL',
+      techStack: 'React',
       targetPlatforms: ['web_app' as const],
+      outcome: 'tor_analysed' as const,
+      year: '2569',
+      industry: 'โรงพยาบาล',
+      deadlineDays: '3',
     };
-    render(<ProcurementFilters values={values} />);
+    render(<ProcurementFilters values={values} onApply={onApply} />);
 
-    expect(screen.getAllByText('3')).toHaveLength(2);
-    expect(screen.getByRole('link', { name: 'ล้างทั้งหมด' })).toHaveAttribute(
-      'href',
-      '/search?q=%E0%B8%A3%E0%B8%B0%E0%B8%9A%E0%B8%9A%E0%B9%82%E0%B8%A3%E0%B8%87%E0%B8%9E%E0%B8%A2%E0%B8%B2%E0%B8%9A%E0%B8%B2%E0%B8%A5',
-    );
-    const clearBudget = screen.getByRole('link', { name: /ล้างตัวกรอง งบประมาณ/ });
-    expect(clearBudget).not.toHaveAttribute('href', expect.stringContaining('minBudget'));
-    expect(clearBudget).toHaveAttribute('href', expect.stringContaining('techStack='));
-    expect(screen.getByLabelText('เว็บแอปพลิเคชัน')).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'ล้างตัวกรอง' }));
+
+    expect(onApply).toHaveBeenCalledWith({ ...EMPTY_SEARCH_FILTERS, query: 'ระบบ' });
+    expect(screen.getByLabelText('ขั้นตอนจัดซื้อจัดจ้าง')).toHaveValue('');
+    expect(screen.getByLabelText('วิธีจัดซื้อจัดจ้าง')).toHaveValue('');
+    expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).toHaveValue('');
+    expect(screen.getByLabelText('ประกาศตั้งแต่')).toHaveValue('');
+    expect(screen.getByLabelText('เว็บแอปพลิเคชัน')).not.toBeChecked();
+    expect(screen.getByLabelText('มีสรุป TOR แล้ว')).not.toBeChecked();
+    expect(screen.getByLabelText('ปีงบประมาณ (พ.ศ.)')).toHaveValue('all');
+    expect(screen.queryByLabelText('ค้นหาปีงบประมาณ')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('ขั้นต่ำ')).toHaveValue(null);
+    expect(screen.getByLabelText('สูงสุด')).toHaveValue(null);
+    expect(screen.getByLabelText('จำนวนวัน')).toBeDisabled();
+    expect(screen.getByLabelText('เวลาที่เหลือก่อนปิดรับ')).toHaveValue('');
+    expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'ลบเทคโนโลยี React' })).not.toBeInTheDocument();
   });
 });
 

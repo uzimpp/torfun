@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import type { CurrentUser } from '@/lib/auth';
 import { buttonVariants } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
 import { Brand } from './brand';
@@ -17,17 +18,18 @@ import { MobileMenu } from './mobile-menu';
  * dashboard, which quietly took away the way back to the page describing the
  * product; the dashboard is reachable from the account menu instead.
  *
- * The light/dark control is not here. It is a setting, chosen once and rarely
- * changed, and it was taking a permanent slot in the row a person uses on every
- * visit; it now lives in the footer, alongside the rest of the site's plumbing.
+ * The theme switch sits beside search, where it remains available without
+ * competing with the account menu.
  */
 export function SiteHeader({
   user,
   withSearch = true,
+  initialTheme = 'light',
 }: {
   user: Pick<CurrentUser, 'username' | 'role'> | null;
   /** The 404 sets this false: it is reached at every URL, and carries its own field. */
   withSearch?: boolean;
+  initialTheme?: 'light' | 'dark';
 }) {
   return (
     <HeaderShell>
@@ -40,6 +42,10 @@ export function SiteHeader({
 
         <div className="ms-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
           <HeaderSearch enabled={withSearch} />
+          <ThemeToggle
+            initialTheme={initialTheme}
+            className="size-10 rounded-full border-border/80 shadow-sm sm:size-11"
+          />
           {user ? (
             <UserMenu user={user} />
           ) : (
