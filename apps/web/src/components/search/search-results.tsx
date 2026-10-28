@@ -4,14 +4,20 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import {
   Building2,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  Clock3,
   FileText,
   Search,
   WifiOff,
 } from 'lucide-react';
+<<<<<<< HEAD
 import { currentDeadline, type Procurement } from '@torfun/types';
+=======
+import { STATUS_LABELS, type Procurement } from '@torfun/types';
+>>>>>>> 13cfc3a (polish uxui of search and filter page)
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -66,7 +72,7 @@ export function SearchResults({
         <span data-numeric>{last.toLocaleString('th-TH')}</span>
       </p>
 
-      <ul className="divide-border mt-5 divide-y border-t border-b">
+      <ul className="mt-5 space-y-4">
         {items.map((item) => (
           <ResultRow key={item.projectId} item={item} today={today} />
         ))}
@@ -176,11 +182,15 @@ function SearchPagination({
 export const RESULT_ROW_SELECTOR = '[data-result-row]';
 
 function ResultRow({ item, today }: { item: Procurement; today: string }) {
+  const statusLabel =
+    item.status === 'invitation' ? 'เปิดรับข้อเสนอ' : STATUS_LABELS[item.status];
+
   return (
     <li
       data-result-row
-      className="group hover:bg-card -mx-4 px-4 py-6 transition-colors sm:-mx-6 sm:px-6"
+      className="bg-card border-border group relative cursor-pointer rounded-2xl border p-4 transition-colors hover:border-primary/40 hover:bg-muted/20 focus-within:ring-2 focus-within:ring-primary/40 focus-within:ring-offset-2 sm:p-5"
     >
+<<<<<<< HEAD
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <DaysLeftBadge item={item} today={today} />
         <ProcurementStatusBadge status={item.timeline.status} />
@@ -191,42 +201,91 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
       </div>
 
       <ProcurementTiming item={item} />
+=======
+      <Link
+        href={`/tor/${encodeURIComponent(item.projectId)}`}
+        aria-label={item.projectName}
+        className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      />
+      <div className="pointer-events-none relative z-10">
+        <div className="grid gap-5 md:grid-cols-[minmax(0,4fr)_minmax(9rem,1fr)] md:items-start md:gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
+                {CLASS_LABELS[item.softwareClass]}
+              </span>
+              <span className="text-muted-foreground border-border rounded-full border px-2.5 py-1 text-xs">
+                {item.eBidding
+                  ? 'e-bidding'
+                  : (item.purchaseMethodName ?? 'วิธีอื่นที่ไม่ใช่ e-bidding')}
+              </span>
+              <span
+                className={cn(
+                  'rounded-full px-2.5 py-1 text-xs font-medium',
+                  item.status === 'invitation'
+                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                    : item.status === 'cancelled'
+                      ? 'bg-destructive/10 text-destructive'
+                      : 'bg-muted text-muted-foreground',
+                )}
+              >
+                สถานะ: {statusLabel}
+              </span>
+            </div>
 
-      <h3 className="mt-3 text-lg font-medium text-balance">
-        <Link
-          href={`/tor/${encodeURIComponent(item.projectId)}`}
-          className="hover:text-primary transition-colors"
-        >
-          {item.projectName}
-        </Link>
-      </h3>
+            <h3 className="mt-3 text-base font-semibold leading-normal text-balance">
+              <span className="transition-colors group-hover:text-primary">
+                {item.projectName}
+              </span>
+            </h3>
+>>>>>>> 13cfc3a (polish uxui of search and filter page)
 
-      <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
-        <span className="inline-flex items-start gap-2">
-          <Building2 aria-hidden="true" className="mt-1 size-3.5 shrink-0" />
-          {item.deptSubName ?? item.deptName}
-        </span>
-        {item.projectMoney !== null && (
-          <span data-numeric className="font-mono">
-            งบประมาณ {bahtFormat.format(item.projectMoney)}
-          </span>
+            <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+              <span className="inline-flex items-start gap-2">
+                <Building2 aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                {item.deptSubName ?? item.deptName}
+              </span>
+              {item.announceDate && (
+                <span className="inline-flex items-center gap-2">
+                  <CalendarDays aria-hidden="true" className="size-4 shrink-0" />
+                  <ProcurementTiming item={item} today={today} mode="published" />
+                </span>
+              )}
+              <span className="inline-flex items-center gap-2">
+                <Clock3 aria-hidden="true" className="size-4 shrink-0" />
+                <ProcurementTiming item={item} today={today} mode="deadline" />
+              </span>
+            </div>
+
+            <ProcurementTiming item={item} today={today} mode="details" />
+          </div>
+
+          <div className="border-border border-t pt-3 text-left md:w-full md:max-w-48 md:justify-self-end md:self-start md:border-t-0 md:pt-0">
+            <p className="text-muted-foreground text-xs">งบประมาณ</p>
+            <p data-numeric className="text-primary mt-1 font-mono text-xl font-bold">
+              {item.projectMoney === null ? 'ไม่ระบุ' : bahtFormat.format(item.projectMoney)}
+            </p>
+            <p data-numeric className="text-muted-foreground mt-1 text-sm">
+              ปีงบประมาณ {item.year}
+            </p>
+          </div>
+        </div>
+
+        {/* What Gemini read is offered as a reading aid and labelled as one. The
+          announcement itself remains the thing an officer bids against. */}
+        {item.analysis ? (
+          <p className="text-muted-foreground border-primary/30 mt-4 border-s-2 ps-4 text-sm">
+            <span className="text-foreground font-medium">สรุปโดย AI</span>
+            <br />
+            {item.analysis.summary}
+          </p>
+        ) : (
+          <p className="text-muted-foreground mt-4 inline-flex items-center gap-2 text-sm">
+            <FileText aria-hidden="true" className="size-3.5" />
+            ยังไม่มีบทสรุปจากเอกสาร TOR สำหรับประกาศนี้
+          </p>
         )}
       </div>
-
-      {/* What Gemini read is offered as a reading aid and labelled as one. The
-          announcement itself remains the thing an officer bids against. */}
-      {item.analysis ? (
-        <p className="text-muted-foreground border-primary/30 mt-4 border-s-2 ps-4 text-sm">
-          <span className="text-foreground font-medium">สรุปโดย AI</span>
-          <br />
-          {item.analysis.summary}
-        </p>
-      ) : (
-        <p className="text-muted-foreground mt-4 inline-flex items-center gap-2 text-sm">
-          <FileText aria-hidden="true" className="size-3.5" />
-          ยังไม่มีบทสรุปจากเอกสาร TOR สำหรับประกาศนี้
-        </p>
-      )}
     </li>
   );
 }
@@ -353,12 +412,22 @@ function ResultSkeleton() {
     <div aria-busy="true" aria-live="polite">
       <span className="sr-only">กำลังค้นหา</span>
       <div className="bg-muted h-4 w-40 animate-pulse rounded" />
-      <ul className="divide-border mt-5 divide-y border-t border-b">
+      <ul className="mt-5 space-y-4">
         {[0, 1, 2, 3].map((row) => (
-          <li key={row} className="space-y-3 py-6">
-            <div className="bg-muted h-5 w-24 animate-pulse rounded-full" />
-            <div className="bg-muted h-6 w-full max-w-2xl animate-pulse rounded" />
-            <div className="bg-muted h-4 w-64 animate-pulse rounded" />
+          <li
+            key={row}
+            className="bg-card border-border grid gap-5 rounded-2xl border p-4 shadow-sm md:grid-cols-[minmax(0,4fr)_minmax(9rem,1fr)] md:items-start md:gap-4 sm:p-5"
+          >
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="bg-muted h-5 w-48 animate-pulse rounded-full" />
+              <div className="bg-muted h-6 w-full max-w-2xl animate-pulse rounded" />
+              <div className="bg-muted h-4 w-full max-w-xl animate-pulse rounded" />
+            </div>
+            <div className="space-y-2 md:w-full md:max-w-48 md:justify-self-end md:text-right">
+              <div className="bg-muted h-3 w-16 animate-pulse rounded" />
+              <div className="bg-muted h-6 w-32 animate-pulse rounded" />
+              <div className="bg-muted h-4 w-28 animate-pulse rounded" />
+            </div>
           </li>
         ))}
       </ul>

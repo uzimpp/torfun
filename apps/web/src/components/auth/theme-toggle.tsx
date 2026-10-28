@@ -17,10 +17,12 @@ export function ThemeToggle({
   initialTheme,
   withLabel = false,
   onDarkSurface = false,
+  className,
 }: {
   initialTheme: 'light' | 'dark';
   withLabel?: boolean;
   onDarkSurface?: boolean;
+  className?: string;
 }) {
   const [theme, setTheme] = useState(initialTheme);
   const label = theme === 'dark' ? 'สลับโหมดกลางวัน' : 'สลับโหมดกลางคืน';
@@ -42,6 +44,7 @@ export function ThemeToggle({
         withLabel ? 'min-h-11 gap-2 px-3 text-sm font-normal' : 'size-10',
         onDarkSurface &&
           'border-current/25 bg-current/10 text-current hover:bg-current/20 focus-visible:ring-current/40 dark:bg-current/10 dark:hover:bg-current/20',
+        className,
       )}
       title={label}
       aria-label={label}

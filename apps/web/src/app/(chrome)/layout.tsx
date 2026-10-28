@@ -25,7 +25,10 @@ export default async function ChromeLayout({ children }: LayoutProps<'/'>) {
       >
         ข้ามไปยังเนื้อหา
       </a>
-      <SiteHeader user={user ? { username: user.username, role: user.role } : null} />
+      <SiteHeader
+        user={user ? { username: user.username, role: user.role } : null}
+        initialTheme={theme}
+      />
       {/* The header is sticky, so it takes this much off the top of the window
           for good. `page-fill` subtracts it, which is what lets a page end
           exactly at the fold instead of a hair below it. */}
@@ -36,7 +39,7 @@ export default async function ChromeLayout({ children }: LayoutProps<'/'>) {
       >
         {children}
       </div>
-      <SiteFooter signedIn={user !== null} initialTheme={theme} />
+      <SiteFooter signedIn={user !== null} />
     </>
   );
 }

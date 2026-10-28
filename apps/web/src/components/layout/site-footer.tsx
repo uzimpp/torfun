@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 
-import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { landingSections } from './nav-config';
 
 /**
@@ -14,9 +13,8 @@ import { landingSections } from './nav-config';
  * the header announces the brand as a link on the same screen, so a screen
  * reader gains nothing from meeting the word a second time here.
  *
- * Above it, only what a footer is for: the links, the notice, the light/dark
- * control, and the attribution. There is no second paragraph restating what the
- * product is.
+ * Above it, only what a footer is for: the links, the notice, and attribution.
+ * There is no second paragraph restating what the product is.
  *
  * The notice is the part that is not optional. Everything here is a shortcut to
  * the original announcement, and the summary an officer reads is not the
@@ -28,10 +26,8 @@ import { landingSections } from './nav-config';
  */
 export function SiteFooter({
   signedIn = false,
-  initialTheme = 'light',
 }: {
   signedIn?: boolean;
-  initialTheme?: 'light' | 'dark';
 }) {
   // Thai calendar year, which is what every date on an announcement uses.
   const year = new Date().getFullYear() + 543;
@@ -46,7 +42,7 @@ export function SiteFooter({
       />
 
       <div className="relative mx-auto max-w-7xl px-4 pt-12 pb-8 sm:px-6 lg:px-10 lg:pt-14">
-        <div className="grid gap-8 sm:grid-cols-3 lg:gap-12">
+        <div className="grid gap-8 sm:grid-cols-2 lg:gap-12">
           <FooterColumn title="หน้าแรก">
             {landingSections.map(({ href, label }) => (
               <li key={href}>
@@ -78,12 +74,15 @@ export function SiteFooter({
             )}
           </FooterColumn>
 
+<<<<<<< HEAD
           <div>
             <h2 className="text-xs font-medium tracking-wider uppercase">การแสดงผล</h2>
             <div className="mt-3">
               <ThemeToggle initialTheme={initialTheme} withLabel onDarkSurface />
             </div>
           </div>
+=======
+>>>>>>> 13cfc3a (polish uxui of search and filter page)
         </div>
 
         <p
