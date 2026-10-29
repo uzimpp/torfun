@@ -1,10 +1,5 @@
 import { requestNoContent } from './api';
 
-/**
- * What a Site Administrator can do to one procurement record. Each answers 204
- * and records who and when on the API side.
- */
-
 const address = (projectId: string) =>
   `/api/ingestion/procurements/${encodeURIComponent(projectId)}`;
 
@@ -16,6 +11,10 @@ export function approveProcurement(projectId: string): Promise<void> {
 /** Drop the record's content and keep a tombstone saying an administrator called it not software. */
 export function markNonSoftware(projectId: string): Promise<void> {
   return requestNoContent(`${address(projectId)}/non-software`, { method: 'POST' });
+}
+
+export function readAnyway(projectId: string): Promise<void> {
+  return requestNoContent(`${address(projectId)}/read-anyway`, { method: 'POST' });
 }
 
 /**

@@ -10,13 +10,13 @@ export function formatThb(amount: number | null): string {
  * that matched the filename pattern but read as something else is listed too.
  */
 export function countTorDocuments(record: Procurement): number {
-  return record.documents.filter(
+  return (record.archive?.documents ?? []).filter(
     (document) => document.role === 'main_tor' || document.role === 'tor_variant',
   ).length;
 }
 
 export function hasTorSource(record: Procurement): boolean {
-  return record.zipId !== null && record.documents.some((document) => document.role === 'main_tor');
+  return record.archive?.documents.some((document) => document.role === 'main_tor') ?? false;
 }
 
 export const MILESTONE_LABELS: Record<MilestoneKey, string> = {

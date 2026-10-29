@@ -2,17 +2,17 @@ import { type IngestionOutcome } from '@torfun/types';
 import type { IngestionSummaryResponse } from './api';
 
 /**
- * The ten pipeline outcomes are too fine to read as a chart or a row of tiles,
- * so both admin pages group them into six by what an administrator would do
- * about each. This is the only place that grouping is defined.
+ * The pipeline outcomes are too fine to read as a chart or a row of tiles, so
+ * both admin pages group them by what an administrator would do about each.
+ * This is the only place that grouping is defined.
  *
  * It is a presentation choice, so it lives in the web app, not in the shared
  * types: the outcomes themselves and their Thai labels stay in
- * `@torfun/types`, and the table on the ingestion page still shows all ten.
+ * `@torfun/types`, and the table on the ingestion page still shows them all.
  */
 
 export type BucketKey =
-  'analysed' | 'needsReview' | 'noTor' | 'failed' | 'queued' | 'running';
+  'analysed' | 'needsReview' | 'noTor' | 'outOfScope' | 'failed' | 'queued' | 'running';
 
 export interface OutcomeBucket {
   key: BucketKey;
@@ -27,6 +27,7 @@ const BUCKETS: Array<Omit<OutcomeBucket, 'count'>> = [
   { key: 'analysed', label: 'วิเคราะห์แล้ว', outcomes: ['tor_analysed'] },
   { key: 'needsReview', label: 'รอตรวจสอบ', outcomes: ['needs_review'] },
   { key: 'noTor', label: 'ไม่มี TOR', outcomes: ['no_tor_package', 'no_tor_in_archive'] },
+  { key: 'outOfScope', label: 'นอกขอบเขต', outcomes: ['out_of_scope'] },
   { key: 'failed', label: 'ล้มเหลว', outcomes: ['analysis_failed', 'error', 'abandoned'] },
   { key: 'queued', label: 'รอ', outcomes: ['queued'] },
   { key: 'running', label: 'กำลังทำ', outcomes: ['downloading', 'analysing'] },

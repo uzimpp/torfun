@@ -24,10 +24,11 @@ import { RateLimitedError } from './client';
  */
 
 /**
- * What a turn at the gate is for, best first: Discovery's new days, retrieval of
- * projects never read, timeline refreshes, then Discovery's history (ADR-0020).
+ * What a turn at the gate is for, best first: Discovery's new days, Discovery's
+ * read of a new project's procurement detail (ADR-0021), retrieval of projects
+ * never read, timeline refreshes, then Discovery's history (ADR-0020).
  */
-export const GATE_TIERS = ['new_day', 'fresh', 'refresh', 'history'] as const;
+export const GATE_TIERS = ['new_day', 'detail', 'fresh', 'refresh', 'history'] as const;
 export type GateTier = (typeof GATE_TIERS)[number];
 
 /**
@@ -48,18 +49,20 @@ export class SiteLatchedError extends RateLimitedError {
  * rate limit, so nothing that meets it reads it as the site saying no.
  */
 export class SiteClosedError extends Error {
-  /** `unreachable` where the site stopped answering; `stopped` for every other reason. */
+  /** `unreachable` where the site stopped answering, `unavailable` where it sent a page in place of data; `stopped` for every other reason. */
   constructor(readonly reason: SiteClosedReason = 'stopped') {
     super(
       reason === 'unreachable'
         ? 'Upstream site access is closed: the site stopped answering.'
-        : 'Upstream site access is closed: the Run is stopping.',
+        : reason === 'unavailable'
+          ? 'Upstream site access is closed: the site is unavailable.'
+          : 'Upstream site access is closed: the Run is stopping.',
     );
     this.name = 'SiteClosedError';
   }
 }
 
-export type SiteClosedReason = 'unreachable' | 'stopped';
+export type SiteClosedReason = 'unreachable' | 'unavailable' | 'stopped';
 
 export interface SiteGateHold {
   /**
@@ -114,7 +117,13 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
     refuse: (error: Error) => void;
   };
   // One line per tier, in GATE_TIERS order.
-  const waiting: Record<GateTier, Waiter[]> = { new_day: [], fresh: [], refresh: [], history: [] };
+  const waiting: Record<GateTier, Waiter[]> = {
+    new_day: [],
+    detail: [],
+    fresh: [],
+    refresh: [],
+    history: [],
+  };
   const nextWaiter = () => {
     const tier = GATE_TIERS.find((each) => waiting[each].length > 0);
     return tier ? waiting[tier].shift() : undefined;

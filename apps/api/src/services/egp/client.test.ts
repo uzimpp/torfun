@@ -4,6 +4,7 @@ import {
   OpenDataForbiddenError,
   openDataGet,
   RateLimitedError,
+  SiteUnavailableError,
   UnreachableError,
   UpstreamError,
 } from './client';
@@ -241,4 +242,34 @@ describe('the open-data API is asked once, because every request is part of a sm
     expect(await response.text()).toBe('ok');
     expect(calls.count).toBe(2);
   }, 15_000);
+});
+
+describe('a web page where e-GP should have sent data', () => {
+  // The notice e-GP served in place of every answer while it was closed, 22-24 Oct 2026.
+  const notice =
+    '\n    <!DOCTYPE html>\n<html lang="th"><head><meta charset="utf-8"><title>' +
+    '&#3649;&#3592;&#3657;&#3591;&#3611;&#3636;&#3604;&#3619;&#3632;&#3610;&#3610; e-GP ' +
+    '&#3594;&#3633;&#3656;&#3623;&#3588;&#3619;&#3634;&#3623;</title></head><body></body></html>';
+
+  test('a lookup answered with one is the site being unavailable, named by its title', async () => {
+    globalThis.fetch = (async () => new Response(notice)) as unknown as typeof fetch;
+
+    const error = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup').catch(
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(SiteUnavailableError);
+    expect((error as Error).message).toContain('แจ้งปิดระบบ e-GP ชั่วคราว');
+  });
+
+  test('a lookup answered with data still reads in full', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        '<?xml version="1.0"?><rss><channel></channel></rss>',
+      )) as unknown as typeof fetch;
+
+    const response = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup');
+
+    expect(await response.text()).toContain('<rss>');
+  });
 });

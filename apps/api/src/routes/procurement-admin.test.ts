@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
-import { EMPTY_MILESTONES, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
+import { EMPTY_TIMELINE, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -21,30 +21,21 @@ const held: Procurement = {
   budgetYear: 2568,
   typeId: null,
   goodsId: null,
-  detailCheckedAt: '2026-09-01T00:00:00.000Z',
+  detailReadAt: '2026-09-01T00:00:00.000Z',
   announceDate: null,
-  projectTypeName: null,
   purchaseMethodName: null,
   projectMoney: null,
   priceBuild: null,
-  status: 'open',
-  milestones: EMPTY_MILESTONES,
-  timelineCheckedAt: null,
-  deadlineAt: null,
-  deadlineSource: null,
   state: 'Completed',
   outcome: 'needs_review',
   attempts: 0,
   holdReason: 'partial_read',
-  approvedBy: null,
-  approvedAt: null,
   statusHistory: [],
-  zipId: 'zip-1',
-  documents: [],
   analysis: null,
-  torAmbiguous: false,
   discoveredAt: '2026-09-09T00:00:00.000Z',
-  sourceHash: null,
+  timeline: { ...EMPTY_TIMELINE, status: 'open' },
+  approved: null,
+  archive: { zipId: 'zip-1', documents: [], torAmbiguous: false },
   updatedAt: '2026-09-09T00:00:00.000Z',
 };
 
@@ -84,6 +75,11 @@ describe('administrator actions on a procurement', () => {
       name: 'delete',
       method: 'DELETE' as const,
       url: `/api/ingestion/procurements/${ID}?allowReimport=false`,
+    },
+    {
+      name: 'read anyway',
+      method: 'POST' as const,
+      url: `/api/ingestion/procurements/${ID}/read-anyway`,
     },
   ];
 
@@ -131,11 +127,11 @@ describe('administrator actions on a procurement', () => {
 
       const asOfficer = await read(officer());
       expect(asOfficer.statusCode).toBe(200);
-      expect(asOfficer.json() as Procurement).toMatchObject({ approvedBy: null, approvedAt: null });
+      expect(asOfficer.json() as Procurement).toMatchObject({ approved: null });
 
       const record = (await read(admin())).json() as Procurement;
-      expect(record.approvedBy).toBe('somchai');
-      expect(Date.parse(record.approvedAt!)).not.toBeNaN();
+      expect(record.approved?.by).toBe('somchai');
+      expect(Date.parse(record.approved!.at)).not.toBeNaN();
     });
 
     test('404 for an unknown project', async () => {
@@ -235,6 +231,75 @@ describe('administrator actions on a procurement', () => {
       });
 
       expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe('POST read-anyway', () => {
+    const putOutOfScope = () => store.transition(ID, 'out_of_scope', { goodsId: '1008' });
+    const readingAnyway = async (startRun: (input: StartRunInput) => Promise<void>) => {
+      const original = app.ingestionService.startRun;
+      app.ingestionService.startRun = startRun;
+      try {
+        return await app.inject({ method: 'POST', url: actions[3]!.url, cookies: admin() });
+      } finally {
+        app.ingestionService.startRun = original;
+      }
+    };
+
+    test('202, one Run for that project alone, and the record is Queued with its detail still read', async () => {
+      await putOutOfScope();
+      const startRun = mock(async (input: StartRunInput) => {
+        await input.beforeRun?.();
+      });
+
+      const response = await readingAnyway(startRun);
+
+      expect(response.statusCode).toBe(202);
+      expect(startRun).toHaveBeenCalledTimes(1);
+      expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ onlyProject: ID }));
+      expect(await store.get(ID)).toMatchObject({
+        outcome: 'queued',
+        detailReadAt: held.detailReadAt,
+      });
+    });
+
+    test('409 for a record that is not out of scope, and no Run is started', async () => {
+      const startRun = mock(async () => {});
+
+      const response = await readingAnyway(startRun);
+
+      expect(response.statusCode).toBe(409);
+      expect((response.json() as { message: string }).message).toMatch(/[฀-๿]/);
+      expect(startRun).not.toHaveBeenCalled();
+      expect(await store.get(ID)).toEqual(held);
+    });
+
+    test('404 for an unknown project', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/ingestion/procurements/nope/read-anyway',
+        cookies: admin(),
+      });
+
+      expect(response.statusCode).toBe(404);
+    });
+
+    test('an officer never sees the out-of-scope record', async () => {
+      await putOutOfScope();
+
+      const detail = await app.inject({
+        method: 'GET',
+        url: `/api/tors/${ID}`,
+        cookies: officer(),
+      });
+      const list = await app.inject({
+        method: 'GET',
+        url: '/api/tors?outcome=out_of_scope',
+        cookies: officer(),
+      });
+
+      expect(detail.statusCode).toBe(404);
+      expect((list.json() as { total: number }).total).toBe(0);
     });
   });
 

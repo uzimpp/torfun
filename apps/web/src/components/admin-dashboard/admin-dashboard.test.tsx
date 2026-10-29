@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { EMPTY_MILESTONES, OUTCOME_LABELS, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, IngestionOutcome, OUTCOME_LABELS, type Procurement } from '@torfun/types';
 
 import type { IngestionSummaryResponse } from '@/lib/api';
 import { AdminDashboard } from './admin-dashboard';
@@ -66,30 +66,21 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
-    status: 'unknown',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
-    sourceHash: null,
+    timeline: EMPTY_TIMELINE,
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-30T11:55:00.000Z',
     ...overrides,
   };
@@ -113,12 +104,12 @@ describe('OutcomeDonut', () => {
 
     const legend = screen.getByRole('list', { name: 'สัดส่วนตามผลการประมวลผล' });
     const rows = within(legend).getAllByRole('listitem');
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
     expect(rows[0]).toHaveTextContent('วิเคราะห์แล้ว');
     expect(rows[0]).toHaveTextContent('38');
     expect(rows[0]).toHaveTextContent('13%');
-    expect(rows[4]).toHaveTextContent('รอ');
-    expect(rows[4]).toHaveTextContent('243');
+    expect(rows[5]).toHaveTextContent('รอ');
+    expect(rows[5]).toHaveTextContent('243');
   });
 
   test('offers every outcome as a table, using the shared Thai labels', () => {
@@ -133,7 +124,7 @@ describe('OutcomeDonut', () => {
     const table = screen.getByRole('table');
     expect(within(table).getByText(OUTCOME_LABELS.tor_analysed)).toBeInTheDocument();
     expect(within(table).getByText(OUTCOME_LABELS.abandoned)).toBeInTheDocument();
-    expect(within(table).getAllByRole('row')).toHaveLength(11); // header + ten outcomes
+    expect(within(table).getAllByRole('row')).toHaveLength(IngestionOutcome.options.length + 1);
   });
 
   test('says so, rather than drawing an empty ring, when nothing has been ingested', () => {

@@ -1,8 +1,8 @@
 name: CI
 
 on:
+  # Every PR, stacked ones included: a PR into a feature branch is reviewed too.
   pull_request:
-    branches: [develop, main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -44,6 +44,9 @@ jobs:
 
       - name: Unit tests
         run: bun run test
+        env:
+          # The atlas-local image is a one-node replica set; connect to it directly.
+          MONGODB_TEST_URI: mongodb://localhost:27017/torfun-test?directConnection=true
 
       - name: Build
         run: bun run build

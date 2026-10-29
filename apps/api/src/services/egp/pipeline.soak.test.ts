@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { fakeAnnouncements } from '../../testing/announcement-client';
 import { zipSync } from 'fflate';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 import { InMemoryProcurementStore } from '../../testing/procurement-store';
 import { runIngestion, type IngestionDeps } from './pipeline';
 import { extractTorPdfs } from './tor-package';
@@ -46,30 +46,21 @@ function record(index: number): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
-    projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 5_000_000,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
   };
 }
@@ -91,6 +82,7 @@ test(`${ARCHIVES} archives leave buffers where they started`, async () => {
       notEBidding: 0,
       tombstoned: 0,
       truncated: 0,
+      drafts: [],
       failures: [],
       rateLimited: false,
       unreachable: false,

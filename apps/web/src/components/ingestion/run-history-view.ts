@@ -23,6 +23,9 @@ export function runResult(run: IngestionRun): { label: string; tone: RunResultTo
   if (run.counts.discoveryStopped === 'unreachable') {
     return { label: 'ล้มเหลว · เว็บไม่ตอบ', tone: 'error' };
   }
+  if (run.counts.discoveryStopped === 'unavailable') {
+    return { label: 'ล้มเหลว · e-GP ปิดให้บริการ', tone: 'error' };
+  }
   if (run.counts.stopped === 'admin') return { label: 'หยุดโดยผู้ดูแล', tone: 'neutral' };
   return { label: 'สำเร็จ', tone: 'ok' };
 }

@@ -10,9 +10,11 @@ import { TorService } from './tor.service';
 describe('the source of a held procurement', () => {
   const held = {
     projectId: 'held-1',
-    zipId: 'zip-1',
     outcome: 'needs_review',
-    documents: [{ role: 'main_tor', member: 'a.pdf', filename: 'a.pdf' }],
+    archive: {
+      zipId: 'zip-1',
+      documents: [{ role: 'main_tor', member: 'a.pdf', filename: 'a.pdf' }],
+    },
   } as never;
 
   async function build() {

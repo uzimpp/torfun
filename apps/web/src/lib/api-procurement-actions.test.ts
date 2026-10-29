@@ -36,6 +36,19 @@ describe('administrator actions on a procurement', () => {
     expect(lastCall().url).toMatch(/\/procurements\/66059313551\/non-software$/);
   });
 
+  test('read anyway posts to its own address and takes the 202 as done', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ started: true }), {
+        status: 202,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const { readAnyway } = await load();
+    await readAnyway('66059313551');
+    expect(lastCall()).toMatchObject({ method: 'POST' });
+    expect(lastCall().url).toMatch(/\/procurements\/66059313551\/read-anyway$/);
+  });
+
   test.each([
     [true, 'true'],
     [false, 'false'],

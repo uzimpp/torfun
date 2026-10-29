@@ -1,8 +1,12 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
-import { fakeAnnouncements, SAMPLE_DETAIL } from '../../testing/announcement-client';
+import { currentDeadline, EMPTY_STAGES, EMPTY_TIMELINE, type Procurement } from '@torfun/types';
+import {
+  fakeAnnouncements,
+  SAMPLE_DETAIL,
+  SAMPLE_PROCUREMENT_DETAIL,
+} from '../../testing/announcement-client';
 import { InMemoryProcurementStore } from '../../testing/procurement-store';
-import { RateLimitedError, UnreachableError, UpstreamError } from './client';
+import { RateLimitedError, SiteUnavailableError, UnreachableError, UpstreamError } from './client';
 import { E_BIDDING_METHOD, FEED_BACKFILL_REQUESTS_PER_RUN } from './constants';
 import type { AnnouncementFeed } from './announcement-feed';
 import { discoverProjects, type DiscoveryResult, type SweepContext } from './discovery';
@@ -28,30 +32,21 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
-    projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 5_000_000,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -102,6 +97,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       notEBidding: 0,
       tombstoned: 0,
       truncated: 0,
+      drafts: [],
       failures: [],
       rateLimited: false,
       unreachable: false,
@@ -145,8 +141,9 @@ describe('runIngestion', () => {
     expect(record?.state).toBe('Completed');
     expect(record?.analysis?.budgetThb).toBe(4_500_000);
     expect(
-      record?.documents.find((d: { role: string; filename: string }) => d.role === 'main_tor')
-        ?.filename,
+      record?.archive?.documents.find(
+        (d: { role: string; filename: string }) => d.role === 'main_tor',
+      )?.filename,
     ).toBe('Attach_TOR_1.pdf');
     expect(result).toMatchObject({ torAnalysed: 1, held: 0, dropped: 0 });
   });
@@ -181,7 +178,7 @@ describe('runIngestion', () => {
 
     const record = await repository.get('66059313551');
     expect(record?.outcome).toBe('no_tor_in_archive');
-    expect(record?.documents[0]?.role).toBe('not_tor');
+    expect(record?.archive?.documents[0]?.role).toBe('not_tor');
   });
 
   test('an analysis failure keeps the retrieval, so a retry costs nothing upstream', async () => {
@@ -200,8 +197,8 @@ describe('runIngestion', () => {
     const record = await repository.get('66059313551');
     expect(record?.state).toBe('Completed');
     expect(record?.outcome).toBe('analysis_failed');
-    expect(record?.documents[0]?.role).toBe('unreadable');
-    expect(record?.zipId).toBe('zip-1');
+    expect(record?.archive?.documents[0]?.role).toBe('unreadable');
+    expect(record?.archive?.zipId).toBe('zip-1');
   });
 
   test('a project with no published TOR package is a real answer, not an error', async () => {
@@ -263,13 +260,14 @@ describe('runIngestion', () => {
     const second = procurement({ projectId: '66059313552' });
     const result = await run(repository, {
       discoverProjects: async (context) => {
-        await context.save({ records: [procurement()], failures: [], cursor: {} });
-        await context.save({ records: [second], failures: [], cursor: {} });
+        await context.save({ records: [procurement()], drafts: [], failures: [], cursor: {} });
+        await context.save({ records: [second], drafts: [], failures: [], cursor: {} });
         return {
           records: [procurement(), second],
           notEBidding: 0,
           tombstoned: 0,
           truncated: 0,
+          drafts: [],
           failures: [],
           rateLimited: false,
           unreachable: false,
@@ -293,6 +291,7 @@ describe('runIngestion', () => {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
@@ -322,6 +321,7 @@ describe('runIngestion', () => {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
@@ -381,7 +381,7 @@ describe('runIngestion', () => {
     });
 
     expect(classify).toHaveBeenCalledTimes(2);
-    expect((await repository.get('66059313551'))?.torAmbiguous).toBe(true);
+    expect((await repository.get('66059313551'))?.archive?.torAmbiguous).toBe(true);
   });
 });
 
@@ -417,6 +417,7 @@ describe('stages and the per-record deadline', () => {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
@@ -458,6 +459,7 @@ describe('a discovery sweep inside the Run', () => {
     notEBidding: 0,
     tombstoned: 0,
     truncated: 0,
+    drafts: [],
     cursor: {},
     failures: [],
     rateLimited: false,
@@ -624,7 +626,7 @@ describe('what a retrieval remembers about the archive', () => {
 
     const record = await repository.get('66059313551');
     expect(record?.outcome).toBe('tor_analysed');
-    expect(record?.documents[0]?.namePattern).toBe('unlabelled');
+    expect(record?.archive?.documents[0]?.namePattern).toBe('unlabelled');
   });
 });
 
@@ -648,8 +650,8 @@ describe('a document that was only partly read', () => {
     // A partial reading is never enough to show a record to an officer.
     expect(record?.outcome).toBe('needs_review');
     expect(record?.holdReason).toBe('partial_read');
-    expect(record?.documents[0]?.readMode).toBe('first_pages');
-    expect(record?.documents[0]?.readNote).toMatch(/30/);
+    expect(record?.archive?.documents[0]?.readMode).toBe('first_pages');
+    expect(record?.archive?.documents[0]?.readNote).toMatch(/30/);
   });
 });
 
@@ -660,6 +662,7 @@ describe('a sweep that only re-sees what it already has', () => {
       notEBidding: 0,
       tombstoned: 0,
       truncated: 0,
+      drafts: [],
       failures: [],
       rateLimited: false,
       unreachable: false,
@@ -674,7 +677,7 @@ describe('a sweep that only re-sees what it already has', () => {
 
     const first = await run(repository, sweep());
     const again = await run(repository, sweep());
-    const moved = await run(repository, sweep({ projectMoney: 9_999_999 }));
+    const moved = await run(repository, sweep({ projectName: 'จ้างพัฒนาระบบ (แก้ไข)' }));
 
     expect([first.newRecords, first.changedRecords, first.unchangedRecords]).toEqual([1, 0, 0]);
     expect([again.newRecords, again.changedRecords, again.unchangedRecords]).toEqual([0, 0, 1]);
@@ -734,6 +737,7 @@ describe('a run that is told to stop', () => {
           notEBidding: 0,
           tombstoned: 0,
           truncated: 0,
+          drafts: [],
           failures: [],
           rateLimited: false,
           unreachable: false,
@@ -767,6 +771,7 @@ describe('a deadline that fires while a site request is in flight', () => {
       notEBidding: 0,
       tombstoned: 0,
       truncated: 0,
+      drafts: [],
       failures: [],
       rateLimited: false,
       unreachable: false,
@@ -942,7 +947,7 @@ describe('the analysis pool', () => {
 
     expect(peak).toBe(2);
     const record = await repository.get('66059313551');
-    expect(record?.documents.map((document) => document.filename)).toEqual(
+    expect(record?.archive?.documents.map((document) => document.filename)).toEqual(
       four.map((pdf) => pdf.filename),
     );
   });
@@ -958,6 +963,7 @@ describe('the analysis pool', () => {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
@@ -998,6 +1004,7 @@ describe('the reaper', () => {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
@@ -1024,6 +1031,7 @@ describe('the reaper', () => {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
@@ -1120,6 +1128,7 @@ describe('a record the model drops', () => {
         notEBidding: 0,
         tombstoned: ruledOut.size,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
@@ -1164,7 +1173,6 @@ describe('a record the model drops', () => {
           deptName: 'กรุงเทพมหานคร',
           deptCode: '0100',
           announceDate: '2026-08-01',
-          budgetYear: 2568,
           purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
         },
       },
@@ -1201,96 +1209,241 @@ describe('a record the model drops', () => {
   });
 });
 
-describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
-  /** As Discovery stores it: from the feed alone, with no year yet. */
-  const fresh = (overrides: Partial<Procurement> = {}) =>
-    procurement({ budgetYear: null, detailCheckedAt: null, ...overrides });
+describe('Discovery reads the procurement detail and admits by category (ADR-0021)', () => {
+  /** As Discovery stores it: from the feed alone, with no detail yet. */
+  const unread = (overrides: Partial<Procurement> = {}) =>
+    procurement({ budgetYear: null, detailReadAt: null, ...overrides });
 
-  test('a new record gets its detail first, inside its turn, then is retrieved as usual', async () => {
+  /** A feed that lists one project, under `type` only. */
+  const feedListing = (projectId: string, type: 'B0' | 'D0'): AnnouncementFeed => ({
+    day: async (_deptId, asked) => ({
+      announced: asked === type ? 1 : 0,
+      items:
+        asked === type
+          ? [
+              {
+                projectId,
+                title: 'ประกวดราคาจ้างพัฒนาระบบ',
+                methodName: E_BIDDING_METHOD,
+                announcementName: type === 'B0' ? 'ร่างเอกสารประกวดราคา' : 'ประกาศเชิญชวน',
+                announcedOn: null,
+              },
+            ]
+          : [],
+      withoutId: 0,
+    }),
+  });
+
+  /** Every request to the site, in order, by what it asked. */
+  const recording = (announcements: ReturnType<typeof fakeAnnouncements>, log: string[]) => {
+    const { procurementDetail, projectDetail, commentsCloseAt, timeline } = announcements;
+    announcements.procurementDetail = async (id, signal) => {
+      log.push('procurementDetail');
+      return procurementDetail(id, signal);
+    };
+    announcements.projectDetail = async (id, signal) => {
+      log.push('projectDetail');
+      return projectDetail(id, signal);
+    };
+    announcements.commentsCloseAt = async (id, params, signal) => {
+      log.push('commentsCloseAt');
+      return commentsCloseAt(id, params, signal);
+    };
+    announcements.timeline = async (id, signal) => {
+      log.push('timeline');
+      return timeline(id, signal);
+    };
+    return announcements;
+  };
+
+  test('an out-of-scope project costs exactly one request and never reaches Retrieval', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(fresh());
-    const order: string[] = [];
-    const announcements = fakeAnnouncements({}, []);
-    announcements.projectDetail = async () => {
-      order.push('detail');
-      return SAMPLE_DETAIL;
-    };
-    announcements.timeline = async () => {
-      order.push('timeline');
-      return [];
-    };
+    await repository.upsert(unread());
+    const log: string[] = [];
+    const announcements = recording(
+      fakeAnnouncements(
+        {},
+        [],
+        {},
+        {
+          procurementDetails: {
+            '66059313551': { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: '1008' },
+          },
+        },
+      ),
+      log,
+    );
+    const resolveZipId = mock(async () => 'zip-1');
 
-    await run(repository, { announcements });
+    const result = await run(repository, { announcements, resolveZipId });
 
-    expect(order).toEqual(['detail', 'timeline']);
+    expect(log).toEqual(['procurementDetail']);
+    expect(resolveZipId).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ outOfScope: 1, attempted: 0 });
     expect(await repository.get('66059313551')).toMatchObject({
-      budgetYear: 2569,
-      typeId: '03',
-      goodsId: '4016',
-      deptSubName: SAMPLE_DETAIL.deptSubName,
-      detailCheckedAt: expect.any(String),
+      state: 'Completed',
+      outcome: 'out_of_scope',
+      goodsId: '1008',
+      projectMoney: SAMPLE_PROCUREMENT_DETAIL.projectMoney,
+      priceBuild: SAMPLE_PROCUREMENT_DETAIL.priceBuild,
+      detailReadAt: expect.any(String),
+      budgetYear: null,
+    });
+  });
+
+  test('a project with no category is admitted, read in one turn, then retrieved', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(unread());
+    const log: string[] = [];
+    const announcements = recording(
+      fakeAnnouncements(
+        {},
+        [],
+        {},
+        {
+          procurementDetails: { '66059313551': { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: null } },
+        },
+      ),
+      log,
+    );
+
+    const result = await run(repository, { announcements });
+
+    expect(log).toEqual(['procurementDetail', 'projectDetail', 'timeline']);
+    expect(result.outOfScope).toBe(0);
+    expect(await repository.get('66059313551')).toMatchObject({
+      goodsId: null,
+      budgetYear: SAMPLE_DETAIL.budgetYear,
+      projectMoney: SAMPLE_PROCUREMENT_DETAIL.projectMoney,
+      detailReadAt: expect.any(String),
       outcome: 'tor_analysed',
     });
   });
 
-  test('a record whose detail was read is not asked again', async () => {
-    const repository = new InMemoryProcurementStore();
-    const announcements = fakeAnnouncements({}, []);
+  test('a project the feed lists as a draft gets its comment deadline; an invitation never asks', async () => {
+    const swept = async (type: 'B0' | 'D0') => {
+      const repository = new InMemoryProcurementStore();
+      const log: string[] = [];
+      const announcements = recording(
+        fakeAnnouncements(
+          {},
+          [],
+          {},
+          {
+            commentsClose: { '69109238096': '2026-10-26T17:00:00.000Z' },
+          },
+        ),
+        log,
+      );
+      await run(repository, {
+        discoverProjects: (context) => discoverProjects(context, feedListing('69109238096', type)),
+        announcements,
+      });
+      return { log, record: await repository.get('69109238096') };
+    };
 
-    await run(repository, { announcements });
+    const draft = await swept('B0');
+    expect(draft.log).toEqual([
+      'procurementDetail',
+      'projectDetail',
+      'commentsCloseAt',
+      'timeline',
+    ]);
+    expect(draft.record?.timeline.commentsCloseAt).toBe('2026-10-26T17:00:00.000Z');
 
-    expect(announcements.detailCalls).toEqual([]);
+    const invitation = await swept('D0');
+    expect(invitation.log).toEqual(['procurementDetail', 'projectDetail', 'timeline']);
+    expect(invitation.record?.timeline.commentsCloseAt).toBeNull();
   });
 
-  test('a detail that cannot be read is logged, and the record is still downloaded and analysed with no year', async () => {
+  test('the whole admission is one gate hold, with no pause inside it', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(fresh());
-    const announcements = fakeAnnouncements({}, [], { '66059313551': null });
+    const log: string[] = [];
+    const announcements = recording(fakeAnnouncements({}, []), log);
+
+    await run(repository, {
+      discoverProjects: (context) => discoverProjects(context, feedListing('69109238096', 'B0')),
+      announcements,
+      sleep: async () => {
+        log.push('pause');
+      },
+    });
+
+    const from = log.indexOf('procurementDetail');
+    expect(log.slice(from - 1, from + 4)).toEqual([
+      'pause',
+      'procurementDetail',
+      'projectDetail',
+      'commentsCloseAt',
+      'pause',
+    ]);
+  });
+
+  test('a detail failure spends an attempt, and the project is asked again next Run', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(unread());
+    const failing = fakeAnnouncements({}, []);
+    failing.procurementDetail = async () => {
+      throw new UpstreamError('HTTP 500');
+    };
+    const resolveZipId = mock(async () => 'zip-1');
+
+    const first = await run(repository, { announcements: failing, resolveZipId });
+
+    expect(resolveZipId).not.toHaveBeenCalled();
+    expect(first.failures).toEqual([
+      expect.objectContaining({ projectId: '66059313551', stage: 'discovery', error: 'HTTP 500' }),
+    ]);
+    expect(await repository.get('66059313551')).toMatchObject({
+      state: 'Queued',
+      attempts: 1,
+      detailReadAt: null,
+    });
+
+    const answering = fakeAnnouncements({}, []);
+    await run(repository, { announcements: answering });
+
+    expect(answering.procurementDetailCalls).toEqual(['66059313551']);
+    expect(await repository.get('66059313551')).toMatchObject({
+      detailReadAt: expect.any(String),
+      outcome: 'tor_analysed',
+    });
+  });
+
+  test('data: null leaves the project as it was, with no attempt spent', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(unread());
+    const announcements = fakeAnnouncements(
+      {},
+      [],
+      {},
+      {
+        procurementDetails: { '66059313551': null },
+      },
+    );
 
     const result = await run(repository, { announcements });
 
     expect(result.failures).toEqual([
       expect.objectContaining({
         projectId: '66059313551',
-        error: expect.stringContaining('no project detail with a budget year'),
+        error: expect.stringContaining('data: null'),
       }),
     ]);
-    expect(result.archivesRetrieved).toBe(1);
+    expect(announcements.calls).toEqual([]);
     expect(await repository.get('66059313551')).toMatchObject({
-      budgetYear: null,
-      detailCheckedAt: null,
-      outcome: 'tor_analysed',
+      state: 'Queued',
+      attempts: 0,
+      detailReadAt: null,
     });
   });
 
-  test('a detail that fails on a record already read leaves its year as it was', async () => {
+  test('a refusal on the detail stops the Run like any other, spending no attempt', async () => {
     const repository = new InMemoryProcurementStore();
-    await repository.upsert(
-      fresh({ budgetYear: 2570, state: 'Completed', outcome: 'tor_analysed' }),
-    );
+    await repository.upsert(unread());
+    await repository.upsert(procurement({ projectId: '66059313552' }));
     const announcements = fakeAnnouncements({}, []);
-    announcements.projectDetail = async () => {
-      throw new UpstreamError('HTTP 500');
-    };
-
-    const result = await run(repository, { announcements });
-
-    expect(result.refreshed).toBe(1);
-    expect(result.failures).toEqual([
-      expect.objectContaining({ projectId: '66059313551', error: 'HTTP 500' }),
-    ]);
-    expect(await repository.get('66059313551')).toMatchObject({
-      budgetYear: 2570,
-      detailCheckedAt: null,
-      timelineCheckedAt: expect.any(String),
-    });
-  });
-
-  test('a refusal on the detail stops the Run and puts the record back without spending an attempt', async () => {
-    const repository = new InMemoryProcurementStore();
-    await repository.upsert(fresh());
-    const announcements = fakeAnnouncements({}, []);
-    announcements.projectDetail = async () => {
+    announcements.procurementDetail = async () => {
       throw new RateLimitedError('https://process5.gprocurement.go.th/…', 429);
     };
 
@@ -1298,43 +1451,33 @@ describe('the project detail, read in the retrieval turn (ADR-0020)', () => {
 
     expect(result.aborted).toBe(true);
     expect(announcements.calls).toEqual([]);
-    expect(await repository.get('66059313551')).toMatchObject({ outcome: 'queued', attempts: 0 });
+    expect(await repository.get('66059313551')).toMatchObject({
+      outcome: 'queued',
+      attempts: 0,
+      detailReadAt: null,
+    });
   });
 
-  test('a project the feed lists is stored without its detail, which its retrieval then reads', async () => {
+  test('Retrieval no longer reads the project detail', async () => {
     const repository = new InMemoryProcurementStore();
-    const item = {
-      projectId: '69109044981',
-      title: 'ประกวดราคาจ้างพัฒนาระบบ',
-      methodName: E_BIDDING_METHOD,
-      announcementName: 'ประกาศเชิญชวน',
-      announcedOn: null,
-    };
-    const feed: AnnouncementFeed = {
-      day: async () => ({ announced: 1, items: [item], withoutId: 0 }),
-    };
-    const order: string[] = [];
+    await repository.upsert(procurement());
     const announcements = fakeAnnouncements({}, []);
-    announcements.projectDetail = async () => {
-      order.push('detail');
-      return SAMPLE_DETAIL;
-    };
-    announcements.timeline = async () => {
-      order.push('timeline');
-      return [];
-    };
 
-    await run(repository, {
-      discoverProjects: (context) => discoverProjects(context, feed),
-      announcements,
-    });
+    await run(repository, { announcements });
 
-    expect(order).toEqual(['detail', 'timeline']);
-    expect(await repository.get('69109044981')).toMatchObject({
-      budgetYear: 2569,
-      detailCheckedAt: expect.any(String),
-      outcome: 'tor_analysed',
-    });
+    expect(announcements.detailCalls).toEqual([]);
+    expect(announcements.procurementDetailCalls).toEqual([]);
+  });
+
+  test('a one-project Run reads the detail of a project whose detail was never read', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(unread());
+    const announcements = fakeAnnouncements({}, []);
+
+    await runIngestion(repository, { logger, onlyProject: '66059313551' }, deps({ announcements }));
+
+    expect(announcements.procurementDetailCalls).toEqual(['66059313551']);
+    expect((await repository.get('66059313551'))?.outcome).toBe('tor_analysed');
   });
 });
 
@@ -1346,6 +1489,7 @@ describe('a run for one project only', () => {
       notEBidding: 0,
       tombstoned: 0,
       truncated: 0,
+      drafts: [],
       failures: [],
       rateLimited: false,
       unreachable: false,
@@ -1405,6 +1549,7 @@ describe('Retrieval and Analysis sharing the Run', () => {
       notEBidding: 0,
       tombstoned: 0,
       truncated: 0,
+      drafts: [],
       failures: [],
       rateLimited: false,
       unreachable: false,
@@ -1492,6 +1637,7 @@ describe('the Analysis limit and the waiting room (ADR-0020)', () => {
       notEBidding: 0,
       tombstoned: 0,
       truncated: 0,
+      drafts: [],
       failures: [],
       rateLimited: false,
       unreachable: false,
@@ -1595,6 +1741,7 @@ describe('a Run over a long queue', () => {
           notEBidding: 0,
           tombstoned: 0,
           truncated: 0,
+          drafts: [],
           failures: [],
           rateLimited: false,
           unreachable: false,
@@ -1631,6 +1778,7 @@ describe('a Run an administrator stops', () => {
           notEBidding: 0,
           tombstoned: 0,
           truncated: 0,
+          drafts: [],
           failures: [],
           rateLimited: false,
           unreachable: false,
@@ -1673,34 +1821,39 @@ describe('runIngestion: the bid deadline', () => {
     await run(repository, invited('2026-10-20T09:30:00.000Z'));
 
     const record = await repository.get('66059313551');
-    expect(record?.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
-    expect(record?.deadlineSource).toBe('invitation');
-    expect(record?.documents.map((d) => d.role)).toEqual(['main_tor', 'invitation']);
+    expect(record?.timeline.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
+    expect(record?.archive?.documents.map((d) => d.role)).toEqual(['main_tor', 'invitation']);
   });
 
-  test('is the TOR’s when the invitation states none', async () => {
+  test('is the TOR’s when the invitation states none, marked as read by the model', async () => {
     const repository = new InMemoryProcurementStore();
     await run(repository, invited(null));
 
     const record = await repository.get('66059313551');
-    expect(record?.deadlineAt).toBe('2026-10-15');
-    expect(record?.deadlineSource).toBe('tor');
+    expect(record?.timeline.deadlineAt).toBeNull();
+    expect(currentDeadline(record!)).toEqual({ at: '2026-10-15', kind: 'bids', readByModel: true });
   });
 
-  test('a weaker source read later does not displace a better one already stored', async () => {
+  test('a TOR read later does not displace the official date already stored', async () => {
     const repository = new InMemoryProcurementStore();
     await run(repository, {
       discoverProjects: async () => ({
         ...(await deps().discoverProjects(sweepContext)),
         records: [
-          procurement({ deadlineAt: '2026-10-20T09:30:00.000Z', deadlineSource: 'invitation' }),
+          procurement({
+            timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-20T09:30:00.000Z' },
+          }),
         ],
       }),
     });
 
     const record = await repository.get('66059313551');
-    expect(record?.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
-    expect(record?.deadlineSource).toBe('invitation');
+    expect(record?.timeline.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
+    expect(currentDeadline(record!)).toEqual({
+      at: '2026-10-20T09:30:00.000Z',
+      kind: 'bids',
+      readByModel: false,
+    });
   });
 
   test('is still found for a project whose archive holds no TOR', async () => {
@@ -1712,7 +1865,7 @@ describe('runIngestion: the bid deadline', () => {
 
     const record = await repository.get('66059313551');
     expect(record?.outcome).toBe('no_tor_in_archive');
-    expect(record?.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
+    expect(record?.timeline.deadlineAt).toBe('2026-10-20T09:30:00.000Z');
   });
 
   test('is not read for a project the model drops as not software', async () => {
@@ -1760,16 +1913,20 @@ describe('runIngestion: the timeline', () => {
       projectId: '66059313599',
       state: 'Completed',
       outcome: 'tor_analysed',
-      status: 'open',
-      milestones: { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } },
-      timelineCheckedAt: '2026-10-01T00:00:00.000Z',
+      timeline: {
+        ...EMPTY_TIMELINE,
+        status: 'open',
+        stages: { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' },
+        lastReadAt: '2026-10-01T00:00:00.000Z',
+        deadlineAt: '2026-10-25T00:00:00.000Z',
+      },
       analysis: { ...analysis, deadlineAt: null },
-      documents: [invitationDocument],
-      deadlineAt: '2026-10-25T00:00:00.000Z',
-      deadlineSource: 'invitation',
+      archive: { zipId: 'zip-1', documents: [invitationDocument], torAmbiguous: false },
       updatedAt: '2026-10-01T00:00:00.000Z',
       ...overrides,
     });
+  const lastRead = (projectId: string, lastReadAt: string | null) =>
+    read({ projectId, timeline: { ...read().timeline, lastReadAt } });
   const READ_TIMELINE = [row('D0', '2026-09-20T02:00:00.000Z')];
 
   /** Records the archive-side work so a test can say what was not done. */
@@ -1806,7 +1963,7 @@ describe('runIngestion: the timeline', () => {
   }
 
   describe('for a project not yet read', () => {
-    test('is read before anything else is asked of the site, and sets status and milestones', async () => {
+    test('is read before anything else is asked of the site, and sets status and stages', async () => {
       const repository = new InMemoryProcurementStore();
       const order: string[] = [];
       const announcements = fakeAnnouncements({
@@ -1828,14 +1985,11 @@ describe('runIngestion: the timeline', () => {
 
       expect(order).toEqual(['timeline', 'zip']);
       const record = await repository.get(NEW);
-      expect(record).toMatchObject({
+      expect(record?.timeline).toMatchObject({
         status: 'open',
-        milestones: {
-          drafted: { at: '2026-08-01T00:00:00.000Z' },
-          invited: { at: '2026-08-10T00:00:00.000Z' },
-        },
+        stages: { drafted: '2026-08-01T00:00:00.000Z', invited: '2026-08-10T00:00:00.000Z' },
       });
-      expect(record?.timelineCheckedAt).toMatch(/^\d{4}-/);
+      expect(record?.timeline.lastReadAt).toMatch(/^\d{4}-/);
       expect(record?.outcome).toBe('tor_analysed');
     });
 
@@ -1848,10 +2002,9 @@ describe('runIngestion: the timeline', () => {
       });
 
       const record = await repository.get(NEW);
-      expect(record).toMatchObject({
+      expect(record?.timeline).toMatchObject({
         status: 'evaluating',
         deadlineAt: '2026-10-02T00:00:00.000Z',
-        deadlineSource: 'timeline',
       });
     });
 
@@ -1862,8 +2015,7 @@ describe('runIngestion: the timeline', () => {
 
       expect(result.failures).toMatchObject([{ projectId: NEW, stage: 'timeline' }]);
       expect(await repository.get(NEW)).toMatchObject({
-        milestones: EMPTY_MILESTONES,
-        timelineCheckedAt: null,
+        timeline: { stages: EMPTY_STAGES, lastReadAt: null },
         outcome: 'tor_analysed',
       });
     });
@@ -1883,7 +2035,7 @@ describe('runIngestion: the timeline', () => {
       expect(result.failures).toHaveLength(1);
       expect(result.failures[0]).toMatchObject({ projectId: NEW, stage: 'timeline' });
       expect(result.failures[0]?.error).toContain('explain');
-      expect((await repository.get(NEW))?.status).toBe('open');
+      expect((await repository.get(NEW))?.timeline.status).toBe('open');
     });
 
     test('an error reading the timeline is a transport failure, costing an attempt like any other', async () => {
@@ -1920,7 +2072,7 @@ describe('runIngestion: the timeline', () => {
 
       expect(calls).toEqual({ zip: [], download: 0, classify: 0, invitation: 0 });
       const record = await repository.get('66059313599');
-      expect(record?.timelineCheckedAt).not.toBe('2026-10-01T00:00:00.000Z');
+      expect(record?.timeline.lastReadAt).not.toBe('2026-10-01T00:00:00.000Z');
       expect(record?.updatedAt).toBe('2026-10-01T00:00:00.000Z');
       expect(record?.outcome).toBe('tor_analysed');
     });
@@ -1939,9 +2091,8 @@ describe('runIngestion: the timeline', () => {
       expect(calls).toEqual({ zip: [], download: 0, classify: 0, invitation: 0 });
       const record = await repository.get('66059313599');
       expect(record).toMatchObject({
-        status: 'awarded',
+        timeline: { status: 'awarded', stages: { awarded: '2026-10-10T00:00:00.000Z' } },
         outcome: 'tor_analysed',
-        milestones: { awarded: { at: '2026-10-10T00:00:00.000Z' } },
       });
       expect(record?.updatedAt).not.toBe('2026-10-01T00:00:00.000Z');
     });
@@ -1960,13 +2111,32 @@ describe('runIngestion: the timeline', () => {
       expect(calls).toEqual({ zip: ['66059313599'], download: 1, classify: 0, invitation: 1 });
       const record = await repository.get('66059313599');
       expect(record).toMatchObject({
-        deadlineAt: '2026-10-30T00:00:00.000Z',
-        deadlineSource: 'invitation',
+        timeline: {
+          deadlineAt: '2026-10-30T00:00:00.000Z',
+          stages: { invited: '2026-09-27T00:00:00.000Z' },
+        },
         outcome: 'tor_analysed',
-        milestones: { invited: { at: '2026-09-27T00:00:00.000Z' } },
       });
-      expect(record?.documents.map((d) => d.role)).toEqual(['invitation']);
+      expect(record?.archive?.documents.map((d) => d.role)).toEqual(['invitation']);
       expect(record?.analysis).toEqual({ ...analysis, deadlineAt: null });
+    });
+
+    test('a re-dated invitation on a project with no archive stored keeps it under the archive it came from', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(read({ outcome: 'no_tor_package', archive: null }));
+      const { deps: archive } = watch();
+
+      await refresh(
+        repository,
+        { '66059313599': [row('D0', '2026-09-27T02:00:00.000Z')] },
+        archive,
+      );
+
+      expect((await repository.get('66059313599'))?.archive).toEqual({
+        zipId: 'zip-1',
+        documents: [invitationDocument],
+        torAmbiguous: false,
+      });
     });
 
     test('a re-dated invitation that cannot be re-read keeps the old date, so the next Run tries again', async () => {
@@ -1981,15 +2151,15 @@ describe('runIngestion: the timeline', () => {
           throw new Error('model unavailable');
         },
       });
-      expect((await repository.get('66059313599'))?.milestones.invited).toEqual({
-        at: '2026-09-20T00:00:00.000Z',
-      });
+      expect((await repository.get('66059313599'))?.timeline.stages.invited).toBe(
+        '2026-09-20T00:00:00.000Z',
+      );
 
       await refresh(repository, redated, archive);
       expect(calls.invitation).toBe(1);
-      expect(await repository.get('66059313599')).toMatchObject({
+      expect((await repository.get('66059313599'))?.timeline).toMatchObject({
         deadlineAt: '2026-10-30T00:00:00.000Z',
-        milestones: { invited: { at: '2026-09-27T00:00:00.000Z' } },
+        stages: { invited: '2026-09-27T00:00:00.000Z' },
       });
     });
 
@@ -2021,7 +2191,7 @@ describe('runIngestion: the timeline', () => {
 
     test('a contracted project is never read again', async () => {
       const repository = new InMemoryProcurementStore();
-      await repository.upsert(read({ status: 'contracted' }));
+      await repository.upsert(read({ timeline: { ...read().timeline, status: 'contracted' } }));
       const announcements = fakeAnnouncements({}, READ_TIMELINE);
 
       await run(repository, { discoverProjects: noSweep, announcements });
@@ -2039,16 +2209,270 @@ describe('runIngestion: the timeline', () => {
     });
   });
 
+  describe('a refresh and the procurement detail (ADR-0021)', () => {
+    const ID = '66059313599';
+    const CLOSES = '2026-10-26T17:00:00.000Z';
+    const DRAFT_TIMELINE = [row('B0', '2026-10-20T02:00:00.000Z')];
+    const withoutDetail = (overrides: Partial<Procurement> = {}) =>
+      read({ detailReadAt: null, projectMoney: null, ...overrides });
+    const drafting = (overrides: Partial<Procurement> = {}) =>
+      read({
+        timeline: {
+          ...EMPTY_TIMELINE,
+          status: 'drafting',
+          stages: { ...EMPTY_STAGES, drafted: '2026-10-20T00:00:00.000Z' },
+          lastReadAt: '2026-10-21T00:00:00.000Z',
+        },
+        ...overrides,
+      });
+    const refreshWith = (
+      repository: InMemoryProcurementStore,
+      announcements: ReturnType<typeof fakeAnnouncements>,
+      extra: Partial<IngestionDeps> = {},
+    ) => run(repository, { discoverProjects: noSweep, announcements, ...extra });
+
+    test('an old record costs one extra request once, then never', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+
+      const first = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      await refreshWith(repository, first);
+
+      expect(first.procurementDetailCalls).toEqual([ID]);
+      expect(first.detailCalls).toEqual([]);
+      expect(first.calls).toEqual([ID]);
+      expect(await repository.get(ID)).toMatchObject({
+        outcome: 'tor_analysed',
+        detailReadAt: expect.any(String),
+        goodsId: SAMPLE_PROCUREMENT_DETAIL.goodsId,
+        projectMoney: SAMPLE_PROCUREMENT_DETAIL.projectMoney,
+        priceBuild: SAMPLE_PROCUREMENT_DETAIL.priceBuild,
+        budgetYear: 2568,
+      });
+
+      const second = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      await refreshWith(repository, second);
+
+      expect(second.procurementDetailCalls).toEqual([]);
+      expect(second.calls).toEqual([ID]);
+    });
+
+    test('an old record with no budget year has it read in the same turn', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail({ budgetYear: null }));
+      const announcements = fakeAnnouncements({ [ID]: READ_TIMELINE });
+
+      await refreshWith(repository, announcements);
+
+      expect(announcements.detailCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.budgetYear).toBe(SAMPLE_DETAIL.budgetYear);
+    });
+
+    test('an old record found out of scope stops after the detail, and is never refreshed again', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+      const outside = fakeAnnouncements(
+        { [ID]: READ_TIMELINE },
+        null,
+        {},
+        {
+          procurementDetails: { [ID]: { ...SAMPLE_PROCUREMENT_DETAIL, goodsId: '1008' } },
+        },
+      );
+      const { calls, deps: archive } = watch();
+
+      const result = await refreshWith(repository, outside, archive);
+
+      expect(outside.procurementDetailCalls).toEqual([ID]);
+      expect(outside.calls).toEqual([]);
+      expect(calls.zip).toEqual([]);
+      expect(result.outOfScope).toBe(1);
+      expect(await repository.get(ID)).toMatchObject({
+        state: 'Completed',
+        outcome: 'out_of_scope',
+        goodsId: '1008',
+        detailReadAt: expect.any(String),
+      });
+
+      const later = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      await refreshWith(repository, later);
+
+      expect(later.procurementDetailCalls).toEqual([]);
+      expect(later.calls).toEqual([]);
+    });
+
+    test('an out_of_scope record is never selected', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(read({ outcome: 'out_of_scope', analysis: null, archive: null }));
+      const announcements = fakeAnnouncements({ [ID]: READ_TIMELINE });
+
+      await refreshWith(repository, announcements);
+
+      expect(announcements.calls).toEqual([]);
+      expect(announcements.procurementDetailCalls).toEqual([]);
+    });
+
+    test('a drafting record re-reads the comment deadline; an open one does not', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(drafting());
+      const draftAnnouncements = fakeAnnouncements(
+        { [ID]: DRAFT_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+
+      await refreshWith(repository, draftAnnouncements);
+
+      expect(draftAnnouncements.procurementDetailCalls).toEqual([ID]);
+      expect(draftAnnouncements.commentsCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.timeline).toMatchObject({
+        status: 'drafting',
+        commentsCloseAt: CLOSES,
+      });
+
+      const openRepository = new InMemoryProcurementStore();
+      await openRepository.upsert(read());
+      const openAnnouncements = fakeAnnouncements(
+        { [ID]: READ_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+
+      await refreshWith(openRepository, openAnnouncements);
+
+      expect(openAnnouncements.procurementDetailCalls).toEqual([]);
+      expect(openAnnouncements.commentsCalls).toEqual([]);
+      expect((await openRepository.get(ID))?.timeline.commentsCloseAt).toBeNull();
+    });
+
+    test('an old drafting record reads its detail once and asks the comment deadline with it', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(drafting({ detailReadAt: null }));
+      const announcements = fakeAnnouncements(
+        { [ID]: DRAFT_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+
+      await refreshWith(repository, announcements);
+
+      expect(announcements.procurementDetailCalls).toEqual([ID]);
+      expect(announcements.commentsCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.timeline.commentsCloseAt).toBe(CLOSES);
+    });
+
+    test('a draft whose detail was read without its feed type gets its comment deadline at the first refresh', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(procurement({ projectId: ID, budgetYear: null, detailReadAt: null }));
+
+      const admitted = fakeAnnouncements(
+        { [ID]: DRAFT_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+      await refreshWith(repository, admitted);
+
+      expect(admitted.commentsCalls).toEqual([]);
+      expect(await repository.get(ID)).toMatchObject({
+        outcome: 'tor_analysed',
+        timeline: { status: 'drafting', commentsCloseAt: null },
+      });
+
+      const refreshed = fakeAnnouncements(
+        { [ID]: DRAFT_TIMELINE },
+        null,
+        {},
+        {
+          commentsClose: { [ID]: CLOSES },
+        },
+      );
+      await refreshWith(repository, refreshed);
+
+      expect(refreshed.commentsCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.timeline.commentsCloseAt).toBe(CLOSES);
+    });
+
+    test('a failed detail on a refresh is logged, leaves the record as it was, and is asked again', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+      const failing = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      failing.procurementDetail = async () => {
+        throw new UpstreamError('HTTP 500');
+      };
+
+      const result = await refreshWith(repository, failing);
+
+      expect(result.failures).toEqual([
+        expect.objectContaining({ projectId: ID, stage: 'discovery', error: 'HTTP 500' }),
+      ]);
+      expect(await repository.get(ID)).toMatchObject({
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        detailReadAt: null,
+      });
+
+      const answering = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      await refreshWith(repository, answering);
+
+      expect(answering.procurementDetailCalls).toEqual([ID]);
+      expect((await repository.get(ID))?.detailReadAt).toEqual(expect.any(String));
+    });
+
+    test('data: null on a refresh leaves the detail unread, and the timeline is still read', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+      const announcements = fakeAnnouncements(
+        { [ID]: READ_TIMELINE },
+        null,
+        {},
+        {
+          procurementDetails: { [ID]: null },
+        },
+      );
+
+      await refreshWith(repository, announcements);
+
+      expect(announcements.calls).toEqual([ID]);
+      expect(await repository.get(ID)).toMatchObject({
+        outcome: 'tor_analysed',
+        detailReadAt: null,
+      });
+    });
+
+    test('a refusal on a refresh detail stops the Run', async () => {
+      const repository = new InMemoryProcurementStore();
+      await repository.upsert(withoutDetail());
+      const refusing = fakeAnnouncements({ [ID]: READ_TIMELINE });
+      refusing.procurementDetail = async () => {
+        throw new RateLimitedError('https://site.test/x', 429);
+      };
+
+      const result = await refreshWith(repository, refusing);
+
+      expect(result.aborted).toBe(true);
+      expect(refusing.calls).toEqual([]);
+      expect((await repository.get(ID))?.detailReadAt).toBeNull();
+    });
+  });
+
   describe('the order of work', () => {
     test('new projects come first, then the read ones with the oldest check first', async () => {
       const repository = new InMemoryProcurementStore();
-      await repository.upsert(
-        read({ projectId: 'stale', timelineCheckedAt: '2026-09-01T00:00:00.000Z' }),
-      );
-      await repository.upsert(
-        read({ projectId: 'fresh', timelineCheckedAt: '2026-10-02T00:00:00.000Z' }),
-      );
-      await repository.upsert(read({ projectId: 'never', timelineCheckedAt: null }));
+      await repository.upsert(lastRead('stale', '2026-09-01T00:00:00.000Z'));
+      await repository.upsert(lastRead('fresh', '2026-10-02T00:00:00.000Z'));
+      await repository.upsert(lastRead('never', null));
       // Queued before the Run, as Discovery would have left it.
       await repository.upsert(procurement());
       const announcements = fakeAnnouncements({}, []);
@@ -2071,12 +2495,8 @@ describe('runIngestion: the timeline', () => {
 
     test('a refusal on the timeline stops the run, leaving what was not reached to lead the next', async () => {
       const repository = new InMemoryProcurementStore();
-      await repository.upsert(
-        read({ projectId: 'a', timelineCheckedAt: '2026-09-01T00:00:00.000Z' }),
-      );
-      await repository.upsert(
-        read({ projectId: 'b', timelineCheckedAt: '2026-09-02T00:00:00.000Z' }),
-      );
+      await repository.upsert(lastRead('a', '2026-09-01T00:00:00.000Z'));
+      await repository.upsert(lastRead('b', '2026-09-02T00:00:00.000Z'));
       const announcements = fakeAnnouncements({}, []);
       announcements.timeline = async (id) => {
         announcements.calls.push(id);
@@ -2091,9 +2511,9 @@ describe('runIngestion: the timeline', () => {
       expect(await repository.get('a')).toMatchObject({
         outcome: 'tor_analysed',
         attempts: 0,
-        timelineCheckedAt: '2026-09-01T00:00:00.000Z',
+        timeline: { lastReadAt: '2026-09-01T00:00:00.000Z' },
       });
-      expect((await repository.get('b'))?.timelineCheckedAt).toBe('2026-09-02T00:00:00.000Z');
+      expect((await repository.get('b'))?.timeline.lastReadAt).toBe('2026-09-02T00:00:00.000Z');
     });
 
     test('a refusal while a new project is being read puts it back untouched', async () => {
@@ -2140,6 +2560,7 @@ describe('progress reported while a run works', () => {
           notEBidding: 0,
           tombstoned: 0,
           truncated: 0,
+          drafts: [],
           failures: [],
           rateLimited: false,
           unreachable: false,
@@ -2226,6 +2647,7 @@ describe('runIngestion: the timing log', () => {
     expect(timing.requests).toEqual({
       newDays: 4,
       historyDays: 2,
+      detailTurns: 0,
       retrievalTurns: 1,
       refreshTurns: 0,
     });
@@ -2440,10 +2862,13 @@ describe('a Run that streams Discovery, Retrieval and Analysis (ADR-0020)', () =
         projectId: 'read',
         state: 'Completed',
         outcome: 'tor_analysed',
-        milestones: { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } },
-        timelineCheckedAt: '2026-10-01T00:00:00.000Z',
-        deadlineAt: '2026-10-25T00:00:00.000Z',
-        deadlineSource: 'invitation',
+        timeline: {
+          ...EMPTY_TIMELINE,
+          status: 'open',
+          stages: { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' },
+          lastReadAt: '2026-10-01T00:00:00.000Z',
+          deadlineAt: '2026-10-25T00:00:00.000Z',
+        },
       }),
     );
     const log: string[] = [];
@@ -2499,9 +2924,9 @@ describe('a Run that streams Discovery, Retrieval and Analysis (ADR-0020)', () =
       'invitation read',
     ]);
     expect(result.refreshed).toBe(1);
-    expect(await repository.get('read')).toMatchObject({
+    expect((await repository.get('read'))?.timeline).toMatchObject({
       deadlineAt: '2026-10-30T00:00:00.000Z',
-      milestones: { invited: { at: '2026-09-27T00:00:00.000Z' } },
+      stages: { invited: '2026-09-27T00:00:00.000Z' },
     });
     expect((await repository.get('new'))?.outcome).toBe('tor_analysed');
   });
@@ -2557,6 +2982,7 @@ describe('a site that stops answering, counted across the whole Run', () => {
     notEBidding: 0,
     tombstoned: 0,
     truncated: 0,
+    drafts: [],
     failures: [],
     rateLimited: false,
     unreachable: false,
@@ -2609,7 +3035,7 @@ describe('a site that stops answering, counted across the whole Run', () => {
             if (step === 'retrieval') {
               if (!handed) {
                 handed = true;
-                await context.save({ records: found, failures: [], cursor: {} });
+                await context.save({ records: found, drafts: [], failures: [], cursor: {} });
               }
               await waiting;
               waiting = turnDone();
@@ -2714,8 +3140,12 @@ describe('a full room, a hanging site, and a deadline that fires mid-write', () 
         projectId: 'r',
         state: 'Completed',
         outcome: 'tor_analysed',
-        milestones: { ...EMPTY_MILESTONES, invited: { at: '2026-09-20T00:00:00.000Z' } },
-        timelineCheckedAt: '2026-10-01T00:00:00.000Z',
+        timeline: {
+          ...EMPTY_TIMELINE,
+          status: 'open',
+          stages: { ...EMPTY_STAGES, invited: '2026-09-20T00:00:00.000Z' },
+          lastReadAt: '2026-10-01T00:00:00.000Z',
+        },
       }),
     );
     const log: string[] = [];
@@ -2817,5 +3247,65 @@ describe('a full room, a hanging site, and a deadline that fires mid-write', () 
 
     expect(await repository.get('66059313551')).toMatchObject({ outcome: 'error', attempts: 1 });
     expect(result).toMatchObject({ failed: 1, torAnalysed: 0, held: 0, dropped: 0 });
+  });
+});
+
+describe('a site that sends a web page in place of data', () => {
+  test('stops the Run at the first: one failure, no attempt spent, nothing more asked', async () => {
+    const repository = new InMemoryProcurementStore();
+    const log: string[] = [];
+    const announcements = fakeAnnouncements({}, []);
+    announcements.timeline = async (projectId) => {
+      log.push(`timeline ${projectId}`);
+      throw new SiteUnavailableError('แจ้งปิดระบบ e-GP ชั่วคราว');
+    };
+
+    const result = await runIngestion(
+      repository,
+      { logger },
+      deps({
+        announcements,
+        discoverProjects: async (context) => {
+          await context.save({
+            records: [
+              procurement({ projectId: 'q1', announceDate: '2026-08-02' }),
+              procurement({ projectId: 'q2', announceDate: '2026-08-01' }),
+            ],
+            drafts: [],
+            failures: [],
+            cursor: {},
+          });
+          for (let day = 0; day < 3; day++) {
+            try {
+              await context.site('history', async () => log.push(`feed ${day}`));
+            } catch (error) {
+              log.push(`feed turned away: ${(error as Error).name}`);
+              break;
+            }
+          }
+          return {
+            records: [],
+            notEBidding: 0,
+            tombstoned: 0,
+            truncated: 0,
+            drafts: [],
+            failures: [],
+            rateLimited: false,
+            unreachable: true,
+            complete: false,
+            cursor: {},
+            ranAt: '2026-09-09T00:00:00.000Z',
+          };
+        },
+      }),
+    );
+
+    expect(log).toEqual(['feed 0', 'timeline q1', 'feed turned away: SiteClosedError']);
+    expect(result.discoveryStopped).toBe('unavailable');
+    expect(result.aborted).toBe(false);
+    expect(result.failures.map((failure) => failure.projectId)).toEqual(['q1']);
+    expect(result.failures[0]?.error).toContain('แจ้งปิดระบบ e-GP ชั่วคราว');
+    expect(await repository.get('q1')).toMatchObject({ outcome: 'queued', attempts: 0 });
+    expect(await repository.get('q2')).toMatchObject({ outcome: 'queued', attempts: 0 });
   });
 });

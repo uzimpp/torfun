@@ -91,6 +91,7 @@ function countsOf(result: RunResult): RunCounts {
     newRecords: result.newRecords,
     changedRecords: result.changedRecords,
     unchangedRecords: result.unchangedRecords,
+    outOfScope: result.outOfScope,
     discoveryStopped: result.discoveryStopped,
     attempted: result.attempted,
     refreshed: result.refreshed,

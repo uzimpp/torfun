@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 
 import { ApiError, SessionEndedError } from '@/lib/api';
 import { ProjectActionDialog, type ProjectAction } from './project-action-dialog';
@@ -17,6 +17,7 @@ vi.mock('@/lib/api-procurement-actions', () => ({
   approveProcurement: vi.fn(),
   markNonSoftware: vi.fn(),
   deleteProcurement: vi.fn(),
+  readAnyway: vi.fn(),
 }));
 const actions = vi.mocked(await import('@/lib/api-procurement-actions'));
 
@@ -30,30 +31,21 @@ function record(overrides: Partial<Procurement> = {}): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
-    status: 'unknown',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-01T00:00:00.000Z',
-    sourceHash: null,
+    timeline: EMPTY_TIMELINE,
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-01T00:00:00.000Z',
     ...overrides,
   };
@@ -104,6 +96,51 @@ describe('the action menu', () => {
     renderMenu(held());
     await openMenu();
     expect(await screen.findByRole('menuitem', { name: 'อนุมัติ' })).toBeInTheDocument();
+  });
+
+  test.each([record(), held()])(
+    'offers to read the documents anyway only on an out-of-scope record ($outcome has none)',
+    async (project) => {
+      renderMenu(project);
+      await openMenu();
+      await screen.findByRole('menuitem', { name: 'ลบ' });
+      expect(screen.queryByRole('menuitem', { name: 'อ่านเอกสารต่อ' })).not.toBeInTheDocument();
+    },
+  );
+});
+
+describe('reading an out-of-scope project anyway', () => {
+  const outOfScope = () => record({ outcome: 'out_of_scope', goodsId: '1008' });
+
+  test('is offered on an out-of-scope record, asks first, then asks for the read', async () => {
+    actions.readAnyway.mockResolvedValue(undefined);
+    const { onChanged } = renderMenu(outOfScope());
+    await openMenu();
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'อ่านเอกสารต่อ' }));
+    const dialog = await screen.findByRole('dialog', { name: /อ่านเอกสาร/ });
+    expect(actions.readAnyway).not.toHaveBeenCalled();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'อ่านเอกสารต่อ' }));
+
+    expect(actions.readAnyway).toHaveBeenCalledWith('67109288963');
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  });
+
+  test('a refusal stays in the dialog as an alert', async () => {
+    actions.readAnyway.mockRejectedValue(
+      new ApiError('มีการดึงข้อมูลกำลังทำงานอยู่ กรุณารอให้เสร็จก่อนแล้วลองอีกครั้ง', 409),
+    );
+    const { onChanged } = renderMenu(outOfScope());
+    await openMenu();
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'อ่านเอกสารต่อ' }));
+    const dialog = await screen.findByRole('dialog');
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'อ่านเอกสารต่อ' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'มีการดึงข้อมูลกำลังทำงานอยู่',
+    );
+    expect(onChanged).not.toHaveBeenCalled();
   });
 });
 

@@ -1,17 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { Ban, Check, Trash2 } from 'lucide-react';
+import { Ban, Check, FileSearch, Trash2 } from 'lucide-react';
 import type { Procurement } from '@torfun/types';
 import {
   approveProcurement,
   deleteProcurement,
   markNonSoftware,
+  readAnyway,
 } from '@/lib/api-procurement-actions';
 import { ConfirmDialog } from './confirm-dialog';
 import { useAdminAction } from './use-admin-action';
 
-export type ProjectAction = 'approve' | 'nonSoftware' | 'delete';
+export type ProjectAction = 'approve' | 'readAnyway' | 'nonSoftware' | 'delete';
+
+export const REMOVES_RECORD: ReadonlySet<ProjectAction> = new Set(['nonSoftware', 'delete']);
 
 /** The two answers to "may the runner pull this project again?" */
 const REIMPORT_CHOICES = [
@@ -48,6 +51,15 @@ export function ProjectActionDialog({
       icon: Check,
       fallback: 'อนุมัติไม่สำเร็จ ลองอีกครั้ง',
       send: () => approveProcurement(projectId),
+    },
+    readAnyway: {
+      title: 'อ่านเอกสารของโครงการนี้ต่อ?',
+      description:
+        'โครงการนี้อยู่นอกขอบเขตตามหมวดพัสดุ ระบบจะเริ่มรอบดึงข้อมูลสำหรับโครงการนี้โครงการเดียว ดาวน์โหลด TOR ให้ AI อ่าน และตัดสินว่าเป็นงานซอฟต์แวร์หรือไม่ตามปกติ',
+      confirmLabel: 'อ่านเอกสารต่อ',
+      icon: FileSearch,
+      fallback: 'สั่งอ่านเอกสารไม่สำเร็จ ลองอีกครั้ง',
+      send: () => readAnyway(projectId),
     },
     nonSoftware: {
       title: 'ระบุว่าไม่ใช่งานซอฟต์แวร์?',
@@ -86,7 +98,7 @@ export function ProjectActionDialog({
       }
       confirmLabel={copy.confirmLabel}
       confirmIcon={copy.icon}
-      destructive={action !== 'approve'}
+      destructive={REMOVES_RECORD.has(action)}
       action={request}
       onConfirm={() => void confirm()}
       onCancel={onClose}

@@ -58,9 +58,11 @@ export const RunCountsSchema = z.object({
   newRecords: z.number().int(),
   changedRecords: z.number().int(),
   unchangedRecords: z.number().int(),
+  /** Projects whose Goods Category Discovery found out of scope, so nothing more is read (ADR-0021). */
+  outOfScope: z.number().int(),
   /** Only on Runs logged before every Run swept (ADR-0020). */
   discoverySkipped: z.boolean().optional(),
-  discoveryStopped: z.enum(['rate_limited', 'unreachable']).nullable(),
+  discoveryStopped: z.enum(['rate_limited', 'unreachable', 'unavailable']).nullable(),
   attempted: z.number().int(),
   refreshed: z.number().int(),
   archivesRetrieved: z.number().int(),

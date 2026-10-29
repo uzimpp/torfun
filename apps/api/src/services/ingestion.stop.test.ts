@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { EMPTY_MILESTONES, type Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 import { ConflictError } from '../core/errors';
 import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
@@ -28,30 +28,21 @@ function queued(projectId: string): Procurement {
     budgetYear: 2568,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: null,
-    projectTypeName: null,
     purchaseMethodName: null,
     projectMoney: null,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
     state: 'Queued',
     outcome: 'queued',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: null,
-    documents: [],
     analysis: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
-    sourceHash: null,
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
   };
 }
@@ -85,6 +76,7 @@ async function build(options: { records?: number; heartbeatMs?: number } = {}) {
         notEBidding: 0,
         tombstoned: 0,
         truncated: 0,
+        drafts: [],
         failures: [],
         rateLimited: false,
         unreachable: false,
