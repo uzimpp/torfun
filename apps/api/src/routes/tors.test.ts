@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
+import { EMPTY_TIMELINE, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
@@ -10,33 +10,25 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     projectName: 'โครงการพัฒนาระบบสารสนเทศ',
     deptName: 'หน่วยงานรัฐ',
     deptSubName: null,
-    province: 'กรุงเทพมหานคร',
-    district: 'คลองเตย',
-    subdistrict: 'คลองเตย',
-    registryName: 'หน่วยงานรัฐ',
     deptCode: '1234567890',
-    year: 2569,
+    budgetYear: 2569,
+    typeId: null,
+    goodsId: null,
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: '1 ตุลาคม 2569',
-    projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'e-bidding',
     projectMoney: 4_500_000,
     priceBuild: null,
-    status: 'invitation',
-    matchedKeywords: ['ระบบสารสนเทศ'],
-    softwareClass: 'new_build',
-    softwareScore: 8,
-    eBidding: true,
     state: 'Completed',
     outcome: 'tor_analysed',
+    attempts: 0,
+    holdReason: null,
     statusHistory: [],
-    zipId: 'zip-1',
-    zipBytes: 100,
-    archiveMemberCount: 1,
-    documents: [],
     analysis: null,
-    winner: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-16T00:00:00.000Z',
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
+    approved: null,
+    archive: { zipId: 'zip-1', documents: [], torAmbiguous: false },
     updatedAt: '2026-09-16T00:00:00.000Z',
     ...overrides,
   };
@@ -92,7 +84,7 @@ describe('TOR detail routes', () => {
   test('lists and filters procurements for an authenticated officer', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/api/tors?limit=20&minBudget=500000&location=กรุงเทพมหานคร',
+      url: '/api/tors?limit=20&minBudget=500000',
       cookies: session(),
     });
 
@@ -110,12 +102,10 @@ describe('TOR detail routes', () => {
     '/api/tors?publishedFrom=2026-02-30',
     '/api/tors?deadlineFrom=2026-10-02&deadlineTo=2026-10-01',
     '/api/tors?targetPlatforms=television',
-    '/api/tors?deadlineDays=-1',
-    '/api/tors?deadlineDays=3.5',
-    '/api/tors?deadlineDays=366',
-    '/api/tors?deadlineDays=3&deadlineFrom=2026-10-01',
-    '/api/tors?deadlineMode=exact',
-    '/api/tors?deadlineDays=3&deadlineMode=invalid',
+    '/api/tors?minDaysLeft=-1',
+    '/api/tors?minDaysLeft=3.5',
+    '/api/tors?minDaysLeft=366',
+    '/api/tors?minDaysLeft=3&deadlineFrom=2026-10-01',
   ])('rejects an invalid officer filter query: %s', async (url) => {
     const response = await app.inject({ method: 'GET', url, cookies: session() });
 
@@ -130,32 +120,6 @@ describe('TOR detail routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-  });
-
-  test('held records remain admin-only in listing, detail, and source routes', async () => {
-    await procurements.upsert(procurement({ projectId: 'held', outcome: 'needs_review' }));
-    const list = await app.inject({ method: 'GET', url: '/api/tors', cookies: session() });
-    expect(list.statusCode).toBe(200);
-    expect(list.json().items.map((item: Procurement) => item.projectId)).toEqual(['project-1']);
-
-    for (const url of ['/api/tors/held', '/api/tors/held/source']) {
-      const response = await app.inject({ method: 'GET', url, cookies: session() });
-      expect(response.statusCode).toBe(404);
-    }
-
-    const adminList = await app.inject({
-      method: 'GET',
-      url: '/api/tors',
-      cookies: session('admin'),
-    });
-    expect(adminList.json().total).toBe(2);
-    const detail = await app.inject({
-      method: 'GET',
-      url: '/api/tors/held',
-      cookies: session('admin'),
-    });
-    expect(detail.statusCode).toBe(200);
-    expect(detail.json().outcome).toBe('needs_review');
   });
 
   test('returns 404 for an unknown project', async () => {

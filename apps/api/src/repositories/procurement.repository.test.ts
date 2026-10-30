@@ -1,17 +1,18 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import {
-  ACCESS_COOKIE,
-  ProcurementSchema,
-  type ArchiveDocument,
-  type Procurement,
-  type ProcurementStatus,
-  type TorAnalysis,
+import { EMPTY_STAGES, EMPTY_TIMELINE, OUTCOME_STATE } from '@torfun/types';
+import type {
+  ArchiveDocument,
+  IngestionFailure,
+  Procurement,
+  ProcurementStatus,
+  StatusChange,
+  Timeline,
+  TorAnalysis,
+  Tombstone,
 } from '@torfun/types';
-import { buildApp } from '../app';
-import { testEnv } from '../testing/env';
 import { TorService } from '../services/tor.service';
-import { ProcurementRepository } from './procurement.repository';
+import { ProcurementRepository, type FindOptions } from './procurement.repository';
 
 /**
  * Runs against a real MongoDB, because what these tests are for is the query
@@ -39,39 +40,37 @@ afterAll(async () => {
   await client?.close();
 });
 
+const timeline = (overrides: Partial<Timeline> = {}): Timeline => ({
+  ...EMPTY_TIMELINE,
+  status: 'open',
+  ...overrides,
+});
+
 function procurement(overrides: Partial<Procurement> = {}): Procurement {
   return {
     projectId: '66059313551',
     projectName: 'จ้างพัฒนาระบบสารสนเทศ',
     deptName: 'กรุงเทพมหานคร',
     deptSubName: null,
-    province: 'กรุงเทพมหานคร',
-    district: 'คลองเตย',
-    subdistrict: 'คลองเตย',
-    registryName: 'กรุงเทพมหานคร',
     deptCode: '0100',
-    year: 2568,
+    budgetYear: 2568,
+    typeId: null,
+    goodsId: null,
+    detailReadAt: '2026-09-01T00:00:00.000Z',
     announceDate: '2026-08-01',
-    projectTypeName: 'จ้างทำของ',
     purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
     projectMoney: 1_000_000,
     priceBuild: null,
-    status: 'invitation',
-    matchedKeywords: ['จ้างพัฒนา'],
-    softwareClass: 'new_build',
-    softwareScore: 5,
-    eBidding: true,
     state: 'Queued',
     outcome: 'queued',
+    attempts: 0,
+    holdReason: null,
     statusHistory: [],
-    zipId: null,
-    zipBytes: null,
-    archiveMemberCount: null,
-    documents: [],
     analysis: null,
-    winner: null,
-    torAmbiguous: false,
     discoveredAt: '2026-09-09T00:00:00.000Z',
+    timeline: timeline(),
+    approved: null,
+    archive: null,
     updatedAt: '2026-09-09T00:00:00.000Z',
     ...overrides,
   };
@@ -96,8 +95,6 @@ const analysis = (overrides: Partial<TorAnalysis> = {}): TorAnalysis => ({
   techStack: ['React', 'PostgreSQL'],
   targetPlatforms: ['web_app'],
   requiredQualifications: [],
-  isSoftwareProject: true,
-  confidence: 'high',
   ...overrides,
 });
 
@@ -110,7 +107,7 @@ describeMongo('ProcurementRepository', () => {
     repository = new ProcurementRepository(getDb);
     const database = await getDb();
     await Promise.all(
-      ['procurements', 'ingestion_failures', 'ingestion_meta'].map((name) =>
+      ['procurements', 'ingestion_failures', 'ingestion_meta', 'tombstones'].map((name) =>
         database.collection(name).deleteMany({}),
       ),
     );
@@ -125,171 +122,206 @@ describeMongo('ProcurementRepository', () => {
       (r) => r.projectId,
     );
 
-  // A fixture in this suite's disposable database, never in the ingestion DB.
-  // Represents the alternate Atlas schema without copying project evidence.
-  const seedAlternate = async () => {
-    const database = await getDb();
-    await database.collection<{ _id: string } & Record<string, unknown>>('procurements').insertOne({
-      _id: 'alternate',
-      project_name: 'โครงการทดสอบ',
-      dept_name: 'หน่วยงานทดสอบ',
-      dept_sub_name: null,
-      dept_code: '0100',
-      budget_year: 2568,
-      announce_date: null,
-      project_type_name: null,
-      purchase_method_name: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
-      project_money: 1_000_000,
-      price_build: null,
-      status: 'awarded',
-      state: 'Completed',
-      outcome: 'needs_review',
-      hold_reason: 'partial_read',
-      status_history: [{ state: 'Processing', outcome: 'analysing', at: '2026-09-09T00:00:00Z' }],
-      zip_id: 'source-archive',
-      documents: [
-        {
-          member: 'invitation.pdf',
-          filename: 'invitation.pdf',
-          bytes: 200,
-          namePattern: 'unlabelled',
-          role: 'invitation',
-          note: 'ประกาศเชิญชวน',
-          readMode: 'first_pages',
-          readNote: 'อ่านเพียงหน้าแรก',
-        },
-      ],
-      analysis: {
-        summary: 'ผลอ่านทดสอบ',
-        scopeOfWork: [],
-        budgetThb: null,
-        deadlineAt: null,
-        durationDays: null,
-        techStack: [],
-        targetPlatforms: [],
-        requiredQualifications: [],
-        reason: 'อ่านไม่ครบ',
-        promptVersion: 'fixture-v1',
+  describe('tombstones', () => {
+    const dropped: Tombstone = {
+      projectId: '66059313551',
+      reason: 'ai_not_software',
+      evidence: 'จัดซื้อเครื่องคอมพิวเตอร์',
+      promptVersion: '2026-10-01.1',
+      decidedAt: '2026-10-02T00:00:00.000Z',
+      decidedBy: null,
+      feed: {
+        projectName: 'จัดซื้อเครื่องคอมพิวเตอร์',
+        deptName: 'กรมศุลกากร',
+        deptCode: '0305',
+        announceDate: '2026-09-30T00:00:00.000Z',
+        purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
       },
-      winner: null,
-      tor_ambiguous: false,
-      discovered_at: '2026-09-09T00:00:00Z',
-      updated_at: '2026-09-09T00:00:00Z',
-      source_hash: 'source-fingerprint',
-      milestones: { bidding: '2026-09-10' },
-    });
-  };
-
-  test('reads both stored schemas without inventing heuristics or AI confidence', async () => {
-    await seed([procurement()]);
-    await seedAlternate();
-    const alternate = await repository.get('alternate');
-    expect(ProcurementSchema.safeParse(alternate).success).toBe(true);
-    expect(alternate).toMatchObject({
-      year: 2568,
-      registryName: null,
-      softwareClass: null,
-      softwareScore: null,
-      matchedKeywords: [],
-      eBidding: true,
-      status: 'award_announced',
-      outcome: 'needs_review',
-      holdReason: 'partial_read',
-      zipId: 'source-archive',
-      zipBytes: null,
-      archiveMemberCount: null,
-      analysis: { isSoftwareProject: null, confidence: null, reason: 'อ่านไม่ครบ' },
-      documents: [{ role: 'invitation', namePattern: 'unlabelled', readMode: 'first_pages' }],
-    });
-    const current = await repository.get('66059313551');
-    expect(current).toMatchObject({ registryName: 'กรุงเทพมหานคร', softwareClass: 'new_build' });
-    const filtered = await repository.find({ limit: 20, offset: 0, year: 2568, eBidding: true });
-    expect(filtered.total).toBe(2);
-    expect((await repository.find({ limit: 20, offset: 0, status: 'award_announced' })).total).toBe(
-      1,
-    );
-  });
-
-  test('mixed-schema data serializes through all three previously failing routes', async () => {
-    await seed([procurement()]);
-    await seedAlternate();
-    await repository.recordFailures([
-      {
-        projectId: 'alternate',
-        projectName: null,
-        stage: 'timeline',
-        error: 'unavailable',
-        at: '2026-09-09T00:00:00Z',
-      },
-    ]);
-    const app = await buildApp(testEnv({ LOG_LEVEL: 'fatal' }), { procurements: repository });
-    const cookies = {
-      [ACCESS_COOKIE]: app.jwt.sign({ user_id: 'tester', username: 'tester', role: 'admin' }),
     };
-    try {
-      for (const url of ['/api/ingestion/summary', '/api/ingestion/failures', '/api/tors']) {
-        const response = await app.inject({ method: 'GET', url, cookies });
-        expect(response.statusCode).toBe(200);
-      }
-      const response = await app.inject({ method: 'GET', url: '/api/ingestion/summary', cookies });
-      expect(response.json()).toMatchObject({
-        total: 2,
-        byOutcome: { queued: 1, needs_review: 1 },
-        byYear: [{ year: 2568, count: 2 }],
+
+    test('a tombstone replaces the record, and reads back as written', async () => {
+      await seed([procurement()]);
+
+      await repository.tombstone(dropped);
+
+      expect(await repository.get('66059313551')).toBeUndefined();
+      expect(await repository.listTombstones()).toEqual([dropped]);
+    });
+
+    test("an administrator's tombstone keeps who decided, and has no prompt version", async () => {
+      const byAdmin: Tombstone = {
+        ...dropped,
+        reason: 'admin_deleted',
+        promptVersion: null,
+        decidedBy: 'admin',
+        feed: null,
+      };
+
+      await repository.tombstone(byAdmin);
+
+      expect(await repository.listTombstones()).toEqual([byAdmin]);
+    });
+
+    test('one is found by its project, with the feed snapshot it kept', async () => {
+      await repository.tombstone(dropped);
+
+      expect(await repository.getTombstone('66059313551')).toEqual(dropped);
+      expect(await repository.getTombstone('66059313552')).toBeUndefined();
+    });
+
+    test('one written before the feed snapshot was kept reads back with none', async () => {
+      const { feed: _feed, ...old } = dropped;
+      await (await getDb()).collection('tombstones').insertOne({
+        _id: old.projectId as never,
+        reason: old.reason,
+        evidence: old.evidence,
+        prompt_version: old.promptVersion,
+        decided_at: old.decidedAt,
+        decided_by: old.decidedBy,
       });
-    } finally {
-      await app.close();
-    }
+
+      expect(await repository.getTombstone('66059313551')).toEqual({ ...old, feed: null });
+    });
+
+    test('says which of a set of projects were dropped, and none for an empty set', async () => {
+      await repository.tombstone(dropped);
+
+      expect(await repository.tombstonedIds(['66059313551', '66059313552'])).toEqual(
+        new Set(['66059313551']),
+      );
+      expect(await repository.tombstonedIds([])).toEqual(new Set());
+    });
+
+    test('removing a record leaves no tombstone behind, and says whether there was one to remove', async () => {
+      await seed([procurement()]);
+
+      expect(await repository.remove('66059313551')).toBe(true);
+      expect(await repository.remove('66059313551')).toBe(false);
+
+      expect(await repository.get('66059313551')).toBeUndefined();
+      expect(await repository.listTombstones()).toEqual([]);
+    });
+
+    test('removing a tombstone forgets it once, and says whether there was anything to forget', async () => {
+      await repository.tombstone(dropped);
+
+      expect(await repository.removeTombstone('66059313551')).toBe(true);
+      expect(await repository.removeTombstone('66059313551')).toBe(false);
+      expect(await repository.listTombstones()).toEqual([]);
+    });
   });
 
-  test('missing stored ranks do not put settled alternate records ahead of live tenders', async () => {
-    await seed([procurement({ projectId: 'current-open', status: 'invitation' })]);
-    await seedAlternate();
-    const records = (await getDb()).collection<{ _id: string } & Record<string, unknown>>(
-      'procurements',
+  test('paging through the queue visits every record once, in the same order as one big read', async () => {
+    // Equal rank, score and value, so only the id tiebreak keeps pages from overlapping.
+    await seed(Array.from({ length: 7 }, (_, index) => procurement({ projectId: `7000${index}` })));
+
+    const whole = (await repository.find({ state: 'Queued', limit: 50, offset: 0 })).items.map(
+      (r) => r.projectId,
     );
-    const alternate = await records.findOne({ _id: 'alternate' });
-    if (!alternate) throw new Error('alternate fixture is missing');
-    await records.insertOne({
-      ...alternate,
-      _id: 'alternate-open',
-      status: 'open',
-      project_money: 2_000_000,
-    });
-    const page = await repository.find({ limit: 2, offset: 0 });
-    expect(page.items.map((item) => item.projectId)).toEqual(['current-open', 'alternate-open']);
-    expect(page.total).toBe(3);
-    const next = await repository.find({ limit: 2, offset: 2 });
-    expect(next.items.map((item) => item.projectId)).toEqual(['alternate']);
+    const paged: string[] = [];
+    for (let offset = 0; offset < 8; offset += 3) {
+      const page = await repository.find({ state: 'Queued', limit: 3, offset });
+      paged.push(...page.items.map((r) => r.projectId));
+    }
+
+    expect(paged).toEqual(whole);
+    expect(new Set(paged).size).toBe(7);
   });
 
-  test('rediscovery and transitions retain evidence belonging to the alternate pipeline', async () => {
-    await seedAlternate();
-    await repository.upsert(procurement({ projectId: 'alternate' }));
-    await repository.transition('alternate', 'Completed', 'needs_review');
-    const stored = await (
-      await getDb()
-    )
-      .collection<{ _id: string }>('procurements')
-      .findOne({ _id: 'alternate' });
-    expect(stored).toMatchObject({
-      budget_year: 2568,
-      hold_reason: 'partial_read',
-      source_hash: 'source-fingerprint',
-      milestones: { bidding: '2026-09-10' },
-      analysis: { reason: 'อ่านไม่ครบ', promptVersion: 'fixture-v1' },
-      documents: [{ member: 'invitation.pdf', role: 'invitation', readMode: 'first_pages' }],
+  test('who approved a held record, and when, survives the round trip', async () => {
+    const approved = procurement({
+      projectId: 'approved',
+      outcome: 'tor_analysed',
+      approved: { by: 'admin', at: '2026-10-03T00:00:00.000Z' },
     });
+    await repository.upsert(approved);
+    await repository.upsert(procurement({ projectId: 'plain' }));
+
+    expect((await repository.get('approved'))?.approved).toEqual({
+      by: 'admin',
+      at: '2026-10-03T00:00:00.000Z',
+    });
+    expect((await repository.get('plain'))?.approved).toBeNull();
   });
 
   test('a record survives a round trip through Mongo unchanged', async () => {
     const record = procurement({
-      documents: [doc()],
+      archive: { zipId: 'zip-1', documents: [doc()], torAmbiguous: true },
       analysis: analysis({ techStack: ['React'] }),
+      timeline: timeline({
+        lastReadAt: '2026-10-01T00:00:00.000Z',
+        commentsCloseAt: '2026-09-26T17:00:00.000Z',
+        deadlineAt: '2026-10-20T09:30:00.000Z',
+        stages: { ...EMPTY_STAGES, drafted: '2026-09-20T00:00:00.000Z' },
+      }),
     });
     await repository.upsert(record);
 
     expect(await repository.get('66059313551')).toEqual(record);
+  });
+
+  test('a record whose detail is not read yet round-trips with no year', async () => {
+    const record = procurement({ budgetYear: null, detailReadAt: null });
+    await repository.upsert(record);
+
+    expect(await repository.get('66059313551')).toEqual(record);
+  });
+
+  test('the fingerprint and the deadline searched on stay in the document, out of the domain', async () => {
+    await repository.upsert(procurement({ timeline: timeline({ deadlineAt: '2026-10-20' }) }));
+    const document = await (
+      await getDb()
+    )
+      .collection('procurements')
+      .findOne({ _id: '66059313551' as never });
+
+    expect(document?.source_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(document?.deadline_at).toBe('2026-10-20');
+    expect(await repository.get('66059313551')).not.toHaveProperty('sourceHash');
+  });
+
+  test.each([
+    ['a draft, by its comment deadline', 'drafting', '2026-10-01', '2026-10-01'],
+    ['an open tender, by its official deadline', 'open', '2026-10-01', '2026-10-20'],
+  ] as const)(
+    'searches by the deadline an officer is shown: %s',
+    async (_name, status, commentsCloseAt, expected) => {
+      await repository.upsert(
+        procurement({
+          timeline: timeline({ status, commentsCloseAt, deadlineAt: '2026-10-20' }),
+          analysis: analysis({ deadlineAt: '2026-10-25' }),
+        }),
+      );
+      const on = (day: string) =>
+        repository.find({ limit: 10, offset: 0, deadlineFrom: day, deadlineTo: day });
+
+      expect((await on(expected)).total).toBe(1);
+    },
+  );
+
+  test('searches by the TOR’s deadline when nothing official states one, and keeps it out of the timeline', async () => {
+    await repository.upsert(
+      procurement({ timeline: timeline(), analysis: analysis({ deadlineAt: '2026-10-25' }) }),
+    );
+
+    const found = await repository.find({
+      limit: 10,
+      offset: 0,
+      deadlineFrom: '2026-10-25',
+      deadlineTo: '2026-10-25',
+    });
+    expect(found.total).toBe(1);
+    expect(found.items[0]?.timeline.deadlineAt).toBeNull();
+  });
+
+  test('a record with no year never matches a year filter', async () => {
+    await seed([
+      procurement({ projectId: 'a', budgetYear: 2569 }),
+      procurement({ projectId: 'b', budgetYear: null, detailReadAt: null }),
+    ]);
+
+    const found = await repository.find({ limit: 50, offset: 0, budgetYear: 2569 });
+    expect(found.items.map((record) => record.projectId)).toEqual(['a']);
   });
 
   test('nothing above the repository ever sees a snake_case field or _id', async () => {
@@ -298,7 +330,6 @@ describeMongo('ProcurementRepository', () => {
 
     expect(found).not.toHaveProperty('_id');
     expect(found).not.toHaveProperty('project_name');
-    expect(found).not.toHaveProperty('biddability_rank');
     expect(found?.projectId).toBe('66059313551');
   });
 
@@ -309,83 +340,158 @@ describeMongo('ProcurementRepository', () => {
     // — so this failing to hold is a 500 on every list of procurements that
     // includes the affected record, not just a shape mismatch in a test.
     await repository.upsert(procurement());
-    const updated = await repository.transition('66059313551', 'Processing', 'processing');
+    const updated = await repository.transition('66059313551', 'downloading');
 
     const last = updated?.statusHistory.at(-1);
     expect(last).not.toHaveProperty('detail');
   });
 
-  test('rediscovering a project does not reset a finished retrieval', async () => {
-    await repository.upsert(procurement({ matchedKeywords: ['จ้างพัฒนา'] }));
-    await repository.transition('66059313551', 'Completed', 'tor_analysed', {
-      documents: [doc()],
+  test('a transition derives State from Outcome, so the two cannot disagree', async () => {
+    await repository.upsert(procurement());
+    const expected = {
+      downloading: 'Processing',
+      analysing: 'Processing',
+      error: 'Queued',
+      needs_review: 'Completed',
+      no_tor_package: 'Failed',
+      abandoned: 'Failed',
+    } as const;
+
+    for (const [outcome, state] of Object.entries(expected)) {
+      const updated = await repository.transition('66059313551', outcome as keyof typeof expected);
+      expect(updated?.state).toBe(state);
+      expect(updated?.statusHistory.at(-1)).toMatchObject({ state, outcome });
+    }
+  });
+
+  test('attemptsBelow leaves exhausted records out of the query, and counts a missing field as zero', async () => {
+    await seed([
+      procurement({ projectId: 'fresh', attempts: 0 }),
+      procurement({ projectId: 'retrying', attempts: 2 }),
+      procurement({ projectId: 'exhausted', attempts: 3 }),
+      procurement({ projectId: 'legacy', attempts: 0 }),
+    ]);
+    // A record written before attempts were counted has no such field at all.
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne({ _id: 'legacy' as never }, { $unset: { attempts: '' } });
+
+    const { items, total } = await repository.find({
+      state: 'Queued',
+      attemptsBelow: 3,
+      limit: 50,
+      offset: 0,
     });
 
-    await repository.upsert(procurement({ state: 'Queued', matchedKeywords: ['ซอฟต์แวร์'] }));
+    expect(items.map((r) => r.projectId).sort()).toEqual(['fresh', 'legacy', 'retrying']);
+    expect(total).toBe(3);
+  });
+
+  test('detailRead splits the queue by whether the procurement detail was read, a missing field counting as never', async () => {
+    await seed([
+      procurement({ projectId: 'read', detailReadAt: '2026-10-22T00:00:00.000Z' }),
+      procurement({ projectId: 'unread', detailReadAt: null }),
+      procurement({ projectId: 'legacy', detailReadAt: null }),
+    ]);
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne({ _id: 'legacy' as never }, { $unset: { detail_read_at: '' } });
+
+    const ids = async (detailRead: boolean) =>
+      (await repository.find({ state: 'Queued', detailRead, limit: 50, offset: 0 })).items
+        .map((r) => r.projectId)
+        .sort();
+
+    expect(await ids(true)).toEqual(['read']);
+    expect(await ids(false)).toEqual(['legacy', 'unread']);
+  });
+
+  test('requeueStale returns records stuck in Processing to the queue, and only those', async () => {
+    const processing = (projectId: string, at: string) =>
+      procurement({
+        projectId,
+        state: 'Processing',
+        outcome: 'downloading',
+        statusHistory: [{ state: 'Processing', outcome: 'downloading', at }],
+      });
+    await seed([
+      processing('stale', '2026-09-01T00:00:00.000Z'),
+      processing('fresh', '2026-09-30T12:00:00.000Z'),
+      procurement({ projectId: 'queued' }),
+      procurement({
+        projectId: 'done',
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        statusHistory: [
+          { state: 'Completed', outcome: 'tor_analysed', at: '2026-09-01T00:00:00.000Z' },
+        ],
+      }),
+    ]);
+
+    const count = await repository.requeueStale('2026-09-30T00:00:00.000Z');
+
+    expect(count).toBe(1);
+    const stale = await repository.get('stale');
+    expect(stale?.state).toBe('Queued');
+    expect(stale?.outcome).toBe('queued');
+    expect(stale?.attempts).toBe(0);
+    expect(stale?.statusHistory.at(-1)?.detail).toMatch(/stuck/i);
+    expect((await repository.get('fresh'))?.state).toBe('Processing');
+    expect((await repository.get('done'))?.state).toBe('Completed');
+  });
+
+  test('rediscovering a project does not reset a finished retrieval', async () => {
+    await repository.upsert(procurement());
+    await repository.transition('66059313551', 'tor_analysed', {
+      archive: { zipId: 'zip-1', documents: [doc()], torAmbiguous: false },
+    });
+
+    await repository.upsert(procurement({ state: 'Queued' }));
 
     const record = await repository.get('66059313551');
     expect(record?.state).toBe('Completed');
-    expect(record?.documents).toHaveLength(1);
-    expect(record?.matchedKeywords.sort()).toEqual(['จ้างพัฒนา', 'ซอฟต์แวร์'].sort());
+    expect(record?.archive?.documents).toHaveLength(1);
   });
 
-  test('rediscovering a project refreshes what the agency published, and re-ranks it', async () => {
-    await seed([
-      procurement({ projectId: 'live', status: 'invitation', softwareScore: 1 }),
-      procurement({ projectId: 'moving', status: 'contracted', softwareScore: 9 }),
-    ]);
-    expect((await ids())[0]).toBe('live');
+  test('rediscovering a project refreshes what the feed published, and keeps the rest', async () => {
+    await repository.upsert(
+      procurement({ projectId: 'moving', timeline: timeline({ status: 'contracted' }) }),
+    );
 
     await repository.upsert(
       procurement({
         projectId: 'moving',
-        status: 'invitation',
-        softwareScore: 9,
+        timeline: EMPTY_TIMELINE,
         projectName: 'จ้างพัฒนาระบบสารสนเทศ (แก้ไข)',
-        projectMoney: 2_500_000,
+        projectMoney: null,
       }),
     );
 
     const record = await repository.get('moving');
-    expect(record?.status).toBe('invitation');
+    expect(record?.timeline.status).toBe('contracted');
     expect(record?.projectName).toBe('จ้างพัฒนาระบบสารสนเทศ (แก้ไข)');
-    expect(record?.projectMoney).toBe(2_500_000);
-    // The stored rank is derived on write, so a refreshed stage has to re-sort.
-    expect((await ids())[0]).toBe('moving');
+    expect(record?.projectMoney).toBe(1_000_000);
   });
 
-  test('a live tender outranks a settled contract, whatever its score', async () => {
+  test('the newest announcement comes first, and a tie is broken by project id', async () => {
     await seed([
-      procurement({ projectId: 'settled', status: 'contracted', softwareScore: 9 }),
-      procurement({ projectId: 'live', status: 'invitation', softwareScore: 1 }),
+      procurement({ projectId: 'b-old', announceDate: '2026-07-01' }),
+      procurement({ projectId: 'b-new', announceDate: '2026-08-15' }),
+      procurement({ projectId: 'a-new', announceDate: '2026-08-15' }),
+      procurement({ projectId: 'undated', announceDate: null }),
     ]);
 
-    expect((await ids())[0]).toBe('live');
-  });
-
-  test('within the same stage, software-likeness then value still decide', async () => {
-    await seed([
-      procurement({ projectId: 'low', softwareScore: 2, projectMoney: 9_000_000 }),
-      procurement({ projectId: 'high', softwareScore: 8, projectMoney: 1_000 }),
-      procurement({ projectId: 'tie', softwareScore: 8, projectMoney: 5_000_000 }),
-    ]);
-
-    expect(await ids()).toEqual(['tie', 'high', 'low']);
-  });
-
-  test('a cancelled project sinks below one whose stage is unknown', async () => {
-    await seed([
-      procurement({ projectId: 'cancelled', status: 'cancelled' }),
-      procurement({ projectId: 'unknown', status: 'unknown' }),
-    ]);
-
-    expect(await ids()).toEqual(['unknown', 'cancelled']);
+    expect(await ids()).toEqual(['a-new', 'b-new', 'b-old', 'undated']);
   });
 
   test('ordering is a priority, never a filter — nothing is hidden', async () => {
     await seed([
-      procurement({ projectId: 'a', status: 'contracted' }),
-      procurement({ projectId: 'b', status: 'cancelled' }),
+      procurement({ projectId: 'a', timeline: timeline({ status: 'contracted' }) }),
+      procurement({ projectId: 'b', timeline: timeline({ status: 'cancelled' }) }),
     ]);
 
     expect(await ids()).toHaveLength(2);
@@ -393,11 +499,11 @@ describeMongo('ProcurementRepository', () => {
 
   test('callers can filter to one stage when they want to', async () => {
     await seed([
-      procurement({ projectId: 'live', status: 'invitation' }),
-      procurement({ projectId: 'settled', status: 'contracted' }),
+      procurement({ projectId: 'live', timeline: timeline({ status: 'open' }) }),
+      procurement({ projectId: 'settled', timeline: timeline({ status: 'contracted' }) }),
     ]);
 
-    expect(await ids('invitation')).toEqual(['live']);
+    expect(await ids('open')).toEqual(['live']);
   });
 
   test('a search term with regex characters is matched literally', async () => {
@@ -424,7 +530,7 @@ describeMongo('ProcurementRepository', () => {
       (await repository.find({ limit: 20, offset: 0, maxBudget: 500_000 })).items.map(
         (record) => record.projectId,
       ),
-    ).toEqual(['middle', 'low']);
+    ).toEqual(['low', 'middle']);
     expect(
       (
         await repository.find({
@@ -437,9 +543,13 @@ describeMongo('ProcurementRepository', () => {
     ).toEqual(['middle']);
   });
 
-  test('upcoming deadline windows include today and exclude past, unknown, closed and awarded records', async () => {
+  test('days left keeps open tenders at least N Thai days away, most days left first', async () => {
     const row = (id: string, deadlineAt: string | null, overrides: Partial<Procurement> = {}) =>
-      procurement({ projectId: id, analysis: analysis({ deadlineAt }), ...overrides });
+      procurement({
+        projectId: id,
+        analysis: deadlineAt ? analysis({ deadlineAt }) : null,
+        ...overrides,
+      });
     await Promise.all(
       [
         row('today', '2026-10-05'),
@@ -449,45 +559,31 @@ describeMongo('ProcurementRepository', () => {
         row('later', '2026-10-09'),
         row('unknown', 'unreadable'),
         row('missing', null),
-        row('draft', '2026-10-08', { status: 'drafting_tor' }),
-        row('cancelled', '2026-10-08', { status: 'cancelled' }),
-        row('awarded', '2026-10-08', { status: 'award_announced' }),
-        row('winner', '2026-10-08', {
-          winner: {
-            name: 'ผู้ชนะ',
-            taxId: '1234567890123',
-            contractNo: '1',
-            contractDate: null,
-            contractFinishDate: null,
-            priceAgree: 500000,
-          },
-        }),
+        row('draft', '2026-10-08', { timeline: timeline({ status: 'drafting' }) }),
+        row('cancelled', '2026-10-08', { timeline: timeline({ status: 'cancelled' }) }),
+        row('awarded', '2026-10-08', { timeline: timeline({ status: 'awarded' }) }),
       ].map((record) => repository.upsert(record)),
     );
     // UTC is still Oct 4; Thai officers have already reached Oct 5.
     const service = new TorService(repository, undefined, () => new Date('2026-10-04T18:00:00Z'));
-    const within = await service.list({ limit: 20, offset: 0, deadlineDays: 3 });
-    expect(within.items.map((item) => item.projectId).sort()).toEqual([
-      'three',
-      'today',
-      'tomorrow',
-    ]);
-    expect(within.total).toBe(3);
-    const exact = await service.list({
-      limit: 20,
-      offset: 0,
-      deadlineDays: 3,
-      deadlineMode: 'exact',
-    });
-    expect(exact.items.map((item) => item.projectId)).toEqual(['three']);
-    const today = await service.list({ limit: 20, offset: 0, deadlineDays: 0 });
-    expect(today.items.map((item) => item.projectId)).toEqual(['today']);
-    const page = await service.list({ limit: 1, offset: 1, deadlineDays: 3 });
-    expect(page.total).toBe(3);
-    expect(page.items).toHaveLength(1);
-    expect(
-      (await service.list({ limit: 20, offset: 0, deadlineDays: 3, status: 'drafting_tor' })).total,
-    ).toBe(0);
+    const ids = async (query: Partial<FindOptions>) =>
+      (await service.list({ limit: 20, offset: 0, ...query }, 'admin')).items.map(
+        (item) => item.projectId,
+      );
+
+    expect(await ids({ minDaysLeft: 3 })).toEqual(['later', 'three']);
+    expect(await ids({ minDaysLeft: 0 })).toEqual(['later', 'three', 'tomorrow', 'today']);
+    expect(await ids({ minDaysLeft: 3, status: 'drafting' })).toEqual([]);
+    const page = await service.list({ limit: 1, offset: 1, minDaysLeft: 0 }, 'admin');
+    expect(page.total).toBe(4);
+    expect(page.items.map((item) => item.projectId)).toEqual(['three']);
+    // With no filter: most days left, then open with no readable deadline,
+    // drafts, the past deadline, and closed projects last.
+    const all = await ids({});
+    expect(all.slice(0, 4)).toEqual(['later', 'three', 'tomorrow', 'today']);
+    expect(all.slice(4, 6).sort()).toEqual(['missing', 'unknown']);
+    expect(all.slice(6, 8)).toEqual(['draft', 'past']);
+    expect(all.slice(8).sort()).toEqual(['awarded', 'cancelled']);
   });
 
   test('deadline calendar filters include offset timestamps on the correct Thai day', async () => {
@@ -514,12 +610,12 @@ describeMongo('ProcurementRepository', () => {
       procurement({
         projectId: 'inside',
         announceDate: '2026-08-10',
-        analysis: analysis({ deadlineAt: '2026-10-15' }),
+        timeline: timeline({ deadlineAt: '2026-10-15' }),
       }),
       procurement({
         projectId: 'outside',
         announceDate: '2026-07-31',
-        analysis: analysis({ deadlineAt: '2026-11-01' }),
+        timeline: timeline({ deadlineAt: '2026-11-01' }),
       }),
       procurement({ projectId: 'missing', announceDate: null, analysis: null }),
       procurement({
@@ -551,7 +647,6 @@ describeMongo('ProcurementRepository', () => {
       procurement({
         projectId: 'undated',
         announceDate: null,
-        analysis: analysis({ deadlineAt: null }),
       }),
     ]);
 
@@ -590,22 +685,16 @@ describeMongo('ProcurementRepository', () => {
     expect(platforms.items.map((record) => record.projectId).sort()).toEqual(['mobile', 'web']);
   });
 
-  test('filters keyword-derived industry and upstream location without regex injection', async () => {
+  test('filters keyword-derived industry without regex injection', async () => {
     await seed([
       procurement({
         projectId: 'hospital',
         projectName: 'ระบบผู้ป่วย (ระยะ 2)',
         deptName: 'โรงพยาบาลกลาง',
-        province: 'กรุงเทพมหานคร',
-        district: 'ป้อมปราบศัตรูพ่าย',
-        subdistrict: 'คลองมหานาค',
       }),
       procurement({
         projectId: 'school',
         deptName: 'โรงเรียนตัวอย่าง',
-        province: 'เชียงใหม่',
-        district: 'เมืองเชียงใหม่',
-        subdistrict: 'สุเทพ',
       }),
     ]);
 
@@ -613,7 +702,6 @@ describeMongo('ProcurementRepository', () => {
       limit: 20,
       offset: 0,
       industry: 'โรงพยาบาล',
-      location: 'ป้อมปราบ',
       query: '(ระยะ 2)',
     });
     expect(result.items.map((record) => record.projectId)).toEqual(['hospital']);
@@ -625,21 +713,18 @@ describeMongo('ProcurementRepository', () => {
         projectId: 'one',
         projectMoney: 700_000,
         announceDate: '2026-08-10',
-        province: 'กรุงเทพมหานคร',
         analysis: analysis({ targetPlatforms: ['web_app'] }),
       }),
       procurement({
         projectId: 'two',
         projectMoney: 800_000,
         announceDate: '2026-08-11',
-        province: 'กรุงเทพมหานคร',
         analysis: analysis({ targetPlatforms: ['web_app'] }),
       }),
       procurement({
         projectId: 'wrong-platform',
         projectMoney: 900_000,
         announceDate: '2026-08-12',
-        province: 'เชียงใหม่',
         analysis: analysis({ targetPlatforms: ['mobile'] }),
       }),
     ]);
@@ -654,7 +739,6 @@ describeMongo('ProcurementRepository', () => {
       techStack: ['React', 'PostgreSQL'],
       targetPlatforms: ['web_app'],
       industry: 'จ้างพัฒนา',
-      location: 'กรุงเทพ',
     });
     expect(page.total).toBe(2);
     expect(page.items).toHaveLength(1);
@@ -674,11 +758,15 @@ describeMongo('ProcurementRepository', () => {
   test('summary counts only documents that turned out to be TORs', async () => {
     await seed([
       procurement({
-        documents: [
-          doc({ bytes: 2_000, role: 'main_tor' }),
-          doc({ member: 'b', filename: 'ร่างTOR.pdf', bytes: 1_000, role: 'tor_variant' }),
-          doc({ member: 'c', filename: 'CONTRACTOR.pdf', bytes: 500_000, role: 'not_tor' }),
-        ],
+        archive: {
+          zipId: 'zip-1',
+          documents: [
+            doc({ bytes: 2_000, role: 'main_tor' }),
+            doc({ member: 'b', filename: 'ร่างTOR.pdf', bytes: 1_000, role: 'tor_variant' }),
+            doc({ member: 'c', filename: 'CONTRACTOR.pdf', bytes: 500_000, role: 'not_tor' }),
+          ],
+          torAmbiguous: false,
+        },
       }),
     ]);
 
@@ -688,12 +776,108 @@ describeMongo('ProcurementRepository', () => {
     expect(summary.byState.Queued).toBe(1);
   });
 
+  test('summary counts records per budget year, oldest first, leaving out a year not read yet', async () => {
+    await seed([
+      procurement({ projectId: 'a', budgetYear: 2569 }),
+      procurement({ projectId: 'b', budgetYear: 2568 }),
+      procurement({ projectId: 'c', budgetYear: 2569 }),
+      procurement({ projectId: 'd', budgetYear: null, detailReadAt: null }),
+    ]);
+
+    const { byYear } = await repository.summary();
+    expect(byYear).toEqual([
+      { budgetYear: 2568, count: 1 },
+      { budgetYear: 2569, count: 2 },
+    ]);
+  });
+
+  test('a failure keeps its kind; one logged before kinds existed reads as a fault', async () => {
+    const noTor: IngestionFailure = {
+      projectId: '1',
+      projectName: 'x',
+      stage: 'info',
+      kind: 'no_tor',
+      error: 'No zipId',
+      at: '2026-09-09T00:00:01.000Z',
+    };
+    await repository.recordFailures([noTor]);
+    await (await getDb()).collection('ingestion_failures').insertOne({
+      projectId: '2',
+      projectName: 'y',
+      stage: 'download',
+      error: 'none of its documents is a TOR',
+      at: '2026-09-09T00:00:00.000Z',
+    });
+
+    expect(await repository.listFailures()).toEqual([
+      noTor,
+      {
+        projectId: '2',
+        projectName: 'y',
+        stage: 'download',
+        kind: 'fault',
+        error: 'none of its documents is a TOR',
+        at: '2026-09-09T00:00:00.000Z',
+      },
+    ]);
+  });
+
+  test('held records can be read most urgent first, across pages', async () => {
+    await seed([
+      procurement({ projectId: 'contracted', timeline: timeline({ status: 'contracted' }) }),
+      procurement({ projectId: 'awarded', timeline: timeline({ status: 'awarded' }) }),
+      procurement({
+        projectId: 'drafting',
+        timeline: timeline({ status: 'drafting' }),
+        announceDate: '2026-08-02',
+      }),
+      procurement({
+        projectId: 'cancelled',
+        timeline: timeline({ status: 'cancelled' }),
+        announceDate: '2026-08-01',
+      }),
+      procurement({ projectId: 'unknown', timeline: timeline({ status: 'unknown' }) }),
+      procurement({ projectId: 'open-undated', timeline: timeline({ deadlineAt: null }) }),
+      procurement({ projectId: 'open-later', timeline: timeline({ deadlineAt: '2026-11-01' }) }),
+      procurement({
+        projectId: 'open-sooner',
+        timeline: timeline({ deadlineAt: '2026-10-10T09:00:00.000Z' }),
+      }),
+      procurement({ projectId: 'open-unreadable', timeline: timeline({ deadlineAt: 'soon' }) }),
+    ]);
+    // Stored before the status vocabulary changed: still open.
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne({ _id: 'open-later' as never }, { $set: { 'timeline.status': 'invitation' } });
+
+    const page = (offset: number) =>
+      repository.find({ order: 'urgency', limit: 4, offset }).then((r) => r.items);
+    const ordered = [...(await page(0)), ...(await page(4)), ...(await page(8))];
+
+    expect(ordered.map((r) => r.projectId)).toEqual([
+      'open-sooner',
+      'open-later',
+      'open-undated',
+      'open-unreadable',
+      'unknown',
+      'drafting',
+      'cancelled',
+      'awarded',
+      'contracted',
+    ]);
+    expect(ordered[1]?.timeline.status).toBe('open');
+    expect((await repository.find({ order: 'urgency', limit: 4, offset: 0 })).total).toBe(9);
+  });
+
   test('failures and the last run time survive a restart', async () => {
     await repository.recordFailures([
       {
         projectId: '1',
         projectName: 'x',
         stage: 'download',
+        kind: 'fault',
         error: 'connection reset',
         at: '2026-09-09T00:00:00.000Z',
       },
@@ -703,5 +887,362 @@ describeMongo('ProcurementRepository', () => {
     const fresh = new ProcurementRepository(getDb);
     expect(await fresh.listFailures()).toHaveLength(1);
     expect((await fresh.summary()).lastRunAt).toBe('2026-09-09T01:00:00.000Z');
+  });
+
+  test('recent returns the most recently updated procurements, newest first, up to the limit', async () => {
+    await seed([
+      procurement({ projectId: 'old', updatedAt: '2026-09-01T00:00:00.000Z' }),
+      procurement({ projectId: 'new', updatedAt: '2026-09-30T00:00:00.000Z' }),
+      procurement({ projectId: 'mid', updatedAt: '2026-09-15T00:00:00.000Z' }),
+    ]);
+
+    // `upsert` stamps updatedAt itself on a merge, but a first insert keeps the
+    // value it was given, which is what orders these three.
+    expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['new', 'mid']);
+    expect(await repository.recent(10)).toHaveLength(3);
+  });
+
+  describe('records written before the status and outcome vocabulary changed', () => {
+    // What the real database held until the migration ran: `processing` for the
+    // outcome and history, the old stage names for status, and none of the newer
+    // fields. Reading such a record must not fail a whole response.
+    const storeLegacy = async () => {
+      await repository.upsert(procurement({ projectId: 'legacy' }));
+      await repository.transition('legacy', 'downloading');
+      await (await getDb()).collection('procurements').updateOne(
+        { _id: 'legacy' as never },
+        {
+          $set: {
+            state: 'Processing',
+            outcome: 'processing',
+            'status_history.$[entry].outcome': 'processing',
+            'timeline.status': 'invitation',
+          },
+          $unset: { attempts: '' },
+        },
+        { arrayFilters: [{ 'entry.outcome': 'downloading' }] },
+      );
+    };
+
+    test('are read in the new vocabulary', async () => {
+      await storeLegacy();
+
+      const record = await repository.get('legacy');
+
+      expect(record?.outcome).toBe('downloading');
+      expect(record?.timeline.status).toBe('open');
+      expect(record?.statusHistory.map((entry) => entry.outcome)).toEqual(['downloading']);
+      expect(record?.attempts).toBe(0);
+    });
+
+    test('are counted under the new outcome in the summary', async () => {
+      await storeLegacy();
+
+      const { byOutcome } = await repository.summary();
+
+      expect(byOutcome).toEqual({ downloading: 1 });
+    });
+
+    test('appear in a listing and in the recent list', async () => {
+      await storeLegacy();
+
+      expect((await repository.find({ limit: 10, offset: 0 })).items[0]?.outcome).toBe(
+        'downloading',
+      );
+      expect((await repository.recent(5))[0]?.outcome).toBe('downloading');
+    });
+  });
+
+  describe('amend', () => {
+    const at = '2026-09-01T00:00:00.000Z';
+
+    test('writes the fields and leaves the outcome alone', async () => {
+      await repository.upsert(procurement({ projectId: 'a', updatedAt: at }));
+      await repository.transition('a', 'tor_analysed');
+
+      await repository.amend(
+        'a',
+        { timeline: timeline({ status: 'awarded', lastReadAt: at }) },
+        true,
+      );
+
+      const record = await repository.get('a');
+      expect(record).toMatchObject({
+        timeline: { status: 'awarded', lastReadAt: at },
+        outcome: 'tor_analysed',
+      });
+      expect(record?.updatedAt).not.toBe(at);
+    });
+
+    test('does not move updatedAt unless told something changed', async () => {
+      await repository.upsert(procurement({ projectId: 'a', updatedAt: at }));
+
+      await repository.amend(
+        'a',
+        { timeline: timeline({ lastReadAt: '2026-10-01T00:00:00.000Z' }) },
+        false,
+      );
+
+      const record = await repository.get('a');
+      expect(record?.timeline.lastReadAt).toBe('2026-10-01T00:00:00.000Z');
+      expect(record?.updatedAt).toBe(at);
+    });
+
+    test('is undefined for a record that is not there', async () => {
+      expect(await repository.amend('missing', {}, true)).toBeUndefined();
+    });
+  });
+
+  describe('dueForTimeline', () => {
+    const seedDue = async (
+      projectId: string,
+      outcome: Parameters<typeof repository.transition>[1],
+      patch: Partial<Procurement> = {},
+    ) => {
+      await repository.upsert(procurement({ projectId }));
+      await repository.transition(projectId, outcome, patch);
+    };
+
+    test('is the records already read, in scope and not contracted, never-checked first and then the oldest', async () => {
+      await seedDue('recent', 'tor_analysed', {
+        timeline: timeline({ lastReadAt: '2026-10-03T00:00:00.000Z' }),
+      });
+      await seedDue('never', 'needs_review');
+      await seedDue('old', 'no_tor_package', {
+        timeline: timeline({ lastReadAt: '2026-09-01T00:00:00.000Z' }),
+      });
+      await seedDue('final', 'tor_analysed', { timeline: timeline({ status: 'contracted' }) });
+      await seedDue('outside', 'out_of_scope');
+      await repository.upsert(procurement({ projectId: 'queued' }));
+
+      const due = await repository.dueForTimeline({ limit: 10, offset: 0 });
+
+      expect(due.map((record) => record.projectId)).toEqual(['never', 'old', 'recent']);
+    });
+
+    test('pages', async () => {
+      for (const id of ['a', 'b', 'c']) await seedDue(id, 'tor_analysed');
+
+      const page = await repository.dueForTimeline({ limit: 2, offset: 2 });
+
+      expect(page.map((record) => record.projectId)).toEqual(['c']);
+    });
+  });
+
+  describe('upsertMany, the way a sweep writes', () => {
+    const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
+
+    test('inserts new records', async () => {
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a' }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({
+        created: 2,
+        createdIds: ['a', 'b'],
+        changed: 0,
+        unchanged: 0,
+      });
+    });
+
+    test('a second sweep that sees the same data changes nothing, including updatedAt', async () => {
+      await repository.upsertMany([
+        procurement({ projectId: 'a', updatedAt: at(1) }),
+        procurement({ projectId: 'b', updatedAt: at(2) }),
+      ]);
+
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a' }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({ created: 0, createdIds: [], changed: 0, unchanged: 2 });
+      expect((await repository.get('a'))?.updatedAt).toBe(at(1));
+      expect((await repository.get('b'))?.updatedAt).toBe(at(2));
+    });
+
+    test('only the record whose data moved is changed, and it becomes the most recently updated', async () => {
+      await repository.upsertMany([
+        procurement({ projectId: 'a', updatedAt: at(1) }),
+        procurement({ projectId: 'b', updatedAt: at(2) }),
+      ]);
+
+      const summary = await repository.upsertMany([
+        procurement({ projectId: 'a', projectName: 'จ้างพัฒนาระบบ (แก้ไข)' }),
+        procurement({ projectId: 'b' }),
+      ]);
+
+      expect(summary).toEqual({ created: 0, createdIds: [], changed: 1, unchanged: 1 });
+      expect((await repository.recent(2)).map((record) => record.projectId)).toEqual(['a', 'b']);
+    });
+
+    test('a record the pipeline has worked on keeps that work when it is seen again', async () => {
+      await repository.upsertMany([procurement({ projectId: 'a' })]);
+      await repository.transition('a', 'no_tor_package', {}, 'no package');
+
+      await repository.upsertMany([procurement({ projectId: 'a' })]);
+
+      expect((await repository.get('a'))?.outcome).toBe('no_tor_package');
+    });
+
+    test('an empty sweep is a no-op', async () => {
+      expect(await repository.upsertMany([])).toEqual({
+        created: 0,
+        createdIds: [],
+        changed: 0,
+        unchanged: 0,
+      });
+    });
+  });
+
+  describe('operations stats', () => {
+    const since = '2026-09-25T00:00:00.000Z';
+    const now = '2026-10-05T05:00:00.000Z';
+    const stats = () => repository.stats(now, 30);
+    const active = <T extends { date: string }>(series: T[], quiet: (day: T) => boolean) =>
+      series.filter((day) => !quiet(day));
+    const noThroughput = (day: { completed: number; held: number; failed: number }) =>
+      day.completed + day.held + day.failed === 0;
+    const step = (outcome: StatusChange['outcome'], at: string): StatusChange => ({
+      state: OUTCOME_STATE[outcome],
+      outcome,
+      at,
+    });
+    const passed = (projectId: string, statusHistory: StatusChange[]) =>
+      procurement({
+        projectId,
+        statusHistory,
+        state: statusHistory.at(-1)?.state ?? 'Queued',
+        outcome: statusHistory.at(-1)?.outcome ?? 'queued',
+        updatedAt: statusHistory.at(-1)?.at ?? since,
+      });
+
+    test('counts each record once, by where its last pass ended, inside the window', async () => {
+      await seed([
+        passed('read', [
+          step('downloading', '2026-10-01T00:00:00.000Z'),
+          step('analysing', '2026-10-01T00:00:10.000Z'),
+          step('tor_analysed', '2026-10-01T00:01:10.000Z'),
+        ]),
+        passed('no-package', [
+          step('downloading', '2026-10-01T01:00:00.000Z'),
+          step('no_tor_package', '2026-10-01T01:00:20.000Z'),
+        ]),
+        passed('retried', [
+          step('downloading', '2026-10-02T00:00:00.000Z'),
+          step('error', '2026-10-02T00:00:05.000Z'),
+          step('downloading', '2026-10-03T00:00:00.000Z'),
+          step('analysing', '2026-10-03T00:00:30.000Z'),
+          step('needs_review', '2026-10-03T00:02:10.000Z'),
+        ]),
+        passed('before-the-window', [
+          step('downloading', '2026-09-01T00:00:00.000Z'),
+          step('tor_analysed', '2026-09-01T00:09:00.000Z'),
+        ]),
+        passed('still-queued', [step('queued', '2026-10-01T00:00:00.000Z')]),
+      ]);
+
+      expect(active((await stats()).throughputDaily, noThroughput)).toEqual([
+        { date: '2026-10-01', completed: 1, held: 0, failed: 0 },
+        { date: '2026-10-03', completed: 0, held: 1, failed: 0 },
+      ]);
+    });
+
+    test('counts passes that ended, by Bangkok day, once each however the record was approved later', async () => {
+      await seed([
+        passed('read', [
+          step('downloading', '2026-10-01T16:59:00.000Z'),
+          step('tor_analysed', '2026-10-01T16:59:30.000Z'),
+        ]),
+        passed('no-package-after-midnight-in-bangkok', [
+          step('downloading', '2026-10-01T17:00:00.000Z'),
+          step('no_tor_package', '2026-10-01T17:00:20.000Z'),
+        ]),
+        passed('held-then-approved', [
+          step('downloading', '2026-10-02T03:00:00.000Z'),
+          step('needs_review', '2026-10-02T03:01:00.000Z'),
+          step('tor_analysed', '2026-10-04T03:00:00.000Z'),
+        ]),
+        passed('abandoned', [
+          step('downloading', '2026-10-02T04:00:00.000Z'),
+          step('abandoned', '2026-10-02T04:05:00.000Z'),
+        ]),
+      ]);
+
+      expect(active((await stats()).throughputDaily, noThroughput)).toEqual([
+        { date: '2026-10-01', completed: 1, held: 0, failed: 0 },
+        { date: '2026-10-02', completed: 0, held: 1, failed: 1 },
+      ]);
+    });
+
+    test('a pass is counted by the outcome it ended on: a TOR that could not be read is failed, no TOR is none', async () => {
+      await seed([
+        passed('unreadable', [
+          step('downloading', '2026-10-02T00:00:00.000Z'),
+          step('analysis_failed', '2026-10-02T00:01:00.000Z'),
+        ]),
+        passed('empty-archive', [
+          step('downloading', '2026-10-02T01:00:00.000Z'),
+          step('no_tor_in_archive', '2026-10-02T01:01:00.000Z'),
+        ]),
+      ]);
+
+      expect(active((await stats()).throughputDaily, noThroughput)).toEqual([
+        { date: '2026-10-02', completed: 0, held: 0, failed: 1 },
+      ]);
+    });
+
+    test('every daily series covers the thirty Bangkok days ending today, oldest first, quiet days as zeros', async () => {
+      const result = await stats();
+
+      for (const series of [result.throughputDaily, result.discoveredDaily]) {
+        expect(series).toHaveLength(30);
+        expect(series[0]?.date).toBe('2026-09-06');
+        expect(series.at(-1)?.date).toBe('2026-10-05');
+      }
+      expect(result.throughputDaily[0]).toEqual({
+        date: '2026-09-06',
+        completed: 0,
+        held: 0,
+        failed: 0,
+      });
+      expect(result.discoveredDaily[0]).toEqual({ date: '2026-09-06', discovered: 0 });
+    });
+
+    test('the window opens at Bangkok midnight of its first day', async () => {
+      await seed([
+        passed('just-before', [
+          step('downloading', '2026-09-05T16:58:00.000Z'),
+          step('tor_analysed', '2026-09-05T16:59:59.000Z'),
+        ]),
+        passed('just-after', [
+          step('downloading', '2026-09-05T16:59:00.000Z'),
+          step('tor_analysed', '2026-09-05T17:00:00.000Z'),
+        ]),
+      ]);
+
+      const result = await stats();
+
+      expect(active(result.throughputDaily, noThroughput)).toEqual([
+        { date: '2026-09-06', completed: 1, held: 0, failed: 0 },
+      ]);
+    });
+
+    test('counts procurements by the Bangkok day they were first found', async () => {
+      await seed([
+        procurement({ projectId: 'before-window', discoveredAt: '2026-09-05T16:59:59.000Z' }),
+        procurement({ projectId: 'window-opens', discoveredAt: '2026-09-05T17:00:00.000Z' }),
+        procurement({ projectId: 'late-utc', discoveredAt: '2026-10-01T16:59:59.000Z' }),
+        procurement({ projectId: 'bangkok-midnight', discoveredAt: '2026-10-01T17:00:00.000Z' }),
+        procurement({ projectId: 'same-day', discoveredAt: '2026-10-02T09:00:00.000Z' }),
+      ]);
+
+      expect(active((await stats()).discoveredDaily, (day) => day.discovered === 0)).toEqual([
+        { date: '2026-09-06', discovered: 1 },
+        { date: '2026-10-01', discovered: 1 },
+        { date: '2026-10-02', discovered: 2 },
+      ]);
+    });
   });
 });

@@ -3,5 +3,7 @@ export * from './session';
 export * from './matching';
 export * from './company';
 export * from './egp';
-export * from './procurement-dates';
 export * from './tor-report';
+export * from './procurement-dates';
+export * from './schedule';
+export * from './ingestion-ops';

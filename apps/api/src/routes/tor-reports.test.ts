@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient } from 'mongodb';
 import { zipSync } from 'fflate';
-import { ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
+import { ACCESS_COOKIE, EMPTY_TIMELINE, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { TorReportRepository } from '../repositories/tor-report.repository';
 import { testEnv } from '../testing/env';
@@ -28,32 +28,24 @@ const procurement: Procurement = {
   projectName: 'โครงการพัฒนาระบบ',
   deptName: 'หน่วยงานรัฐ',
   deptSubName: null,
-  province: null,
-  district: null,
-  subdistrict: null,
-  registryName: 'รัฐ',
   deptCode: '1',
-  year: 2569,
+  budgetYear: 2569,
+  typeId: null,
+  goodsId: null,
+  detailReadAt: null,
   announceDate: null,
-  projectTypeName: null,
   purchaseMethodName: null,
   projectMoney: null,
   priceBuild: null,
-  status: 'invitation',
-  matchedKeywords: [],
-  softwareClass: null,
-  softwareScore: null,
-  eBidding: null,
+  timeline: { ...EMPTY_TIMELINE, status: 'open' },
+  attempts: 0,
+  holdReason: null,
+  approved: null,
   state: 'Completed',
   outcome: 'tor_analysed',
   statusHistory: [],
-  zipId: null,
-  zipBytes: null,
-  archiveMemberCount: null,
-  documents: [],
+  archive: null,
   analysis: null,
-  winner: null,
-  torAmbiguous: false,
   discoveredAt: '2026-10-01T00:00:00.000Z',
   updatedAt: '2026-10-01T00:00:00.000Z',
 };
@@ -178,7 +170,7 @@ describeMongo('TOR report flow with MongoDB', () => {
 
   test('does not report a nonexistent or admin-held TOR for an officer', async () => {
     expect((await submit(officer, { reason: 'outdated' }, 'missing')).statusCode).toBe(404);
-    await tors.transition(procurement.projectId, 'Completed', 'needs_review');
+    await tors.transition(procurement.projectId, 'needs_review');
     expect((await submit(officer)).statusCode).toBe(404);
   });
 
@@ -269,7 +261,7 @@ describeMongo('TOR report flow with MongoDB', () => {
     expect(decision.json().status).toBe('removed');
     const stored = await tors.get(procurement.projectId);
     expect(stored?.publicationRemovedAt).toBe(decision.json().review.reviewed_at);
-    expect(stored?.status).toBe(procurement.status);
+    expect(stored?.timeline).toEqual(procurement.timeline);
     expect(stored?.state).toBe(procurement.state);
     expect(
       (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(officer) })).json(),
@@ -297,7 +289,7 @@ describeMongo('TOR report flow with MongoDB', () => {
     expect((await submit(admin)).statusCode).toBe(409);
     // Neither rediscovery nor later retrieval transitions may republish it.
     await tors.upsert({ ...procurement, projectName: 'ชื่อโครงการที่อัปเดตจากต้นทาง' });
-    await tors.transition(procurement.projectId, 'Completed', 'tor_analysed');
+    await tors.transition(procurement.projectId, 'tor_analysed');
     expect((await tors.get(procurement.projectId))?.publicationRemovedAt).toBe(
       stored?.publicationRemovedAt,
     );
@@ -308,6 +300,86 @@ describeMongo('TOR report flow with MongoDB', () => {
     expect(
       (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(admin) })).json().total,
     ).toBe(1);
+  });
+
+  test.each(['upsert', 'upsertMany', 'transition', 'amend'] as const)(
+    'publication removal survives a concurrent ingestion %s with a stale read',
+    async (operation) => {
+      const id = (await submit(officer)).json().id;
+      const db = await getDb();
+      let interrupted = false;
+      const removeAfterRead = async () => {
+        if (interrupted) return;
+        interrupted = true;
+        expect((await review(admin, id, { action: 'remove_tor' })).statusCode).toBe(200);
+      };
+      // Pause only the ingestion reader after Mongo returns its snapshot, then
+      // commit a real review transaction before letting that stale writer run.
+      const raced = new ProcurementRepository(
+        async () =>
+          new Proxy(db, {
+            get(target, key) {
+              if (key === 'collection') {
+                return (name: string) => {
+                  const collection = target.collection(name);
+                  if (name !== 'procurements') return collection;
+                  return new Proxy(collection, {
+                    get(records, method) {
+                      if (method === 'findOne') {
+                        return async (...args: Parameters<typeof records.findOne>) => {
+                          const snapshot = await records.findOne(...args);
+                          await removeAfterRead();
+                          return snapshot;
+                        };
+                      }
+                      if (method === 'find') {
+                        return (...args: Parameters<typeof records.find>) => {
+                          const cursor = records.find(...args);
+                          const read = cursor.toArray.bind(cursor);
+                          cursor.toArray = async () => {
+                            const snapshot = await read();
+                            await removeAfterRead();
+                            return snapshot;
+                          };
+                          return cursor;
+                        };
+                      }
+                      const value = Reflect.get(records, method);
+                      return typeof value === 'function' ? value.bind(records) : value;
+                    },
+                  });
+                };
+              }
+              return Reflect.get(target, key);
+            },
+          }),
+      );
+      if (operation === 'upsert') await raced.upsert(procurement);
+      else if (operation === 'upsertMany') await raced.upsertMany([procurement]);
+      else if (operation === 'transition')
+        await raced.transition(procurement.projectId, 'tor_analysed');
+      else await raced.amend(procurement.projectId, { projectMoney: 200 }, true);
+      expect(interrupted).toBe(true);
+      expect(
+        await db
+          .collection<{ _id: string }>('procurements')
+          .findOne({ _id: procurement.projectId }),
+      ).toMatchObject({
+        publication_removed_by: admin.id,
+        publication_removed_report_id: id,
+      });
+      expect((await tors.get(procurement.projectId))?.publicationRemovedAt).toBeTruthy();
+      expect(
+        (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(officer) })).json()
+          .total,
+      ).toBe(0);
+    },
+  );
+
+  test('a demoted administrator cannot report a held TOR using a stale admin cookie', async () => {
+    await tors.transition(procurement.projectId, 'needs_review');
+    await users.setRole(admin.id, 'business_development_officer');
+    expect((await submit(admin)).statusCode).toBe(404);
   });
 
   test('review rejects anonymous, officer, inactive and demoted callers, including stale admin tokens', async () => {
@@ -395,18 +467,21 @@ describeMongo('TOR report flow with MongoDB', () => {
       downloads += 1;
       return archive;
     });
-    await tors.transition(procurement.projectId, 'Completed', 'tor_analysed', {
-      zipId: 'fixture-archive',
-      documents: [
-        {
-          member: 'Attach_TOR_1.pdf',
-          filename: 'Attach_TOR_1.pdf',
-          bytes: pdf.length,
-          namePattern: 'canonical',
-          role: 'main_tor',
-          note: 'Isolated test fixture',
-        },
-      ],
+    await tors.transition(procurement.projectId, 'tor_analysed', {
+      archive: {
+        zipId: 'fixture-archive',
+        torAmbiguous: false,
+        documents: [
+          {
+            member: 'Attach_TOR_1.pdf',
+            filename: 'Attach_TOR_1.pdf',
+            bytes: pdf.length,
+            namePattern: 'canonical',
+            role: 'main_tor',
+            note: 'Isolated test fixture',
+          },
+        ],
+      },
     });
     const source = (user: User) =>
       app.inject({ method: 'GET', url: '/api/tors/report-project/source', cookies: cookies(user) });

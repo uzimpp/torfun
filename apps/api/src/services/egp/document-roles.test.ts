@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
+import { assignDocumentRoles, invitationRoleOf, type ClassifiedDocument } from './document-roles';
 
 /** A candidate as it arrives from per-file classification. */
 function candidate(overrides: Partial<ClassifiedDocument> = {}): ClassifiedDocument {
@@ -102,5 +102,55 @@ describe('assignDocumentRoles', () => {
 
     expect(roleOf(result, 'huge.pdf')).toBe('unreadable');
     expect(result.mainTor).toBeNull();
+  });
+});
+
+describe('how each document was read', () => {
+  test('a partial reading is recorded on the manifest entry, with what was lost', () => {
+    const result = assignDocumentRoles([
+      candidate({ readMode: 'first_pages', readNote: 'อ่านเฉพาะ 30 หน้าแรกจากทั้งหมด 120 หน้า' }),
+    ]);
+
+    expect(result.documents[0]?.readMode).toBe('first_pages');
+    expect(result.documents[0]?.readNote).toBe('อ่านเฉพาะ 30 หน้าแรกจากทั้งหมด 120 หน้า');
+  });
+
+  test('a whole-PDF reading adds no note, and leaves no key behind for the database to store as null', () => {
+    const entry = assignDocumentRoles([candidate({ readMode: 'pdf' })]).documents[0];
+
+    expect(entry?.readMode).toBe('pdf');
+    expect(entry).not.toHaveProperty('readNote');
+  });
+});
+
+describe('invitationRoleOf', () => {
+  const projectId = '69049012345';
+
+  test('annoudoc_<digits>_<projectId>.pdf is the invitation', () => {
+    expect(invitationRoleOf(`annoudoc_1234567_${projectId}.pdf`, projectId)).toBe('invitation');
+  });
+
+  test('doc_<digits>_<projectId>.pdf is the bidding document', () => {
+    expect(invitationRoleOf(`doc_7654321_${projectId}.pdf`, projectId)).toBe('bidding_document');
+  });
+
+  test('a folder in the member path does not matter', () => {
+    expect(invitationRoleOf(`pack/annoudoc_1_${projectId}.PDF`, projectId)).toBe('invitation');
+  });
+
+  test('another project\'s file is not ours', () => {
+    expect(invitationRoleOf('annoudoc_1234567_69049099999.pdf', projectId)).toBeNull();
+  });
+
+  test('lookalikes are not matched', () => {
+    for (const name of [
+      `annoudoc_${projectId}.pdf`,
+      `annoudoc_1_${projectId}.docx`,
+      `old_annoudoc_1_${projectId}.pdf`,
+      `bidding noltice.pdf`,
+      `Attach_TOR_1.pdf`,
+    ]) {
+      expect(invitationRoleOf(name, projectId)).toBeNull();
+    }
   });
 });

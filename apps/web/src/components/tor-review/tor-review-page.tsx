@@ -1,14 +1,10 @@
-import {
-  Banknote,
-  Bookmark,
-  CalendarDays,
-  Clock3,
-  MapPin,
-} from 'lucide-react';
+import { Banknote, Bookmark, CalendarDays, Gavel, Clock3 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
+import { deadlineLabel, deadlineText } from '@/lib/deadline-display';
+import { formatThaiDate } from '@/lib/format-date';
+import { ProcurementStatusBadge } from '@/components/search/procurement-status-badge';
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { TorDownloadButton } from './tor-download-button';
@@ -21,7 +17,10 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
     <main className="page-fill mx-auto w-full max-w-7xl px-5 py-8 sm:px-8 lg:px-10 lg:py-12">
       <TorReviewBackButton />
       {tor.publicationRemovedAt && (
-        <p role="status" className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <p
+          role="status"
+          className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
           TOR นี้ถูกนำออกจากการเผยแพร่แล้ว หน้านี้และเอกสารต้นฉบับเข้าถึงได้เฉพาะผู้ดูแลระบบ
         </p>
       )}
@@ -34,20 +33,19 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               <span className="text-muted-foreground">·</span>
               <span className="text-muted-foreground">ประกาศจัดซื้อจัดจ้าง</span>
             </p>
-            <h1 className="mt-4 text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl">
-              {tor.title}
-            </h1>
+            <h1 className="mt-4 text-2xl font-medium tracking-tight text-balance">{tor.title}</h1>
             <div className="text-muted-foreground mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              {tor.location && (
+              <span className="inline-flex items-center gap-2">
+                <CalendarDays aria-hidden="true" className="size-4" />
+                ปีงบประมาณ {tor.budgetYear ?? '—'}
+              </span>
+              {tor.procurementMethod && (
                 <span className="inline-flex items-center gap-2">
-                  <MapPin aria-hidden="true" className="size-4" />
-                  {tor.location}
+                  <Gavel aria-hidden="true" className="size-4" />
+                  วิธีการจัดซื้อจัดจ้าง: {tor.procurementMethod}
                 </span>
               )}
-              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
-                {tor.status}
-              </Badge>
+              <ProcurementStatusBadge status={tor.status} />
             </div>
           </div>
 
@@ -56,11 +54,37 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               <Banknote aria-hidden="true" className="text-primary size-4" />
               งบประมาณ
             </p>
-            <p data-numeric className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-              {tor.budget === null ? 'ยังไม่มีข้อมูลงบประมาณ' : `${bahtFormat.format(tor.budget)} บาท`}
+            <p data-numeric className="mt-2 text-2xl font-medium tracking-tight">
+              {tor.budget === null
+                ? 'ยังไม่มีข้อมูลงบประมาณ'
+                : `${bahtFormat.format(tor.budget)} บาท`}
             </p>
+            <div
+              role="group"
+              aria-label={deadlineLabel(tor.deadline)}
+              className="border-border mt-5 border-t pt-4"
+            >
+              <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
+                <Clock3 aria-hidden="true" className="size-4 text-amber-600" />
+                {deadlineLabel(tor.deadline)}
+              </p>
+              <p data-numeric className="mt-2 text-lg font-medium">
+                {deadlineText(tor.deadline, tor.status)}
+              </p>
+              {tor.deadline?.readByModel && (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  อ่านจากเอกสาร TOR โดย AI — โปรดตรวจสอบกับเอกสารต้นฉบับก่อนตัดสินใจ
+                </p>
+              )}
+            </div>
             <div className="mt-6 grid grid-cols-2 gap-2">
-              <Button type="button" variant="outline" size="lg" className="w-full min-w-0" aria-label="บันทึก TOR นี้">
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="w-full min-w-0"
+                aria-label="บันทึก TOR นี้"
+              >
                 <Bookmark aria-hidden="true" />
                 บันทึก TOR
               </Button>
@@ -72,26 +96,27 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
       </section>
 
       <section aria-labelledby="summary-heading" className="mt-12">
-        <SectionHeading id="summary-heading" eyebrow="อ่านเร็ว ก่อนเปิดเอกสารต้นฉบับ" title="สรุปโครงการ" />
+        <SectionHeading
+          id="summary-heading"
+          eyebrow="อ่านเร็ว ก่อนเปิดเอกสารต้นฉบับ"
+          title="สรุปโครงการ"
+        />
         <Card className="border-primary/20 bg-primary/5 mt-5">
           <CardHeader>
             <CardTitle className="text-base">สรุปโครงการโดย Vertex AI</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="leading-relaxed">
-              {tor.summary ?? 'ยังไม่มีข้อมูลการวิเคราะห์ TOR'}
-            </p>
-            {tor.confidence && (
-              <p className="text-muted-foreground mt-4 text-xs">
-                ระดับความมั่นใจของการวิเคราะห์: {tor.confidence === 'high' ? 'สูง' : 'ต่ำ'}
-              </p>
-            )}
+            <p className="leading-relaxed">{tor.summary ?? 'ยังไม่มีข้อมูลการวิเคราะห์ TOR'}</p>
           </CardContent>
         </Card>
       </section>
 
       <section aria-labelledby="match-heading" className="mt-10">
-        <SectionHeading id="match-heading" eyebrow="วิเคราะห์เบื้องต้น" title="สรุปความเหมาะสมกับบริษัท" />
+        <SectionHeading
+          id="match-heading"
+          eyebrow="วิเคราะห์เบื้องต้น"
+          title="สรุปความเหมาะสมกับบริษัท"
+        />
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)]">
           <Card className="bg-primary text-primary-foreground overflow-hidden">
             <CardContent className="flex min-h-72 flex-col items-center justify-center text-center">
@@ -100,7 +125,9 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
                   <p className="font-mono text-5xl leading-none font-medium">
                     {tor.matchScore === null ? '-' : `${tor.matchScore}%`}
                   </p>
-                  <p className="mt-2 text-xs font-medium tracking-widest uppercase opacity-80">Match</p>
+                  <p className="mt-2 text-xs font-medium tracking-widest uppercase opacity-80">
+                    Match
+                  </p>
                 </div>
               </div>
               <p className="mt-5 text-sm opacity-85">
@@ -132,7 +159,11 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
 
       {tor.technologies.length > 0 && (
         <section aria-labelledby="technology-heading" className="mt-12">
-          <SectionHeading id="technology-heading" eyebrow="ข้อมูลจากเอกสาร TOR" title="เทคโนโลยีที่เกี่ยวข้อง" />
+          <SectionHeading
+            id="technology-heading"
+            eyebrow="ข้อมูลจากเอกสาร TOR"
+            title="เทคโนโลยีที่เกี่ยวข้อง"
+          />
           <div className="mt-5 flex flex-wrap gap-3">
             {tor.technologies.map((technology) => (
               <Badge key={technology} variant="outline" className="px-3 py-1.5 text-sm">
@@ -146,11 +177,13 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
       <section aria-labelledby="dates-heading" className="border-border mt-12 border-t pt-8 pb-6">
         <SectionHeading id="dates-heading" eyebrow="อย่าพลาดกำหนดการ" title="กำหนดการสำคัญ" />
         <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-          <DateItem label="วันที่ประกาศ" value={tor.announcementDate ?? 'ยังไม่มีข้อมูลวันที่ประกาศ'} />
           <DateItem
-            label="ปิดรับข้อเสนอ"
-            value={tor.submissionDeadline ?? 'ยังไม่มีข้อมูลวันปิดรับข้อเสนอ'}
-            urgent
+            label="วันที่ประกาศ"
+            value={
+              tor.announcementDate
+                ? formatThaiDate(tor.announcementDate)
+                : 'ยังไม่มีข้อมูลวันที่ประกาศ'
+            }
           />
         </div>
       </section>
@@ -162,7 +195,7 @@ function SectionHeading({ id, eyebrow, title }: { id: string; eyebrow: string; t
   return (
     <div>
       <p className="text-primary text-xs font-medium tracking-wider">{eyebrow}</p>
-      <h2 id={id} className="mt-2 text-2xl font-semibold tracking-tight">
+      <h2 id={id} className="mt-2 text-2xl font-medium tracking-tight">
         {title}
       </h2>
     </div>
@@ -193,10 +226,10 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function DateItem({ label, value, urgent = false }: { label: string; value: string; urgent?: boolean }) {
+function DateItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className={cn('bg-muted/60 flex items-center gap-3 rounded-xl px-4 py-3', urgent && 'border border-amber-200 dark:border-amber-900')}>
-      {urgent ? <Clock3 aria-hidden="true" className="text-amber-600 size-5 shrink-0" /> : <CalendarDays aria-hidden="true" className="text-primary size-5 shrink-0" />}
+    <div className="bg-muted/60 flex items-center gap-3 rounded-xl px-4 py-3">
+      <CalendarDays aria-hidden="true" className="text-primary size-5 shrink-0" />
       <span>
         <span className="text-muted-foreground block text-xs">{label}</span>
         <span className="mt-0.5 block font-medium">{value}</span>

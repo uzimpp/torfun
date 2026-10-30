@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type, type Schema } from '@google/genai';
+import { SoftwareConfidence, type TokenUsage } from '@torfun/types';
 import type { Env } from '../../config/env';
 import type { ModelCall } from './classify-document';
+import { sendReliably } from './reliable-model-call';
 
 /**
  * Vertex AI adapter: the one place that knows about Google's client.
@@ -74,7 +76,7 @@ const stringList: Schema = { type: Type.ARRAY, items: { type: Type.STRING } };
  * `nullable`, so "not in the document" has somewhere to go other than a
  * fabricated value.
  */
-const ANSWER_SCHEMA: Schema = {
+export const ANSWER_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
     isTor: { type: Type.BOOLEAN },
@@ -103,8 +105,9 @@ const ANSWER_SCHEMA: Schema = {
           },
         },
         requiredQualifications: stringList,
-        isSoftwareProject: { type: Type.BOOLEAN },
-        confidence: { type: Type.STRING, enum: ['high', 'low'] },
+        isSoftware: { type: Type.BOOLEAN },
+        confidence: { type: Type.STRING, enum: [...SoftwareConfidence.options] },
+        reason: { type: Type.STRING },
       },
       required: [
         'summary',
@@ -115,12 +118,22 @@ const ANSWER_SCHEMA: Schema = {
         'techStack',
         'targetPlatforms',
         'requiredQualifications',
-        'isSoftwareProject',
+        'isSoftware',
         'confidence',
+        'reason',
       ],
     },
   },
   required: ['isTor', 'torKind', 'whatThisIs', 'analysis'],
+};
+
+/** The shape an invitation announcement is read into; see `invitation-reader.ts`. */
+export const INVITATION_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    bidDate: { type: Type.STRING, nullable: true },
+  },
+  required: ['bidDate'],
 };
 
 /**
@@ -137,7 +150,25 @@ const MAX_OUTPUT_TOKENS = 16_384;
 interface ModelResponse {
   text?: string;
   candidates?: { finishReason?: string }[];
-  usageMetadata?: { thoughtsTokenCount?: number };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    thoughtsTokenCount?: number;
+    totalTokenCount?: number;
+  };
+}
+
+/** One call's tokens. */
+export type ModelUsage = Omit<TokenUsage, 'calls'>;
+
+export function usageFromResponse(response: Pick<ModelResponse, 'usageMetadata'>): ModelUsage {
+  const usage = response.usageMetadata;
+  return {
+    prompt: usage?.promptTokenCount ?? 0,
+    output: usage?.candidatesTokenCount ?? 0,
+    thoughts: usage?.thoughtsTokenCount ?? 0,
+    total: usage?.totalTokenCount ?? 0,
+  };
 }
 
 /**
@@ -176,29 +207,58 @@ export function textFromResponse(response: ModelResponse): string {
  * enforce the answer's shape instead of the prompt merely requesting it, and
  * `temperature: 0` because this is a classification, not a composition.
  */
-export function createModelCall(env: Env): ModelCall {
+/**
+ * What one request carries. A PDF goes as inline data; a document too large for
+ * that goes as its extracted text, introduced as such so the model does not
+ * mistake a missing table or figure for one the document lacks.
+ */
+export function contentParts(input: {
+  pdfBase64?: string;
+  text?: string;
+  prompt: string;
+}): Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> {
+  if (input.text !== undefined) {
+    return [
+      {
+        text: 'ข้อความต่อไปนี้ถูกดึงจากเอกสาร PDF ขนาดใหญ่ อาจไม่มีภาพ ตาราง หรือส่วนที่เป็นภาพสแกน:',
+      },
+      { text: input.text },
+      { text: input.prompt },
+    ];
+  }
+  return [
+    { inlineData: { mimeType: 'application/pdf', data: input.pdfBase64 ?? '' } },
+    { text: input.prompt },
+  ];
+}
+
+/** `onUsage` hears every request the service answered, including one whose answer is then rejected. */
+export function createModelCall(env: Env, onUsage?: (usage: ModelUsage) => void): ModelCall {
   const client = createVertexAiClient(env);
 
-  return async ({ pdfBase64, prompt }) => {
-    const response = await client.models.generateContent({
-      model: env.VERTEX_AI_MODEL,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
-            { text: prompt },
-          ],
+  // Each request carries a ceiling and is retried when the service says it is
+  // busy (see reliable-model-call.ts). Without one, a request that never
+  // answers freezes the whole serial run.
+  return (input) =>
+    sendReliably(async (signal) => {
+      const response = await client.models.generateContent({
+        model: env.VERTEX_AI_MODEL,
+        contents: [
+          {
+            role: 'user',
+            parts: contentParts(input),
+          },
+        ],
+        config: {
+          temperature: 0,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          responseMimeType: 'application/json',
+          responseSchema: input.answer === 'invitation' ? INVITATION_SCHEMA : ANSWER_SCHEMA,
+          abortSignal: signal,
         },
-      ],
-      config: {
-        temperature: 0,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        responseMimeType: 'application/json',
-        responseSchema: ANSWER_SCHEMA,
-      },
-    });
+      });
+      onUsage?.(usageFromResponse(response));
 
-    return textFromResponse(response);
-  };
+      return textFromResponse(response);
+    });
 }

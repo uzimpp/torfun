@@ -57,7 +57,6 @@ export const torReportRoutes: FastifyPluginAsyncZod = async (app) => {
       const report = await app.torReportService.submit(
         request.params.projectId,
         request.user.user_id,
-        request.user.role,
         request.body,
       );
       return reply.code(201).send(toResponse(report));

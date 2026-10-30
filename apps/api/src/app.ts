@@ -11,8 +11,18 @@ import { registerGoogleOAuth } from './plugins/google-oauth';
 import {
   ProcurementRepository,
   type AgencyNameSource,
+  type IngestionStatsSource,
   type ProcurementDataSource,
 } from './repositories/procurement.repository';
+import {
+  IngestionRunRepository,
+  type IngestionRunStore,
+} from './repositories/ingestion-run.repository';
+import {
+  IngestionLeaseRepository,
+  type IngestionLeaseStore,
+} from './repositories/ingestion-lease.repository';
+import { ScheduleRepository, type ScheduleStore } from './repositories/schedule.repository';
 import { createDependencyProbes, DiagnosticsService } from './services/diagnostics.service';
 import {
   RefreshTokenRepository,
@@ -28,6 +38,9 @@ import { CompanyService } from './services/company.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
+import { ProcurementAdminService } from './services/procurement-admin.service';
+import { ScheduleService } from './services/schedule.service';
+import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
 import { TorReportRepository, type TorReportStore } from './repositories/tor-report.repository';
 import { TorReportService } from './services/tor-report.service';
@@ -56,6 +69,14 @@ export interface RepositoryOverrides {
   clients?: ClientStore;
   experiences?: ExperienceStore;
   procurements?: ProcurementDataSource;
+  /** The lock that keeps ingestion to one Run at a time, across processes. */
+  ingestionLease?: IngestionLeaseStore;
+  /** The log of finished Runs. */
+  ingestionRuns?: IngestionRunStore;
+  /** Stored history the operations view reads. */
+  ingestionStats?: IngestionStatsSource;
+  /** The setting for when Runs start on their own, and when the last one began. */
+  schedule?: ScheduleStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
   torReports?: TorReportStore;
@@ -100,8 +121,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   // Constructing a repository is offline — Mongo connects lazily on the first
   // query — so building the real ones costs nothing even when a substitute
   // replaces them.
-  const procurementRepository =
-    repositories.procurements ?? new ProcurementRepository(app.mongo.getDb);
+  const mongoProcurements = new ProcurementRepository(app.mongo.getDb);
+  const procurementRepository = repositories.procurements ?? mongoProcurements;
   const userRepository = repositories.users ?? new UserRepository(app.mongo.getDb);
   const refreshTokenRepository =
     repositories.refreshTokens ?? new RefreshTokenRepository(app.mongo.getDb);
@@ -109,7 +130,11 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const clientRepository = repositories.clients ?? new ClientRepository(app.mongo.getDb);
   const experienceRepository =
     repositories.experiences ?? new ExperienceRepository(app.mongo.getDb);
-  const torProcurementStore = repositories.procurements ?? procurementRepository;
+  const ingestionLease =
+    repositories.ingestionLease ?? new IngestionLeaseRepository(app.mongo.getDb);
+  const scheduleStore = repositories.schedule ?? new ScheduleRepository(app.mongo.getDb);
+  const ingestionRuns = repositories.ingestionRuns ?? new IngestionRunRepository(app.mongo.getDb);
+  const ingestionStats = repositories.ingestionStats ?? mongoProcurements;
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
   app.decorate(
@@ -126,8 +151,34 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     'experienceService',
     new ExperienceService(experienceRepository, clientRepository, userRepository),
   );
-  app.decorate('ingestionService', new IngestionService(procurementRepository, env, app.log));
-  const torService = new TorService(torProcurementStore);
+  const ingestionService = new IngestionService(procurementRepository, env, app.log, {
+    lease: ingestionLease,
+    runLog: scheduleStore,
+    runs: ingestionRuns,
+    stats: ingestionStats,
+  });
+  app.decorate('ingestionService', ingestionService);
+  app.decorate(
+    'procurementAdminService',
+    new ProcurementAdminService(
+      procurementRepository,
+      (input) => ingestionService.startRun(input),
+      app.log,
+    ),
+  );
+  app.decorate('scheduleService', new ScheduleService(scheduleStore));
+
+  // Built here, started by `server.ts`: a timer running behind every
+  // `buildApp()` would leak into each test that builds an app. Stopping on close
+  // is safe either way.
+  const schedulerService = new SchedulerService(
+    scheduleStore,
+    (input) => ingestionService.startRun(input),
+    app.log,
+  );
+  app.decorate('schedulerService', schedulerService);
+  app.addHook('onClose', async () => schedulerService.stop());
+  const torService = new TorService(procurementRepository);
   app.decorate('torService', torService);
   app.decorate(
     'torReportService',

@@ -53,7 +53,7 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
           <UserRound aria-hidden="true" />
         </span>
         <span className="hidden min-w-0 text-left sm:block">
-          <span className="block max-w-32 truncate text-sm font-semibold">{user.username}</span>
+          <span className="block max-w-32 truncate text-sm font-medium">{user.username}</span>
           <span className="text-muted-foreground block text-xs">{role}</span>
         </span>
         <ChevronDown aria-hidden="true" className="size-3" />

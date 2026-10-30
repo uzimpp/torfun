@@ -6,6 +6,7 @@ import {
   ProcurementSchema,
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
+import { audienceOf } from '../services/audience';
 
 export const torRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', requireAuth);
@@ -22,7 +23,7 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
       const { q, ...filters } = request.query;
       const { items, total } = await app.torService.list(
         { ...filters, query: q },
-        request.user.role === 'admin',
+        audienceOf(request.user.role),
       );
       return { items, total, limit: filters.limit, offset: filters.offset };
     },
@@ -39,7 +40,7 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       },
     },
-    async (request) => app.torService.get(request.params.projectId, request.user.role === 'admin'),
+    async (request) => app.torService.get(request.params.projectId, audienceOf(request.user.role)),
   );
 
   app.get(
@@ -53,7 +54,7 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
     async (request, reply) => {
       const source = await app.torService.source(
         request.params.projectId,
-        request.user.role === 'admin',
+        audienceOf(request.user.role),
       );
       const filename = source.filename.replace(/[\\"\r\n]/g, '_');
       return reply

@@ -11,19 +11,15 @@ import {
   Search,
   WifiOff,
 } from 'lucide-react';
-import type { Procurement } from '@torfun/types';
+import { currentDeadline, type Procurement } from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { ProcurementDeadline } from './procurement-deadline';
+import { ProcurementStatusBadge } from './procurement-status-badge';
 import { hasSearchCriteria, type SearchFilterValues } from './search-filter-values';
-import { ProcurementTiming } from './procurement-timing';
+import { DaysLeftBadge, ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
-
-const CLASS_LABELS: Record<NonNullable<Procurement['softwareClass']>, string> = {
-  new_build: 'พัฒนาระบบใหม่',
-  oandm: 'ดูแลและบำรุงรักษา',
-  not_software: 'ไม่ใช่งานซอฟต์แวร์',
-};
 
 const bahtFormat = new Intl.NumberFormat('th-TH', {
   style: 'currency',
@@ -153,7 +149,7 @@ function SearchPagination({
               className={cn(
                 'grid size-9 place-items-center rounded-full text-sm font-medium transition-colors',
                 item === page
-                  ? 'bg-primary text-primary-foreground font-semibold'
+                  ? 'bg-primary text-primary-foreground font-medium'
                   : 'text-foreground hover:bg-muted',
               )}
             >
@@ -186,26 +182,15 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
       className="group hover:bg-card -mx-4 px-4 py-6 transition-colors sm:-mx-6 sm:px-6"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
-          {item.softwareClass === null
-            ? 'ยังไม่มีผลคัดกรองชื่อโครงการ'
-            : CLASS_LABELS[item.softwareClass]}
-        </span>
-        {item.eBidding ? (
-          <span className="text-muted-foreground border-border rounded-full border px-2.5 py-1 text-xs">
-            e-bidding
-          </span>
-        ) : (
-          <span className="text-muted-foreground text-xs">
-            {item.purchaseMethodName ?? 'ยังไม่ทราบวิธีจัดหา'}
-          </span>
-        )}
+        <DaysLeftBadge item={item} today={today} />
+        <ProcurementStatusBadge status={item.timeline.status} />
         <span data-numeric className="text-muted-foreground font-mono text-xs">
-          ปีงบประมาณ {item.year}
+          ปีงบประมาณ {item.budgetYear ?? '—'}
         </span>
+        <ProcurementDeadline deadline={currentDeadline(item)} status={item.timeline.status} />
       </div>
 
-      <ProcurementTiming item={item} today={today} />
+      <ProcurementTiming item={item} />
 
       <h3 className="mt-3 text-lg font-medium text-balance">
         <Link

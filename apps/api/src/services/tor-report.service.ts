@@ -3,12 +3,12 @@ import {
   type CreateTorReport,
   type ReviewTorReport,
   type TorReportFilter,
-  type UserRole,
 } from '@torfun/types';
 import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../core/errors';
 import type { TorReportStore } from '../repositories/tor-report.repository';
 import type { UserStore } from '../repositories/user.repository';
 import type { TorService } from './tor.service';
+import { audienceOf } from './audience';
 
 export class TorReportService {
   constructor(
@@ -17,10 +17,10 @@ export class TorReportService {
     private readonly users: Pick<UserStore, 'findById'>,
   ) {}
 
-  async submit(projectId: string, reporterId: string, role: UserRole, input: CreateTorReport) {
+  async submit(projectId: string, reporterId: string, input: CreateTorReport) {
     const reporter = await this.users.findById(reporterId);
     if (!reporter?.isActive) throw new UnauthorizedError();
-    const tor = await this.tors.get(projectId, role === 'admin');
+    const tor = await this.tors.get(projectId, audienceOf(reporter.role));
     if (tor.publicationRemovedAt) throw new ConflictError('TOR นี้ถูกนำออกจากการเผยแพร่แล้ว');
     const report = await this.reports.create({
       projectId: tor.projectId,

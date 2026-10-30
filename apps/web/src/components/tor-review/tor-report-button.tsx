@@ -87,7 +87,7 @@ export function TorReportButton({ projectId }: { projectId: string }) {
         aria-labelledby={`${id}-title`}
         aria-describedby={`${id}-description`}
         onCancel={(event) => event.preventDefault()}
-        className="bg-popover text-popover-foreground fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border p-6 shadow-xl backdrop:bg-black/50"
+        className="bg-popover text-popover-foreground fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto overscroll-contain rounded-2xl border p-6 shadow-xl backdrop:overflow-hidden backdrop:overscroll-contain backdrop:bg-black/50"
       >
         <div className="flex items-start justify-between gap-4">
           <h2 id={`${id}-title`} className="text-xl font-semibold">

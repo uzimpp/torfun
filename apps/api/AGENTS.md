@@ -77,13 +77,88 @@ the `mongosh` invocation in a header comment.
 `services/egp/` is the upstream adapter. A run is started, not awaited — a pass
 takes minutes, and progress is observed through the state the admin UI polls.
 
-Three behaviours in `pipeline.ts` are load-bearing:
+Three behaviours of a Run (`pipeline.ts` and the modules it wires, listed in its
+header) are load-bearing:
 
 - **A rate-limit response aborts the run.** The right answer to a site saying stop
-  is to stop, leaving the rest Queued.
+  is to stop, leaving the rest Queued. Archives already downloaded are still
+  analysed and stored; nothing further is asked of the site.
 - **Every other failure is recorded and the pass continues**, into the
-  admin-visible log.
+  admin-visible log. The one other stop is a site that no longer answers (below).
 - **Path-traversal members in an archive are surfaced, never dropped.**
+
+Discovery (`services/egp/discovery.ts`) reads the announcement feed
+(`announcement-feed.ts`, the RSS on `https://process.gprocurement.go.th`) for
+each `FEED_REGISTRY` agency × {B0, D0}, one day per request. The Feed Cursor (a
+contiguous range of fully-read days per agency and type, in the ingestion meta
+collection) decides what to ask: first
+the days after each range up to today (today is re-read and never recorded), then
+history newest-first, at most `FEED_BACKFILL_REQUESTS_PER_RUN` requests, back
+`FEED_HISTORY_DAYS`; only feed requests count toward that share. A project is
+stored from the feed alone, with `budgetYear`, `typeId`, `goodsId` and
+`deptSubName` null: they come from its project detail
+(`AnnouncementClient.projectDetail`, the getProjectDetail endpoint), which
+Retrieval reads in the record's own gate turn (ADR-0020). Until then the year is
+null, never guessed. Each agency-day is saved as soon as it is read, and its new
+projects join Retrieval's queue at once. Every Run reads the new days; the cursor
+covers exactly the days read in full, even when the sweep is cut short. The open-data
+client is kept for a future winner lookup and is not used for discovery. Never
+call the process5 search endpoints: they sit behind Cloudflare Turnstile
+(ADR-0018).
+
+A Run has three stages side by side (ADR-0020): Discovery, one Retrieval worker
+taking one project at a time, and Analysis, one task per downloaded Archive. The
+upstream site is reached through one gate (`services/egp/site-gate.ts`), shared
+by Discovery and Retrieval: one request in flight, a pause after each, and when
+it frees the next turn goes to the best tier waiting: new days, then fresh
+(never read), then refresh, then history. Do not call the site from anywhere
+that bypasses the gate.
+
+Analysis never touches the site, so it is the only work that overlaps the gate.
+`ANALYSIS_CONCURRENCY` (default 8) bounds model calls in flight across the whole
+Run, and the waiting room, the Archives held in memory waiting for or under
+Analysis, has as many places. A fresh project takes a place before its turn; a
+refresh whose invitation moved takes one only if one is free, else it goes to
+the back of the queue. While the room is full the gate keeps serving Discovery
+and refreshes.
+
+How a Run stops: a refusal (429/403) latches the gate; `SITE_UNREACHABLE_AFTER`
+requests in a row with no answer, Discovery's and Retrieval's counted together,
+close it; so does a single lookup answered with a web page in place of data (the
+notice e-GP puts up while closed, `SiteUnavailableError`), an administrator's
+stop or a lost lease. Either way no further
+request is made and nothing new is taken from the queue; projects not taken
+are left as they were, with no attempt spent. Analysis finishes the Archives it holds and stores
+them. Otherwise the Run ends once Discovery is done, the queue is empty and every
+Analysis has settled. A record's deadline (`recordDeadlineMs`) covers its gate
+turn; its Analysis has a deadline of the same length.
+
+Per candidate the turn is one gate hold: the project detail first while
+`detailCheckedAt` is null (every new record), then the announcement timeline
+(`AnnouncementClient`, the greenBook endpoint), the archive lookup and the
+download. A failed detail is logged and the record carries on with the year it
+has, null for a new one; the next Run asks again. A refusal on it stops the Run
+like any other. The pipeline works the never-read projects first, then the already-read
+ones that are not `contracted`, oldest `timelineCheckedAt` first. A timeline that
+changed nothing costs no archive or model call; one whose invitation date moved
+re-reads the invitation alone. `data: null` means the site had none to give, never
+"no announcements", and leaves the project as it was. Status comes only from
+`milestones` through `statusFromMilestones`; nothing a model says sets it.
+
+What the model's verdict may do is decided in `services/egp/decision.ts`: only a
+confident, whole-document answer shows a record to officers or drops it (leaving a
+tombstone); everything else is held (`needs_review`) for an administrator.
+
+An administrator's overrides (approve a held record, mark non-software, delete with
+or without a tombstone, remove or restore a tombstone) live in
+`services/procurement-admin.service.ts`, not in `IngestionService`, and sit outside
+the audience rule. Restoring is a Run like any other, asked for through
+`startRun({ onlyProject, beforeRun })`, which retrieves that one project. In
+`beforeRun`, once the lease is held, the tombstone is lifted and the record
+rebuilt from the feed snapshot the tombstone keeps (`feed-record.ts`). A one-project
+Run skips Discovery, so a tombstone written before snapshots has nothing to
+rebuild from: the project comes back only if a later Run's days include it, and
+the restore says so in the failure log.
 
 All `/api/ingestion/*` routes are admin-only, enforced once for the plugin scope.
 

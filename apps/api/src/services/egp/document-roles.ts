@@ -16,7 +16,7 @@ export interface ClassifiedDocument {
   filename: string;
   bytes: number;
   /** What the filename heuristic thought. Provenance and tie-breaker only. */
-  namePattern: 'canonical' | 'loose';
+  namePattern: 'canonical' | 'loose' | 'unlabelled';
   isTor: boolean;
   /** `final` where the document presents itself as the issued TOR, `draft` for a ร่าง. */
   torKind: 'final' | 'draft' | null;
@@ -24,6 +24,9 @@ export interface ClassifiedDocument {
   whatThisIs: string;
   /** Set when the document could not be read at all; the reason why. */
   unreadable?: string;
+  /** How the model was given the document; see `ArchiveDocument.readMode`. */
+  readMode?: 'pdf' | 'text' | 'first_pages';
+  readNote?: string;
 }
 
 export interface RoleAssignment {
@@ -75,6 +78,10 @@ export function assignDocumentRoles(candidates: ClassifiedDocument[]): RoleAssig
     namePattern: document.namePattern,
     role: roleFor(document, main),
     note: noteFor(document, main),
+    // Only when present: the driver stores an undefined property as null, which
+    // the manifest schema then refuses on the way back out.
+    ...(document.readMode ? { readMode: document.readMode } : {}),
+    ...(document.readNote ? { readNote: document.readNote } : {}),
   }));
 
   return {
@@ -82,4 +89,20 @@ export function assignDocumentRoles(candidates: ClassifiedDocument[]): RoleAssig
     mainTor: documents.find((d) => d.role === 'main_tor') ?? null,
     ambiguous: contenders.length > 1,
   };
+}
+
+/**
+ * The role an archive member has by its filename alone, for the two documents
+ * e-GP names by convention and which are read only for the bid deadline: the
+ * invitation (`annoudoc_<n>_<projectId>.pdf`) and the bidding document
+ * (`doc_<n>_<projectId>.pdf`). Another project's file is not ours.
+ */
+export function invitationRoleOf(
+  member: string,
+  projectId: string,
+): 'invitation' | 'bidding_document' | null {
+  const name = member.replace(/\\/g, '/').split('/').pop() ?? member;
+  const match = /^(annoudoc|doc)_\d+_(\d+)\.pdf$/i.exec(name);
+  if (!match || match[2] !== projectId) return null;
+  return match[1]!.toLowerCase() === 'annoudoc' ? 'invitation' : 'bidding_document';
 }

@@ -37,7 +37,7 @@ export function ValueSection() {
           <h2
             id="value-heading"
             data-rise="1"
-            className="mt-4 text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
+            className="mt-4 text-2xl font-medium tracking-tight text-balance sm:text-3xl"
           >
             ลดเวลาค้นหา
             <br />

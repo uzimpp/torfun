@@ -29,7 +29,7 @@ export function LimitsSection({ signedIn = false }: { signedIn?: boolean }) {
           <h2
             id="limits-heading"
             data-rise="1"
-            className="mt-4 text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
+            className="mt-4 text-2xl font-medium tracking-tight text-balance sm:text-3xl"
           >
             รู้ว่าระบบครอบคลุมแค่ไหน ก่อนใช้ตัดสินใจ
           </h2>
@@ -66,7 +66,7 @@ export function LimitsSection({ signedIn = false }: { signedIn?: boolean }) {
           data-rise="1"
           className="bg-card shadow-soft flex h-fit flex-col rounded-3xl border p-8 lg:sticky lg:top-28"
         >
-          <h3 className="text-2xl font-semibold tracking-tight">เริ่มต้นกับ Torfun</h3>
+          <h3 className="text-2xl font-medium tracking-tight">เริ่มต้นกับ Torfun</h3>
           <p className="text-muted-foreground mt-3">
             {signedIn
               ? 'กลับไปยังพื้นที่ทำงานของคุณเพื่อดูประกาศที่คัดกรองไว้'

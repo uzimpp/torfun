@@ -63,9 +63,10 @@ export function convertDateToISO(value: string | null | undefined): string | nul
   const text = value?.trim();
   if (!text) return null;
 
-  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})?)?$/.exec(
-    text,
-  );
+  const iso =
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})?)?$/.exec(
+      text,
+    );
   if (iso) {
     const day = toDay(toGregorianYear(Number(iso[1]), 4), Number(iso[2]), Number(iso[3]));
     if (!day) return null;
@@ -83,4 +84,16 @@ export function convertDateToISO(value: string | null | undefined): string | nul
   }
 
   return null;
+}
+
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/**
+ * The Bangkok calendar day of an instant e-GP reports in UTC, kept as midnight
+ * UTC like every other day-only date here; null if there is none or it is unreadable.
+ */
+export function convertTimelineDate(value: string | null | undefined): string | null {
+  const instant = value ? Date.parse(value) : Number.NaN;
+  if (Number.isNaN(instant)) return null;
+  return `${new Date(instant + BANGKOK_OFFSET_MS).toISOString().slice(0, 10)}${MIDNIGHT_UTC}`;
 }

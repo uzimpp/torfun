@@ -27,7 +27,7 @@ function ReviewState({ title, retry = false }: { title: string; retry?: boolean 
   return (
     <main className="page-fill mx-auto flex w-full max-w-3xl flex-col items-center justify-center px-5 py-16 text-center sm:px-8">
       <AlertCircle aria-hidden="true" className="text-destructive size-8" />
-      <h1 className="mt-5 text-2xl font-semibold">{title}</h1>
+      <h1 className="mt-5 text-2xl font-medium">{title}</h1>
       {retry && (
         <Button type="button" className="mt-6" onClick={() => window.location.reload()}>
           ลองใหม่

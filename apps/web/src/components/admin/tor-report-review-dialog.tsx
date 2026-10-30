@@ -24,6 +24,7 @@ export function TorReportReviewDialog({
   onConfirm: (input: ReviewTorReport) => Promise<void>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   const busy = useRef(false);
   const id = useId();
   const [note, setNote] = useState('');
@@ -35,6 +36,7 @@ export function TorReportReviewDialog({
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
+    cancelButton.current?.focus();
     return () => dialog?.close();
   }, []);
 
@@ -81,7 +83,7 @@ export function TorReportReviewDialog({
         if (busy.current) event.preventDefault();
         else onCancel();
       }}
-      className="bg-popover text-popover-foreground fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border p-6 shadow-xl backdrop:bg-black/50"
+      className="bg-popover text-popover-foreground fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto overscroll-contain rounded-2xl border p-6 shadow-xl backdrop:overflow-hidden backdrop:overscroll-contain backdrop:bg-black/50"
     >
       <h2 id={`${id}-title`} className="text-xl font-semibold">
         {removing ? 'ยืนยันนำ TOR ออกจากการเผยแพร่' : 'ยืนยันปิดรายงาน'}
@@ -119,7 +121,13 @@ export function TorReportReviewDialog({
           </p>
         )}
         <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-          <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>
+          <Button
+            ref={cancelButton}
+            type="button"
+            variant="outline"
+            disabled={pending}
+            onClick={onCancel}
+          >
             ยกเลิก
           </Button>
           <Button

@@ -1,31 +1,34 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { Procurement } from '@torfun/types';
+import {
+  currentDeadline,
+  type CurrentDeadline,
+  type Procurement,
+  type ProcurementStatus,
+} from '@torfun/types';
 import { ApiError, fetchTor } from '@/lib/api';
 
 export type TorReviewData = {
   projectId: string;
-  publicationRemovedAt?: string | null;
   title: string;
   agency: string;
-  location: string | null;
   budget: number | null;
-  status: string;
+  status: ProcurementStatus;
   technologies: string[];
   summary: string | null;
   objectives: string[];
   scope: string[];
   bidderQualifications: string[];
   announcementDate: string | null;
-  submissionDeadline: string | null;
+  deadline: CurrentDeadline | null;
   procurementMethod: string | null;
-  fiscalYear: number;
+  budgetYear: number | null;
   referencePrice: number | null;
   durationDays: number | null;
   platforms: string[];
-  confidence: 'high' | 'low' | null;
   matchScore: number | null;
+  publicationRemovedAt?: string | null;
 };
 
 export interface TorReviewState {
@@ -36,44 +39,28 @@ export interface TorReviewState {
   error: string | null;
 }
 
-const STATUS_LABELS: Record<Procurement['status'], string> = {
-  drafting_tor: 'จัดทำ TOR',
-  requisition: 'รายงานขอซื้อขอจ้าง',
-  invitation: 'เปิดรับข้อเสนอ',
-  award_announced: 'ประกาศผลผู้ชนะ',
-  contracted: 'จัดทำสัญญา/บริหารสัญญา',
-  cancelled: 'ยกเลิกโครงการ',
-  unknown: 'สถานะไม่ทราบ',
-  drafting: 'จัดทำเอกสารก่อนประกาศเชิญชวน',
-};
-
 function toReviewData(procurement: Procurement): TorReviewData {
   const analysis = procurement.analysis;
-  const location = [procurement.subdistrict, procurement.district, procurement.province]
-    .filter((part): part is string => Boolean(part))
-    .join(', ');
   return {
     projectId: procurement.projectId,
-    publicationRemovedAt: procurement.publicationRemovedAt ?? null,
     title: procurement.projectName,
     agency: procurement.deptName,
-    location: location || null,
     budget: procurement.projectMoney,
-    status: STATUS_LABELS[procurement.status],
+    status: procurement.timeline.status,
     technologies: analysis?.techStack ?? [],
     summary: analysis?.summary ?? null,
     objectives: [],
     scope: analysis?.scopeOfWork ?? [],
     bidderQualifications: analysis?.requiredQualifications ?? [],
     announcementDate: procurement.announceDate,
-    submissionDeadline: analysis?.deadlineAt ?? null,
+    deadline: currentDeadline(procurement),
     procurementMethod: procurement.purchaseMethodName,
-    fiscalYear: procurement.year,
+    budgetYear: procurement.budgetYear,
     referencePrice: procurement.priceBuild,
     durationDays: analysis?.durationDays ?? null,
     platforms: analysis?.targetPlatforms ?? [],
-    confidence: analysis?.confidence ?? null,
     matchScore: null,
+    publicationRemovedAt: procurement.publicationRemovedAt,
   };
 }
 

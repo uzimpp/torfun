@@ -97,6 +97,7 @@ test('review requires confirmation and cancelling makes no API call', async () =
     'เจ้าหน้าที่พัฒนาธุรกิจจะเปิดหรือดาวน์โหลดไม่ได้',
   );
   expect(reviewTorReport).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'ยกเลิก' })).toHaveFocus();
   await user.click(screen.getByRole('button', { name: 'ยกเลิก' }));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(reviewTorReport).not.toHaveBeenCalled();
