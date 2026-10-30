@@ -8,6 +8,7 @@
       "dependsOn": ["^build"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"],
       "env": [
+        "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
         "EGP_*",
         "GOOGLE_*",
@@ -15,6 +16,7 @@
         "INTERNAL_API_URL",
         "JWT_SECRET",
         "LOG_LEVEL",
+        "MONGODB_DB",
         "MONGODB_URI",
         "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
@@ -41,6 +43,7 @@
     "test": {
       "dependsOn": ["^build"],
       "env": [
+        "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
         "EGP_*",
         "GOOGLE_*",
@@ -48,8 +51,9 @@
         "INTERNAL_API_URL",
         "JWT_SECRET",
         "LOG_LEVEL",
-        "MONGODB_URI",
+        "MONGODB_DB",
         "MONGODB_TEST_URI",
+        "MONGODB_URI",
         "NEXT_PUBLIC_*",
         "PORT",
         "VERTEX_AI_MODEL",
@@ -63,6 +67,7 @@
       "dependsOn": ["build"],
       "outputs": ["playwright-report/**"],
       "env": [
+        "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
         "EGP_*",
         "GOOGLE_*",
@@ -70,6 +75,7 @@
         "INTERNAL_API_URL",
         "JWT_SECRET",
         "LOG_LEVEL",
+        "MONGODB_DB",
         "MONGODB_URI",
         "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",

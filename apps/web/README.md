@@ -65,4 +65,5 @@ role is an API change, not a UI one.
 BD officers use `/notifications` for their inbox and event/channel preferences.
 `/notifications/link-line` confirms the standard LINE account-link flow.
 Administrators use `/admin/notifications` for delivery failures and retries.
-See [setup and notification policy](../../docs/notifications.md).
+See the [API notification configuration](../api/README.md#notifications) for channel
+setup and the production worker.

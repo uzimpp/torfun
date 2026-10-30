@@ -8,6 +8,7 @@ import { ExperienceRepository } from '../repositories/experience.repository';
 import { ProcurementRepository } from '../repositories/procurement.repository';
 import { NotificationRepository } from '../repositories/notification.repository';
 import { NotificationContactRepository } from '../repositories/notification-contact.repository';
+import type { LineFlexMessage } from '../services/notifications/line-template';
 import { DeliveryError } from '../services/notifications/email';
 import {
   observationId,
@@ -32,8 +33,8 @@ let experiences: ExperienceRepository;
 let officer: User;
 let other: User;
 let administrator: User;
-const sent: { to: string; subject: string; text: string; id: string }[] = [];
-const pushes: { to: string; text: string; retryKey: string }[] = [];
+const sent: { to: string; subject: string; text: string; id: string; html?: string }[] = [];
+const pushes: { to: string; text: string; retryKey: string; flex?: LineFlexMessage }[] = [];
 let emailFails = false;
 let lineFails = false;
 const lineUser = `U${'1'.repeat(32)}`;
@@ -189,15 +190,15 @@ beforeEach(async () => {
       notifications: store,
       notificationContacts: contacts,
       emailSender: {
-        async send(to, subject, text, id) {
+        async send(to, subject, text, id, html) {
           if (emailFails) throw new DeliveryError('SMTP temporary rejection', false);
-          sent.push({ to, subject, text, id });
+          sent.push({ to, subject, text, id, html });
         },
       },
       lineSender: {
-        async push(to, text, retryKey) {
+        async push(to, text, retryKey, flex) {
           if (lineFails) throw new DeliveryError('LINE temporary rejection', false);
-          pushes.push({ to, text, retryKey });
+          pushes.push({ to, text, retryKey, flex });
         },
         async linkToken() {
           return 'platform-token';
@@ -267,29 +268,57 @@ describe('notifications over HTTP and Mongo', () => {
     ).toBe(200);
     expect((await inbox()).total).toBe(0);
   });
+  test('bulk discovery journals changes atomically and unchanged refreshes do not flood the journal', async () => {
+    const tor = notificationTor();
+    await source.upsertMany([tor]);
+    const journal = db.collection('notification_procurement_changes');
+    expect(await journal.countDocuments()).toBe(1);
+    await source.upsertMany([tor]);
+    await source.amend(
+      tor.projectId,
+      { timeline: { ...tor.timeline, lastReadAt: new Date().toISOString() } },
+      false,
+    );
+    expect(await journal.countDocuments()).toBe(1);
+    await app.notificationWorkerService.run();
+    expect((await inbox()).total).toBe(1);
+  });
+  test('explicit admin approval and the official bid deadline govern new matches', async () => {
+    const tor = notificationTor({
+      approved: { by: 'administrator', at: new Date().toISOString() },
+    });
+    tor.archive!.torAmbiguous = true;
+    tor.timeline.deadlineAt = '2020-01-01';
+    await source.upsert(tor);
+    await app.notificationWorkerService.run();
+    expect((await inbox()).total).toBe(0);
+    await source.amend(
+      tor.projectId,
+      { timeline: { ...tor.timeline, deadlineAt: '2030-12-31' } },
+      true,
+    );
+    await app.notificationWorkerService.run();
+    expect((await inbox()).total).toBe(1);
+  });
   test('status changes alert once rather than on each ingestion pass', async () => {
     const tor = notificationTor();
     await source.upsert(tor);
     await app.notificationWorkerService.run();
-    await source.upsert({
-      ...tor,
-      status: 'cancelled',
-      updatedAt: new Date(Date.now() + 1).toISOString(),
-    });
+    await source.amend(tor.projectId, { timeline: { ...tor.timeline, status: 'cancelled' } }, true);
     await app.notificationWorkerService.run();
     await app.notificationWorkerService.run();
     const result = await inbox();
     expect(result.total).toBe(2);
     const change = result.items.find((item: { event: string }) => item.event === 'status_changed');
-    expect(change.previous_status).toBe('invitation');
+    expect(change.previous_status).toBe('open');
     expect(change.status).toBe('cancelled');
   });
   test('failed, non-ebidding, ambiguous, expired and awarded evidence does not alert', async () => {
     const patches = [
       { outcome: 'analysis_failed' as const },
-      { eBidding: false },
-      { status: 'contracted' as const },
-      { torAmbiguous: true },
+      { outcome: 'out_of_scope' as const },
+      { timeline: { ...notificationTor().timeline, status: 'contracted' as const } },
+      { archive: { ...notificationTor().archive!, torAmbiguous: true } },
     ];
     for (const [index, patch] of patches.entries())
       await source.upsert(notificationTor({ projectId: String(index), ...patch }));
@@ -319,6 +348,7 @@ describe('notifications over HTTP and Mongo', () => {
     expect((await inbox()).total).toBe(0);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toContain('/tor/69100000001');
+    expect(sent[0]!.html).toContain('เปิดรายละเอียด TOR');
     await request(officer, 'PUT', '/api/notifications/settings', preferences('email'));
     emailFails = true;
     await source.upsert(notificationTor({ projectId: '69100000002' }));
@@ -388,6 +418,7 @@ describe('notifications over HTTP and Mongo', () => {
     expect(pushes).toHaveLength(1);
     expect(pushes[0]!.to).toBe(lineUser);
     expect(pushes[0]!.text).toContain('/tor/69100000001');
+    expect(pushes[0]!.flex?.type).toBe('flex');
     expect((await inbox()).total).toBe(1);
   });
   test('forged signatures and duplicate webhooks cannot replay account linking', async () => {
@@ -472,7 +503,7 @@ describe('notifications over HTTP and Mongo', () => {
       companyId: officer.companyId!,
       projectId: tor.projectId,
       projectName: tor.projectName,
-      status: tor.status,
+      status: tor.timeline.status,
       deadlineAt: tor.analysis!.deadlineAt,
       match,
       qualifies: true,
@@ -499,7 +530,7 @@ describe('notifications over HTTP and Mongo', () => {
       companyId: officer.companyId!,
       projectId: tor.projectId,
       projectName: tor.projectName,
-      status: tor.status,
+      status: tor.timeline.status,
       deadlineAt: tor.analysis!.deadlineAt,
       match: (await app.notificationService.match(officer.id, tor.projectId))!,
       qualifies: true,
@@ -546,7 +577,7 @@ describe('notifications over HTTP and Mongo', () => {
         companyId: officer.companyId!,
         projectId: tor.projectId,
         projectName: tor.projectName,
-        status: tor.status,
+        status: tor.timeline.status,
         deadlineAt: tor.analysis!.deadlineAt,
         match: (await app.notificationService.match(officer.id, tor.projectId))!,
         qualifies: true,

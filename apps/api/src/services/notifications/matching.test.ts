@@ -44,15 +44,15 @@ describe('notification matching policy', () => {
   test('open matches exclude hidden, ambiguous, failed and closed evidence', () => {
     const now = new Date('2026-10-26T12:00:00Z');
     for (const patch of [
-      { status: 'contracted' as const },
+      { timeline: { ...notificationTor().timeline, status: 'contracted' as const } },
       { publicationRemovedAt: now.toISOString() },
-      { eBidding: false },
-      { torAmbiguous: true },
+      { outcome: 'out_of_scope' as const },
+      { archive: { ...notificationTor().archive!, torAmbiguous: true } },
       { outcome: 'analysis_failed' as const },
     ])
       expect(openForMatch(notificationTor(patch), now)).toBe(false);
     const tor = notificationTor();
-    tor.analysis!.isSoftwareProject = false;
+    tor.outcome = 'needs_review';
     expect(visibleForNotification(tor)).toBe(false);
   });
   test('date-only deadlines are inclusive in Bangkok, and invalid dates are not guessed', () => {

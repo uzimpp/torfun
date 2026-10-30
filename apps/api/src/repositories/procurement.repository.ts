@@ -1,52 +1,63 @@
-import { ObjectId, type Collection, type Db } from 'mongodb';
+import { ObjectId, type AnyBulkWriteOperation, type Collection, type Db } from 'mongodb';
 import type {
   ArchiveDocument,
+  DailyDiscovered,
+  DailyThroughput,
+  HoldReason,
   IngestionFailure,
   IngestionOutcome,
   IngestionState,
+  IngestionStats,
   IngestionSummary,
   Procurement,
   ProcurementStatus,
-  SoftwareClass,
+  Stages,
   StatusChange,
   TargetPlatform,
   TorAnalysis,
-  Winner,
+  Tombstone,
+  TombstoneReason,
 } from '@torfun/types';
+import { appendStatusChange, currentDeadline, OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
+import { hashSource, hasUpstreamChange } from './source-hash';
+import { INGESTION_META_COLLECTION } from './ingestion-meta';
 
 /**
  * Data access for ingested procurement records.
  *
  * This layer owns the only mapping between the stored documents and the
  * `Procurement` defined in `@torfun/types`. Nothing above it sees a snake_case
- * field or the derived `biddability_rank` that makes the queue's ordering
- * indexable.
+ * field.
  *
  * The store is filled only by an ingestion run — nothing is seeded — so what an
  * administrator sees is only ever what the pipeline actually retrieved.
  */
 
 /**
- * How worth retrieving a stage makes a project, lowest first.
+ * Values this system stored before the status and outcome vocabulary changed.
  *
- * `unknown` deliberately outranks the dead stages: it means upstream said
- * something this system does not recognise, which might still be an open
- * tender. Guessing it dead would hide real work.
+ * Read as their new equivalents so a record written before the migration ran
+ * (`docs/migrations/2026-09-30-status-outcome-vocabulary.js`) is served rather
+ * than failing the whole response it appears in — the API validates every
+ * response against the schema, so one stale value would 500 a page or the
+ * summary. The migration rewrites them for good; this only covers the gap
+ * between deploying the code and running it.
  */
-const BIDDABILITY_ORDER: ProcurementStatus[] = [
-  'invitation',
-  'drafting_tor',
-  'requisition',
-  'unknown',
-  'award_announced',
-  'contracted',
-  'cancelled',
-];
+const LEGACY_OUTCOMES: Record<string, IngestionOutcome> = { processing: 'downloading' };
+const LEGACY_STATUSES: Record<string, ProcurementStatus> = {
+  drafting_tor: 'drafting',
+  requisition: 'drafting',
+  invitation: 'open',
+  award_announced: 'awarded',
+};
 
-function biddabilityRank(status: ProcurementStatus): number {
-  const rank = BIDDABILITY_ORDER.indexOf(status);
-  return rank === -1 ? BIDDABILITY_ORDER.indexOf('unknown') : rank;
+function outcomeFromStored(stored: string): IngestionOutcome {
+  return LEGACY_OUTCOMES[stored] ?? (stored as IngestionOutcome);
+}
+
+function statusFromStored(stored: string): ProcurementStatus {
+  return LEGACY_STATUSES[stored] ?? (stored as ProcurementStatus);
 }
 
 /**
@@ -58,74 +69,103 @@ interface ProcurementDocument {
   project_name: string;
   dept_name: string;
   dept_sub_name: string | null;
-  province?: string | null;
-  district?: string | null;
-  subdistrict?: string | null;
-  registry_name: string;
   dept_code: string;
-  year: number;
   announce_date: string | null;
-  project_type_name: string | null;
   purchase_method_name: string | null;
+  discovered_at: string;
+  budget_year: number | null;
+  /** Absent on records written before the project detail was read. */
+  type_id?: string | null;
+  goods_id?: string | null;
   project_money: number | null;
   price_build: number | null;
-  status: ProcurementStatus;
-  /** Derived from `status` on every write, purely so the queue's sort is indexable. */
-  biddability_rank: number;
-  matched_keywords: string[];
-  software_class: SoftwareClass;
-  software_score: number;
-  e_bidding: boolean;
+  detail_read_at: string | null;
+  timeline: TimelineDocument;
   state: IngestionState;
   outcome: IngestionOutcome;
+  /** Absent on records written before retries were counted. */
+  attempts?: number;
+  /** Why the record is held for review; absent unless its outcome is `needs_review`. */
+  hold_reason?: HoldReason | null;
   status_history: StatusChange[];
-  zip_id: string | null;
-  zip_bytes: number | null;
-  archive_member_count: number | null;
-  documents: ArchiveDocument[];
+  approved: { by: string; at: string } | null;
+  archive: ArchiveRecordDocument | null;
   analysis: TorAnalysis | null;
-  winner: Winner | null;
-  tor_ambiguous: boolean;
-  discovered_at: string;
+  /** The feed's fingerprint (`hashSource`); absent on records written before sweeps were fingerprinted. */
+  source_hash?: string | null;
+  /** `currentDeadline` as of the last write, for search and ordering; not part of the domain. */
+  deadline_at: string | null;
   updated_at: string;
   publication_removed_at?: string | null;
 }
 
+interface TimelineDocument {
+  status: ProcurementStatus;
+  last_read_at: string | null;
+  comments_close_at: string | null;
+  deadline_at: string | null;
+  stages: Stages;
+}
+
+interface ArchiveRecordDocument {
+  zip_id: string;
+  documents: ArchiveDocument[];
+  tor_ambiguous: boolean;
+}
+
+/**
+ * A hold reason only means something while a record is held, so it is derived
+ * from the outcome the way `state` is: set by the transition into
+ * `needs_review`, and cleared by any transition out of it.
+ */
+export function holdReasonFor(
+  outcome: IngestionOutcome,
+  patch: Partial<Procurement>,
+): HoldReason | null {
+  return outcome === 'needs_review' ? (patch.holdReason ?? null) : null;
+}
+
 function toDomain(document: ProcurementDocument): Procurement {
+  const { timeline, archive } = document;
   return {
     projectId: document._id,
     projectName: document.project_name,
     deptName: document.dept_name,
     deptSubName: document.dept_sub_name,
-    // Older records predate location ingestion. Unknown is represented as
-    // null until a real discovery run refreshes the upstream-owned fields.
-    province: document.province ?? null,
-    district: document.district ?? null,
-    subdistrict: document.subdistrict ?? null,
-    registryName: document.registry_name,
     deptCode: document.dept_code,
-    year: document.year,
     announceDate: document.announce_date,
-    projectTypeName: document.project_type_name,
     purchaseMethodName: document.purchase_method_name,
+    discoveredAt: document.discovered_at,
+    budgetYear: document.budget_year,
+    typeId: document.type_id ?? null,
+    goodsId: document.goods_id ?? null,
     projectMoney: document.project_money,
     priceBuild: document.price_build,
-    status: document.status,
-    matchedKeywords: document.matched_keywords,
-    softwareClass: document.software_class,
-    softwareScore: document.software_score,
-    eBidding: document.e_bidding,
+    detailReadAt: document.detail_read_at,
+    timeline: {
+      status: statusFromStored(timeline.status),
+      lastReadAt: timeline.last_read_at,
+      commentsCloseAt: timeline.comments_close_at,
+      deadlineAt: timeline.deadline_at,
+      stages: timeline.stages,
+    },
     state: document.state,
-    outcome: document.outcome,
-    statusHistory: document.status_history,
-    zipId: document.zip_id,
-    zipBytes: document.zip_bytes,
-    archiveMemberCount: document.archive_member_count,
-    documents: document.documents,
+    outcome: outcomeFromStored(document.outcome),
+    attempts: document.attempts ?? 0,
+    holdReason: document.hold_reason ?? null,
+    statusHistory: document.status_history.map((entry) => ({
+      ...entry,
+      outcome: outcomeFromStored(entry.outcome),
+    })),
+    approved: document.approved,
+    archive: archive
+      ? {
+          zipId: archive.zip_id,
+          documents: archive.documents,
+          torAmbiguous: archive.tor_ambiguous,
+        }
+      : null,
     analysis: document.analysis,
-    winner: document.winner,
-    torAmbiguous: document.tor_ambiguous,
-    discoveredAt: document.discovered_at,
     updatedAt: document.updated_at,
     ...(document.publication_removed_at !== undefined
       ? { publicationRemovedAt: document.publication_removed_at }
@@ -133,56 +173,74 @@ function toDomain(document: ProcurementDocument): Procurement {
   };
 }
 
-function toDocument(record: Procurement): ProcurementDocument {
+function toDocument(record: Procurement, sourceHash: string | null): ProcurementDocument {
+  const { timeline, archive } = record;
   return {
     _id: record.projectId,
     project_name: record.projectName,
     dept_name: record.deptName,
     dept_sub_name: record.deptSubName,
-    province: record.province,
-    district: record.district,
-    subdistrict: record.subdistrict,
-    registry_name: record.registryName,
     dept_code: record.deptCode,
-    year: record.year,
     announce_date: record.announceDate,
-    project_type_name: record.projectTypeName,
     purchase_method_name: record.purchaseMethodName,
+    discovered_at: record.discoveredAt,
+    budget_year: record.budgetYear,
+    type_id: record.typeId,
+    goods_id: record.goodsId,
     project_money: record.projectMoney,
     price_build: record.priceBuild,
-    status: record.status,
-    biddability_rank: biddabilityRank(record.status),
-    matched_keywords: record.matchedKeywords,
-    software_class: record.softwareClass,
-    software_score: record.softwareScore,
-    e_bidding: record.eBidding,
+    detail_read_at: record.detailReadAt,
+    timeline: {
+      status: timeline.status,
+      last_read_at: timeline.lastReadAt,
+      comments_close_at: timeline.commentsCloseAt,
+      deadline_at: timeline.deadlineAt,
+      stages: timeline.stages,
+    },
     state: record.state,
     outcome: record.outcome,
+    attempts: record.attempts,
+    hold_reason: record.holdReason,
     status_history: record.statusHistory,
-    zip_id: record.zipId,
-    zip_bytes: record.zipBytes,
-    archive_member_count: record.archiveMemberCount,
-    documents: record.documents,
+    approved: record.approved,
+    archive: archive
+      ? {
+          zip_id: archive.zipId,
+          documents: archive.documents,
+          tor_ambiguous: archive.torAmbiguous,
+        }
+      : null,
     analysis: record.analysis,
-    winner: record.winner,
-    tor_ambiguous: record.torAmbiguous,
-    discovered_at: record.discoveredAt,
+    source_hash: sourceHash,
+    deadline_at: currentDeadline(record)?.at ?? null,
     updated_at: record.updatedAt,
-    ...(record.publicationRemovedAt !== undefined
-      ? { publication_removed_at: record.publicationRemovedAt }
-      : {}),
   };
+}
+
+function mergedDocument(existing: ProcurementDocument, incoming: Procurement): ProcurementDocument {
+  const current = toDomain(existing);
+  const changed = hasUpstreamChange(existing.source_hash ?? null, current, incoming);
+  return toDocument(mergeDiscovered(current, incoming, changed), hashSource(incoming));
 }
 
 export interface FindOptions {
   state?: IngestionState;
   outcome?: IngestionOutcome;
+  /**
+   * Only records that have failed fewer than this many times. Retrieval uses it
+   * to leave exhausted records out of the query itself.
+   */
+  attemptsBelow?: number;
+  /**
+   * Only records whose procurement detail was read (true) or never read
+   * (false). Discovery reads it for a Queued record before Retrieval may take
+   * the record (ADR-0021).
+   */
+  detailRead?: boolean;
   deptName?: string;
-  year?: number;
-  softwareClass?: SoftwareClass;
+  budgetYear?: number;
   /** Filter to one stage of the agency's own lifecycle. */
   status?: ProcurementStatus;
-  eBidding?: boolean;
   /** Case-insensitive substring over project name and id. */
   query?: string;
   minBudget?: number;
@@ -191,20 +249,39 @@ export interface FindOptions {
   publishedTo?: string;
   deadlineFrom?: string;
   deadlineTo?: string;
-  deadlineDays?: number;
-  deadlineMode?: 'within' | 'exact';
-  /** Service policy for upcoming deadlines, never applied to the discovery queue. */
-  excludeAwarded?: boolean;
+  /** Open tenders whose deadline is at least this many days away (Thai calendar). */
+  minDaysLeft?: number;
   /** Every term must occur in at least one entry of analysis.techStack. */
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
   targetPlatforms?: TargetPlatform[];
   /** Keyword over existing names only; this is not an authoritative classification. */
   industry?: string;
-  /** Case-insensitive keyword over the upstream administrative location. */
-  location?: string;
+  /**
+   * `announced` (the default): newest announcement first. `urgency`: a tender
+   * still `open` first, nearest deadline first and undated after; then
+   * `unknown`; then drafting, evaluating and cancelled; awarded and contracted
+   * last. Within a rank, newest announcement first. `daysLeft`: open tenders
+   * with the most days left first (needs `today`), then open with no deadline,
+   * drafting, unknown, past deadlines and evaluating, and awarded, contracted
+   * or cancelled last.
+   */
+  order?: 'announced' | 'urgency' | 'daysLeft';
+  /** Today in Thailand, `YYYY-MM-DD`. The `daysLeft` order counts from it. */
+  today?: string;
   limit: number;
   offset: number;
+}
+
+/** What one sweep did to the store. */
+export interface UpsertSummary {
+  created: number;
+  /** The ids of those created, new to the store, in the order given. */
+  createdIds: string[];
+  /** Seen before, and the agency's data for it is different now. */
+  changed: number;
+  /** Seen before, and nothing the agency owns moved. */
+  unchanged: number;
 }
 
 export interface FindResult {
@@ -222,17 +299,77 @@ export interface FindResult {
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
   upsert(record: Procurement): Promise<Procurement>;
+  /**
+   * Replace a record with its tombstone: the record and everything read from it
+   * go, and the project is remembered as dropped, so no later sweep stores it.
+   */
+  tombstone(tombstone: Tombstone): Promise<void>;
+  /** Delete a record and leave nothing behind. False where there was none. */
+  remove(projectId: string): Promise<boolean>;
+  /** Which of these projects were dropped; used to keep them out of a sweep. */
+  tombstonedIds(projectIds: string[]): Promise<Set<string>>;
+  /** One project's tombstone, if it has one. */
+  getTombstone(projectId: string): Promise<Tombstone | undefined>;
+  listTombstones(): Promise<Tombstone[]>;
+  /**
+   * Forget a tombstone, so the next sweep that finds the project stores it and
+   * retrieval reads it afresh. False where there was none.
+   */
+  removeTombstone(projectId: string): Promise<boolean>;
+  /** What a sweep writes: every discovered record at once, reporting what was new and what moved. */
+  upsertMany(records: Procurement[]): Promise<UpsertSummary>;
+  /**
+   * Move a record to an Outcome. The State is not an argument: it is looked up
+   * from `OUTCOME_STATE`, so the two fields cannot be written out of step.
+   */
   transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch?: Partial<Procurement>,
     detail?: string,
   ): Promise<Procurement | undefined>;
   find(options: FindOptions): Promise<FindResult>;
+  /**
+   * Write fields onto a record without moving it to another Outcome. `updatedAt`
+   * moves only when `touch` says something about the record changed, so a
+   * timeline read that found nothing new does not look like news.
+   */
+  amend(
+    projectId: string,
+    patch: Partial<Procurement>,
+    touch: boolean,
+  ): Promise<Procurement | undefined>;
+  /**
+   * One page of the records whose timeline is due a fresh read: those already
+   * read (not Queued or Processing), not out of scope and not yet contracted,
+   * the longest unchecked first. A contracted or out-of-scope project never
+   * comes back.
+   */
+  dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]>;
+  /**
+   * Return records stuck in Processing to the queue.
+   *
+   * A record is stuck when its last status change is older than `cutoff` (an ISO
+   * timestamp): the run that was working on it died or hung, and nothing else
+   * will ever pick it up, because retrieval selects only Queued. Not an
+   * attempt — the record did nothing wrong. Returns how many were requeued.
+   */
+  requeueStale(cutoff: string): Promise<number>;
   recordFailures(failures: IngestionFailure[]): Promise<void>;
   markRun(at: string): Promise<void>;
+  /** How far the announcement feed has been read, per agency and type; empty before the first sweep. */
+  feedCursor(): Promise<FeedCursor>;
+  /** Store where these units of the feed now stand; units not named are left as they were. */
+  recordFeedCursor(cursor: FeedCursor): Promise<void>;
 }
+
+/**
+ * The days of the announcement feed already read in full, per unit (an agency
+ * and an announcement type, keyed `deptId:type`). Each range is contiguous and
+ * holds only finished days: `to` grows as new days are read, `from` shrinks as
+ * history is. Both are Bangkok calendar days, `YYYY-MM-DD`.
+ */
+export type FeedCursor = Record<string, { from: string; to: string }>;
 
 /**
  * The distinct agency names already ingested, read by the Client suggestion
@@ -243,15 +380,26 @@ export interface AgencyNameSource {
   agencies(): Promise<string[]>;
 }
 
+/** Stored history the operations view reads. */
+export interface IngestionStatsSource {
+  /** Over the `days` Asia/Bangkok days ending on the one `now` falls in. */
+  stats(now: string, days: number): Promise<IngestionStats>;
+}
+
 /** All Procurement reads used above the persistence layer. */
 export interface ProcurementDataSource extends ProcurementStore, AgencyNameSource {
   ensureIndexes(): Promise<void>;
   summary(): Promise<IngestionSummary>;
+  /** The most recently updated procurements, newest first. */
+  recent(limit: number): Promise<Procurement[]>;
   listFailures(): Promise<IngestionFailure[]>;
 }
 
-interface FailureDocument extends IngestionFailure {
-  _id?: unknown;
+const FEED_CURSOR_ID = 'feed_cursor';
+
+interface FeedCursorDocument {
+  _id: string;
+  units: FeedCursor;
 }
 
 interface ChangeDocument {
@@ -271,11 +419,132 @@ export interface ProcurementChange {
   leaseToken: string;
 }
 
-export class ProcurementRepository implements ProcurementStore, AgencyNameSource {
+/** The persistence shape of a Tombstone; snake_case like the rest of what is in Atlas. */
+interface TombstoneDocument {
+  _id: string;
+  reason: TombstoneReason;
+  evidence: string;
+  prompt_version: string | null;
+  decided_at: string;
+  decided_by: string | null;
+  /** Absent on tombstones written before the feed snapshot was kept. */
+  feed?: FeedSnapshotDocument | null;
+}
+
+/** A FeedSnapshot as stored on a tombstone. */
+interface FeedSnapshotDocument {
+  project_name: string;
+  dept_name: string;
+  dept_code: string;
+  announce_date: string | null;
+  purchase_method_name: string | null;
+}
+
+function toTombstoneDocument(tombstone: Tombstone): TombstoneDocument {
+  const { feed } = tombstone;
+  return {
+    _id: tombstone.projectId,
+    reason: tombstone.reason,
+    evidence: tombstone.evidence,
+    prompt_version: tombstone.promptVersion,
+    decided_at: tombstone.decidedAt,
+    decided_by: tombstone.decidedBy,
+    feed: feed
+      ? {
+          project_name: feed.projectName,
+          dept_name: feed.deptName,
+          dept_code: feed.deptCode,
+          announce_date: feed.announceDate,
+          purchase_method_name: feed.purchaseMethodName,
+        }
+      : null,
+  };
+}
+
+function fromTombstoneDocument(document: TombstoneDocument): Tombstone {
+  const { feed } = document;
+  return {
+    projectId: document._id,
+    reason: document.reason,
+    evidence: document.evidence,
+    promptVersion: document.prompt_version,
+    decidedAt: document.decided_at,
+    decidedBy: document.decided_by ?? null,
+    feed: feed
+      ? {
+          projectName: feed.project_name,
+          deptName: feed.dept_name,
+          deptCode: feed.dept_code,
+          announceDate: feed.announce_date,
+          purchaseMethodName: feed.purchase_method_name,
+        }
+      : null,
+  };
+}
+
+/** `kind` is absent on failures logged before it existed. */
+interface FailureDocument extends Omit<IngestionFailure, 'kind'> {
+  _id?: unknown;
+  kind?: IngestionFailure['kind'];
+}
+
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function bangkokDate(at: string): string {
+  return new Date(Date.parse(at) + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** The window's days, oldest first, and the instant the first one began. */
+function bangkokWindow(now: string, days: number): { since: string; dates: string[] } {
+  const lastMidnight = Date.parse(`${bangkokDate(now)}T00:00:00.000Z`);
+  const dates = Array.from({ length: days }, (_, index) =>
+    new Date(lastMidnight - (days - 1 - index) * DAY_MS).toISOString().slice(0, 10),
+  );
+  const since = new Date(lastMidnight - (days - 1) * DAY_MS - BANGKOK_OFFSET_MS).toISOString();
+  return { since, dates };
+}
+
+/** Where the record's last pass through retrieval ended: the first end after its last `downloading`. */
+function lastPassEnd(history: readonly StatusChange[]): StatusChange | null {
+  let start = history.length - 1;
+  while (start >= 0 && history[start]?.outcome !== 'downloading') start -= 1;
+  if (start === -1) return null;
+  for (const entry of history.slice(start + 1)) {
+    if (entry.state === 'Completed' || entry.state === 'Failed') return entry;
+    if (entry.outcome !== 'analysing') return null;
+  }
+  return null;
+}
+
+const THROUGHPUT_BUCKET: Partial<Record<IngestionOutcome, keyof Omit<DailyThroughput, 'date'>>> = {
+  tor_analysed: 'completed',
+  needs_review: 'held',
+  analysis_failed: 'failed',
+  abandoned: 'failed',
+};
+
+function throughputOf(ends: StatusChange[], dates: string[]): DailyThroughput[] {
+  const byDay = new Map(dates.map((date) => [date, { date, completed: 0, held: 0, failed: 0 }]));
+  for (const end of ends) {
+    const bucket = THROUGHPUT_BUCKET[outcomeFromStored(end.outcome)];
+    const day = byDay.get(bangkokDate(end.at));
+    if (bucket && day) day[bucket] += 1;
+  }
+  return [...byDay.values()];
+}
+
+export class ProcurementRepository
+  implements ProcurementStore, AgencyNameSource, IngestionStatsSource
+{
   constructor(private readonly getDb: () => Promise<Db>) {}
 
   /** Storage outbox: the evidence and its change record either both commit or neither does. */
-  private async persist(document: ProcurementDocument, insert: boolean): Promise<void> {
+  private async persist(
+    document: ProcurementDocument,
+    insert: boolean,
+    notify = true,
+  ): Promise<void> {
     const db = await this.getDb();
     const session = db.client.startSession();
     try {
@@ -283,15 +552,16 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
         const records = db.collection<ProcurementDocument>('procurements');
         if (insert) await records.insertOne(document, { session });
         else await records.updateOne({ _id: document._id }, { $set: document }, { session });
-        await db.collection<ChangeDocument>('notification_procurement_changes').insertOne(
-          {
-            _id: new ObjectId(),
-            record: document,
-            created_at: new Date(),
-            attempts: 0,
-          },
-          { session },
-        );
+        if (notify)
+          await db.collection<ChangeDocument>('notification_procurement_changes').insertOne(
+            {
+              _id: new ObjectId(),
+              record: document,
+              created_at: new Date(),
+              attempts: 0,
+            },
+            { session },
+          );
       });
     } finally {
       await session.endSession();
@@ -368,8 +638,12 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     return (await this.getDb()).collection<FailureDocument>('ingestion_failures');
   }
 
+  private async feedCursorDocuments(): Promise<Collection<FeedCursorDocument>> {
+    return (await this.getDb()).collection<FeedCursorDocument>(INGESTION_META_COLLECTION);
+  }
+
   private async meta(): Promise<Collection<{ _id: string; at: string }>> {
-    return (await this.getDb()).collection<{ _id: string; at: string }>('ingestion_meta');
+    return (await this.getDb()).collection<{ _id: string; at: string }>(INGESTION_META_COLLECTION);
   }
 
   /**
@@ -391,11 +665,66 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       await this.records()
     ).createIndexes([
       {
-        key: { state: 1, biddability_rank: 1, software_score: -1, project_money: -1, _id: 1 },
+        key: { state: 1, announce_date: -1, _id: 1 },
       },
       { key: { dept_name: 1 } },
-      { key: { year: 1 } },
+      { key: { budget_year: 1 } },
+      // What the operations view reads: records that finished recently.
+      { key: { state: 1, updated_at: -1 } },
+      { key: { discovered_at: -1 } },
     ]);
+    await (await this.failuresCollection()).createIndex({ at: -1 });
+  }
+
+  private async tombstoneCollection(): Promise<Collection<TombstoneDocument>> {
+    return (await this.getDb()).collection<TombstoneDocument>('tombstones');
+  }
+
+  async tombstone(tombstone: Tombstone): Promise<void> {
+    const document = toTombstoneDocument(tombstone);
+    // The tombstone first: if the delete then failed, the record would still be
+    // there to be tried again, never gone without a trace of why.
+    await (
+      await this.tombstoneCollection()
+    ).replaceOne({ _id: document._id }, document, {
+      upsert: true,
+    });
+    await (await this.records()).deleteOne({ _id: tombstone.projectId });
+  }
+
+  async remove(projectId: string): Promise<boolean> {
+    const result = await (await this.records()).deleteOne({ _id: projectId });
+    return result.deletedCount === 1;
+  }
+
+  async tombstonedIds(projectIds: string[]): Promise<Set<string>> {
+    if (projectIds.length === 0) return new Set();
+    const found = await (
+      await this.tombstoneCollection()
+    )
+      .find({ _id: { $in: projectIds } }, { projection: { _id: 1 } })
+      .toArray();
+    return new Set(found.map((document) => document._id));
+  }
+
+  async listTombstones(): Promise<Tombstone[]> {
+    const documents = await (
+      await this.tombstoneCollection()
+    )
+      .find({})
+      .sort({ decided_at: -1 })
+      .toArray();
+    return documents.map(fromTombstoneDocument);
+  }
+
+  async getTombstone(projectId: string): Promise<Tombstone | undefined> {
+    const document = await (await this.tombstoneCollection()).findOne({ _id: projectId });
+    return document ? fromTombstoneDocument(document) : undefined;
+  }
+
+  async removeTombstone(projectId: string): Promise<boolean> {
+    const result = await (await this.tombstoneCollection()).deleteOne({ _id: projectId });
+    return result.deletedCount === 1;
   }
 
   /**
@@ -403,28 +732,88 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
    *
    * Deduplication is by projectId, per the functional requirements. What
    * survives a rediscovery is `mergeDiscovered`'s decision, not this method's:
-   * upstream fields refresh, the pipeline's own findings are preserved. Writing
-   * through `toDocument` is what re-derives `biddability_rank` from a refreshed
-   * status, so the retrieval queue re-sorts itself.
+   * upstream fields refresh, the pipeline's own findings are preserved.
    */
   async upsert(record: Procurement): Promise<Procurement> {
     const collection = await this.records();
     const existing = await collection.findOne({ _id: record.projectId });
 
     if (!existing) {
-      const document = toDocument(record);
+      const document = toDocument(record, hashSource(record));
       await this.persist(document, true);
       return toDomain(document);
     }
 
-    const merged = toDocument(mergeDiscovered(toDomain(existing), record));
-    await this.persist(merged, false);
+    const merged = mergedDocument(existing, record);
+    await this.persist(merged, false, merged.updated_at !== existing.updated_at);
     return toDomain(merged);
+  }
+
+  async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
+    const summary: UpsertSummary = { created: 0, createdIds: [], changed: 0, unchanged: 0 };
+    if (records.length === 0) return summary;
+
+    const collection = await this.records();
+    // One read for the whole sweep, not one per record.
+    const stored = new Map(
+      (await collection.find({ _id: { $in: records.map((r) => r.projectId) } }).toArray()).map(
+        (document) => [document._id, document],
+      ),
+    );
+
+    const operations: AnyBulkWriteOperation<ProcurementDocument>[] = [];
+    const changes: ChangeDocument[] = [];
+    for (const record of records) {
+      const existing = stored.get(record.projectId);
+      if (!existing) {
+        summary.created += 1;
+        summary.createdIds.push(record.projectId);
+        const document = toDocument(record, hashSource(record));
+        operations.push({ insertOne: { document } });
+        changes.push({
+          _id: new ObjectId(),
+          record: document,
+          created_at: new Date(),
+          attempts: 0,
+        });
+        continue;
+      }
+
+      if (hasUpstreamChange(existing.source_hash ?? null, toDomain(existing), record)) {
+        summary.changed += 1;
+      } else summary.unchanged += 1;
+      const document = mergedDocument(existing, record);
+      operations.push({
+        updateOne: { filter: { _id: record.projectId }, update: { $set: document } },
+      });
+      if (document.updated_at !== existing.updated_at)
+        changes.push({
+          _id: new ObjectId(),
+          record: document,
+          created_at: new Date(),
+          attempts: 0,
+        });
+    }
+
+    // Commit the feed batch with its outbox; a failed write leaves neither half stored.
+    const db = await this.getDb();
+    const session = db.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await collection.bulkWrite(operations, { ordered: false, session });
+        if (changes.length)
+          await db
+            .collection<ChangeDocument>('notification_procurement_changes')
+            .insertMany(changes, { session });
+      });
+    } finally {
+      await session.endSession();
+    }
+    return summary;
   }
 
   async transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch: Partial<Procurement> = {},
     detail?: string,
@@ -433,6 +822,8 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const existing = await collection.findOne({ _id: projectId });
     if (!existing) return undefined;
 
+    const state = OUTCOME_STATE[outcome];
+
     const at = new Date().toISOString();
     // `detail` is spread in only when present: the Mongo driver serialises an
     // `undefined` object property as BSON null rather than omitting the key,
@@ -440,15 +831,83 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     // write a literal null on every call — which `StatusChangeSchema.detail`
     // (an optional string) then rejects on the way back out.
     const entry = { state, outcome, at, ...(detail !== undefined ? { detail } : {}) };
-    const updated: ProcurementDocument = {
-      ...toDocument({ ...toDomain(existing), ...patch }),
-      state,
-      outcome,
-      status_history: [...existing.status_history, entry],
-      updated_at: at,
-    };
+    const updated = toDocument(
+      {
+        ...toDomain(existing),
+        ...patch,
+        state,
+        outcome,
+        holdReason: holdReasonFor(outcome, patch),
+        statusHistory: appendStatusChange(existing.status_history, entry),
+        updatedAt: at,
+      },
+      existing.source_hash ?? null,
+    );
     await this.persist(updated, false);
     return toDomain(updated);
+  }
+
+  async amend(
+    projectId: string,
+    patch: Partial<Procurement>,
+    touch: boolean,
+  ): Promise<Procurement | undefined> {
+    const collection = await this.records();
+    const existing = await collection.findOne({ _id: projectId });
+    if (!existing) return undefined;
+
+    const updated = toDocument(
+      {
+        ...toDomain(existing),
+        ...patch,
+        updatedAt: touch ? new Date().toISOString() : existing.updated_at,
+      },
+      existing.source_hash ?? null,
+    );
+    await this.persist(updated, false, touch);
+    return toDomain(updated);
+  }
+
+  async dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]> {
+    const documents = await (
+      await this.records()
+    )
+      .find({
+        state: { $in: ['Completed', 'Failed'] },
+        outcome: { $ne: 'out_of_scope' },
+        'timeline.status': { $ne: 'contracted' },
+      })
+      // Never read sorts first: null sorts before any date.
+      .sort({ 'timeline.last_read_at': 1, _id: 1 })
+      .skip(page.offset)
+      .limit(page.limit)
+      .toArray();
+    return documents.map(toDomain);
+  }
+
+  async requeueStale(cutoff: string): Promise<number> {
+    const collection = await this.records();
+    // Timestamps are `toISOString()` output throughout, so string order is time
+    // order. A record with no history falls back to when it was last written.
+    const stale = await collection
+      .find({
+        state: 'Processing',
+        $expr: {
+          $lt: [{ $ifNull: [{ $arrayElemAt: ['$status_history.at', -1] }, '$updated_at'] }, cutoff],
+        },
+      })
+      .toArray();
+
+    for (const document of stale) {
+      const since = document.status_history.at(-1)?.at ?? document.updated_at;
+      await this.transition(
+        document._id,
+        'queued',
+        {},
+        `Requeued: stuck in Processing since ${since} with no progress.`,
+      );
+    }
+    return stale.length;
   }
 
   async get(projectId: string): Promise<Procurement | undefined> {
@@ -461,12 +920,19 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const clauses: Record<string, unknown>[] = [];
     if (options.state) filter.state = options.state;
     if (options.outcome) filter.outcome = options.outcome;
+    if (options.attemptsBelow !== undefined) {
+      // A record written before attempts were counted has no field, which `$lt`
+      // alone would not match; it has failed zero times.
+      clauses.push({
+        $or: [{ attempts: { $exists: false } }, { attempts: { $lt: options.attemptsBelow } }],
+      });
+    }
+    if (options.detailRead !== undefined) {
+      filter.detail_read_at = options.detailRead ? { $ne: null } : null;
+    }
     if (options.deptName) filter.dept_name = options.deptName;
-    if (options.year) filter.year = options.year;
-    if (options.softwareClass) filter.software_class = options.softwareClass;
-    if (options.status) filter.status = options.status;
-    if (options.excludeAwarded) filter.winner = null;
-    if (options.eBidding !== undefined) filter.e_bidding = options.eBidding;
+    if (options.budgetYear) filter.budget_year = options.budgetYear;
+    if (options.status) filter['timeline.status'] = options.status;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
@@ -478,9 +944,6 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     }
     if (options.industry?.trim()) {
       clauses.push(regexAny(['project_name', 'dept_name', 'dept_sub_name'], options.industry));
-    }
-    if (options.location?.trim()) {
-      clauses.push(regexAny(['province', 'district', 'subdistrict'], options.location));
     }
     if (options.techStack?.length) {
       // ALL semantics: each requested term must match at least one array entry.
@@ -495,24 +958,44 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     }
 
     addDateRange(clauses, '$announce_date', options.publishedFrom, options.publishedTo);
-    addDateRange(clauses, '$analysis.deadlineAt', options.deadlineFrom, options.deadlineTo, true);
+    addDateRange(clauses, '$deadline_at', options.deadlineFrom, options.deadlineTo, true);
     if (clauses.length > 0) filter.$and = clauses;
 
     const collection = await this.records();
-    // Most relevant first: a queue an admin works top-down, and the order a
-    // capped run spends its downloads in. Biddability leads — a settled contract
-    // cannot be bid on however promising it looks — then software-likeness, then
-    // contract value. A priority, never a filter: nothing is excluded, because
-    // the stage comes from upstream free text and `unknown` may well be live.
+    const ranked =
+      options.order === 'urgency'
+        ? { stages: URGENCY_ORDER, fields: URGENCY_FIELDS }
+        : options.order === 'daysLeft' && options.today
+          ? { stages: daysLeftOrder(options.today), fields: DAYS_LEFT_FIELDS }
+          : null;
+    if (ranked) {
+      const [items, total] = await Promise.all([
+        collection
+          .aggregate<ProcurementDocument>([
+            { $match: filter },
+            ...ranked.stages,
+            { $skip: options.offset },
+            { $limit: options.limit },
+            { $unset: ranked.fields },
+          ])
+          .toArray(),
+        collection.countDocuments(filter),
+      ]);
+      return { items: items.map(toDomain), total };
+    }
+    // Newest announcement first: a queue an administrator works top-down, and the
+    // order a Run works through it in, so one stopped early has done the most
+    // recent part. A deterministic order and nothing more — no stage or title
+    // is trusted to say what is worth reading first.
     //
-    // `_id` breaks any remaining tie. Without it, two documents equal on all
-    // three priority fields have no defined order between them, and `skip`ing
-    // through pages could show one twice or skip it entirely depending on how
-    // the storage engine happens to return ties on a given call.
+    // `_id` breaks any remaining tie. Without it, two documents with the same
+    // announce date have no defined order between them, and `skip`ing through
+    // pages could show one twice or skip it entirely depending on how the
+    // storage engine happens to return ties on a given call.
     const [items, total] = await Promise.all([
       collection
         .find(filter)
-        .sort({ biddability_rank: 1, software_score: -1, project_money: -1, _id: 1 })
+        .sort({ announce_date: -1, _id: 1 })
         .skip(options.offset)
         .limit(options.limit)
         .toArray(),
@@ -529,7 +1012,10 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       .find({}, { projection: { _id: 0 } })
       .sort({ at: -1 })
       .toArray();
-    return documents as IngestionFailure[];
+    return documents.map(({ _id: _ignored, kind, ...failure }) => ({
+      ...failure,
+      kind: kind ?? 'fault',
+    }));
   }
 
   async recordFailures(failures: IngestionFailure[]): Promise<void> {
@@ -539,6 +1025,23 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
 
   async markRun(at: string): Promise<void> {
     await (await this.meta()).updateOne({ _id: 'last_run' }, { $set: { at } }, { upsert: true });
+  }
+
+  async feedCursor(): Promise<FeedCursor> {
+    return (await (await this.feedCursorDocuments()).findOne({ _id: FEED_CURSOR_ID }))?.units ?? {};
+  }
+
+  async recordFeedCursor(cursor: FeedCursor): Promise<void> {
+    const units = Object.entries(cursor);
+    if (units.length === 0) return;
+    await (
+      await this.feedCursorDocuments()
+    ).updateOne(
+      { _id: FEED_CURSOR_ID },
+      // One field per unit, so a unit this sweep did not reach keeps its range.
+      { $set: Object.fromEntries(units.map(([key, range]) => [`units.${key}`, range])) },
+      { upsert: true },
+    );
   }
 
   async agencies(): Promise<string[]> {
@@ -578,7 +1081,9 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
         .toArray(),
       collection
         .aggregate<{ _id: number; count: number }>([
-          { $group: { _id: '$year', count: { $sum: 1 } } },
+          // A record whose detail is not read yet has no year to be counted under.
+          { $match: { budget_year: { $ne: null } } },
+          { $group: { _id: '$budget_year', count: { $sum: 1 } } },
           { $sort: { _id: 1 } },
         ])
         .toArray(),
@@ -587,9 +1092,11 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
       // must not inflate what an administrator reads as TORs retrieved.
       collection
         .aggregate<{ _id: null; count: number; bytes: number }>([
-          { $unwind: '$documents' },
-          { $match: { 'documents.role': { $in: ['main_tor', 'tor_variant'] } } },
-          { $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: '$documents.bytes' } } },
+          { $unwind: '$archive.documents' },
+          { $match: { 'archive.documents.role': { $in: ['main_tor', 'tor_variant'] } } },
+          {
+            $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: '$archive.documents.bytes' } },
+          },
         ])
         .toArray(),
       (await this.failuresCollection()).countDocuments({}),
@@ -599,23 +1106,179 @@ export class ProcurementRepository implements ProcurementStore, AgencyNameSource
     const byState = {} as Record<IngestionState, number>;
     for (const row of byStateRows) byState[row._id] = row.count;
     const byOutcome = {} as Record<IngestionOutcome, number>;
-    for (const row of byOutcomeRows) byOutcome[row._id] = row.count;
+    // Old and new spellings of one outcome are added together, not overwritten.
+    for (const row of byOutcomeRows) {
+      const outcome = outcomeFromStored(row._id);
+      byOutcome[outcome] = (byOutcome[outcome] ?? 0) + row.count;
+    }
 
     return {
       total,
       byState,
       byOutcome,
       byAgency: byAgencyRows.map((row) => ({ deptName: row._id, count: row.count })),
-      byYear: byYearRows.map((row) => ({ year: row._id, count: row.count })),
+      byYear: byYearRows.map((row) => ({ budgetYear: row._id, count: row.count })),
       torDocumentsRetrieved: torRows[0]?.count ?? 0,
       totalTorBytes: torRows[0]?.bytes ?? 0,
       failureCount,
       lastRunAt: lastRun?.at ?? null,
       // Owned by the service layer, which is what actually starts a run.
       runInProgress: false,
+      runStartedAt: null,
+      stopRequested: false,
     };
   }
+
+  async stats(now: string, days: number): Promise<IngestionStats> {
+    const { since, dates } = bangkokWindow(now, days);
+    const [finished, discovered] = await Promise.all([
+      (await this.records())
+        .find(
+          { state: { $in: ['Completed', 'Failed'] }, updated_at: { $gte: since } },
+          { projection: { status_history: 1 } },
+        )
+        .toArray(),
+      (await this.records())
+        .aggregate<DailyDiscovered>([
+          { $match: { discovered_at: { $gte: since } } },
+          {
+            $group: {
+              _id: {
+                $dateToString: {
+                  date: { $dateFromString: { dateString: '$discovered_at' } },
+                  format: '%Y-%m-%d',
+                  timezone: 'Asia/Bangkok',
+                },
+              },
+              discovered: { $sum: 1 },
+            },
+          },
+          { $project: { _id: 0, date: '$_id', discovered: 1 } },
+        ])
+        .toArray(),
+    ]);
+    const ends = finished
+      .map((document) => lastPassEnd(document.status_history))
+      .filter((end): end is StatusChange => end !== null && end.at >= since);
+    const discoveredOn = new Map(discovered.map((day) => [day.date, day.discovered]));
+
+    return {
+      throughputDaily: throughputOf(ends, dates),
+      discoveredDaily: dates.map((date) => ({ date, discovered: discoveredOn.get(date) ?? 0 })),
+    };
+  }
+
+  async recent(limit: number): Promise<Procurement[]> {
+    const documents = await (
+      await this.records()
+    )
+      .find({})
+      .sort({ updated_at: -1, _id: 1 })
+      .limit(limit)
+      .toArray();
+    return documents.map(toDomain);
+  }
 }
+
+const URGENCY_FIELDS = ['urgency_rank', 'urgency_undated', 'urgency_deadline'];
+
+/** The statuses as stored, old spellings included (see `LEGACY_STATUSES`). */
+function storedStatuses(...statuses: ProcurementStatus[]): string[] {
+  const legacy = Object.keys(LEGACY_STATUSES).filter((old) =>
+    statuses.includes(LEGACY_STATUSES[old]!),
+  );
+  return [...statuses, ...legacy];
+}
+
+const OPEN = storedStatuses('open');
+const DRAFTING = storedStatuses('drafting');
+const CLOSED = storedStatuses('awarded', 'contracted', 'cancelled');
+
+/** Stored status values by urgency rank. */
+const URGENCY_RANKS: [number, string[]][] = [
+  [0, OPEN],
+  [1, storedStatuses('unknown')],
+  [2, storedStatuses('drafting', 'evaluating', 'cancelled')],
+  [3, storedStatuses('awarded', 'contracted')],
+];
+
+const DAYS_LEFT_FIELDS = ['days_left_rank', 'days_left_day'];
+
+/** Most days left first. `today` and the deadline are both Thai calendar days. */
+function daysLeftOrder(today: string) {
+  const isOpen = { $in: ['$timeline.status', OPEN] };
+  return [
+    {
+      $addFields: {
+        days_left_day: {
+          $dateToString: {
+            date: { $dateFromString: { dateString: '$deadline_at', onError: null, onNull: null } },
+            format: '%Y-%m-%d',
+            timezone: 'Asia/Bangkok',
+            onNull: null,
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        days_left_rank: {
+          $switch: {
+            branches: [
+              // A null day compares below any date, so it never counts as upcoming.
+              { case: { $and: [isOpen, { $gte: ['$days_left_day', today] }] }, then: 0 },
+              { case: { $and: [isOpen, { $eq: ['$days_left_day', null] }] }, then: 1 },
+              { case: { $in: ['$timeline.status', DRAFTING] }, then: 2 },
+              { case: { $eq: ['$timeline.status', 'unknown'] }, then: 3 },
+              { case: { $in: ['$timeline.status', CLOSED] }, then: 5 },
+            ],
+            // Open with a past deadline, and evaluating.
+            default: 4,
+          },
+        },
+      },
+    },
+    { $sort: { days_left_rank: 1, days_left_day: -1, announce_date: -1, _id: 1 } },
+  ];
+}
+
+const URGENCY_ORDER = [
+  {
+    $addFields: {
+      urgency_rank: {
+        $switch: {
+          branches: URGENCY_RANKS.map(([rank, statuses]) => ({
+            case: { $in: ['$timeline.status', statuses] },
+            then: rank,
+          })),
+          default: 2,
+        },
+      },
+    },
+  },
+  {
+    $addFields: {
+      // Only an open tender is ordered by its deadline; an unreadable one is undated.
+      urgency_deadline: {
+        $cond: [
+          { $eq: ['$urgency_rank', 0] },
+          { $dateFromString: { dateString: '$deadline_at', onError: null, onNull: null } },
+          null,
+        ],
+      },
+    },
+  },
+  { $addFields: { urgency_undated: { $cond: [{ $eq: ['$urgency_deadline', null] }, 1, 0] } } },
+  {
+    $sort: {
+      urgency_rank: 1,
+      urgency_undated: 1,
+      urgency_deadline: 1,
+      announce_date: -1,
+      _id: 1,
+    },
+  },
+];
 
 function escapeRegex(value: string): string {
   return value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

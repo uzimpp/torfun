@@ -21,7 +21,9 @@ bun run build && bun run start           # production build
 Configuration comes from `.env` in this directory — copy `.env.example` and read
 its comments, which cover how to authenticate to Google in each environment.
 A local MongoDB (`docker compose up -d mongodb` from the repo root) is needed for
-`bun run dev` and for the repository tests, which run against real Mongo.
+`bun run dev` and for the repository tests, which run against real Mongo. They
+skip unless `MONGODB_TEST_URI` (or `MONGODB_URI`) is set; for the local image use
+`MONGODB_TEST_URI='mongodb://127.0.0.1:27017/torfun-test?directConnection=true'`.
 
 ## Endpoints
 
@@ -92,7 +94,20 @@ upstream, so it is something an administrator asks, never something polled.
 
 ## Notifications
 
-Inbox, per-event preferences, verified email and LINE OA delivery are described in
-[the notification setup and worker guide](../../docs/notifications.md). Run the
-index migration before deployment; external channels remain disabled until
-configured. Production delivery uses the authenticated worker endpoint.
+BD officers manage their inbox and per-event channel preferences at `/notifications`;
+admins inspect delivery failures at `/admin/notifications`. Matching uses recorded
+company technology/platform evidence with an inclusive 70% threshold. Email and
+LINE default off and require verified/linked destinations.
+
+Optional SMTP and LINE Messaging API variables are listed in `.env.example`.
+Set `WEB_APP_URL` to the public web origin for message links. LINE's webhook is
+`POST /api/notifications/line/webhook`; users add the OA and send `เชื่อมต่อ` to
+begin account linking. Messages use branded HTML email (with plain text) and
+LINE Flex cards with TOR and preference links.
+
+Mongo must support transactions. Source indexes are ensured at startup; worker
+passes ensure notification/contact indexes. In production, a trusted scheduler
+must call `POST /api/internal/notifications/run` every minute with the
+`X-Notification-Worker-Token` header matching `NOTIFICATION_WORKER_TOKEN`.
+Development polls locally via `NOTIFICATION_POLL_MS`. Delivery retries are bounded
+to five attempts within 24 hours; provider acceptance does not confirm receipt.

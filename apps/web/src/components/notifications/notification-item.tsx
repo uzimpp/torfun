@@ -60,7 +60,7 @@ export function NotificationItem({
             </p>
           )}
           <p className="text-muted-foreground mt-3 text-xs">
-            {item.deadline_at ? `กำหนดส่งข้อเสนอจากสรุป AI: ${item.deadline_at} · ` : ''}
+            {item.deadline_at ? `กำหนดยื่นข้อเสนอ: ${item.deadline_at} · ` : ''}
             ตรวจสอบคุณสมบัติและกำหนดเวลาจากเอกสารต้นฉบับก่อนยื่นข้อเสนอ
           </p>
           <div className="mt-4 flex flex-wrap gap-2">

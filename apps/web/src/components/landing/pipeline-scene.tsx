@@ -14,8 +14,8 @@ import { cn } from '@/lib/utils';
  * records for a marketing panel is exactly what an officer must never have to
  * wonder about when they later read the real queue. `bar` is the width of the
  * placeholder line, `keep` whether this one survives the filter, and `label`
- * the bucket `softwareClass` would put it in — the product's own vocabulary,
- * applied to nothing in particular.
+ * the kind of work it stands for — the product's own vocabulary, applied to
+ * nothing in particular.
  */
 const ROWS = [
   { bar: '78%', keep: true, label: 'พัฒนาระบบใหม่' },
@@ -91,7 +91,7 @@ export const PipelineScene = memo(function PipelineScene() {
   return (
     <div ref={root} className="bg-card shadow-lifted rounded-[1.75rem] border p-5 sm:p-7">
       <div className="flex items-center justify-between border-b pb-4">
-        <p className="text-sm font-semibold">คัดกรองประกาศอัตโนมัติ</p>
+        <p className="text-sm font-medium">คัดกรองประกาศอัตโนมัติ</p>
         <FileText aria-hidden="true" className="text-primary size-5" />
       </div>
 
@@ -129,7 +129,7 @@ export const PipelineScene = memo(function PipelineScene() {
               {keep && (
                 <span
                   data-tag
-                  className="bg-primary/10 text-primary shrink-0 rounded-full px-2 py-1 text-[0.6875rem] font-medium whitespace-nowrap"
+                  className="bg-primary/10 text-primary shrink-0 rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap"
                 >
                   {label}
                 </span>

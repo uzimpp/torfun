@@ -41,7 +41,7 @@ export function WorkflowSection() {
         <h2
           id="workflow-heading"
           data-rise="1"
-          className="mt-4 max-w-2xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
+          className="mt-4 max-w-2xl text-2xl font-medium tracking-tight text-balance sm:text-3xl"
         >
           จากประกาศ สู่การพิจารณาที่มีข้อมูล
         </h2>

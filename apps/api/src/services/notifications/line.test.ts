@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createHmac } from 'node:crypto';
 import { createLineSender, validLineSignature } from './line';
 import { DeliveryError } from './email';
+import { renderLineAccountLink } from './line-template';
 import { testEnv } from '../../testing/env';
 const env = testEnv({
   LINE_CHANNEL_ACCESS_TOKEN: 'test-token',
@@ -29,6 +30,21 @@ describe('LINE protocol adapter', () => {
     await sender.push(`U${'1'.repeat(32)}`, 'Hello', 'same-key');
     expect(new Headers(requests[0]!.headers).get('X-Line-Retry-Key')).toBe('same-key');
     expect(JSON.parse(requests[0]!.body as string).messages[0].text).toBe('Hello');
+  });
+  test('push and reply transmit rich cards without changing retry or linking semantics', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const sender = createLineSender(env, async (_url, options) => {
+      bodies.push(JSON.parse(options!.body as string));
+      return new Response('{}', { status: 200 });
+    })!;
+    const flex = renderLineAccountLink(
+      'https://torfun.example/notifications/link-line?link_token=once',
+    );
+    await sender.push('user', 'fallback', 'same-key', flex);
+    await sender.reply('reply-token', 'fallback', flex);
+    expect(bodies[0]!.messages).toEqual([flex]);
+    expect(bodies[1]!.messages).toEqual([flex]);
+    expect(bodies[1]!.replyToken).toBe('reply-token');
   });
   test('quota and temporary failures back off; invalid recipients fail permanently', async () => {
     for (const [status, permanent] of [

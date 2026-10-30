@@ -51,7 +51,7 @@ const populated: NotificationListResponse = {
       score: 0.7,
       reasons: ['เทคโนโลยีที่ตรงกับผลงาน: React'],
       previous_status: null,
-      status: 'invitation',
+      status: 'open',
       deadline_at: null,
       read_at: null,
       created_at: '2026-10-26T00:00:00Z',

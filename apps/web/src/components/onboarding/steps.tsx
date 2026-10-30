@@ -50,7 +50,7 @@ export function OnboardingSteps({
               <div className="flex w-16 shrink-0 flex-col items-center gap-2">
                 <span
                   className={cn(
-                    'grid size-9 place-items-center rounded-full border text-sm font-semibold transition-colors duration-300',
+                    'grid size-9 place-items-center rounded-full border text-sm font-medium transition-colors duration-300',
                     done && 'border-primary/30 bg-primary/15 text-primary',
                     active && 'border-primary bg-primary text-primary-foreground',
                     !done && !active && 'border-border bg-muted text-muted-foreground',

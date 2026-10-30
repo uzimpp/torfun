@@ -79,7 +79,7 @@ export function SiteFooter({
           </FooterColumn>
 
           <div>
-            <h2 className="text-xs font-semibold tracking-wider uppercase">การแสดงผล</h2>
+            <h2 className="text-xs font-medium tracking-wider uppercase">การแสดงผล</h2>
             <div className="mt-3">
               <ThemeToggle initialTheme={initialTheme} withLabel onDarkSurface />
             </div>
@@ -116,7 +116,7 @@ export function SiteFooter({
 function FooterColumn({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <h2 className="text-xs font-semibold tracking-wider uppercase">{title}</h2>
+      <h2 className="text-xs font-medium tracking-wider uppercase">{title}</h2>
       <ul className="mt-3 space-y-1">{children}</ul>
     </div>
   );

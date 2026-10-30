@@ -1,6 +1,7 @@
 import {
   Bookmark,
   Bell,
+  FileStack,
   Building2,
   Database,
   LayoutDashboard,
@@ -19,7 +20,7 @@ import type { UserRole } from '@torfun/types';
  * smaller product than one on a laptop.
  */
 export interface NavItem {
-  href: '/dashboard' | '/search' | '/notifications' | '/admin/ingestion';
+  href: '/dashboard' | '/search' | '/admin/procurements' | '/admin/ingestion' | '/notifications';
   label: string;
   Icon: LucideIcon;
   /** What this destination is for, shown where there is room to say it. */
@@ -51,14 +52,20 @@ export function workspaceNav(role: UserRole): NavItem[] {
         ]
       : []),
     ...(role === 'admin'
-      ? [
+      ? ([
           {
-            href: '/admin/ingestion' as const,
-            label: 'การดึงข้อมูล TOR',
-            Icon: Database,
-            hint: 'สถานะและบันทึกข้อผิดพลาด',
+            href: '/admin/procurements',
+            label: 'ประกาศที่ดึงเข้าระบบ',
+            Icon: FileStack,
+            hint: 'ค้นและจัดการทุกรายการ',
           },
-        ]
+          {
+            href: '/admin/ingestion',
+            label: 'ระบบดึงข้อมูล',
+            Icon: Database,
+            hint: 'รอบดึงข้อมูล ตารางเวลา และข้อผิดพลาด',
+          },
+        ] satisfies NavItem[])
       : []),
   ];
 }
@@ -80,8 +87,8 @@ export const plannedNav: { label: string; Icon: LucideIcon }[] = [
  *
  * The two roles get different menus because they own different things: a
  * Business Development Officer has a Company and saved TORs; a Site
- * Administrator has the ingestion console and the other accounts, and no
- * Company at all (ADR-0011).
+ * Administrator has the admin pages, the failure log and the other accounts, and
+ * no Company at all (ADR-0011).
  */
 export interface AccountNavItem {
   href: Route;
@@ -95,7 +102,8 @@ export function accountNav(role: UserRole): AccountNavItem[] {
   if (role === 'admin') {
     return [
       { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
-      { href: '/admin/ingestion', label: 'การดึงข้อมูล TOR', Icon: Database },
+      { href: '/admin/procurements', label: 'ประกาศที่ดึงเข้าระบบ', Icon: FileStack },
+      { href: '/admin/ingestion', label: 'ระบบดึงข้อมูล', Icon: Database },
       {
         href: '/admin/ingestion',
         hash: 'failures',

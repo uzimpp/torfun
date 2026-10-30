@@ -1,4 +1,5 @@
 import { procurementDay } from '@torfun/types';
+import { isVisibleTo } from '../audience';
 import { createHash } from 'node:crypto';
 import type { Experience, MatchResult, Procurement } from '@torfun/types';
 
@@ -63,20 +64,19 @@ export function computeMatch(
 }
 
 export function visibleForNotification(tor: Procurement): boolean {
-  return (
+  return Boolean(
+    isVisibleTo('officer', tor) &&
     !tor.publicationRemovedAt &&
-    tor.eBidding &&
-    tor.outcome === 'tor_analysed' &&
-    tor.analysis?.isSoftwareProject === true &&
-    tor.analysis.confidence === 'high' &&
-    !tor.torAmbiguous &&
-    tor.documents.some((document) => document.role === 'main_tor')
+    tor.analysis &&
+    (tor.approved ||
+      (!tor.archive?.torAmbiguous &&
+        tor.archive?.documents.some((document) => document.role === 'main_tor'))),
   );
 }
 
 export function openForMatch(tor: Procurement, now: Date): boolean {
-  if (!visibleForNotification(tor) || tor.status !== 'invitation' || tor.winner) return false;
-  const deadline = tor.analysis?.deadlineAt;
+  if (!visibleForNotification(tor) || tor.timeline.status !== 'open') return false;
+  const deadline = tor.timeline.deadlineAt ?? tor.analysis?.deadlineAt;
   if (!deadline) return true;
   if (procurementDay(deadline) === null) return false;
   // Date-only evidence is inclusive in Bangkok; never infer a submission time.

@@ -1,8 +1,10 @@
-import { Banknote, Bookmark, CalendarDays, Clock3, MapPin } from 'lucide-react';
+import { Banknote, Bookmark, CalendarDays, Gavel, Clock3 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
+import { deadlineLabel, deadlineText } from '@/lib/deadline-display';
+import { formatThaiDate } from '@/lib/format-date';
+import { ProcurementStatusBadge } from '@/components/search/procurement-status-badge';
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { MatchEvidence } from '@/components/notifications/match-evidence';
@@ -23,20 +25,19 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               <span className="text-muted-foreground">·</span>
               <span className="text-muted-foreground">ประกาศจัดซื้อจัดจ้าง</span>
             </p>
-            <h1 className="mt-4 text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-3xl">
-              {tor.title}
-            </h1>
+            <h1 className="mt-4 text-2xl font-medium tracking-tight text-balance">{tor.title}</h1>
             <div className="text-muted-foreground mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              {tor.location && (
+              <span className="inline-flex items-center gap-2">
+                <CalendarDays aria-hidden="true" className="size-4" />
+                ปีงบประมาณ {tor.budgetYear ?? '—'}
+              </span>
+              {tor.procurementMethod && (
                 <span className="inline-flex items-center gap-2">
-                  <MapPin aria-hidden="true" className="size-4" />
-                  {tor.location}
+                  <Gavel aria-hidden="true" className="size-4" />
+                  วิธีการจัดซื้อจัดจ้าง: {tor.procurementMethod}
                 </span>
               )}
-              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
-                {tor.status}
-              </Badge>
+              <ProcurementStatusBadge status={tor.status} />
             </div>
           </div>
 
@@ -45,11 +46,29 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               <Banknote aria-hidden="true" className="text-primary size-4" />
               งบประมาณ
             </p>
-            <p data-numeric className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            <p data-numeric className="mt-2 text-2xl font-medium tracking-tight">
               {tor.budget === null
                 ? 'ยังไม่มีข้อมูลงบประมาณ'
                 : `${bahtFormat.format(tor.budget)} บาท`}
             </p>
+            <div
+              role="group"
+              aria-label={deadlineLabel(tor.deadline)}
+              className="border-border mt-5 border-t pt-4"
+            >
+              <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
+                <Clock3 aria-hidden="true" className="size-4 text-amber-600" />
+                {deadlineLabel(tor.deadline)}
+              </p>
+              <p data-numeric className="mt-2 text-lg font-medium">
+                {deadlineText(tor.deadline, tor.status)}
+              </p>
+              {tor.deadline?.readByModel && (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  อ่านจากเอกสาร TOR โดย AI — โปรดตรวจสอบกับเอกสารต้นฉบับก่อนตัดสินใจ
+                </p>
+              )}
+            </div>
             <div className="mt-6 grid grid-cols-2 gap-2">
               <Button
                 type="button"
@@ -79,11 +98,6 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
           </CardHeader>
           <CardContent>
             <p className="leading-relaxed">{tor.summary ?? 'ยังไม่มีข้อมูลการวิเคราะห์ TOR'}</p>
-            {tor.confidence && (
-              <p className="text-muted-foreground mt-4 text-xs">
-                ระดับความมั่นใจของการวิเคราะห์: {tor.confidence === 'high' ? 'สูง' : 'ต่ำ'}
-              </p>
-            )}
           </CardContent>
         </Card>
       </section>
@@ -128,12 +142,11 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
         <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
           <DateItem
             label="วันที่ประกาศ"
-            value={tor.announcementDate ?? 'ยังไม่มีข้อมูลวันที่ประกาศ'}
-          />
-          <DateItem
-            label="ปิดรับข้อเสนอ"
-            value={tor.submissionDeadline ?? 'ยังไม่มีข้อมูลวันปิดรับข้อเสนอ'}
-            urgent
+            value={
+              tor.announcementDate
+                ? formatThaiDate(tor.announcementDate)
+                : 'ยังไม่มีข้อมูลวันที่ประกาศ'
+            }
           />
         </div>
       </section>
@@ -145,7 +158,7 @@ function SectionHeading({ id, eyebrow, title }: { id: string; eyebrow: string; t
   return (
     <div>
       <p className="text-primary text-xs font-medium tracking-wider">{eyebrow}</p>
-      <h2 id={id} className="mt-2 text-2xl font-semibold tracking-tight">
+      <h2 id={id} className="mt-2 text-2xl font-medium tracking-tight">
         {title}
       </h2>
     </div>
@@ -176,27 +189,10 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function DateItem({
-  label,
-  value,
-  urgent = false,
-}: {
-  label: string;
-  value: string;
-  urgent?: boolean;
-}) {
+function DateItem({ label, value }: { label: string; value: string }) {
   return (
-    <div
-      className={cn(
-        'bg-muted/60 flex items-center gap-3 rounded-xl px-4 py-3',
-        urgent && 'border border-amber-200 dark:border-amber-900',
-      )}
-    >
-      {urgent ? (
-        <Clock3 aria-hidden="true" className="size-5 shrink-0 text-amber-600" />
-      ) : (
-        <CalendarDays aria-hidden="true" className="text-primary size-5 shrink-0" />
-      )}
+    <div className="bg-muted/60 flex items-center gap-3 rounded-xl px-4 py-3">
+      <CalendarDays aria-hidden="true" className="text-primary size-5 shrink-0" />
       <span>
         <span className="text-muted-foreground block text-xs">{label}</span>
         <span className="mt-0.5 block font-medium">{value}</span>

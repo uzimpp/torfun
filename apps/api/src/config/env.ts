@@ -8,6 +8,11 @@ export const EnvSchema = z.object({
 
   // Mongo Atlas
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
+  /** Which database on that server to use. Unset or empty: the one named in the URI. */
+  MONGODB_DB: z
+    .string()
+    .optional()
+    .transform((name) => name || undefined),
 
   // CORS: comma-separated list of allowed origins.
   CORS_ORIGINS: z
@@ -59,9 +64,10 @@ export const EnvSchema = z.object({
   // --- e-GP ingestion (Thai government procurement) ---
   // Open-data API key. Register at https://opend.data.go.th/register_api/
   EGP_API_KEY: z.string().min(1, 'EGP_API_KEY is required'),
-  // Per-run cap on TOR retrievals. gprocurement.go.th's robots.txt is
-  // Disallow: / and the owner's authorisation is for low-volume research.
-  EGP_MAX_DOWNLOADS_PER_RUN: z.coerce.number().int().positive().max(200).default(15),
+  // Calls to the model (Gemini) in flight at once, across every project of a
+  // Run. Vertex's quota and the bill count calls, so size this to the quota.
+  // It also bounds the Archives held in memory waiting to be read (ADR-0020).
+  ANALYSIS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(8),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -177,10 +177,7 @@ export class UserRepository implements UserStore {
   }
 
   async list(): Promise<User[]> {
-    const documents = await (await this.collection())
-      .find()
-      .sort({ created_at: -1 })
-      .toArray();
+    const documents = await (await this.collection()).find().sort({ created_at: -1 }).toArray();
     return documents.map(toDomain);
   }
 

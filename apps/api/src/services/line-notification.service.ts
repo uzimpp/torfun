@@ -4,6 +4,7 @@ import { BadRequestError, ConflictError, UnauthorizedError } from '../core/error
 import type { NotificationContactStore } from '../repositories/notification-contact.repository';
 import type { NotificationService } from './notification.service';
 import type { LineSender } from './notifications/line';
+import { renderLineAccountLink } from './notifications/line-template';
 import { validLineSignature } from './notifications/line';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -101,6 +102,7 @@ export class LineNotificationService {
           await this.line.reply(
             event.replyToken,
             `เชื่อมต่อบัญชี Torfun ภายใน 10 นาที:\n${url.href}\nเข้าสู่บัญชีของคุณและกดยืนยัน คุณสามารถยกเลิกการเชื่อมต่อได้ทุกเมื่อในหน้าการแจ้งเตือน`,
+            renderLineAccountLink(url.href),
           );
         }
       }

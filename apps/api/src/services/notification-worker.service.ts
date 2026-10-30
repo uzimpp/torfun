@@ -14,6 +14,8 @@ import { DeliveryError } from './notifications/email';
 import type { LineSender } from './notifications/line';
 import { computeMatch, openForMatch, visibleForNotification } from './notifications/matching';
 import { observationId, planNotification } from './notifications/events';
+import { renderNotificationEmail } from './notifications/email-template';
+import { renderNotificationLine } from './notifications/line-template';
 import { notificationMessage } from './notifications/message';
 
 export class NotificationWorkerService {
@@ -106,8 +108,8 @@ export class NotificationWorkerService {
           companyId,
           projectId: tor.projectId,
           projectName: tor.projectName,
-          status: tor.status,
-          deadlineAt: tor.analysis?.deadlineAt ?? null,
+          status: tor.timeline.status,
+          deadlineAt: tor.timeline.deadlineAt ?? tor.analysis?.deadlineAt ?? null,
           match,
           qualifies:
             match.overallScore >= MATCH_NOTIFICATION_THRESHOLD && openForMatch(tor, this.now()),
@@ -174,7 +176,10 @@ export class NotificationWorkerService {
         if (match.overallScore < MATCH_NOTIFICATION_THRESHOLD)
           return finish('skipped', 'Company profile no longer meets the matching threshold');
       }
-      if (job.notification.event === 'status_changed' && job.notification.status !== current.status)
+      if (
+        job.notification.event === 'status_changed' &&
+        job.notification.status !== current.timeline.status
+      )
         return finish('skipped', 'A newer procurement status superseded this message');
       if (now.getTime() - Date.parse(job.createdAt) >= 24 * 3600000)
         return finish('failed', 'Delivery expired after 24 hours; no automatic resend');
@@ -182,7 +187,13 @@ export class NotificationWorkerService {
       if (job.channel === 'email') {
         if (!this.email)
           return finish('retry', 'SMTP is not configured', new Date(now.getTime() + 3600000));
-        await this.email.send(job.recipient, message.subject, message.text, job.id);
+        await this.email.send(
+          job.recipient,
+          message.subject,
+          message.text,
+          job.id,
+          renderNotificationEmail(message),
+        );
       } else {
         if (!this.line)
           return finish('retry', 'LINE is not configured', new Date(now.getTime() + 3600000));
@@ -190,6 +201,7 @@ export class NotificationWorkerService {
           job.recipient,
           `${message.text.slice(0, 3600)}\n${message.url}\nตั้งค่าการแจ้งเตือน: ${message.settingsUrl}`,
           job.retryKey,
+          renderNotificationLine(message),
         );
       }
       await finish('accepted');

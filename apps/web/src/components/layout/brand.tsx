@@ -43,7 +43,7 @@ export function Brand({
       </span>
       <span
         aria-hidden="true"
-        className={cn('font-semibold tracking-tighter', size === 'md' ? 'text-xl' : 'text-lg')}
+        className={cn('font-medium tracking-tight', size === 'md' ? 'text-xl' : 'text-lg')}
       >
         Torfun
       </span>

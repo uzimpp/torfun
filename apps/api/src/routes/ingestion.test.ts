@@ -1,8 +1,11 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { buildApp } from '../app';
+import { ConflictError } from '../core/errors';
 import { testEnv } from '../testing/env';
 import { ACCESS_COOKIE } from '@torfun/types';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
+import { InMemoryIngestionLease } from '../testing/ingestion-lease';
+import { InMemoryIngestionRunStore, noStats } from '../testing/ingestion-run-store';
 
 /**
  * `/ingestion/run` spends the project's rate-limited allowance against an
@@ -41,7 +44,9 @@ describe('ingestion route access and procurement query validation', () => {
     { method: 'GET' as const, url: '/api/ingestion/projects' },
     { method: 'GET' as const, url: '/api/ingestion/projects/abc' },
     { method: 'GET' as const, url: '/api/ingestion/failures' },
+    { method: 'GET' as const, url: '/api/ingestion/ops' },
     { method: 'POST' as const, url: '/api/ingestion/run' },
+    { method: 'POST' as const, url: '/api/ingestion/run/stop' },
   ];
 
   for (const route of routes) {
@@ -59,7 +64,7 @@ describe('ingestion route access and procurement query validation', () => {
   test('an administrator can filter the ingestion procurement index', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/api/ingestion/projects?limit=20&minBudget=500000&location=กรุงเทพมหานคร',
+      url: '/api/ingestion/projects?limit=20&minBudget=500000',
       cookies: adminCookie,
     });
 
@@ -76,5 +81,177 @@ describe('ingestion route access and procurement query validation', () => {
     const response = await app.inject({ method: 'GET', url, cookies: adminCookie });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  test('a signed-in non-admin is forbidden from stopping a run', async () => {
+    const requestStop = mock(async () => {});
+    const original = app.ingestionService.requestStop.bind(app.ingestionService);
+    app.ingestionService.requestStop = requestStop;
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/ingestion/run/stop',
+        cookies: officerCookie,
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(requestStop).not.toHaveBeenCalled();
+    } finally {
+      app.ingestionService.requestStop = original;
+    }
+  });
+
+  describe('an administrator stopping a run', () => {
+    const stop = async (requestStop: () => Promise<void>, url = '/api/ingestion/run/stop') => {
+      const mocked = mock(requestStop);
+      const original = app.ingestionService.requestStop.bind(app.ingestionService);
+      app.ingestionService.requestStop = mocked;
+      try {
+        const response = await app.inject({ method: 'POST', url, cookies: adminCookie });
+        return { response, requestStop: mocked };
+      } finally {
+        app.ingestionService.requestStop = original;
+      }
+    };
+
+    test('is accepted, and names the administrator who asked', async () => {
+      const { response, requestStop } = await stop(async () => {});
+
+      expect(response.statusCode).toBe(202);
+      expect(response.json() as unknown).toEqual({ stopping: true });
+      expect(requestStop).toHaveBeenCalledWith('admin');
+    });
+
+    test('with no run in progress is a clear 409, not a silent success', async () => {
+      const { response } = await stop(async () => {
+        throw new ConflictError('No ingestion run is in progress.');
+      });
+
+      expect(response.statusCode).toBe(409);
+    });
+
+    test('takes who it is from the session, never from the request', async () => {
+      const { response, requestStop } = await stop(
+        async () => {},
+        '/api/ingestion/run/stop?by=someone-else&user_id=someone-else',
+      );
+
+      expect(response.statusCode).toBe(202);
+      expect(requestStop).toHaveBeenCalledWith('admin');
+    });
+  });
+
+  describe('an administrator starting a run', () => {
+    const start = async (payload: unknown) => {
+      const startRun = mock(async () => {});
+      const original = app.ingestionService.startRun.bind(app.ingestionService);
+      app.ingestionService.startRun = startRun;
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/ingestion/run',
+          cookies: adminCookie,
+          payload: payload as Record<string, unknown>,
+        });
+        return { response, startRun };
+      } finally {
+        app.ingestionService.startRun = original;
+      }
+    };
+
+    test('passes the service only the options it defines, so a caller cannot name a single project', async () => {
+      // `onlyProject` is how a restore is scoped to one record; that path has its own
+      // route and its own audit, and is not open to this one.
+      const { response, startRun } = await start({
+        forceDiscovery: true,
+        onlyProject: '66059313551',
+      });
+
+      expect(response.statusCode).toBe(202);
+      // A sweep can no longer be skipped, so there is nothing to force (ADR-0020).
+      expect(startRun).toHaveBeenCalledWith({});
+    });
+  });
+
+  describe('the operations view', () => {
+    let opsApp: Awaited<ReturnType<typeof buildApp>>;
+    const runs = new InMemoryIngestionRunStore();
+
+    beforeAll(async () => {
+      opsApp = await buildApp(testEnv(), {
+        procurements: new InMemoryProcurementStore(),
+        ingestionLease: new InMemoryIngestionLease(),
+        ingestionRuns: runs,
+        ingestionStats: noStats,
+      });
+      await runs.record({
+        id: 'r1',
+        startedAt: '2026-10-03T00:00:00.000Z',
+        endedAt: '2026-10-03T00:10:00.000Z',
+        durationMs: 600_000,
+        trigger: 'scheduled',
+        runners: 2,
+        counts: null,
+        error: 'boom',
+        tokens: { prompt: 1, output: 2, thoughts: 3, total: 6, calls: 1 },
+      });
+    });
+
+    afterAll(async () => {
+      await opsApp.close();
+    });
+
+    const as = (role: 'admin' | 'business_development_officer') => ({
+      [ACCESS_COOKIE]: opsApp.jwt.sign({
+        user_id: '68b1f0c2a1b2c3d4e5f60719',
+        username: 'u',
+        role,
+      }),
+    });
+
+    test('is for administrators only', async () => {
+      const response = await opsApp.inject({
+        method: 'GET',
+        url: '/api/ingestion/ops',
+        cookies: as('business_development_officer'),
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
+    test('shows an administrator the live run, stored history and the run log', async () => {
+      const response = await opsApp.inject({
+        method: 'GET',
+        url: '/api/ingestion/ops',
+        cookies: as('admin'),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json() as unknown).toEqual({
+        live: {
+          runInProgress: false,
+          runStartedAt: null,
+          elapsedMs: null,
+          stopRequested: false,
+          inFlight: null,
+          queueRemaining: null,
+        },
+        throughputDaily: [],
+        discoveredDaily: [],
+        runs: [
+          {
+            id: 'r1',
+            startedAt: '2026-10-03T00:00:00.000Z',
+            endedAt: '2026-10-03T00:10:00.000Z',
+            durationMs: 600_000,
+            trigger: 'scheduled',
+            runners: 2,
+            counts: null,
+            error: 'boom',
+            tokens: { prompt: 1, output: 2, thoughts: 3, total: 6, calls: 1 },
+          },
+        ],
+      });
+    });
   });
 });

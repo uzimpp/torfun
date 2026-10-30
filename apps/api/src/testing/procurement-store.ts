@@ -1,16 +1,22 @@
-import type {
-  IngestionFailure,
-  IngestionOutcome,
-  IngestionState,
-  IngestionSummary,
-  Procurement,
+import {
+  appendStatusChange,
+  OUTCOME_STATE,
+  type IngestionFailure,
+  type IngestionOutcome,
+  type IngestionSummary,
+  type Procurement,
+  type Tombstone,
 } from '@torfun/types';
-import type {
-  FindOptions,
-  FindResult,
-  ProcurementDataSource,
+import {
+  holdReasonFor,
+  type FeedCursor,
+  type FindOptions,
+  type FindResult,
+  type ProcurementDataSource,
+  type UpsertSummary,
 } from '../repositories/procurement.repository';
 import { mergeDiscovered } from '../repositories/merge-discovered';
+import { hashSource, hasUpstreamChange } from '../repositories/source-hash';
 
 /**
  * An in-memory `ProcurementStore` for driving an ingestion run in a test.
@@ -22,8 +28,11 @@ import { mergeDiscovered } from '../repositories/merge-discovered';
  */
 export class InMemoryProcurementStore implements ProcurementDataSource {
   private readonly records = new Map<string, Procurement>();
+  private readonly hashes = new Map<string, string>();
   private readonly failures: IngestionFailure[] = [];
+  private readonly tombstones = new Map<string, Tombstone>();
   private lastRunAt: string | null = null;
+  private cursor: FeedCursor = {};
 
   async ensureIndexes(): Promise<void> {
     // The in-memory store has no indexes; this preserves the production
@@ -36,20 +45,62 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async upsert(record: Procurement): Promise<Procurement> {
     const existing = this.records.get(record.projectId);
-    if (!existing) {
-      this.records.set(record.projectId, record);
-      return record;
+    const stored = existing
+      ? mergeDiscovered(existing, record, this.changed(existing, record))
+      : record;
+    this.records.set(stored.projectId, stored);
+    this.hashes.set(stored.projectId, hashSource(record));
+    return stored;
+  }
+
+  private changed(existing: Procurement, incoming: Procurement): boolean {
+    return hasUpstreamChange(this.hashes.get(existing.projectId) ?? null, existing, incoming);
+  }
+
+  async tombstone(tombstone: Tombstone): Promise<void> {
+    this.tombstones.set(tombstone.projectId, tombstone);
+    this.records.delete(tombstone.projectId);
+    this.hashes.delete(tombstone.projectId);
+  }
+
+  async remove(projectId: string): Promise<boolean> {
+    this.hashes.delete(projectId);
+    return this.records.delete(projectId);
+  }
+
+  async tombstonedIds(projectIds: string[]): Promise<Set<string>> {
+    return new Set(projectIds.filter((id) => this.tombstones.has(id)));
+  }
+
+  async getTombstone(projectId: string): Promise<Tombstone | undefined> {
+    return this.tombstones.get(projectId);
+  }
+
+  async listTombstones(): Promise<Tombstone[]> {
+    return [...this.tombstones.values()];
+  }
+
+  async removeTombstone(projectId: string): Promise<boolean> {
+    return this.tombstones.delete(projectId);
+  }
+
+  async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
+    // The same counting rule as the real repository's bulk write.
+    const summary: UpsertSummary = { created: 0, createdIds: [], changed: 0, unchanged: 0 };
+    for (const record of records) {
+      const existing = this.records.get(record.projectId);
+      if (!existing) {
+        summary.created += 1;
+        summary.createdIds.push(record.projectId);
+      } else if (this.changed(existing, record)) summary.changed += 1;
+      else summary.unchanged += 1;
+      await this.upsert(record);
     }
-    // The same merge rule the real repository uses, so a pipeline test cannot
-    // pass against a fake that keeps different fields.
-    const merged = mergeDiscovered(existing, record);
-    this.records.set(merged.projectId, merged);
-    return merged;
+    return summary;
   }
 
   async transition(
     projectId: string,
-    state: IngestionState,
     outcome: IngestionOutcome,
     patch: Partial<Procurement> = {},
     detail?: string,
@@ -57,13 +108,15 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     const existing = this.records.get(projectId);
     if (!existing) return undefined;
 
+    const state = OUTCOME_STATE[outcome];
     const at = new Date().toISOString();
     const updated: Procurement = {
       ...existing,
       ...patch,
       state,
       outcome,
-      statusHistory: [...existing.statusHistory, { state, outcome, at, detail }],
+      holdReason: holdReasonFor(outcome, patch),
+      statusHistory: appendStatusChange(existing.statusHistory, { state, outcome, at, detail }),
       updatedAt: at,
     };
     this.records.set(projectId, updated);
@@ -74,12 +127,65 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     const items = [...this.records.values()].filter(
       (record) =>
         (!options.state || record.state === options.state) &&
-        (options.eBidding === undefined || record.eBidding === options.eBidding),
+        (!options.outcome || record.outcome === options.outcome) &&
+        (!options.status || record.timeline.status === options.status) &&
+        (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow) &&
+        (options.detailRead === undefined || (record.detailReadAt !== null) === options.detailRead),
     );
     return {
       items: items.slice(options.offset, options.offset + options.limit),
       total: items.length,
     };
+  }
+
+  async amend(
+    projectId: string,
+    patch: Partial<Procurement>,
+    touch: boolean,
+  ): Promise<Procurement | undefined> {
+    const existing = this.records.get(projectId);
+    if (!existing) return undefined;
+    const updated = {
+      ...existing,
+      ...patch,
+      updatedAt: touch ? new Date().toISOString() : existing.updatedAt,
+    };
+    this.records.set(projectId, updated);
+    return updated;
+  }
+
+  async dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]> {
+    return [...this.records.values()]
+      .filter(
+        (record) =>
+          (record.state === 'Completed' || record.state === 'Failed') &&
+          record.outcome !== 'out_of_scope' &&
+          record.timeline.status !== 'contracted',
+      )
+      .sort(
+        (a, b) =>
+          (a.timeline.lastReadAt ?? '').localeCompare(b.timeline.lastReadAt ?? '') ||
+          a.projectId.localeCompare(b.projectId),
+      )
+      .slice(page.offset, page.offset + page.limit);
+  }
+
+  async requeueStale(cutoff: string): Promise<number> {
+    const stale = [...this.records.values()].filter(
+      (record) =>
+        record.state === 'Processing' &&
+        (record.statusHistory.at(-1)?.at ?? record.updatedAt) < cutoff,
+    );
+    for (const record of stale) {
+      const since = record.statusHistory.at(-1)?.at ?? record.updatedAt;
+      await this.transition(
+        record.projectId,
+        'queued',
+        {},
+        `Requeued: stuck in Processing since ${since} with no progress.`,
+      );
+    }
+    return stale.length;
   }
 
   async recordFailures(failures: IngestionFailure[]): Promise<void> {
@@ -88,6 +194,14 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
 
   async markRun(at: string): Promise<void> {
     this.lastRunAt = at;
+  }
+
+  async feedCursor(): Promise<FeedCursor> {
+    return structuredClone(this.cursor);
+  }
+
+  async recordFeedCursor(cursor: FeedCursor): Promise<void> {
+    Object.assign(this.cursor, structuredClone(cursor));
   }
 
   async listFailures(): Promise<IngestionFailure[]> {
@@ -117,6 +231,16 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       failureCount: this.failures.length,
       lastRunAt: this.lastRunAt,
       runInProgress: false,
+      runStartedAt: null,
+      stopRequested: false,
     };
+  }
+
+  async recent(limit: number): Promise<Procurement[]> {
+    return [...this.records.values()]
+      .sort(
+        (a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.projectId.localeCompare(b.projectId),
+      )
+      .slice(0, limit);
   }
 }

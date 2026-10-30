@@ -1,11 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Env } from '../../config/env';
+import type { LineFlexMessage } from './line-template';
 import { DeliveryError } from './email';
 
 export interface LineSender {
-  push(to: string, text: string, retryKey: string): Promise<void>;
+  push(to: string, text: string, retryKey: string, flex?: LineFlexMessage): Promise<void>;
   linkToken(userId: string): Promise<string>;
-  reply(replyToken: string, text: string): Promise<void>;
+  reply(replyToken: string, text: string, flex?: LineFlexMessage): Promise<void>;
 }
 
 export function validLineSignature(body: string, signature: string, secret: string): boolean {
@@ -48,10 +49,10 @@ export function createLineSender(
     return response.json() as Promise<Record<string, unknown>>;
   };
   return {
-    async push(to, text, retryKey) {
+    async push(to, text, retryKey, flex) {
       await call(
         'message/push',
-        { to, messages: [{ type: 'text', text: text.slice(0, 4900) }] },
+        { to, messages: [flex ?? { type: 'text', text: text.slice(0, 4900) }] },
         retryKey,
       );
     },
@@ -61,8 +62,8 @@ export function createLineSender(
         throw new DeliveryError('LINE returned no link token', false);
       return result.linkToken;
     },
-    async reply(replyToken, text) {
-      await call('message/reply', { replyToken, messages: [{ type: 'text', text }] });
+    async reply(replyToken, text, flex) {
+      await call('message/reply', { replyToken, messages: [flex ?? { type: 'text', text }] });
     },
   };
 }

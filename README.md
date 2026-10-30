@@ -1,8 +1,8 @@
 # torfun
 
 Finds Thai government software procurement a software house can credibly bid
-on. It sweeps the e-GP open data, keeps the software-related announcements,
-has Gemini read the TOR (Terms of Reference) PDF, and scores each against the
+on. It reads the e-GP announcement feed for e-bidding tenders, has Gemini read
+each TOR (Terms of Reference) PDF to keep the software ones, and scores each against the
 company's own past work — so a person reads the ten that matter instead of the
 four hundred that don't.
 
@@ -14,7 +14,9 @@ Next.js web app, sharing one package of zod schemas.
 - **Bun 1.3.11** — pinned by `packageManager`
 - **Docker** — for the local MongoDB Atlas container
 - **A Google Cloud project** with Vertex AI enabled, plus `gcloud` for local credentials
-- **An e-GP open-data API key** — register at <https://opend.data.go.th/register_api/>
+- **An e-GP open-data API key** — register at <https://opend.data.go.th/register_api/>.
+  Discovery no longer reads open data; the key is still required by the config and
+  the dependency health check, and is kept for a future winner lookup.
 - **A Google OAuth 2.0 web client** — for user sign-in
 
 ## Running it locally
@@ -24,11 +26,19 @@ bun install
 cp apps/api/.env.example apps/api/.env   # the comments there explain every value
 cp apps/web/.env.example apps/web/.env
 docker compose up -d mongodb
-gcloud auth application-default login    # how the API reaches Vertex AI in development
+gcloud auth application-default login \
+  --impersonate-service-account=torfun-api-runtime@torfun-676767.iam.gserviceaccount.com
 bun run dev
 ```
 
+The `gcloud` line is how the API reaches Vertex AI; it needs a one-time grant
+first — see [Vertex AI access](#vertex-ai-access).
+
 Web on <http://localhost:3000>, API on <http://localhost:8080>.
+
+`bun run dev` watches files, and saving any of them restarts the API and kills an
+ingestion run in flight. To let a run finish, start the API without the watcher
+(`bun run dev:stable` inside `apps/api`) and edit freely.
 
 Registering through the web app creates a Business Development Officer. The
 ingestion console at `/admin/ingestion` needs the admin role, which is granted in
@@ -44,6 +54,32 @@ it without needing `mongosh` installed on the host.
 
 To run the whole stack in containers instead, fill both `.env` files and use
 `bun run docker:up`.
+
+## Vertex AI access
+
+In development the API calls Vertex AI by impersonating the `torfun-api-runtime`
+service account: short-lived tokens, nothing to leak, and one IAM change revokes
+it. (The org blocks service-account keys, so there is no key file to hand out.)
+
+An owner grants each developer access once, on that service account only:
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  torfun-api-runtime@torfun-676767.iam.gserviceaccount.com \
+  --member="user:<your-email>" --role="roles/iam.serviceAccountTokenCreator"
+```
+
+Then log in as shown above and restart `bun run dev`. IAM changes take a minute or
+two. Records that failed analysis are not retried: archives are never stored
+(ADR-0002), so reading one again would mean downloading it again. Later Runs
+re-read their timeline, and the invitation alone if its date moved.
+
+| Error in the failure log                    | Fix                                                                          |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `invalid_grant`, `reauth related error`     | Re-run the login                                                             |
+| `iam.serviceAccounts.getAccessToken` denied | The grant above is missing, or you logged in with a different Google account |
+| `aiplatform.endpoints.predict` denied       | You logged in without `--impersonate-service-account`; log in again with it  |
+| `Invalid JWT`, or a bad key path            | Blank `GOOGLE_APPLICATION_CREDENTIALS` and `GOOGLE_SERVICE_ACCOUNT_JSON`     |
 
 ## Commands
 

@@ -1,128 +1,144 @@
 'use client';
 
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import { Activity } from 'lucide-react';
+import { AdminLoadError } from '@/components/admin/admin-load-error';
+import { AdminPage, AdminSection } from '@/components/admin/admin-ui';
+import { LoadingRegion } from '@/components/admin/loading-region';
+import { KpiStrip } from '@/components/admin-dashboard/kpi-strip';
+import { recordTiles } from '@/components/admin-dashboard/view-models';
+import { PageHeader } from '@/components/layout/page-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import { formatThaiDate } from '@/lib/format-date';
 import { FailureLog } from './failure-log';
-import { FilterBar } from './filter-bar';
-import { ProjectTable } from './project-table';
-import { SummaryCards } from './summary-cards';
-import {
-  EMPTY_FILTERS,
-  PAGE_SIZE,
-  useIngestionData,
-  type FilterValues,
-} from './use-ingestion-data';
+import { LiveWork } from './live-work';
+import { OpsCharts } from './ops-charts';
+import { RunHistory } from './run-history';
+import { RunStatusBar } from './run-status-bar';
+import { useIngestionOps } from './use-ingestion-ops';
+import { useIngestionRun } from './use-ingestion-run';
+import { useNow } from './use-now';
 
-/**
- * A quiet line under the heading that answers "is anything happening right
- * now?" — a pulsing dot while a run is in flight, otherwise when the last one
- * finished. The polling that keeps `running` current already lives in the hook.
- */
-function RunStatus({ running, lastRunAt }: { running: boolean; lastRunAt: string | null }) {
-  if (running) {
-    return (
-      <span className="text-primary inline-flex items-center gap-2 text-sm font-medium">
-        <span className="bg-primary size-2 animate-pulse rounded-full" aria-hidden="true" />
-        กำลังดึงข้อมูลอยู่
-      </span>
-    );
-  }
+const clock = (at: Date) =>
+  at.toLocaleTimeString('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Bangkok',
+  });
+
+const TILE_GRID =
+  'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 sm:[&>li:last-child]:col-span-2 lg:[&>li:last-child]:col-span-1';
+
+function MonitoringSkeleton() {
   return (
-    <span className="text-muted-foreground inline-flex items-center gap-2 text-sm">
-      <span className="bg-muted-foreground/40 size-2 rounded-full" aria-hidden="true" />
-      {lastRunAt
-        ? `รอบล่าสุด ${new Date(lastRunAt).toLocaleString('th-TH')}`
-        : 'ยังไม่เคยเริ่มรอบดึงข้อมูล'}
-    </span>
+    <LoadingRegion className="flex flex-col gap-4">
+      <Skeleton className="h-48 w-full rounded-xl" />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Skeleton className="h-80 w-full rounded-xl" />
+        <Skeleton className="h-80 w-full rounded-xl" />
+      </div>
+    </LoadingRegion>
   );
 }
 
 /**
- * Site Administrator view of the e-GP ingestion queue.
- *
- * Client-rendered because it is an interactive console — filters, polling and a
- * run trigger — rather than a document. Everything it shows comes from the API;
- * no data is duplicated here. This component owns only filter and pagination
- * state; fetching lives in `useIngestionData`.
+ * Operations and monitoring for e-GP ingestion: run control, what the Run
+ * is doing now, where every record stands, how runs have gone, and the failure
+ * log. Browsing the records themselves lives on /admin/procurements.
  */
 export function IngestionDashboard() {
-  const [filters, setFilters] = useState<FilterValues>(EMPTY_FILTERS);
-  const [page, setPage] = useState(0);
+  const run = useIngestionRun();
+  const { summary, failures, error, actionError, running, starting, startRun, stopRun, reload } =
+    run;
+  const opsData = useIngestionOps({ live: running });
+  const { ops } = opsData;
 
-  const { summary, projects, total, failures, loading, error, running, startRun } =
-    useIngestionData(filters, page);
-
-  // Any filter change invalidates the current page — page 4 of the old result
-  // set is rarely page 4 of the new one, and is often past its end.
-  const applyFilters = (patch: Partial<FilterValues>) => {
-    setFilters((current) => ({ ...current, ...patch }));
-    setPage(0);
-  };
-
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // Every second while a run is going, so its clock counts in seconds.
+  const now = useNow(running ? 1000 : 30_000);
+  const updatedAt = opsData.updatedAt ?? run.updatedAt;
 
   return (
-    <main className="page-fill mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-10">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">สถานะการดึงข้อมูลประกาศ TOR</h1>
-          <p className="text-muted-foreground text-sm">
-            ติดตามสถานะการประมวลผลของประกาศจัดซื้อจัดจ้างที่ดึงจากระบบ e-GP
-          </p>
-          <RunStatus running={running} lastRunAt={summary?.lastRunAt ?? null} />
-        </div>
-        <Button onClick={() => void startRun()} disabled={running}>
-          {running ? 'กำลังดึงข้อมูล…' : 'เริ่มรอบดึงข้อมูล'}
-        </Button>
-      </header>
-
-      {error ? (
-        <Card className="border-destructive/50">
-          <CardHeader>
-            <CardTitle className="text-destructive text-base">เชื่อมต่อ API ไม่สำเร็จ</CardTitle>
-            <CardDescription>{error}</CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
-
-      {summary ? <SummaryCards summary={summary} /> : null}
-
-      <FilterBar
-        values={filters}
-        onChange={applyFilters}
-        agencies={summary?.agencies ?? []}
-        years={(summary?.byYear ?? []).map((entry) => entry.year)}
+    <AdminPage>
+      <PageHeader
+        crumbs={[{ label: 'ผู้ดูแลระบบ', href: '/dashboard' }, { label: 'ระบบดึงข้อมูล' }]}
+        title="ระบบดึงข้อมูล"
+        description="ควบคุมรอบดึงข้อมูลจากระบบ e-GP ติดตามงานที่กำลังทำ และดูประวัติการทำงาน"
+        meta={
+          <>
+            <span>
+              {summary?.lastRunAt
+                ? `รอบล่าสุด ${formatThaiDate(summary.lastRunAt, { withTime: true })}`
+                : 'ยังไม่เคยเริ่มรอบดึงข้อมูล'}
+            </span>
+            {updatedAt ? <span>อัปเดตเมื่อ {clock(updatedAt)}</span> : null}
+          </>
+        }
       />
 
-      <ProjectTable projects={projects} total={total} loading={loading} />
+      <div className="flex min-w-0 flex-col gap-10">
+        <div className="flex min-w-0 flex-col gap-4">
+          {summary ? (
+            <RunStatusBar
+              summary={summary}
+              now={now}
+              starting={starting}
+              onStart={() => void startRun()}
+              onStop={stopRun}
+            />
+          ) : (
+            <LoadingRegion>
+              <Skeleton className="h-16 w-full rounded-xl" />
+            </LoadingRegion>
+          )}
 
-      <div className="flex items-center justify-between">
-        <p className="text-muted-foreground text-sm">
-          หน้า {page + 1} จาก {pageCount}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            disabled={page === 0}
-            onClick={() => setPage((current) => Math.max(0, current - 1))}
-          >
-            ก่อนหน้า
-          </Button>
-          <Button
-            variant="outline"
-            disabled={page + 1 >= pageCount}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            ถัดไป
-          </Button>
+          {error ? <AdminLoadError error={error} onRetry={reload} /> : null}
+          {actionError ? (
+            <AdminLoadError
+              error={actionError.error}
+              title={
+                actionError.action === 'stop' ? 'หยุดรอบไม่สำเร็จ' : 'เริ่มรอบดึงข้อมูลไม่สำเร็จ'
+              }
+            />
+          ) : null}
+
+          {running ? (
+            <AdminSection id="live-heading" title="งานที่กำลังทำ" icon={Activity}>
+              {ops || !opsData.loading ? (
+                <LiveWork live={ops?.live ?? null} now={now} />
+              ) : (
+                <LoadingRegion>
+                  <Skeleton className="h-12 w-full" />
+                </LoadingRegion>
+              )}
+            </AdminSection>
+          ) : null}
         </div>
+
+        {summary ? (
+          <KpiStrip tiles={recordTiles(summary)} label="สถานะรายการทั้งหมด" className={TILE_GRID} />
+        ) : (
+          <LoadingRegion>
+            <Skeleton className="h-28 w-full rounded-xl" />
+          </LoadingRegion>
+        )}
+
+        {opsData.error ? <AdminLoadError error={opsData.error} onRetry={opsData.reload} /> : null}
+
+        {ops ? (
+          <>
+            <RunHistory runs={ops.runs} />
+            <OpsCharts ops={ops} />
+          </>
+        ) : opsData.loading ? (
+          <MonitoringSkeleton />
+        ) : null}
+
+        <FailureLog
+          failures={failures}
+          runs={ops?.runs ?? []}
+          liveStartedAt={running ? (summary?.runStartedAt ?? null) : null}
+        />
       </div>
-
-      <Separator />
-
-      <FailureLog failures={failures} />
-    </main>
+    </AdminPage>
   );
 }

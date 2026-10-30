@@ -17,6 +17,7 @@ import type { NotificationStore } from '../repositories/notification.repository'
 import type { NotificationContactStore } from '../repositories/notification-contact.repository';
 import type { ProcurementRepository } from '../repositories/procurement.repository';
 import type { EmailSender } from './notifications/email';
+import { renderAccountEmail } from './notifications/email-template';
 import { computeMatch, visibleForNotification } from './notifications/matching';
 
 export type NotificationSource = Pick<
@@ -149,6 +150,11 @@ export class NotificationService {
         'ยืนยันอีเมลสำหรับการแจ้งเตือน Torfun',
         `ยืนยันอีเมลโดยเปิดลิงก์นี้ขณะเข้าสู่บัญชี Torfun ของคุณ (หมดอายุใน 30 นาที):\n${url.href}\nหากไม่ได้ร้องขอ คุณสามารถละเว้นอีเมลนี้ได้`,
         randomUUID(),
+        renderAccountEmail(
+          'ยืนยันอีเมลของคุณ',
+          'รับแจ้งเตือนโอกาสงานซอฟต์แวร์และการเปลี่ยนสถานะ TOR ทางอีเมลของคุณ',
+          url.href,
+        ),
       );
     } catch {
       throw new ConflictError('ส่งอีเมลยืนยันไม่สำเร็จ กรุณาลองอีกครั้งภายหลัง');
