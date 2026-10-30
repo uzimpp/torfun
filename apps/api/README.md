@@ -29,41 +29,44 @@ skip unless `MONGODB_TEST_URI` (or `MONGODB_URI`) is set; for the local image us
 
 Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 
-| Method | Path                             | Access | Does                                              |
-| ------ | -------------------------------- | ------ | ------------------------------------------------- |
-| GET    | `/health`                        | public | Liveness; touches nothing external                |
-| GET    | `/health/dependencies`           | admin  | Live calls to Atlas, Vertex and the open data     |
-| POST   | `/auth/register`                 | public | Creates a Business Development Officer            |
-| POST   | `/auth/login`                    | public | Signs in; both credential routes are throttled    |
-| POST   | `/auth/refresh`                  | cookie | Exchanges the refresh cookie                      |
-| POST   | `/auth/logout`                   | public | Clears both cookies                               |
-| GET    | `/auth/me`                       | user   | The current account                               |
-| GET    | `/auth/google`                   | public | Starts the Google sign-in redirect                |
-| GET    | `/auth/google/callback`          | public | Finishes it, then redirects into the web app      |
-| GET    | `/dashboard`                     | user   | Placeholder greeting                              |
-| GET    | `/admin/test`                    | admin  | Placeholder greeting                              |
-| GET    | `/ingestion/summary`             | admin  | Counts by state and outcome, plus agencies        |
-| GET    | `/ingestion/projects`            | admin  | Filter and paginate procurements                  |
-| GET    | `/ingestion/projects/:projectId` | admin  | One procurement by its 11-digit id                |
-| GET    | `/ingestion/failures`            | admin  | The failure log                                   |
-| POST   | `/ingestion/run`                 | admin  | Starts a run; `202`, or `409` if one is live      |
-| GET    | `/tors`                          | user   | Search, filter and paginate procurements          |
-| GET    | `/tors/:projectId`               | user   | One procurement by its project id                 |
-| GET    | `/tors/:projectId/source`        | user   | Download the original TOR PDF                     |
-| GET    | `/companies/search?q=`           | user   | Typeahead over Thai company names                 |
-| POST   | `/companies`                     | user   | Creates a Company and joins the caller to it      |
-| GET    | `/companies/me`                  | user   | The caller's Company; `404` when they have none   |
-| PATCH  | `/companies/me`                  | user   | Corrects the caller's own Company                 |
-| POST   | `/companies/:id/join`            | user   | Repoints the caller at an existing Company        |
-| GET    | `/clients`                       | user   | The caller's own Clients                          |
-| POST   | `/clients`                       | user   | Records a Client; `409` before a Company exists   |
-| PATCH  | `/clients/:id`                   | user   | Corrects one                                      |
-| DELETE | `/clients/:id`                   | user   | Removes one; `409` if work is recorded on it      |
-| GET    | `/clients/suggestions?kind=&q=`  | user   | `{ suggestions }`, government names from agencies |
-| GET    | `/experiences`                   | user   | The caller's own recorded work                    |
-| POST   | `/experiences`                   | user   | Records work; only client and name are required   |
-| PATCH  | `/experiences/:id`               | user   | Corrects one                                      |
-| DELETE | `/experiences/:id`               | user   | Removes one                                       |
+| Method | Path                             | Access | Does                                                |
+| ------ | -------------------------------- | ------ | --------------------------------------------------- |
+| GET    | `/health`                        | public | Liveness; touches nothing external                  |
+| GET    | `/health/dependencies`           | admin  | Live calls to Atlas, Vertex and the open data       |
+| POST   | `/auth/register`                 | public | Creates a Business Development Officer              |
+| POST   | `/auth/login`                    | public | Signs in; both credential routes are throttled      |
+| POST   | `/auth/refresh`                  | cookie | Exchanges the refresh cookie                        |
+| POST   | `/auth/logout`                   | public | Clears both cookies                                 |
+| GET    | `/auth/me`                       | user   | The current account                                 |
+| GET    | `/auth/google`                   | public | Starts the Google sign-in redirect                  |
+| GET    | `/auth/google/callback`          | public | Finishes it, then redirects into the web app        |
+| GET    | `/dashboard`                     | user   | Placeholder greeting                                |
+| GET    | `/admin/test`                    | admin  | Placeholder greeting                                |
+| GET    | `/ingestion/summary`             | admin  | Counts by state and outcome, plus agencies          |
+| GET    | `/ingestion/projects`            | admin  | Filter and paginate procurements                    |
+| GET    | `/ingestion/projects/:projectId` | admin  | One procurement by its 11-digit id                  |
+| GET    | `/ingestion/failures`            | admin  | The failure log                                     |
+| POST   | `/ingestion/run`                 | admin  | Starts a run; `202`, or `409` if one is live        |
+| GET    | `/tors`                          | user   | Search, filter and paginate procurements            |
+| GET    | `/tors/:projectId`               | user   | One procurement by its project id                   |
+| GET    | `/tors/:projectId/source`        | user   | Download the original TOR PDF                       |
+| POST   | `/tors/:projectId/reports`       | user   | Report a TOR for admin review                       |
+| GET    | `/admin/tor-reports`             | admin  | Shared report queue, newest first                   |
+| PATCH  | `/admin/tor-reports/:reportId`   | admin  | Dismiss a report or remove its TOR from publication |
+| GET    | `/companies/search?q=`           | user   | Typeahead over Thai company names                   |
+| POST   | `/companies`                     | user   | Creates a Company and joins the caller to it        |
+| GET    | `/companies/me`                  | user   | The caller's Company; `404` when they have none     |
+| PATCH  | `/companies/me`                  | user   | Corrects the caller's own Company                   |
+| POST   | `/companies/:id/join`            | user   | Repoints the caller at an existing Company          |
+| GET    | `/clients`                       | user   | The caller's own Clients                            |
+| POST   | `/clients`                       | user   | Records a Client; `409` before a Company exists     |
+| PATCH  | `/clients/:id`                   | user   | Corrects one                                        |
+| DELETE | `/clients/:id`                   | user   | Removes one; `409` if work is recorded on it        |
+| GET    | `/clients/suggestions?kind=&q=`  | user   | `{ suggestions }`, government names from agencies   |
+| GET    | `/experiences`                   | user   | The caller's own recorded work                      |
+| POST   | `/experiences`                   | user   | Records work; only client and name are required     |
+| PATCH  | `/experiences/:id`               | user   | Corrects one                                        |
+| DELETE | `/experiences/:id`               | user   | Removes one                                         |
 
 Request and response shapes are zod schemas on each route, most of them imported
 from `@torfun/types`.
@@ -86,6 +89,38 @@ all relative windows use the calendar in Asia/Bangkok and paginate after filteri
 Choose either a relative window or `deadlineFrom`/`deadlineTo`, never both.
 Missing or unreadable deadlines do not match a date filter. The deadlines are AI
 extractions and must be verified against the original TOR before bidding.
+
+## TOR reports
+
+Authenticated users submit one reason and optional `details` (maximum 2,000
+characters). The `other` reason requires nonblank details. The API records the
+reporter's identity from their account and snapshots the TOR title and agency.
+It returns `201`; another pending report from the same user for that TOR returns
+`409`. Different users can report the same TOR.
+
+Reports persist in `tor_reports`. Every active admin can read the queue with
+`limit` (default 25, maximum 100), `offset`, and `status` (`pending`, `dismissed`,
+`removed`, or `all`; default `pending`). The reporter's identity stays visible.
+
+For US-21 / FR-43 (#80), `PATCH /api/admin/tor-reports/:reportId` accepts
+`{ "action": "dismiss" | "remove_tor", "note"?: "..." }`. Notes are trimmed and
+limited to 2,000 characters. Each decision records the verified administrator's
+identity and time. A report can only be decided once; stale requests return `409`.
+Decisions are per report, including when several users report the same TOR.
+
+Dismissal leaves publication unchanged. Removal marks the procurement with
+`publication_removed_at`, `publication_removed_by`, and `publication_removed_report_id`.
+Officers can no longer list, open, download, or report that TOR. Admins retain
+the original record and source, and rediscovery or retrieval does not republish it.
+The agency's own procurement status and ingestion outcome are not changed.
+Reporting by itself never changes publication.
+
+Review decisions and publication removal commit in one MongoDB transaction, so
+a replica set is required (Atlas already provides one). A failed write rolls back
+the decision, and competing reviewers cannot overwrite each other. Index setup
+is idempotent and runs lazily in the API, so no separate migration script is
+required. Legacy pending reports need no backfill; missing publication metadata
+means published.
 
 ## Health checks
 

@@ -22,7 +22,10 @@ export function audienceOf(role: User['role']): Audience {
 export const OFFICER_VISIBLE_OUTCOME = 'tor_analysed' as const satisfies IngestionOutcome;
 
 export function isVisibleTo(audience: Audience, procurement: Procurement): boolean {
-  return audience === 'admin' || procurement.outcome === OFFICER_VISIBLE_OUTCOME;
+  return (
+    audience === 'admin' ||
+    (procurement.outcome === OFFICER_VISIBLE_OUTCOME && !procurement.publicationRemovedAt)
+  );
 }
 
 /**

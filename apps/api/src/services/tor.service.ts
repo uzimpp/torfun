@@ -28,7 +28,9 @@ export class TorService {
    */
   async list(options: FindOptions, audience: Audience): Promise<FindResult> {
     const narrowed =
-      audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME };
+      audience === 'admin'
+        ? options
+        : { ...options, outcome: OFFICER_VISIBLE_OUTCOME, excludeRemoved: true };
     const filters = resolveProcurementListOptions({ ...narrowed, order: 'daysLeft' }, this.now());
     if (!filters) return { items: [], total: 0 };
     const { items, total } = await this.procurements.find(filters);

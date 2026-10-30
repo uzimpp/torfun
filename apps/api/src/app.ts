@@ -42,6 +42,8 @@ import { ProcurementAdminService } from './services/procurement-admin.service';
 import { ScheduleService } from './services/schedule.service';
 import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
+import { TorReportRepository, type TorReportStore } from './repositories/tor-report.repository';
+import { TorReportService } from './services/tor-report.service';
 import { registerRoutes } from './routes';
 
 /**
@@ -77,6 +79,7 @@ export interface RepositoryOverrides {
   schedule?: ScheduleStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
+  torReports?: TorReportStore;
 }
 
 /**
@@ -175,7 +178,16 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   );
   app.decorate('schedulerService', schedulerService);
   app.addHook('onClose', async () => schedulerService.stop());
-  app.decorate('torService', new TorService(procurementRepository));
+  const torService = new TorService(procurementRepository);
+  app.decorate('torService', torService);
+  app.decorate(
+    'torReportService',
+    new TorReportService(
+      repositories.torReports ?? new TorReportRepository(app.mongo.getDb),
+      torService,
+      userRepository,
+    ),
+  );
   app.decorate(
     'diagnosticsService',
     new DiagnosticsService(createDependencyProbes(env, app.mongo.getDb)),

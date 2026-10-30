@@ -465,6 +465,8 @@ export const ProcurementSchema = z.object({
   holdReason: HoldReason.nullable(),
   statusHistory: z.array(StatusChangeSchema),
   approved: ApprovalSchema.nullable(),
+  /** Admin publication decision, independent of the agency lifecycle and AI outcome. */
+  publicationRemovedAt: z.string().datetime().nullish(),
 
   /** Null until the archive is fetched. */
   archive: ArchiveSchema.nullable(),

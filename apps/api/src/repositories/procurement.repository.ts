@@ -89,6 +89,8 @@ interface ProcurementDocument {
   hold_reason?: HoldReason | null;
   status_history: StatusChange[];
   approved: { by: string; at: string } | null;
+  /** Owned by report review; ingestion never writes or clears this field. */
+  publication_removed_at?: string | null;
   archive: ArchiveRecordDocument | null;
   analysis: TorAnalysis | null;
   /** The feed's fingerprint (`hashSource`); absent on records written before sweeps were fingerprinted. */
@@ -157,6 +159,9 @@ function toDomain(document: ProcurementDocument): Procurement {
       outcome: outcomeFromStored(entry.outcome),
     })),
     approved: document.approved,
+    ...(document.publication_removed_at !== undefined
+      ? { publicationRemovedAt: document.publication_removed_at }
+      : {}),
     archive: archive
       ? {
           zipId: archive.zip_id,
@@ -233,6 +238,8 @@ export interface FindOptions {
    * the record (ADR-0021).
    */
   detailRead?: boolean;
+  /** Officer publication filter; report removal remains independent of outcome. */
+  excludeRemoved?: boolean;
   deptName?: string;
   budgetYear?: number;
   /** Filter to one stage of the agency's own lifecycle. */
@@ -625,8 +632,10 @@ export class ProcurementRepository
     }
 
     const merged = mergedDocument(existing, record);
-    await collection.replaceOne({ _id: record.projectId }, merged);
-    return toDomain(merged);
+    // Report-review metadata may change after the read above. Only set fields
+    // owned by ingestion so a concurrent removal and its audit trail survive.
+    await collection.updateOne({ _id: record.projectId }, { $set: merged });
+    return (await this.get(record.projectId))!;
   }
 
   async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
@@ -655,9 +664,9 @@ export class ProcurementRepository
         summary.changed += 1;
       } else summary.unchanged += 1;
       operations.push({
-        replaceOne: {
+        updateOne: {
           filter: { _id: record.projectId },
-          replacement: mergedDocument(existing, record),
+          update: { $set: mergedDocument(existing, record) },
         },
       });
     }
@@ -698,8 +707,8 @@ export class ProcurementRepository
       },
       existing.source_hash ?? null,
     );
-    await collection.replaceOne({ _id: projectId }, updated);
-    return toDomain(updated);
+    await collection.updateOne({ _id: projectId }, { $set: updated });
+    return this.get(projectId);
   }
 
   async amend(
@@ -719,8 +728,8 @@ export class ProcurementRepository
       },
       existing.source_hash ?? null,
     );
-    await collection.replaceOne({ _id: projectId }, updated);
-    return toDomain(updated);
+    await collection.updateOne({ _id: projectId }, { $set: updated });
+    return this.get(projectId);
   }
 
   async dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]> {
@@ -786,6 +795,7 @@ export class ProcurementRepository
       filter.detail_read_at = options.detailRead ? { $ne: null } : null;
     }
     if (options.deptName) filter.dept_name = options.deptName;
+    if (options.excludeRemoved) filter.publication_removed_at = null;
     if (options.budgetYear) filter.budget_year = options.budgetYear;
     if (options.status) filter['timeline.status'] = options.status;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {

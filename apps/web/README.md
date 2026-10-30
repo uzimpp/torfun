@@ -24,17 +24,19 @@ it for a deployment means a rebuild, not a restart.
 
 ## Pages
 
-| Route                  | Access | What it does                                        |
-| ---------------------- | ------ | --------------------------------------------------- |
-| `/`                    | public | Landing page, with the search field as its hero     |
-| `/search`              | public | Results for `?q=`; says what access the index needs |
-| `/login`               | public | Password sign-in, or the Google redirect            |
-| `/register`            | public | Self-registration, always as a BD Officer           |
-| `/dashboard`           | user   | Signed-in landing                                   |
-| `/company`             | user   | The officer's own Company and the work it delivered |
-| `/company-experiences` | user   | The same record, guided, as step two of registration |
-| `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log |
-| any unmatched URL      | public | `not-found.tsx`: a 404 with its own search field    |
+| Route                  | Access | What it does                                                       |
+| ---------------------- | ------ | ------------------------------------------------------------------ |
+| `/`                    | public | Landing page, with the search field as its hero                    |
+| `/search`              | public | Results for `?q=`; says what access the index needs                |
+| `/login`               | public | Password sign-in, or the Google redirect                           |
+| `/register`            | public | Self-registration, always as a BD Officer                          |
+| `/dashboard`           | user   | Signed-in landing                                                  |
+| `/company`             | user   | The officer's own Company and the work it delivered                |
+| `/company-experiences` | user   | The same record, guided, as step two of registration               |
+| `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log                |
+| `/tor/:projectId`      | user   | Read, download, or report a TOR                                    |
+| `/admin/tor-reports`   | admin  | Review, dismiss, or unpublish reported TORs; read decision history |
+| any unmatched URL      | public | `not-found.tsx`: a 404 with its own search field                   |
 
 Protected pages redirect from the server component; the session cookie is
 `httpOnly` and unreadable from the browser. `requireCompany` additionally sends a
