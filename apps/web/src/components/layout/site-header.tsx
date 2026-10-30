@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import type { CurrentUser } from '@/lib/auth';
 import { buttonVariants } from '@/components/ui/button';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
 import { Brand } from './brand';
@@ -40,6 +41,7 @@ export function SiteHeader({
 
         <div className="ms-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
           <HeaderSearch enabled={withSearch} />
+          {user?.role === 'business_development_officer' && <NotificationBell />}
           {user ? (
             <UserMenu user={user} />
           ) : (

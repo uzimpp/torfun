@@ -23,6 +23,19 @@ export const EnvSchema = z.object({
   // Where the browser is sent after a successful OAuth callback.
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),
 
+  // Disabled external channels leave the inbox fully usable.
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_FROM: z.union([z.literal(''), z.string().email()]).default(''),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASSWORD: z.string().default(''),
+  LINE_CHANNEL_ACCESS_TOKEN: z.string().default(''),
+  LINE_CHANNEL_SECRET: z.string().default(''),
+  LINE_OA_ID: z.string().default(''),
+  // A separate scheduler calls the bounded worker in production. Timers are local only.
+  NOTIFICATION_WORKER_TOKEN: z.union([z.literal(''), z.string().min(32)]).default(''),
+  NOTIFICATION_POLL_MS: z.coerce.number().int().min(10000).default(60000),
+
   // Auth
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),

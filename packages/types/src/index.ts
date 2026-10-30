@@ -4,5 +4,6 @@ export * from './matching';
 export * from './company';
 export * from './egp';
 export * from './procurement-dates';
+export * from './notification';
 export * from './schedule';
 export * from './ingestion-ops';

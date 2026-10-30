@@ -13,6 +13,9 @@ import type { ProcurementAdminService } from '../services/procurement-admin.serv
 import type { ScheduleService } from '../services/schedule.service';
 import type { SchedulerService } from '../services/scheduler.service';
 import type { TorService } from '../services/tor.service';
+import type { NotificationService } from '../services/notification.service';
+import type { NotificationWorkerService } from '../services/notification-worker.service';
+import type { LineNotificationService } from '../services/line-notification.service';
 import type { UserRole } from '@torfun/types';
 
 /** The JWT payload. snake_case is the on-the-wire claim shape. */
@@ -45,6 +48,9 @@ declare module 'fastify' {
     scheduleService: ScheduleService;
     schedulerService: SchedulerService;
     torService: TorService;
+    notificationService: NotificationService;
+    notificationWorkerService: NotificationWorkerService;
+    lineNotificationService: LineNotificationService;
     diagnosticsService: DiagnosticsService;
   }
 }

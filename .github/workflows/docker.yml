@@ -110,6 +110,7 @@ jobs:
           flags: '--service-account=${{ vars.GCP_API_RUNTIME_SERVICE_ACCOUNT }}'
           env_vars: |
             CORS_ORIGINS=${{ vars.WEB_URL }}
+            WEB_APP_URL=${{ vars.WEB_URL }}
             GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
             GOOGLE_OAUTH_CALLBACK_URL=${{ vars.API_URL }}/api/auth/google/callback
           secrets: |

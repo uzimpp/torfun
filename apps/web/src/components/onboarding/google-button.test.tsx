@@ -34,3 +34,17 @@ test('both send the browser to the same endpoint', async () => {
   expect(assign.mock.calls[1]![0]).toBe(assign.mock.calls[0]![0]);
   vi.unstubAllGlobals();
 });
+
+test('Google sign-in saves a same-origin notification return without changing the OAuth URL', () => {
+  const assign = vi.fn();
+  vi.stubGlobal('location', { assign, search: '?next=%2Fnotifications', protocol: 'http:' });
+  try {
+    render(<GoogleButton intent="signin" />);
+    screen.getByRole('button').click();
+    expect(document.cookie).toContain('torfun-notification-return=%2Fnotifications');
+    expect(assign.mock.calls[0]![0]).toMatch(/\/api\/auth\/google$/);
+  } finally {
+    document.cookie = 'torfun-notification-return=; Path=/; Max-Age=0';
+    vi.unstubAllGlobals();
+  }
+});

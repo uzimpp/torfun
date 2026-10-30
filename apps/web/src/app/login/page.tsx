@@ -1,5 +1,6 @@
 'use client';
 
+import type { Route } from 'next';
 import { type FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -9,6 +10,7 @@ import { FlowShell } from '@/components/onboarding/flow-shell';
 import { FlowField, FlowError } from '@/components/onboarding/field';
 import { GoogleButton, OrDivider } from '@/components/onboarding/google-button';
 import { FLOW_ACTION } from '@/components/onboarding/controls';
+import { requestedAuthReturnPath, clearAuthReturnCookie } from '@/lib/auth-return';
 import { cn } from '@/lib/utils';
 import { api_url as apiUrl } from '@/lib/config';
 
@@ -46,7 +48,8 @@ export default function LoginPage() {
         return;
       }
 
-      router.push('/dashboard');
+      clearAuthReturnCookie();
+      router.push((requestedAuthReturnPath() ?? '/dashboard') as Route);
       router.refresh();
     } catch {
       setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');

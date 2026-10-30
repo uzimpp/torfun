@@ -18,10 +18,14 @@
         "LOG_LEVEL",
         "MONGODB_DB",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "dev": {
@@ -53,7 +57,10 @@
         "NEXT_PUBLIC_*",
         "PORT",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "test:e2e": {
@@ -70,10 +77,14 @@
         "LOG_LEVEL",
         "MONGODB_DB",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "clean": {

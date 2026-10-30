@@ -1,5 +1,6 @@
 import {
   Bookmark,
+  Bell,
   FileStack,
   Building2,
   Database,
@@ -19,7 +20,7 @@ import type { UserRole } from '@torfun/types';
  * smaller product than one on a laptop.
  */
 export interface NavItem {
-  href: '/dashboard' | '/search' | '/admin/procurements' | '/admin/ingestion';
+  href: '/dashboard' | '/search' | '/admin/procurements' | '/admin/ingestion' | '/notifications';
   label: string;
   Icon: LucideIcon;
   /** What this destination is for, shown where there is room to say it. */
@@ -40,6 +41,16 @@ export function workspaceNav(role: UserRole): NavItem[] {
       Icon: Search,
       hint: 'ค้นประกาศจากคลังข้อมูล',
     },
+    ...(role === 'business_development_officer'
+      ? [
+          {
+            href: '/notifications' as const,
+            label: 'การแจ้งเตือน',
+            Icon: Bell,
+            hint: 'โอกาสที่ตรงกับบริษัทและการเปลี่ยนสถานะ',
+          },
+        ]
+      : []),
     ...(role === 'admin'
       ? ([
           {
@@ -99,12 +110,14 @@ export function accountNav(role: UserRole): AccountNavItem[] {
         label: 'บันทึกข้อผิดพลาด',
         Icon: ScrollText,
       },
+      { href: '/admin/notifications', label: 'บันทึกการส่งแจ้งเตือน', Icon: Bell },
       { href: '/admin/accounts', label: 'จัดการบัญชีผู้ใช้', Icon: Users },
     ];
   }
 
   return [
     { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
+    { href: '/notifications', label: 'การแจ้งเตือน', Icon: Bell },
     { href: '/company', label: 'บริษัทและผลงาน', Icon: Building2 },
   ];
 }

@@ -91,3 +91,23 @@ extractions and must be verified against the original TOR before bidding.
 
 `/health` is the container probe. `/health/dependencies` makes real, billed calls
 upstream, so it is something an administrator asks, never something polled.
+
+## Notifications
+
+BD officers manage their inbox and per-event channel preferences at `/notifications`;
+admins inspect delivery failures at `/admin/notifications`. Matching uses recorded
+company technology/platform evidence with an inclusive 70% threshold. Email and
+LINE default off and require verified/linked destinations.
+
+Optional SMTP and LINE Messaging API variables are listed in `.env.example`.
+Set `WEB_APP_URL` to the public web origin for message links. LINE's webhook is
+`POST /api/notifications/line/webhook`; users add the OA and send `เชื่อมต่อ` to
+begin account linking. Messages use branded HTML email (with plain text) and
+LINE Flex cards with TOR and preference links.
+
+Mongo must support transactions. Source indexes are ensured at startup; worker
+passes ensure notification/contact indexes. In production, a trusted scheduler
+must call `POST /api/internal/notifications/run` every minute with the
+`X-Notification-Worker-Token` header matching `NOTIFICATION_WORKER_TOKEN`.
+Development polls locally via `NOTIFICATION_POLL_MS`. Delivery retries are bounded
+to five attempts within 24 hours; provider acceptance does not confirm receipt.

@@ -25,6 +25,7 @@ services:
     # Config lives in the workspace that owns it. `env_file` hands the file to
     # the container at start, so there is no repo-root .env and no `${VAR}`
     # interpolation — which Compose can only resolve from its own directory.
+    # Includes optional SMTP_*, LINE_* and NOTIFICATION_* settings; API only.
     env_file:
       - apps/api/.env
     # What differs inside a container. `environment` beats `env_file`, so these

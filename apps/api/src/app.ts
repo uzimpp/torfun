@@ -42,6 +42,19 @@ import { ProcurementAdminService } from './services/procurement-admin.service';
 import { ScheduleService } from './services/schedule.service';
 import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
+import {
+  NotificationRepository,
+  type NotificationStore,
+} from './repositories/notification.repository';
+import {
+  NotificationContactRepository,
+  type NotificationContactStore,
+} from './repositories/notification-contact.repository';
+import { NotificationService, type NotificationSource } from './services/notification.service';
+import { NotificationWorkerService } from './services/notification-worker.service';
+import { LineNotificationService } from './services/line-notification.service';
+import { createEmailSender, type EmailSender } from './services/notifications/email';
+import { createLineSender, type LineSender } from './services/notifications/line';
 import { registerRoutes } from './routes';
 
 /**
@@ -77,6 +90,11 @@ export interface RepositoryOverrides {
   schedule?: ScheduleStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
+  notifications?: NotificationStore;
+  notificationContacts?: NotificationContactStore;
+  notificationSource?: NotificationSource;
+  emailSender?: EmailSender | null;
+  lineSender?: LineSender | null;
 }
 
 /**
@@ -133,6 +151,50 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const ingestionRuns = repositories.ingestionRuns ?? new IngestionRunRepository(app.mongo.getDb);
   const ingestionStats = repositories.ingestionStats ?? mongoProcurements;
   const agencyNames = repositories.agencyNames ?? procurementRepository;
+  const notifications = repositories.notifications ?? new NotificationRepository(app.mongo.getDb);
+  const contacts =
+    repositories.notificationContacts ?? new NotificationContactRepository(app.mongo.getDb);
+  const notificationSource =
+    repositories.notificationSource ?? new ProcurementRepository(app.mongo.getDb);
+  const emailSender =
+    repositories.emailSender !== undefined ? repositories.emailSender : createEmailSender(env);
+  const lineSender =
+    repositories.lineSender !== undefined ? repositories.lineSender : createLineSender(env);
+  const notificationService = new NotificationService(
+    notifications,
+    contacts,
+    userRepository,
+    experienceRepository,
+    notificationSource,
+    emailSender,
+    { webUrl: env.WEB_APP_URL, lineAvailable: lineSender !== null, lineOaId: env.LINE_OA_ID },
+  );
+  const lineNotificationService = new LineNotificationService(
+    contacts,
+    notificationService,
+    lineSender,
+    { secret: env.LINE_CHANNEL_SECRET, webUrl: env.WEB_APP_URL },
+  );
+  const notificationWorkerService = new NotificationWorkerService(
+    notifications,
+    contacts,
+    userRepository,
+    experienceRepository,
+    notificationSource,
+    emailSender,
+    lineSender,
+    env.WEB_APP_URL,
+    app.log,
+    undefined,
+    async () => {
+      await notifications.ensureIndexes?.();
+      await contacts.ensureIndexes?.();
+    },
+  );
+  app.decorate('notificationService', notificationService);
+  app.decorate('lineNotificationService', lineNotificationService);
+  app.decorate('notificationWorkerService', notificationWorkerService);
+  app.addHook('onClose', async () => notificationWorkerService.stop());
 
   app.decorate(
     'authService',
