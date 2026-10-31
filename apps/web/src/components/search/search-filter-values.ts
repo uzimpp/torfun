@@ -2,11 +2,10 @@ import { ProcurementStatus, type ProcurementFilters, type TargetPlatform } from 
 
 export interface SearchFilterValues {
   query: string;
-  status: ProcurementStatus | '';
-  eBidding: '' | 'true' | 'false';
+  status: ProcurementStatus[];
   minDaysLeft: string;
   deptName: string;
-  year: string;
+  budgetYear: string[];
   outcome: '' | 'tor_analysed';
   minBudget: string;
   maxBudget: string;
@@ -21,11 +20,10 @@ export interface SearchFilterValues {
 
 export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
   query: '',
-  status: '',
-  eBidding: '',
+  status: [],
   minDaysLeft: '',
   deptName: '',
-  year: '',
+  budgetYear: [],
   outcome: '',
   minBudget: '',
   maxBudget: '',
@@ -46,7 +44,17 @@ function first(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value) ?? '';
 }
 
+function entries(value: string | string[] | undefined): string[] {
+  return (Array.isArray(value) ? value : value ? [value] : [])
+    .flatMap((entry) => entry.split(','))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export function parseSearchFilters(params: RawSearchParams): SearchFilterValues {
+  const statuses = entries(params.status).filter(
+    (value): value is ProcurementStatus => ProcurementStatus.safeParse(value).success,
+  );
   const platforms = (
     Array.isArray(params.targetPlatforms)
       ? params.targetPlatforms
@@ -55,16 +63,10 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
 
   return {
     query: first(params.q).trim(),
-    status: ProcurementStatus.safeParse(first(params.status)).data ?? '',
-    eBidding:
-      first(params.eBidding) === 'true'
-        ? 'true'
-        : first(params.eBidding) === 'false'
-          ? 'false'
-          : '',
+    status: [...new Set(statuses)],
     minDaysLeft: first(params.minDaysLeft),
     deptName: first(params.deptName),
-    year: first(params.year),
+    budgetYear: [...new Set(entries(params.budgetYear).filter((year) => /^\d+$/.test(year)))],
     outcome: first(params.outcome) === 'tor_analysed' ? 'tor_analysed' : '',
     minBudget: first(params.minBudget),
     maxBudget: first(params.maxBudget),
@@ -85,10 +87,9 @@ export function parseSearchPage(params: RawSearchParams): number {
 
 export function activeFilterCount(values: SearchFilterValues): number {
   return [
-    values.status,
-    values.eBidding,
+    values.status.length > 0,
     values.deptName,
-    values.year,
+    values.budgetYear.length > 0,
     values.outcome,
     values.minBudget || values.maxBudget,
     values.publishedFrom || values.publishedTo,
@@ -117,10 +118,9 @@ export function toProjectFilters(
   return {
     limit,
     offset,
-    ...(values.status ? { status: values.status } : {}),
-    ...(values.eBidding ? { eBidding: values.eBidding === 'true' } : {}),
+    ...(values.status.length > 0 ? { status: values.status } : {}),
     ...(values.deptName ? { deptName: values.deptName } : {}),
-    ...(values.year ? { year: Number(values.year) } : {}),
+    ...(values.budgetYear.length > 0 ? { budgetYear: values.budgetYear.map(Number) } : {}),
     ...(values.outcome ? { outcome: values.outcome } : {}),
     ...(values.minDaysLeft !== '' ? { minDaysLeft: Number(values.minDaysLeft) } : {}),
     ...(values.query ? { q: values.query } : {}),
@@ -140,10 +140,9 @@ export function toProjectFilters(
 
 export function searchHref(values: SearchFilterValues, page = 1): string {
   const params = new URLSearchParams();
-  if (values.status) params.set('status', values.status);
-  if (values.eBidding) params.set('eBidding', values.eBidding);
+  if (values.status.length > 0) params.set('status', values.status.join(','));
   if (values.deptName) params.set('deptName', values.deptName);
-  if (values.year) params.set('year', values.year);
+  if (values.budgetYear.length > 0) params.set('budgetYear', values.budgetYear.join(','));
   if (values.outcome) params.set('outcome', values.outcome);
   if (values.minDaysLeft !== '') params.set('minDaysLeft', values.minDaysLeft);
   if (values.query) params.set('q', values.query);
@@ -171,9 +170,8 @@ export function preservedSearchEntries(values: SearchFilterValues): Array<[strin
 
 export type SearchFilterCriterion =
   | 'status'
-  | 'eBidding'
   | 'deptName'
-  | 'year'
+  | 'budgetYear'
   | 'outcome'
   | 'budget'
   | 'published'
@@ -189,10 +187,13 @@ export function withoutSearchFilter(
 ): SearchFilterValues {
   switch (criterion) {
     case 'status':
-    case 'eBidding':
+    case 'budgetYear':
+    case 'targetPlatforms':
+      return { ...values, [criterion]: [] };
     case 'deptName':
-    case 'year':
     case 'outcome':
+    case 'techStack':
+    case 'industry':
       return { ...values, [criterion]: '' };
     case 'budget':
       return { ...values, minBudget: '', maxBudget: '' };
@@ -205,11 +206,5 @@ export function withoutSearchFilter(
         deadlineTo: '',
         minDaysLeft: '',
       };
-    case 'techStack':
-      return { ...values, techStack: '' };
-    case 'targetPlatforms':
-      return { ...values, targetPlatforms: [] };
-    case 'industry':
-      return { ...values, industry: '' };
   }
 }

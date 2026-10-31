@@ -128,7 +128,14 @@ describe('toProjectQuery', () => {
   test('maps set filters to the API query and the 1-based page to an offset', () => {
     expect(
       toProjectQuery(
-        { ...EMPTY_PROCUREMENT_URL, q: 'x', state: 'Queued', agency: 'กรม', year: '2568' },
+        {
+          ...EMPTY_PROCUREMENT_URL,
+          q: 'x',
+          state: 'Queued',
+          status: 'open',
+          agency: 'กรม',
+          year: '2568',
+        },
         3,
       ),
     ).toEqual({
@@ -136,8 +143,9 @@ describe('toProjectQuery', () => {
       offset: 2 * PROCUREMENT_PAGE_SIZE,
       q: 'x',
       state: 'Queued',
+      status: ['open'],
       deptName: 'กรม',
-      budgetYear: 2568,
+      budgetYear: [2568],
     });
   });
 

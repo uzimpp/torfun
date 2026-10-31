@@ -38,6 +38,10 @@ export class TorService {
     return { items: items.map((item) => presentTo(audience, item)), total };
   }
 
+  years(): Promise<number[]> {
+    return this.procurements.years();
+  }
+
   /** A record the audience may not see is reported exactly as one that does not exist. */
   async get(projectId: string, audience: Audience): Promise<Procurement> {
     const procurement = await this.procurements.get(projectId);

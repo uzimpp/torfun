@@ -13,11 +13,7 @@ import {
   Search,
   WifiOff,
 } from 'lucide-react';
-<<<<<<< HEAD
 import { currentDeadline, type Procurement } from '@torfun/types';
-=======
-import { STATUS_LABELS, type Procurement } from '@torfun/types';
->>>>>>> 13cfc3a (polish uxui of search and filter page)
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -182,63 +178,37 @@ function SearchPagination({
 export const RESULT_ROW_SELECTOR = '[data-result-row]';
 
 function ResultRow({ item, today }: { item: Procurement; today: string }) {
-  const statusLabel =
-    item.status === 'invitation' ? 'เปิดรับข้อเสนอ' : STATUS_LABELS[item.status];
-
   return (
     <li
       data-result-row
-      className="bg-card border-border group relative cursor-pointer rounded-2xl border p-4 transition-colors hover:border-primary/40 hover:bg-muted/20 focus-within:ring-2 focus-within:ring-primary/40 focus-within:ring-offset-2 sm:p-5"
+      className="bg-card border-border group hover:border-primary/40 hover:bg-muted/20 focus-within:ring-primary/40 relative cursor-pointer rounded-2xl border p-4 transition-colors focus-within:ring-2 focus-within:ring-offset-2 sm:p-5"
     >
-<<<<<<< HEAD
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <DaysLeftBadge item={item} today={today} />
-        <ProcurementStatusBadge status={item.timeline.status} />
-        <span data-numeric className="text-muted-foreground font-mono text-xs">
-          ปีงบประมาณ {item.budgetYear ?? '—'}
-        </span>
-        <ProcurementDeadline deadline={currentDeadline(item)} status={item.timeline.status} />
-      </div>
-
-      <ProcurementTiming item={item} />
-=======
       <Link
         href={`/tor/${encodeURIComponent(item.projectId)}`}
         aria-label={item.projectName}
-        className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        className="focus-visible:outline-primary absolute inset-0 z-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2"
       />
       <div className="pointer-events-none relative z-10">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <DaysLeftBadge item={item} today={today} />
+          <ProcurementStatusBadge status={item.timeline.status} />
+          <span data-numeric className="text-muted-foreground font-mono text-xs">
+            ปีงบประมาณ {item.budgetYear ?? '—'}
+          </span>
+          <ProcurementDeadline deadline={currentDeadline(item)} status={item.timeline.status} />
+        </div>
+
         <div className="grid gap-5 md:grid-cols-[minmax(0,4fr)_minmax(9rem,1fr)] md:items-start md:gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
-                {CLASS_LABELS[item.softwareClass]}
-              </span>
-              <span className="text-muted-foreground border-border rounded-full border px-2.5 py-1 text-xs">
-                {item.eBidding
-                  ? 'e-bidding'
-                  : (item.purchaseMethodName ?? 'วิธีอื่นที่ไม่ใช่ e-bidding')}
-              </span>
-              <span
-                className={cn(
-                  'rounded-full px-2.5 py-1 text-xs font-medium',
-                  item.status === 'invitation'
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                    : item.status === 'cancelled'
-                      ? 'bg-destructive/10 text-destructive'
-                      : 'bg-muted text-muted-foreground',
-                )}
-              >
-                สถานะ: {statusLabel}
+                {item.purchaseMethodName ?? 'e-bidding'}
               </span>
             </div>
 
-            <h3 className="mt-3 text-base font-semibold leading-normal text-balance">
-              <span className="transition-colors group-hover:text-primary">
-                {item.projectName}
-              </span>
+            <h3 className="mt-3 text-base leading-normal font-semibold text-balance">
+              <span className="group-hover:text-primary transition-colors">{item.projectName}</span>
             </h3>
->>>>>>> 13cfc3a (polish uxui of search and filter page)
 
             <div className="text-muted-foreground mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
               <span className="inline-flex items-start gap-2">
@@ -260,13 +230,13 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
             <ProcurementTiming item={item} today={today} mode="details" />
           </div>
 
-          <div className="border-border border-t pt-3 text-left md:w-full md:max-w-48 md:justify-self-end md:self-start md:border-t-0 md:pt-0">
+          <div className="border-border border-t pt-3 text-left md:w-full md:max-w-48 md:self-start md:justify-self-end md:border-t-0 md:pt-0">
             <p className="text-muted-foreground text-xs">งบประมาณ</p>
             <p data-numeric className="text-primary mt-1 font-mono text-xl font-bold">
               {item.projectMoney === null ? 'ไม่ระบุ' : bahtFormat.format(item.projectMoney)}
             </p>
             <p data-numeric className="text-muted-foreground mt-1 text-sm">
-              ปีงบประมาณ {item.year}
+              ปีงบประมาณ {item.budgetYear ?? '—'}
             </p>
           </div>
         </div>
@@ -416,7 +386,7 @@ function ResultSkeleton() {
         {[0, 1, 2, 3].map((row) => (
           <li
             key={row}
-            className="bg-card border-border grid gap-5 rounded-2xl border p-4 shadow-sm md:grid-cols-[minmax(0,4fr)_minmax(9rem,1fr)] md:items-start md:gap-4 sm:p-5"
+            className="bg-card border-border grid gap-5 rounded-2xl border p-4 shadow-sm sm:p-5 md:grid-cols-[minmax(0,4fr)_minmax(9rem,1fr)] md:items-start md:gap-4"
           >
             <div className="min-w-0 flex-1 space-y-3">
               <div className="bg-muted h-5 w-48 animate-pulse rounded-full" />

@@ -4,6 +4,7 @@ import {
   deleteClient,
   deleteExperience,
   fetchClients,
+  fetchFiscalYears,
   fetchProjects,
   joinCompany,
   stopIngestionRun,
@@ -79,4 +80,16 @@ test('procurement filters are encoded into the existing listing request', async 
     limit: '20',
     offset: '20',
   });
+});
+
+test('fiscal year choices are loaded from the procurement index', async () => {
+  fetchMock.mockResolvedValueOnce(
+    new Response(JSON.stringify({ years: [2570, 2569, 2560] }), { status: 200 }),
+  );
+
+  await expect(fetchFiscalYears()).resolves.toEqual({ years: [2570, 2569, 2560] });
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/tors/years'),
+    expect.objectContaining({ credentials: 'include' }),
+  );
 });
