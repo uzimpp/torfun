@@ -24,11 +24,7 @@ import { landingSections } from './nav-config';
  * Every page fills the window before this begins, so it is reached by scrolling
  * rather than met on arrival.
  */
-export function SiteFooter({
-  signedIn = false,
-}: {
-  signedIn?: boolean;
-}) {
+export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
   // Thai calendar year, which is what every date on an announcement uses.
   const year = new Date().getFullYear() + 543;
 
@@ -73,16 +69,6 @@ export function SiteFooter({
               </>
             )}
           </FooterColumn>
-
-<<<<<<< HEAD
-          <div>
-            <h2 className="text-xs font-medium tracking-wider uppercase">การแสดงผล</h2>
-            <div className="mt-3">
-              <ThemeToggle initialTheme={initialTheme} withLabel onDarkSurface />
-            </div>
-          </div>
-=======
->>>>>>> 13cfc3a (polish uxui of search and filter page)
         </div>
 
         <p

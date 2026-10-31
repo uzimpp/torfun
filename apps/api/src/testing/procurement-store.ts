@@ -43,6 +43,16 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     return this.records.get(projectId);
   }
 
+  async years(): Promise<number[]> {
+    return [
+      ...new Set(
+        [...this.records.values()]
+          .map(({ budgetYear }) => budgetYear)
+          .filter((budgetYear): budgetYear is number => budgetYear !== null),
+      ),
+    ].sort((a, b) => b - a);
+  }
+
   async upsert(record: Procurement): Promise<Procurement> {
     const existing = this.records.get(record.projectId);
     const stored = existing
@@ -128,7 +138,9 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       (record) =>
         (!options.state || record.state === options.state) &&
         (!options.outcome || record.outcome === options.outcome) &&
-        (!options.status || record.timeline.status === options.status) &&
+        (!options.budgetYear?.length ||
+          (record.budgetYear !== null && options.budgetYear.includes(record.budgetYear))) &&
+        (!options.status?.length || options.status.includes(record.timeline.status)) &&
         (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow) &&
         (options.detailRead === undefined || (record.detailReadAt !== null) === options.detailRead),
     );

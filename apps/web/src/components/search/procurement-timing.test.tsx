@@ -32,7 +32,7 @@ describe('procurement timing', () => {
     badge('open', '2026-10-07');
     expect(screen.getByText('เหลืออีก 2 วัน')).toBeInTheDocument();
     cleanup();
-    render(<ProcurementTiming item={row('open', '2026-10-07')} />);
+    render(<ProcurementTiming item={row('open', '2026-10-07')} today="2026-10-05" />);
     expect(screen.getByText(/วันที่สกัดโดย AI/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'ตรวจสอบ TOR ต้นฉบับ' })).toHaveAttribute(
       'href',
@@ -46,7 +46,7 @@ describe('procurement timing', () => {
       timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-07' },
     } as Procurement;
 
-    render(<ProcurementTiming item={official} />);
+    render(<ProcurementTiming item={official} today="2026-10-05" />);
 
     expect(screen.getByText(/7 ต\.ค\. 2569/)).toBeInTheDocument();
     expect(screen.queryByText(/วันที่สกัดโดย AI/)).not.toBeInTheDocument();
@@ -62,7 +62,7 @@ describe('procurement timing', () => {
     const { container } = badge('open', null);
     expect(container).toBeEmptyDOMElement();
     cleanup();
-    render(<ProcurementTiming item={row('open', null)} />);
+    render(<ProcurementTiming item={row('open', null)} today="2026-10-05" />);
     expect(screen.getByText('ยังไม่ทราบวันปิดรับข้อเสนอ')).toBeInTheDocument();
   });
 

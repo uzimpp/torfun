@@ -6,6 +6,7 @@ import type {
   Procurement,
   ProcurementFilters,
   ProcurementListResponse,
+  ProcurementYearsResponse,
   TargetPlatform,
   UserRole,
 } from '@torfun/types';
@@ -164,6 +165,10 @@ export function fetchProjects(filters: ProjectFilters = {}): Promise<ProjectList
   }
   const query = params.toString();
   return request<ProjectListResponse>(`/api/tors${query ? `?${query}` : ''}`);
+}
+
+export function fetchFiscalYears(): Promise<ProcurementYearsResponse> {
+  return request<ProcurementYearsResponse>('/api/tors/years');
 }
 
 export function fetchTor(projectId: string): Promise<Procurement> {

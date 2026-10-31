@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
-import type { Procurement } from '@torfun/types';
+import { EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 import { SearchResults } from './search-results';
 import { EMPTY_SEARCH_FILTERS } from './search-filter-values';
 import { useTorSearch } from './use-tor-search';
@@ -10,27 +10,44 @@ vi.mock('./use-tor-search', () => ({
   useTorSearch: vi.fn(),
 }));
 
-const item = {
+const item: Procurement = {
   projectId: 'project/123',
   projectName: 'พัฒนาระบบจัดการข้อมูล',
-  softwareClass: 'new_build',
-  eBidding: true,
-  status: 'invitation',
-  purchaseMethodName: null,
-  deptSubName: null,
   deptName: 'สำนักงานพัฒนารัฐบาลดิจิทัล',
+  deptSubName: null,
+  deptCode: '1234567890',
   announceDate: '2025-03-06',
+  purchaseMethodName: 'e-bidding',
+  discoveredAt: '2025-03-06T00:00:00.000Z',
+  budgetYear: 2568,
+  typeId: null,
+  goodsId: null,
+  projectMoney: 3_600_000,
+  priceBuild: null,
+  detailReadAt: '2025-03-06T00:00:00.000Z',
+  timeline: { ...EMPTY_TIMELINE, status: 'open' },
+  state: 'Completed',
+  outcome: 'tor_analysed',
+  attempts: 0,
+  holdReason: null,
+  statusHistory: [],
+  approved: null,
+  archive: { zipId: 'zip-1', documents: [], torAmbiguous: false },
   analysis: {
-    deadlineAt: '2025-03-20',
     summary: 'สรุปขอบเขตงานสำหรับทดสอบ',
+    scopeOfWork: [],
+    budgetThb: null,
+    deadlineAt: '2025-03-20',
+    durationDays: null,
+    techStack: [],
+    targetPlatforms: [],
+    requiredQualifications: [],
   },
-  projectMoney: 3600000,
-  year: 2568,
-  winner: null,
-} as Procurement;
+  updatedAt: '2025-03-06T00:00:00.000Z',
+};
 
 describe('SearchResults cards', () => {
-  test('shows procurement badges, linked project details, dates, and budget in a responsive card', () => {
+  test('shows procurement details, source links, dates, and budget in a responsive card', () => {
     vi.mocked(useTorSearch).mockReturnValue({
       items: [item],
       total: 1,
@@ -50,23 +67,25 @@ describe('SearchResults cards', () => {
 
     const cardLink = screen.getByRole('link', { name: item.projectName });
     expect(cardLink).toHaveAttribute('href', '/tor/project%2F123');
-    expect(screen.getByText('พัฒนาระบบใหม่')).toBeInTheDocument();
     expect(screen.getByText('e-bidding')).toBeInTheDocument();
-    expect(screen.getByText('สถานะ: เปิดรับข้อเสนอ')).toBeInTheDocument();
+    expect(screen.getByText('เปิดรับข้อเสนอ')).toBeInTheDocument();
     expect(screen.getByText('สำนักงานพัฒนารัฐบาลดิจิทัล')).toBeInTheDocument();
     expect(screen.getByText('ประกาศ 6 มี.ค. 2568')).toBeInTheDocument();
     expect(screen.getByText('ปิดรับ 20 มี.ค. 2568')).toBeInTheDocument();
     expect(screen.getByText('฿3,600,000')).toBeInTheDocument();
-    expect(screen.getByText('ปีงบประมาณ 2568')).toBeInTheDocument();
+    expect(screen.getAllByText('ปีงบประมาณ 2568')).toHaveLength(2);
     expect(screen.getByText('สรุปขอบเขตงานสำหรับทดสอบ')).toBeInTheDocument();
     const sourceLink = screen.getByRole('link', { name: 'ตรวจสอบ TOR ต้นฉบับ' });
-    expect(sourceLink).toHaveAttribute(
-      'href',
-      '/tor/project%2F123',
-    );
+    expect(sourceLink).toHaveAttribute('href', '/tor/project%2F123');
 
     const card = cardLink.closest('[data-result-row]');
-    expect(card).toHaveClass('group', 'cursor-pointer', 'hover:border-primary/40', 'rounded-2xl', 'border');
+    expect(card).toHaveClass(
+      'group',
+      'cursor-pointer',
+      'hover:border-primary/40',
+      'rounded-2xl',
+      'border',
+    );
     expect(card).not.toHaveClass('shadow-sm', 'shadow-md');
     expect(screen.getByRole('heading', { name: item.projectName })).toHaveClass(
       'text-base',
@@ -74,9 +93,8 @@ describe('SearchResults cards', () => {
       'font-semibold',
     );
     expect(sourceLink).toHaveClass('pointer-events-auto', 'z-20');
-    const budget = within(card as HTMLElement).getByText('งบประมาณ').parentElement;
-    expect(budget).toHaveClass('md:self-start');
-    expect(budget).not.toHaveClass('md:border-l');
-    expect(within(card as HTMLElement).getByText('งบประมาณ')).toBeInTheDocument();
+    expect(within(card as HTMLElement).getByText('งบประมาณ').parentElement).toHaveClass(
+      'md:self-start',
+    );
   });
 });

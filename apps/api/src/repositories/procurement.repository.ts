@@ -234,9 +234,9 @@ export interface FindOptions {
    */
   detailRead?: boolean;
   deptName?: string;
-  budgetYear?: number;
+  budgetYear?: number[];
   /** Filter to one stage of the agency's own lifecycle. */
-  status?: ProcurementStatus;
+  status?: ProcurementStatus[];
   /** Case-insensitive substring over project name and id. */
   query?: string;
   minBudget?: number;
@@ -294,6 +294,7 @@ export interface FindResult {
  */
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
+  years(): Promise<number[]>;
   upsert(record: Procurement): Promise<Procurement>;
   /**
    * Replace a record with its tombstone: the record and everything read from it
@@ -770,6 +771,19 @@ export class ProcurementRepository
     return document ? toDomain(document) : undefined;
   }
 
+  async years(): Promise<number[]> {
+    const rows = await (
+      await this.records()
+    )
+      .aggregate<{ _id: number }>([
+        { $match: { budget_year: { $ne: null } } },
+        { $group: { _id: '$budget_year' } },
+        { $sort: { _id: -1 } },
+      ])
+      .toArray();
+    return rows.map(({ _id }) => _id);
+  }
+
   async find(options: FindOptions): Promise<FindResult> {
     const filter: Record<string, unknown> = {};
     const clauses: Record<string, unknown>[] = [];
@@ -786,8 +800,8 @@ export class ProcurementRepository
       filter.detail_read_at = options.detailRead ? { $ne: null } : null;
     }
     if (options.deptName) filter.dept_name = options.deptName;
-    if (options.budgetYear) filter.budget_year = options.budgetYear;
-    if (options.status) filter['timeline.status'] = options.status;
+    if (options.budgetYear?.length) filter.budget_year = { $in: options.budgetYear };
+    if (options.status?.length) filter['timeline.status'] = { $in: options.status };
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
