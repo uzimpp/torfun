@@ -1,6 +1,13 @@
-import { ProcurementStatus, type ProcurementFilters, type TargetPlatform } from '@torfun/types';
+import {
+  ProcurementOrderSchema,
+  ProcurementStatus,
+  type ProcurementFilters,
+  type ProcurementOrder,
+  type TargetPlatform,
+} from '@torfun/types';
 
 export interface SearchFilterValues {
+  order: ProcurementOrder;
   query: string;
   status: ProcurementStatus[];
   minDaysLeft: string;
@@ -19,6 +26,7 @@ export interface SearchFilterValues {
 }
 
 export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
+  order: 'announced',
   query: '',
   status: [],
   minDaysLeft: '',
@@ -62,6 +70,7 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
   ).filter((value): value is TargetPlatform => PLATFORM_VALUES.includes(value as TargetPlatform));
 
   return {
+    order: ProcurementOrderSchema.safeParse(first(params.order)).data ?? 'announced',
     query: first(params.q).trim(),
     status: [...new Set(statuses)],
     minDaysLeft: first(params.minDaysLeft),
@@ -118,6 +127,7 @@ export function toProjectFilters(
   return {
     limit,
     offset,
+    order: values.order,
     ...(values.status.length > 0 ? { status: values.status } : {}),
     ...(values.deptName ? { deptName: values.deptName } : {}),
     ...(values.budgetYear.length > 0 ? { budgetYear: values.budgetYear.map(Number) } : {}),
@@ -140,6 +150,7 @@ export function toProjectFilters(
 
 export function searchHref(values: SearchFilterValues, page = 1): string {
   const params = new URLSearchParams();
+  if (values.order !== 'announced') params.set('order', values.order);
   if (values.status.length > 0) params.set('status', values.status.join(','));
   if (values.deptName) params.set('deptName', values.deptName);
   if (values.budgetYear.length > 0) params.set('budgetYear', values.budgetYear.join(','));

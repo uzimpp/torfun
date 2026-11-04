@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Building2,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -13,13 +14,18 @@ import {
   Search,
   WifiOff,
 } from 'lucide-react';
-import { currentDeadline, type Procurement } from '@torfun/types';
+import {
+  currentDeadline,
+  ProcurementOrderSchema,
+  type Procurement,
+  type ProcurementOrder,
+} from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ProcurementDeadline } from './procurement-deadline';
 import { ProcurementStatusBadge } from './procurement-status-badge';
-import { hasSearchCriteria, type SearchFilterValues } from './search-filter-values';
+import { hasSearchCriteria, searchHref, type SearchFilterValues } from './search-filter-values';
 import { DaysLeftBadge, ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
 
@@ -33,6 +39,7 @@ export function SearchResults({
   filters,
   page,
   onPageChange,
+  onOrderChange,
   today,
 }: {
   filters: SearchFilterValues;
@@ -40,37 +47,94 @@ export function SearchResults({
   /** 1-indexed, matching what shows in the URL and in "หน้า X จาก Y". */
   page: number;
   onPageChange: (page: number) => void;
+  onOrderChange: (order: ProcurementOrder) => void;
 }) {
   const { items, total, loading, block, detail } = useTorSearch(filters, page);
-
-  if (loading) return <ResultSkeleton />;
-  if (block) return <BlockedState block={block} detail={detail} />;
-  if (items.length === 0) {
-    return hasSearchCriteria(filters) ? (
-      <NoMatchState query={filters.query} />
-    ) : (
-      <EmptyIndexState />
-    );
-  }
-
   const first = (page - 1) * RESULT_LIMIT + 1;
   const last = first + items.length - 1;
   const pageCount = Math.max(1, Math.ceil(total / RESULT_LIMIT));
+  const returnTo = searchHref(filters, page);
+  const detailHref = (projectId: string) =>
+    `/tor/${encodeURIComponent(projectId)}?${new URLSearchParams({ returnTo })}`;
+  const toolbar = (
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      {!loading && !block ? (
+        <p className="text-muted-foreground text-sm">
+          พบทั้งหมด{' '}
+          <span data-numeric className="text-foreground font-medium">
+            {total.toLocaleString('th-TH')}
+          </span>{' '}
+          ประกาศ
+          {items.length > 0 && (
+            <>
+              {' · แสดง '}
+              <span data-numeric>{first.toLocaleString('th-TH')}</span>–
+              <span data-numeric>{last.toLocaleString('th-TH')}</span>
+            </>
+          )}
+        </p>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+      <label className="border-border bg-card inline-flex min-h-11 items-center gap-2 self-start rounded-full border px-4 shadow-sm sm:self-auto">
+        <span className="text-muted-foreground text-sm">เรียงตาม</span>
+        <span className="relative inline-flex items-center">
+          <select
+            aria-label="เรียงตาม"
+            className="text-foreground max-w-52 cursor-pointer appearance-none bg-transparent py-2 pr-6 text-sm font-semibold outline-none"
+            value={filters.order}
+            onChange={(event) => onOrderChange(ProcurementOrderSchema.parse(event.target.value))}
+          >
+            <option value="announced">ประกาศล่าสุด</option>
+            <option value="deadline">ใกล้ปิดรับข้อเสนอมากสุด</option>
+            <option value="budgetDesc">งบประมาณจากมากไปน้อย</option>
+            <option value="budgetAsc">งบประมาณจากน้อยไปมาก</option>
+          </select>
+          <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-0 size-4" />
+        </span>
+      </label>
+    </div>
+  );
+
+  if (loading)
+    return (
+      <div>
+        {toolbar}
+        <ResultSkeleton />
+      </div>
+    );
+  if (block)
+    return (
+      <div>
+        {toolbar}
+        <BlockedState block={block} detail={detail} />
+      </div>
+    );
+  if (items.length === 0) {
+    return hasSearchCriteria(filters) ? (
+      <div>
+        {toolbar}
+        <NoMatchState query={filters.query} />
+      </div>
+    ) : (
+      <div>
+        {toolbar}
+        <EmptyIndexState />
+      </div>
+    );
+  }
 
   return (
     <div>
-      <p className="text-muted-foreground text-sm">
-        พบทั้งหมด{' '}
-        <span data-numeric className="text-foreground font-medium">
-          {total.toLocaleString('th-TH')}
-        </span>{' '}
-        ประกาศ · แสดง <span data-numeric>{first.toLocaleString('th-TH')}</span>–
-        <span data-numeric>{last.toLocaleString('th-TH')}</span>
-      </p>
-
+      {toolbar}
       <ul className="mt-5 space-y-4">
         {items.map((item) => (
-          <ResultRow key={item.projectId} item={item} today={today} />
+          <ResultRow
+            key={item.projectId}
+            item={item}
+            today={today}
+            detailHref={detailHref(item.projectId)}
+          />
         ))}
       </ul>
 
@@ -177,14 +241,22 @@ function SearchPagination({
 /** Selector for the last-rendered row — what "scroll to bottom" jumps to, not the page's actual end. */
 export const RESULT_ROW_SELECTOR = '[data-result-row]';
 
-function ResultRow({ item, today }: { item: Procurement; today: string }) {
+function ResultRow({
+  item,
+  today,
+  detailHref,
+}: {
+  item: Procurement;
+  today: string;
+  detailHref: string;
+}) {
   return (
     <li
       data-result-row
       className="bg-card border-border group hover:border-primary/40 hover:bg-muted/20 focus-within:ring-primary/40 relative cursor-pointer rounded-2xl border p-4 transition-colors focus-within:ring-2 focus-within:ring-offset-2 sm:p-5"
     >
       <Link
-        href={`/tor/${encodeURIComponent(item.projectId)}`}
+        href={detailHref}
         aria-label={item.projectName}
         className="focus-visible:outline-primary absolute inset-0 z-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2"
       />
@@ -227,7 +299,7 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
               </span>
             </div>
 
-            <ProcurementTiming item={item} today={today} mode="details" />
+            <ProcurementTiming item={item} today={today} mode="details" returnTo={detailHref} />
           </div>
 
           <div className="border-border border-t pt-3 text-left md:w-full md:max-w-48 md:self-start md:justify-self-end md:border-t-0 md:pt-0">

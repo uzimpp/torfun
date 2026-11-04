@@ -77,7 +77,7 @@ export function SearchExperience({
   }
 
   const filters = useMemo(() => ({ ...baseFilters, query }), [baseFilters, query]);
-  const filterPanelKey = searchHref({ ...filters, query: '' });
+  const filterPanelKey = searchHref({ ...filters, query: '', order: 'announced' });
 
   useEffect(() => {
     const trimmed = value.trim();
@@ -104,10 +104,11 @@ export function SearchExperience({
   }, []);
 
   function applyFilters(nextFilters: SearchFilterValues) {
-    window.history.pushState(null, '', searchHref(nextFilters));
-    setBaseFilters(nextFilters);
-    setValue(nextFilters.query);
-    setQuery(nextFilters.query);
+    const filtersWithOrder = { ...nextFilters, order: filters.order };
+    window.history.pushState(null, '', searchHref(filtersWithOrder));
+    setBaseFilters(filtersWithOrder);
+    setValue(filtersWithOrder.query);
+    setQuery(filtersWithOrder.query);
     setPage(1);
     if (window.matchMedia('(max-width: 1023px)').matches) {
       window.requestAnimationFrame(() =>
@@ -125,6 +126,13 @@ export function SearchExperience({
     resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function changeOrder(order: SearchFilterValues['order']) {
+    const nextFilters = { ...filters, order };
+    window.history.pushState(null, '', searchHref(nextFilters));
+    setBaseFilters({ ...baseFilters, order });
+    setPage(1);
+  }
+
   return (
     <>
       <div className="grid items-start gap-6 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-10">
@@ -136,6 +144,7 @@ export function SearchExperience({
             filters={filters}
             page={page}
             today={today}
+            onOrderChange={changeOrder}
             onPageChange={goToPage}
           />
         </section>

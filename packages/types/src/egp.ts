@@ -542,6 +542,9 @@ const QueryList = <T extends z.ZodTypeAny>(item: T) =>
       : value;
   }, z.array(item).min(1).max(20));
 
+export const ProcurementOrderSchema = z.enum(['announced', 'deadline', 'budgetDesc', 'budgetAsc']);
+export type ProcurementOrder = z.infer<typeof ProcurementOrderSchema>;
+
 export const ProcurementListQuerySchema = z
   .object({
     state: IngestionState.optional(),
@@ -562,6 +565,7 @@ export const ProcurementListQuerySchema = z
     targetPlatforms: QueryList(TargetPlatform).optional(),
     /** Keyword matched against existing project and agency names, not a classification. */
     industry: z.string().trim().min(1).max(100).optional(),
+    order: ProcurementOrderSchema.optional(),
     limit: z.coerce.number().int().positive().max(200).default(50),
     offset: z.coerce.number().int().nonnegative().default(0),
   })
