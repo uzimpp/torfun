@@ -59,6 +59,37 @@ describe('TorReviewContent', () => {
     expect(screen.queryByText(/ระดับความมั่นใจ/)).not.toBeInTheDocument();
   });
 
+  test('shows the qualification score, the TOR source pointer and the evidence used', async () => {
+    mocked.fetchTor.mockResolvedValue({
+      ...tor,
+      analysis: {
+        ...tor.analysis!,
+        qualifications: [
+          {
+            kind: 'company_certificate',
+            standard: 'ISO 9001',
+            issuer: null,
+            source: 'ข้อ 4.1 หน้า 6',
+            text: 'ต้องมีใบรับรอง ISO 9001',
+          },
+        ],
+      },
+      matchResult: {
+        companyId: 'company',
+        projectId: tor.projectId,
+        overallScore: 0,
+        computedAt: new Date(0),
+        checks: [{ status: 'not_met', evidence: ['ใบรับรองที่ตรงเงื่อนไขหมดอายุแล้ว'] }],
+      },
+    });
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('คะแนนคุณสมบัติโดยประมาณ 0%')).toBeInTheDocument();
+    expect(screen.getByText('อ้างอิง TOR · ข้อ 4.1 หน้า 6')).toBeInTheDocument();
+    expect(screen.getByText('ไม่ตรงเงื่อนไข')).toBeInTheDocument();
+    expect(screen.getByText('ใบรับรองที่ตรงเงื่อนไขหมดอายุแล้ว')).toBeInTheDocument();
+  });
+
   test('shows an official bid deadline with no note that the model read it', async () => {
     mocked.fetchTor.mockResolvedValue(officialDeadline);
     render(<TorReviewContent projectId="66059313551" />);
