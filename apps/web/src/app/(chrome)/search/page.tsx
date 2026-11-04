@@ -24,12 +24,7 @@ export default async function SearchPage({ searchParams }: PageProps<'/search'>)
   const page = parseSearchPage(params);
 
   return (
-    <main className="page-fill mx-auto w-full max-w-7xl flex-1 px-4 pt-6 pb-10 sm:px-6 lg:px-8 lg:pt-10 lg:pb-14">
-      <h1 className="text-2xl font-medium tracking-tight">ค้นหาประกาศ TOR</h1>
-      <p className="text-muted-foreground mt-2 max-w-xl">
-        ค้นจากคลังประกาศที่ระบบดึงมา ครอบคลุมงานซอฟต์แวร์แบบ e-bidding ของหน่วยงานภาครัฐ
-      </p>
-
+    <main className="page-fill mx-auto w-full max-w-7xl flex-1 px-4 pt-4 pb-10 sm:px-6 lg:px-8 lg:pt-6 lg:pb-14">
       <SearchExperience initialFilters={filters} initialPage={page} today={thailandDay()} />
     </main>
   );

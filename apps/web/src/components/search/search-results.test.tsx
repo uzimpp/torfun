@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import { EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 import { SearchResults } from './search-results';
@@ -47,7 +47,33 @@ const item: Procurement = {
 };
 
 describe('SearchResults cards', () => {
+  test('includes the active sort and page in the TOR detail return URL', () => {
+    vi.mocked(useTorSearch).mockReturnValue({
+      items: [item],
+      total: 25,
+      loading: false,
+      block: null,
+      detail: null,
+    });
+
+    render(
+      <SearchResults
+        filters={{ ...EMPTY_SEARCH_FILTERS, order: 'budgetDesc' }}
+        page={2}
+        onPageChange={vi.fn()}
+        onOrderChange={vi.fn()}
+        today="2025-03-01"
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: item.projectName })).toHaveAttribute(
+      'href',
+      '/tor/project%2F123?returnTo=%2Fsearch%3Forder%3DbudgetDesc%26page%3D2',
+    );
+  });
+
   test('shows procurement details, source links, dates, and budget in a responsive card', () => {
+    const onOrderChange = vi.fn();
     vi.mocked(useTorSearch).mockReturnValue({
       items: [item],
       total: 1,
@@ -61,12 +87,28 @@ describe('SearchResults cards', () => {
         filters={EMPTY_SEARCH_FILTERS}
         page={1}
         onPageChange={vi.fn()}
+        onOrderChange={onOrderChange}
         today="2025-03-01"
       />,
     );
 
+    const order = screen.getByRole('combobox', { name: 'เรียงตาม' });
+    expect(order).toHaveValue('announced');
+    expect(
+      within(order)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([
+      'ประกาศล่าสุด',
+      'ใกล้ปิดรับข้อเสนอมากสุด',
+      'งบประมาณจากมากไปน้อย',
+      'งบประมาณจากน้อยไปมาก',
+    ]);
+    fireEvent.change(order, { target: { value: 'budgetAsc' } });
+    expect(onOrderChange).toHaveBeenCalledWith('budgetAsc');
+
     const cardLink = screen.getByRole('link', { name: item.projectName });
-    expect(cardLink).toHaveAttribute('href', '/tor/project%2F123');
+    expect(cardLink).toHaveAttribute('href', '/tor/project%2F123?returnTo=%2Fsearch');
     expect(screen.getByText('e-bidding')).toBeInTheDocument();
     expect(screen.getByText('เปิดรับข้อเสนอ')).toBeInTheDocument();
     expect(screen.getByText('สำนักงานพัฒนารัฐบาลดิจิทัล')).toBeInTheDocument();
@@ -76,7 +118,7 @@ describe('SearchResults cards', () => {
     expect(screen.getAllByText('ปีงบประมาณ 2568')).toHaveLength(2);
     expect(screen.getByText('สรุปขอบเขตงานสำหรับทดสอบ')).toBeInTheDocument();
     const sourceLink = screen.getByRole('link', { name: 'ตรวจสอบ TOR ต้นฉบับ' });
-    expect(sourceLink).toHaveAttribute('href', '/tor/project%2F123');
+    expect(sourceLink).toHaveAttribute('href', '/tor/project%2F123?returnTo=%2Fsearch');
 
     const card = cardLink.closest('[data-result-row]');
     expect(card).toHaveClass(

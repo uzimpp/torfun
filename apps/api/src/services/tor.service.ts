@@ -30,7 +30,7 @@ export class TorService {
     const narrowed =
       audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME };
     const filters = resolveProcurementListOptions(
-      { ...narrowed, order: 'daysLeft', excludeRemoved: true },
+      { ...narrowed, order: options.order ?? 'daysLeft',excludeRemoved: true,},
       this.now(),
     );
     if (!filters) return { items: [], total: 0 };

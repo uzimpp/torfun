@@ -50,10 +50,12 @@ export function ProcurementTiming({
   item,
   today,
   mode = 'all',
+  returnTo,
 }: {
   item: Procurement;
   today: string;
   mode?: 'all' | 'published' | 'deadline' | 'details';
+  returnTo?: string;
 }) {
   const current = currentDeadline(item);
   const deadline = procurementDay(current?.at);
@@ -85,7 +87,7 @@ export function ProcurementTiming({
           <div>
             วันที่สกัดโดย AI ·{' '}
             <Link
-              href={`/tor/${encodeURIComponent(item.projectId)}`}
+              href={returnTo ?? `/tor/${encodeURIComponent(item.projectId)}`}
               className="hover:text-primary pointer-events-auto relative z-20 underline underline-offset-4"
             >
               ตรวจสอบ TOR ต้นฉบับ
@@ -113,7 +115,7 @@ export function ProcurementTiming({
           <span>
             วันที่สกัดโดย AI ·{' '}
             <Link
-              href={`/tor/${encodeURIComponent(item.projectId)}`}
+              href={returnTo ?? `/tor/${encodeURIComponent(item.projectId)}`}
               className="hover:text-primary underline underline-offset-4"
             >
               ตรวจสอบ TOR ต้นฉบับ

@@ -111,6 +111,19 @@ describe('TOR detail routes', () => {
     });
   });
 
+  test.each(['announced', 'deadline', 'budgetDesc', 'budgetAsc'])(
+    'accepts the %s result order',
+    async (order) => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/tors?order=${order}`,
+        cookies: session(),
+      });
+
+      expect(response.statusCode).toBe(200);
+    },
+  );
+
   test('matches any of multiple procurement stages', async () => {
     await procurements.upsert(
       procurement({
@@ -165,6 +178,7 @@ describe('TOR detail routes', () => {
     '/api/tors?minDaysLeft=3.5',
     '/api/tors?minDaysLeft=366',
     '/api/tors?minDaysLeft=3&deadlineFrom=2026-10-01',
+    '/api/tors?order=unsupported',
   ])('rejects an invalid officer filter query: %s', async (url) => {
     const response = await app.inject({ method: 'GET', url, cookies: session() });
 
