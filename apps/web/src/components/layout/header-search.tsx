@@ -1,16 +1,15 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 import { TorSearchField } from '@/components/search/tor-search-field';
 
 /**
- * Routes that already put a search field in front of the reader: the landing
- * page builds its hero around one, and the results page keeps its own at the
- * top so the query stays editable next to what it returned. Repeating the
- * field in the header on either would give the page two of them.
+ * The landing page builds its hero around a search field, so the header leaves
+ * that one uncluttered. The results page also keeps its field in the header for
+ * quick follow-up searches while browsing.
  */
-const OWNS_ITS_OWN_SEARCH = new Set(['/', '/search']);
+const OWNS_ITS_OWN_SEARCH = new Set(['/']);
 
 export function useHeaderSearchVisible(): boolean {
   return !OWNS_ITS_OWN_SEARCH.has(usePathname());
@@ -28,9 +27,18 @@ export function HeaderSearch({ enabled = true }: { enabled?: boolean }) {
   if (!enabled || !visible) return null;
 
   return (
+    <HeaderSearchField />
+  );
+}
+
+function HeaderSearchField() {
+  const searchParams = useSearchParams();
+
+  return (
     <TorSearchField
       size="compact"
       label="ค้นหาประกาศ TOR"
+      defaultValue={searchParams.get('q') ?? ''}
       className="hidden w-full max-w-xs min-w-0 md:block lg:max-w-sm"
     />
   );

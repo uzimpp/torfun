@@ -10,6 +10,7 @@ import type {
   IngestionStats,
   IngestionSummary,
   Procurement,
+  ProcurementOrder,
   ProcurementStatus,
   Stages,
   StatusChange,
@@ -234,9 +235,9 @@ export interface FindOptions {
    */
   detailRead?: boolean;
   deptName?: string;
-  budgetYear?: number;
+  budgetYear?: number[];
   /** Filter to one stage of the agency's own lifecycle. */
-  status?: ProcurementStatus;
+  status?: ProcurementStatus[];
   /** Case-insensitive substring over project name and id. */
   query?: string;
   minBudget?: number;
@@ -254,15 +255,12 @@ export interface FindOptions {
   /** Keyword over existing names only; this is not an authoritative classification. */
   industry?: string;
   /**
-   * `announced` (the default): newest announcement first. `urgency`: a tender
-   * still `open` first, nearest deadline first and undated after; then
-   * `unknown`; then drafting, evaluating and cancelled; awarded and contracted
-   * last. Within a rank, newest announcement first. `daysLeft`: open tenders
-   * with the most days left first (needs `today`), then open with no deadline,
-   * drafting, unknown, past deadlines and evaluating, and awarded, contracted
-   * or cancelled last.
+   * Search ordering choices, plus internal queue orders. `announced` is newest
+   * announcement first; `deadline` puts upcoming open deadlines first;
+   * `budgetAsc`/`budgetDesc` put known budgets first in the requested order.
+   * `urgency` and `daysLeft` are internal queue orders.
    */
-  order?: 'announced' | 'urgency' | 'daysLeft';
+  order?: ProcurementOrder | 'urgency' | 'daysLeft';
   /** Today in Thailand, `YYYY-MM-DD`. The `daysLeft` order counts from it. */
   today?: string;
   limit: number;
@@ -294,6 +292,7 @@ export interface FindResult {
  */
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
+  years(): Promise<number[]>;
   upsert(record: Procurement): Promise<Procurement>;
   /**
    * Replace a record with its tombstone: the record and everything read from it
@@ -770,6 +769,19 @@ export class ProcurementRepository
     return document ? toDomain(document) : undefined;
   }
 
+  async years(): Promise<number[]> {
+    const rows = await (
+      await this.records()
+    )
+      .aggregate<{ _id: number }>([
+        { $match: { budget_year: { $ne: null } } },
+        { $group: { _id: '$budget_year' } },
+        { $sort: { _id: -1 } },
+      ])
+      .toArray();
+    return rows.map(({ _id }) => _id);
+  }
+
   async find(options: FindOptions): Promise<FindResult> {
     const filter: Record<string, unknown> = {};
     const clauses: Record<string, unknown>[] = [];
@@ -786,8 +798,8 @@ export class ProcurementRepository
       filter.detail_read_at = options.detailRead ? { $ne: null } : null;
     }
     if (options.deptName) filter.dept_name = options.deptName;
-    if (options.budgetYear) filter.budget_year = options.budgetYear;
-    if (options.status) filter['timeline.status'] = options.status;
+    if (options.budgetYear?.length) filter.budget_year = { $in: options.budgetYear };
+    if (options.status?.length) filter['timeline.status'] = { $in: options.status };
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
@@ -820,9 +832,11 @@ export class ProcurementRepository
     const ranked =
       options.order === 'urgency'
         ? { stages: URGENCY_ORDER, fields: URGENCY_FIELDS }
-        : options.order === 'daysLeft' && options.today
-          ? { stages: daysLeftOrder(options.today), fields: DAYS_LEFT_FIELDS }
-          : null;
+        : options.order === 'deadline' && options.today
+          ? { stages: deadlineOrder(options.today), fields: DEADLINE_FIELDS }
+          : options.order === 'daysLeft' && options.today
+            ? { stages: daysLeftOrder(options.today), fields: DAYS_LEFT_FIELDS }
+            : null;
     if (ranked) {
       const [items, total] = await Promise.all([
         collection
@@ -832,6 +846,30 @@ export class ProcurementRepository
             { $skip: options.offset },
             { $limit: options.limit },
             { $unset: ranked.fields },
+          ])
+          .toArray(),
+        collection.countDocuments(filter),
+      ]);
+      return { items: items.map(toDomain), total };
+    }
+    if (options.order === 'budgetAsc' || options.order === 'budgetDesc') {
+      const direction = options.order === 'budgetAsc' ? 1 : -1;
+      const [items, total] = await Promise.all([
+        collection
+          .aggregate<ProcurementDocument>([
+            { $match: filter },
+            { $set: { budget_null_rank: { $cond: [{ $eq: ['$project_money', null] }, 1, 0] } } },
+            {
+              $sort: {
+                budget_null_rank: 1,
+                project_money: direction,
+                announce_date: -1,
+                _id: 1,
+              },
+            },
+            { $skip: options.offset },
+            { $limit: options.limit },
+            { $unset: 'budget_null_rank' },
           ])
           .toArray(),
         collection.countDocuments(filter),
@@ -1058,6 +1096,44 @@ const URGENCY_RANKS: [number, string[]][] = [
 ];
 
 const DAYS_LEFT_FIELDS = ['days_left_rank', 'days_left_day'];
+const DEADLINE_FIELDS = ['deadline_rank', 'deadline_day'];
+
+/** Upcoming open bids first, with unknown and expired dates after them. */
+function deadlineOrder(today: string) {
+  const isOpen = { $eq: ['$timeline.status', 'open'] };
+  return [
+    {
+      $addFields: {
+        deadline_day: {
+          $dateToString: {
+            date: { $dateFromString: { dateString: '$deadline_at', onError: null, onNull: null } },
+            format: '%Y-%m-%d',
+            timezone: 'Asia/Bangkok',
+            onNull: null,
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        deadline_rank: {
+          $switch: {
+            branches: [
+              { case: { $and: [isOpen, { $gte: ['$deadline_day', today] }] }, then: 0 },
+              { case: { $and: [isOpen, { $eq: ['$deadline_day', null] }] }, then: 1 },
+              { case: isOpen, then: 2 },
+              { case: { $in: ['$timeline.status', DRAFTING] }, then: 3 },
+              { case: { $eq: ['$timeline.status', 'unknown'] }, then: 4 },
+              { case: { $in: ['$timeline.status', CLOSED] }, then: 6 },
+            ],
+            default: 5,
+          },
+        },
+      },
+    },
+    { $sort: { deadline_rank: 1, deadline_day: 1, announce_date: -1, _id: 1 } },
+  ];
+}
 
 /** Most days left first. `today` and the deadline are both Thai calendar days. */
 function daysLeftOrder(today: string) {

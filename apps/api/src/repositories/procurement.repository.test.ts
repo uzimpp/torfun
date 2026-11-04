@@ -117,10 +117,14 @@ describeMongo('ProcurementRepository', () => {
   const seed = async (records: Procurement[]) => {
     for (const record of records) await repository.upsert(record);
   };
-  const ids = async (status?: ProcurementStatus) =>
-    (await repository.find({ limit: 50, offset: 0, ...(status ? { status } : {}) })).items.map(
-      (r) => r.projectId,
-    );
+  const ids = async (status?: ProcurementStatus[]) =>
+    (
+      await repository.find({
+        limit: 50,
+        offset: 0,
+        ...(status ? { status } : {}),
+      })
+    ).items.map((r) => r.projectId);
 
   describe('tombstones', () => {
     const dropped: Tombstone = {
@@ -244,6 +248,16 @@ describeMongo('ProcurementRepository', () => {
     expect((await repository.get('plain'))?.approved).toBeNull();
   });
 
+  test('lists distinct fiscal years with records in descending order', async () => {
+    await seed([
+      procurement({ projectId: 'future', budgetYear: 2570 }),
+      procurement({ projectId: 'current', budgetYear: 2569 }),
+      procurement({ projectId: 'past', budgetYear: 2560 }),
+    ]);
+
+    expect(await repository.years()).toEqual([2570, 2569, 2560]);
+  });
+
   test('a record survives a round trip through Mongo unchanged', async () => {
     const record = procurement({
       archive: { zipId: 'zip-1', documents: [doc()], torAmbiguous: true },
@@ -320,7 +334,7 @@ describeMongo('ProcurementRepository', () => {
       procurement({ projectId: 'b', budgetYear: null, detailReadAt: null }),
     ]);
 
-    const found = await repository.find({ limit: 50, offset: 0, budgetYear: 2569 });
+    const found = await repository.find({ limit: 50, offset: 0, budgetYear: [2569] });
     expect(found.items.map((record) => record.projectId)).toEqual(['a']);
   });
 
@@ -503,7 +517,37 @@ describeMongo('ProcurementRepository', () => {
       procurement({ projectId: 'settled', timeline: timeline({ status: 'contracted' }) }),
     ]);
 
-    expect(await ids('open')).toEqual(['live']);
+    expect(await ids(['open'])).toEqual(['live']);
+  });
+
+  test('callers can filter to any of multiple stages', async () => {
+    await seed([
+      procurement({ projectId: 'live', timeline: timeline({ status: 'open' }) }),
+      procurement({ projectId: 'draft', timeline: timeline({ status: 'drafting' }) }),
+      procurement({ projectId: 'settled', timeline: timeline({ status: 'contracted' }) }),
+    ]);
+
+    const result = await repository.find({
+      limit: 50,
+      offset: 0,
+      status: ['open', 'drafting'],
+    });
+    expect(result.items.map((record) => record.projectId).sort()).toEqual(['draft', 'live']);
+  });
+
+  test('callers can filter to any of multiple fiscal years', async () => {
+    await seed([
+      procurement({ projectId: 'current', budgetYear: 2569 }),
+      procurement({ projectId: 'previous', budgetYear: 2568 }),
+      procurement({ projectId: 'older', budgetYear: 2560 }),
+    ]);
+
+    const result = await repository.find({
+      limit: 50,
+      offset: 0,
+      budgetYear: [2569, 2568],
+    });
+    expect(result.items.map((record) => record.projectId).sort()).toEqual(['current', 'previous']);
   });
 
   test('a search term with regex characters is matched literally', async () => {
@@ -573,7 +617,7 @@ describeMongo('ProcurementRepository', () => {
 
     expect(await ids({ minDaysLeft: 3 })).toEqual(['later', 'three']);
     expect(await ids({ minDaysLeft: 0 })).toEqual(['later', 'three', 'tomorrow', 'today']);
-    expect(await ids({ minDaysLeft: 3, status: 'drafting' })).toEqual([]);
+    expect(await ids({ minDaysLeft: 3, status: ['drafting'] })).toEqual([]);
     const page = await service.list({ limit: 1, offset: 1, minDaysLeft: 0 }, 'admin');
     expect(page.total).toBe(4);
     expect(page.items.map((item) => item.projectId)).toEqual(['three']);
@@ -869,6 +913,67 @@ describeMongo('ProcurementRepository', () => {
     ]);
     expect(ordered[1]?.timeline.status).toBe('open');
     expect((await repository.find({ order: 'urgency', limit: 4, offset: 0 })).total).toBe(9);
+  });
+
+  test('search orders upcoming deadlines first and unknown budgets last across pages', async () => {
+    await seed([
+      procurement({
+        projectId: 'budget-low',
+        projectMoney: 100,
+        timeline: timeline({ deadlineAt: '2026-10-20' }),
+      }),
+      procurement({
+        projectId: 'budget-high',
+        projectMoney: 900,
+        timeline: timeline({ deadlineAt: '2026-10-10' }),
+      }),
+      procurement({
+        projectId: 'budget-mid',
+        projectMoney: 500,
+        timeline: timeline({ deadlineAt: '2026-10-15' }),
+      }),
+      procurement({
+        projectId: 'budget-unknown',
+        projectMoney: null,
+        timeline: timeline({ deadlineAt: null }),
+      }),
+      procurement({
+        projectId: 'deadline-past',
+        projectMoney: 300,
+        timeline: timeline({ deadlineAt: '2026-10-01' }),
+      }),
+    ]);
+
+    const orderedIds = async (order: FindOptions['order']) => {
+      const firstPage = await repository.find({ order, today: '2026-10-05', limit: 2, offset: 0 });
+      const secondPage = await repository.find({ order, today: '2026-10-05', limit: 2, offset: 2 });
+      const finalPage = await repository.find({ order, today: '2026-10-05', limit: 2, offset: 4 });
+      return [...firstPage.items, ...secondPage.items, ...finalPage.items].map(
+        (item) => item.projectId,
+      );
+    };
+
+    expect(await orderedIds('deadline')).toEqual([
+      'budget-high',
+      'budget-mid',
+      'budget-low',
+      'budget-unknown',
+      'deadline-past',
+    ]);
+    expect(await orderedIds('budgetDesc')).toEqual([
+      'budget-high',
+      'budget-mid',
+      'deadline-past',
+      'budget-low',
+      'budget-unknown',
+    ]);
+    expect(await orderedIds('budgetAsc')).toEqual([
+      'budget-low',
+      'deadline-past',
+      'budget-mid',
+      'budget-high',
+      'budget-unknown',
+    ]);
   });
 
   test('failures and the last run time survive a restart', async () => {

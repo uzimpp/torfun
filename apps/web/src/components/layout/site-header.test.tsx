@@ -2,8 +2,11 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { SiteHeader } from './site-header';
 
+const navigation = vi.hoisted(() => ({ pathname: '/dashboard', search: '' }));
+
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/dashboard',
+  usePathname: () => navigation.pathname,
+  useSearchParams: () => new URLSearchParams(navigation.search),
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 afterEach(cleanup);
@@ -17,12 +20,10 @@ test('guest header contains brand and both ways in, without workspace links', ()
   );
   expect(screen.getByRole('link', { name: 'Torfun' })).toHaveAttribute('href', '/');
   expect(screen.queryByRole('link', { name: 'แดชบอร์ด' })).not.toBeInTheDocument();
-  // Notifications are not built; a permanently disabled bell was furniture.
+  // Notifications are not built, so the header does not offer a dead bell.
   expect(screen.queryByRole('button', { name: /การแจ้งเตือน/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /เปลี่ยนภาษา/ })).not.toBeInTheDocument();
-  // The light/dark control belongs to the footer now; the header keeps only
-  // what a person reaches for on every visit.
-  expect(screen.queryByRole('button', { name: /สลับโหมด/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /สลับโหมด/ })).toBeInTheDocument();
 });
 
 test.each(['admin', 'business_development_officer'] as const)(
@@ -96,4 +97,17 @@ test('the header carries a search field away from the pages that own one', () =>
     '/search',
   );
   expect(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveAttribute('name', 'q');
+});
+
+test('the search page keeps a follow-up search field in the header', () => {
+  navigation.pathname = '/search';
+  navigation.search = '?q=ระบบสารสนเทศ';
+  render(<SiteHeader user={{ username: 'tester', role: 'business_development_officer' }} />);
+  expect(screen.getByRole('search', { name: 'ค้นหาประกาศ TOR' })).toHaveAttribute(
+    'action',
+    '/search',
+  );
+  expect(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveValue('ระบบสารสนเทศ');
+  navigation.pathname = '/dashboard';
+  navigation.search = '';
 });

@@ -507,9 +507,9 @@ export function currentDeadline(
  * Dates are deliberately calendar dates rather than arbitrary timestamps: the
  * search UI uses date inputs. Announcement dates are inclusive UTC days; bid
  * deadlines are inclusive calendar days in Asia/Bangkok. Multiple technology
- * terms use ALL semantics
- * so adding a term narrows a search; target platforms use ANY semantics because
- * an officer looking for either mobile or web work should see both.
+ * terms use ALL semantics so adding a term narrows a search; target platforms
+ * and procurement statuses use ANY semantics because an officer looking for
+ * either platform or lifecycle stage should see both.
  */
 const CalendarDate = z
   .string()
@@ -520,24 +520,30 @@ const CalendarDate = z
   }, 'Expected a valid calendar date');
 
 const QueryList = <T extends z.ZodTypeAny>(item: T) =>
-  z.preprocess(
-    (value) =>
-      typeof value === 'string'
-        ? value
-            .split(',')
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-        : value,
-    z.array(item).min(1).max(20),
-  );
+  z.preprocess((value) => {
+    const entries = typeof value === 'string' ? [value] : value;
+    return Array.isArray(entries)
+      ? entries.flatMap((entry) =>
+          typeof entry === 'string'
+            ? entry
+                .split(',')
+                .map((part) => part.trim())
+                .filter(Boolean)
+            : [entry],
+        )
+      : value;
+  }, z.array(item).min(1).max(20));
+
+export const ProcurementOrderSchema = z.enum(['announced', 'deadline', 'budgetDesc', 'budgetAsc']);
+export type ProcurementOrder = z.infer<typeof ProcurementOrderSchema>;
 
 export const ProcurementListQuerySchema = z
   .object({
     state: IngestionState.optional(),
     outcome: IngestionOutcome.optional(),
     deptName: z.string().trim().min(1).max(300).optional(),
-    budgetYear: z.coerce.number().int().optional(),
-    status: ProcurementStatus.optional(),
+    budgetYear: QueryList(z.coerce.number().int()).optional(),
+    status: QueryList(ProcurementStatus).optional(),
     q: z.string().trim().max(200).optional(),
     minBudget: z.coerce.number().finite().nonnegative().optional(),
     maxBudget: z.coerce.number().finite().nonnegative().optional(),
@@ -551,6 +557,7 @@ export const ProcurementListQuerySchema = z
     targetPlatforms: QueryList(TargetPlatform).optional(),
     /** Keyword matched against existing project and agency names, not a classification. */
     industry: z.string().trim().min(1).max(100).optional(),
+    order: ProcurementOrderSchema.optional(),
     limit: z.coerce.number().int().positive().max(200).default(50),
     offset: z.coerce.number().int().nonnegative().default(0),
   })
@@ -593,6 +600,11 @@ export const ProcurementListResponseSchema = z.object({
   offset: z.number().int().nonnegative(),
 });
 export type ProcurementListResponse = z.infer<typeof ProcurementListResponseSchema>;
+
+export const ProcurementYearsResponseSchema = z.object({
+  years: z.array(z.number().int()),
+});
+export type ProcurementYearsResponse = z.infer<typeof ProcurementYearsResponseSchema>;
 
 /** A failed retrieval, logged for Site Administrator review. */
 export const IngestionFailureSchema = z.object({

@@ -9,9 +9,9 @@ const dateFormat = new Intl.DateTimeFormat('th-TH', {
   year: 'numeric',
   timeZone: 'UTC',
 });
+
 const formatDate = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z`));
 
-/** The days-left badge: biggest on open tenders, a hint on drafts, nothing otherwise. */
 export function DaysLeftBadge({ item, today }: { item: Procurement; today: string }) {
   const deadline = procurementDay(currentDeadline(item)?.at);
   const remaining = deadline ? daysUntil(deadline, today) : null;
@@ -46,11 +46,57 @@ export function DaysLeftBadge({ item, today }: { item: Procurement; today: strin
   );
 }
 
-export function ProcurementTiming({ item }: { item: Procurement }) {
+export function ProcurementTiming({
+  item,
+  today,
+  mode = 'all',
+  returnTo,
+}: {
+  item: Procurement;
+  today: string;
+  mode?: 'all' | 'published' | 'deadline' | 'details';
+  returnTo?: string;
+}) {
   const current = currentDeadline(item);
   const deadline = procurementDay(current?.at);
   const published = procurementDay(item.announceDate);
-  const closes = current?.kind === 'comments' ? 'ปิดรับฟังความคิดเห็น' : 'กำหนดส่งตาม TOR';
+  const remaining = deadline ? daysUntil(deadline, today) : null;
+  const expired = item.timeline.status === 'open' && remaining !== null && remaining < 0;
+
+  if (mode === 'published') {
+    return published ? <>ประกาศ {formatDate(published)}</> : null;
+  }
+  if (mode === 'deadline') {
+    return <>{deadline ? `ปิดรับ ${formatDate(deadline)}` : 'ยังไม่ทราบวันปิดรับข้อเสนอ'}</>;
+  }
+
+  if (mode === 'details') {
+    return (
+      <div className="text-muted-foreground mt-2 space-y-1 text-xs">
+        {(item.timeline.status === 'drafting' || expired) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {item.timeline.status === 'drafting' && (
+              <span className="text-primary">เตรียมตัวก่อนเปิดรับข้อเสนอ</span>
+            )}
+            {expired && remaining !== null && (
+              <span>พ้นกำหนดตาม TOR แล้ว {Math.abs(remaining)} วัน</span>
+            )}
+          </div>
+        )}
+        {deadline && current?.readByModel && (
+          <div>
+            วันที่สกัดโดย AI ·{' '}
+            <Link
+              href={returnTo ?? `/tor/${encodeURIComponent(item.projectId)}`}
+              className="hover:text-primary pointer-events-auto relative z-20 underline underline-offset-4"
+            >
+              ตรวจสอบ TOR ต้นฉบับ
+            </Link>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="mt-3">
@@ -61,12 +107,15 @@ export function ProcurementTiming({ item }: { item: Procurement }) {
             ประกาศ {formatDate(published)}
           </span>
         )}
-        <span>{deadline ? `${closes} ${formatDate(deadline)}` : 'ยังไม่ทราบวันปิดรับข้อเสนอ'}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <Clock3 aria-hidden="true" className="size-3.5" />
+          {deadline ? `กำหนดส่งตาม TOR ${formatDate(deadline)}` : 'ยังไม่ทราบวันปิดรับข้อเสนอ'}
+        </span>
         {deadline && current?.readByModel && (
           <span>
             วันที่สกัดโดย AI ·{' '}
             <Link
-              href={`/tor/${encodeURIComponent(item.projectId)}`}
+              href={returnTo ?? `/tor/${encodeURIComponent(item.projectId)}`}
               className="hover:text-primary underline underline-offset-4"
             >
               ตรวจสอบ TOR ต้นฉบับ
