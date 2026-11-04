@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { EMPTY_MILESTONES, ACCESS_COOKIE, type Procurement, type User } from '@torfun/types';
+import { ACCESS_COOKIE, EMPTY_TIMELINE, type Procurement, type User } from '@torfun/types';
 import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryFavoriteStore } from '../testing/favorite-store';
@@ -19,33 +19,24 @@ function procurement(overrides: Partial<Procurement> = {}): Procurement {
     deptName: 'หน่วยงานรัฐ',
     deptSubName: null,
     deptCode: '1234567890',
+    announceDate: '1 ตุลาคม 2569',
+    purchaseMethodName: 'e-bidding',
+    discoveredAt: '2026-09-16T00:00:00.000Z',
     budgetYear: 2569,
     typeId: null,
     goodsId: null,
-    detailCheckedAt: '2026-09-01T00:00:00.000Z',
-    announceDate: '1 ตุลาคม 2569',
-    projectTypeName: 'จ้างทำของ',
-    purchaseMethodName: 'e-bidding',
     projectMoney: 4_500_000,
     priceBuild: null,
-    status: 'open',
-    milestones: EMPTY_MILESTONES,
-    timelineCheckedAt: null,
-    deadlineAt: null,
-    deadlineSource: null,
+    detailReadAt: '2026-09-01T00:00:00.000Z',
+    timeline: { ...EMPTY_TIMELINE, status: 'open' },
     state: 'Completed',
     outcome: 'tor_analysed',
     attempts: 0,
     holdReason: null,
-    approvedBy: null,
-    approvedAt: null,
     statusHistory: [],
-    zipId: 'zip-1',
-    documents: [],
+    approved: null,
+    archive: { zipId: 'zip-1', documents: [], torAmbiguous: false },
     analysis: null,
-    torAmbiguous: false,
-    discoveredAt: '2026-09-16T00:00:00.000Z',
-    sourceHash: null,
     updatedAt: '2026-09-16T00:00:00.000Z',
     ...overrides,
   };
