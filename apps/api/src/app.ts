@@ -35,6 +35,7 @@ import { ExperienceRepository, type ExperienceStore } from './repositories/exper
 import { FavoriteRepository, type FavoriteStore } from './repositories/favorite.repository';
 import { AuthService } from './services/auth.service';
 import { AdminUsersService } from './services/admin-users.service';
+import { CompanyQualificationsService } from './services/company-qualifications.service';
 import { CompanyService } from './services/company.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
@@ -143,6 +144,12 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     new AuthService(userRepository, refreshTokenRepository, (payload) => app.jwt.sign(payload)),
   );
   app.decorate('adminUsersService', new AdminUsersService(userRepository));
+  const companyQualificationsService = new CompanyQualificationsService(
+    companyRepository,
+    experienceRepository,
+    userRepository,
+  );
+  app.decorate('companyQualificationsService', companyQualificationsService);
   app.decorate('companyService', new CompanyService(companyRepository, userRepository));
   app.decorate(
     'clientService',
@@ -179,7 +186,10 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   );
   app.decorate('schedulerService', schedulerService);
   app.addHook('onClose', async () => schedulerService.stop());
-  app.decorate('torService', new TorService(procurementRepository));
+  app.decorate(
+    'torService',
+    new TorService(procurementRepository, undefined, undefined, companyQualificationsService),
+  );
   app.decorate('favoriteService', new FavoriteService(favoriteRepository, procurementRepository));
   app.decorate(
     'diagnosticsService',

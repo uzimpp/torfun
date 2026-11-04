@@ -33,6 +33,8 @@ export interface DurationInput {
 export interface ExperienceInput {
   clientId: string;
   projectName: string;
+  workType?: string | null;
+  contractValueThb?: number | null;
   description: string | null;
   techStack: string[];
   targetPlatforms: TargetPlatform[];
@@ -73,6 +75,8 @@ export class ExperienceService {
       companyId,
       clientId: input.clientId,
       projectName: input.projectName,
+      workType: input.workType ?? null,
+      contractValueThb: input.contractValueThb ?? null,
       description: input.description,
       techStack: input.techStack,
       targetPlatforms: input.targetPlatforms,
@@ -87,6 +91,8 @@ export class ExperienceService {
     const patch: ExperiencePatch = {};
     if (update.clientId !== undefined) patch.clientId = update.clientId;
     if (update.projectName !== undefined) patch.projectName = update.projectName;
+    if (update.workType !== undefined) patch.workType = update.workType;
+    if (update.contractValueThb !== undefined) patch.contractValueThb = update.contractValueThb;
     if (update.description !== undefined) patch.description = update.description;
     if (update.techStack !== undefined) patch.techStack = update.techStack;
     if (update.targetPlatforms !== undefined) patch.targetPlatforms = update.targetPlatforms;

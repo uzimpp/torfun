@@ -132,6 +132,13 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
         (options.attemptsBelow === undefined || record.attempts < options.attemptsBelow) &&
         (options.detailRead === undefined || (record.detailReadAt !== null) === options.detailRead),
     );
+    if (options.scoreQualifications) {
+      const score = options.scoreQualifications;
+      items.sort(
+        (a, b) =>
+          (score(b.analysis?.qualifications) ?? -1) - (score(a.analysis?.qualifications) ?? -1),
+      );
+    }
     return {
       items: items.slice(options.offset, options.offset + options.limit),
       total: items.length,

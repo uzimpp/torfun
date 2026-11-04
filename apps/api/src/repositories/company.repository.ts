@@ -1,5 +1,6 @@
 import { ObjectId, type Collection, type Db } from 'mongodb';
-import type { Company } from '@torfun/types';
+import { randomUUID } from 'node:crypto';
+import type { Company, CompanyQualifications, CompanyQualificationsRecord } from '@torfun/types';
 
 /**
  * Data access for the vendor's own record.
@@ -16,7 +17,20 @@ import type { Company } from '@torfun/types';
  * Persistence shape. snake_case matches the documents in Atlas; this type must
  * not escape the repository.
  */
+interface QualificationsDocument {
+  revision: string;
+  registered_capital_thb: number | null;
+  certificates: { name: string; standard: string; issuer: string; valid_until: string }[];
+  personnel: {
+    role: string;
+    years_of_experience: number | null;
+    degree: string | null;
+    certificates: string[] | null;
+  }[];
+}
+
 interface CompanyDocument {
+  qualifications?: QualificationsDocument;
   _id: ObjectId;
   name_th: string;
   /** Optional and carries no uniqueness constraint — see ADR-0008. */
@@ -45,6 +59,27 @@ function toDomain(document: CompanyDocument): Company {
   };
 }
 
+function qualificationsOf(
+  document: Pick<CompanyDocument, '_id' | 'qualifications'>,
+): CompanyQualificationsRecord {
+  const stored = document.qualifications;
+  return {
+    companyId: document._id.toString(),
+    revision: stored?.revision ?? null,
+    registeredCapitalThb: stored?.registered_capital_thb ?? null,
+    certificates:
+      stored?.certificates.map(({ valid_until, ...item }) => ({
+        ...item,
+        validUntil: valid_until,
+      })) ?? [],
+    personnel:
+      stored?.personnel.map(({ years_of_experience, ...item }) => ({
+        ...item,
+        yearsOfExperience: years_of_experience,
+      })) ?? [],
+  };
+}
+
 /** Escapes a user's keystrokes so a typeahead cannot smuggle in a pattern. */
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -55,6 +90,12 @@ function escapeRegex(value: string): string {
  * run against a store that really stores rather than against a database.
  */
 export interface CompanyStore {
+  findQualifications(id: string): Promise<CompanyQualificationsRecord | null>;
+  replaceQualifications(
+    id: string,
+    revision: string | null,
+    input: CompanyQualifications,
+  ): Promise<CompanyQualificationsRecord | null>;
   findById(id: string): Promise<Company | null>;
   /** Case-insensitive substring over the Thai name, for the join typeahead. */
   search(query: string, limit: number): Promise<Company[]>;
@@ -80,6 +121,42 @@ export class CompanyRepository implements CompanyStore {
     if (!ObjectId.isValid(id)) return null;
     const document = await (await this.collection()).findOne({ _id: new ObjectId(id) });
     return document ? toDomain(document) : null;
+  }
+
+  async findQualifications(id: string): Promise<CompanyQualificationsRecord | null> {
+    if (!ObjectId.isValid(id)) return null;
+    const document = await (
+      await this.collection()
+    ).findOne({ _id: new ObjectId(id) }, { projection: { qualifications: 1 } });
+    return document ? qualificationsOf(document) : null;
+  }
+
+  async replaceQualifications(
+    id: string,
+    revision: string | null,
+    input: CompanyQualifications,
+  ): Promise<CompanyQualificationsRecord | null> {
+    if (!ObjectId.isValid(id)) return null;
+    const qualifications: QualificationsDocument = {
+      revision: randomUUID(),
+      registered_capital_thb: input.registeredCapitalThb,
+      certificates: input.certificates.map(({ validUntil, ...item }) => ({
+        ...item,
+        valid_until: validUntil,
+      })),
+      personnel: input.personnel.map(({ yearsOfExperience, ...item }) => ({
+        ...item,
+        years_of_experience: yearsOfExperience,
+      })),
+    };
+    const document = await (
+      await this.collection()
+    ).findOneAndUpdate(
+      { _id: new ObjectId(id), 'qualifications.revision': revision },
+      { $set: { qualifications, updated_at: new Date() } },
+      { projection: { qualifications: 1 }, returnDocument: 'after' },
+    );
+    return document ? qualificationsOf(document) : null;
   }
 
   async search(query: string, limit: number): Promise<Company[]> {

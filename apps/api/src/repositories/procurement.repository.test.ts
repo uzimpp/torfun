@@ -114,6 +114,37 @@ describeMongo('ProcurementRepository', () => {
     await repository.ensureIndexes();
   });
 
+  test('ranks the filtered candidates before paginating and keeps unscored records last', async () => {
+    const capital = (minValueThb: number) =>
+      analysis({
+        qualifications: [
+          { kind: 'registered_capital', minValueThb, text: 'ทุนขั้นต่ำ', source: 'ข้อ 4' },
+        ],
+      });
+    await repository.upsertMany([
+      procurement({ projectId: 'unscored', announceDate: '2026-10-25' }),
+      procurement({ projectId: 'lower', analysis: capital(50_000) }),
+      procurement({ projectId: 'higher', analysis: capital(10_000) }),
+      procurement({ projectId: 'excluded', deptName: 'Excluded', analysis: capital(1) }),
+    ]);
+    const options: FindOptions = {
+      deptName: 'กรุงเทพมหานคร',
+      order: 'daysLeft',
+      today: '2026-10-26',
+      limit: 1,
+      offset: 0,
+      scoreQualifications: (qualifications) => {
+        const clause = qualifications?.[0];
+        return clause?.kind === 'registered_capital' ? Number(clause.minValueThb <= 20_000) : null;
+      },
+    };
+    for (const [offset, projectId] of ['higher', 'lower', 'unscored'].entries()) {
+      const result = await repository.find({ ...options, offset });
+      expect(result.total).toBe(3);
+      expect(result.items.map((item) => item.projectId)).toEqual([projectId]);
+    }
+  });
+
   const seed = async (records: Procurement[]) => {
     for (const record of records) await repository.upsert(record);
   };

@@ -5,6 +5,7 @@ import type { MongoContext } from '../core/mongo';
 import type { AuthService } from '../services/auth.service';
 import type { AdminUsersService } from '../services/admin-users.service';
 import type { ClientService } from '../services/client.service';
+import type { CompanyQualificationsService } from '../services/company-qualifications.service';
 import type { CompanyService } from '../services/company.service';
 import type { ExperienceService } from '../services/experience.service';
 import type { DiagnosticsService } from '../services/diagnostics.service';
@@ -39,6 +40,7 @@ declare module 'fastify' {
     authService: AuthService;
     adminUsersService: AdminUsersService;
     companyService: CompanyService;
+    companyQualificationsService: CompanyQualificationsService;
     clientService: ClientService;
     experienceService: ExperienceService;
     ingestionService: IngestionService;
