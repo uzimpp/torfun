@@ -17,7 +17,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
     <main className="page-fill mx-auto w-full max-w-7xl px-5 pt-6 pb-8 sm:px-8 lg:px-10 lg:pt-10 lg:pb-12">
       <TorReviewBackButton />
 
-      <section className="mt-6 pb-6">
+      <section className="mt-4 pb-6">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] lg:items-center lg:gap-8">
           <div className="min-w-0">
             <p className="text-primary flex items-center gap-2 text-sm font-medium">
@@ -69,7 +69,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
                 </p>
               )}
             </div>
-            <div className="mt-6 grid grid-cols-2 gap-2">
+            <div className="mt-4 grid grid-cols-2 gap-2">
               <TorFavoriteButton projectId={tor.projectId} />
               <TorDownloadButton projectId={tor.projectId} />
             </div>

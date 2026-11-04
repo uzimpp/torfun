@@ -29,7 +29,10 @@ export class TorService {
   async list(options: FindOptions, audience: Audience): Promise<FindResult> {
     const narrowed =
       audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME };
-    const filters = resolveProcurementListOptions({ ...narrowed, order: 'daysLeft' }, this.now());
+    const filters = resolveProcurementListOptions(
+      { ...narrowed, order: options.order ?? 'daysLeft' },
+      this.now(),
+    );
     if (!filters) return { items: [], total: 0 };
     const { items, total } = await this.procurements.find(filters);
     return { items: items.map((item) => presentTo(audience, item)), total };

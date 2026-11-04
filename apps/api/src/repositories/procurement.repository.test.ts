@@ -915,6 +915,67 @@ describeMongo('ProcurementRepository', () => {
     expect((await repository.find({ order: 'urgency', limit: 4, offset: 0 })).total).toBe(9);
   });
 
+  test('search orders upcoming deadlines first and unknown budgets last across pages', async () => {
+    await seed([
+      procurement({
+        projectId: 'budget-low',
+        projectMoney: 100,
+        timeline: timeline({ deadlineAt: '2026-10-20' }),
+      }),
+      procurement({
+        projectId: 'budget-high',
+        projectMoney: 900,
+        timeline: timeline({ deadlineAt: '2026-10-10' }),
+      }),
+      procurement({
+        projectId: 'budget-mid',
+        projectMoney: 500,
+        timeline: timeline({ deadlineAt: '2026-10-15' }),
+      }),
+      procurement({
+        projectId: 'budget-unknown',
+        projectMoney: null,
+        timeline: timeline({ deadlineAt: null }),
+      }),
+      procurement({
+        projectId: 'deadline-past',
+        projectMoney: 300,
+        timeline: timeline({ deadlineAt: '2026-10-01' }),
+      }),
+    ]);
+
+    const orderedIds = async (order: FindOptions['order']) => {
+      const firstPage = await repository.find({ order, today: '2026-10-05', limit: 2, offset: 0 });
+      const secondPage = await repository.find({ order, today: '2026-10-05', limit: 2, offset: 2 });
+      const finalPage = await repository.find({ order, today: '2026-10-05', limit: 2, offset: 4 });
+      return [...firstPage.items, ...secondPage.items, ...finalPage.items].map(
+        (item) => item.projectId,
+      );
+    };
+
+    expect(await orderedIds('deadline')).toEqual([
+      'budget-high',
+      'budget-mid',
+      'budget-low',
+      'budget-unknown',
+      'deadline-past',
+    ]);
+    expect(await orderedIds('budgetDesc')).toEqual([
+      'budget-high',
+      'budget-mid',
+      'deadline-past',
+      'budget-low',
+      'budget-unknown',
+    ]);
+    expect(await orderedIds('budgetAsc')).toEqual([
+      'budget-low',
+      'deadline-past',
+      'budget-mid',
+      'budget-high',
+      'budget-unknown',
+    ]);
+  });
+
   test('failures and the last run time survive a restart', async () => {
     await repository.recordFailures([
       {

@@ -168,6 +168,7 @@ describe('search-filter-values', () => {
   test('parses, serializes and sends multi-select values using current API fields', () => {
     const values = parseSearchFilters({
       q: 'ระบบ',
+      order: 'budgetAsc',
       status: ['drafting', 'evaluating'],
       budgetYear: ['2569', '2568'],
       minDaysLeft: '3',
@@ -183,12 +184,14 @@ describe('search-filter-values', () => {
       q: 'ระบบ',
       status: ['drafting', 'evaluating'],
       budgetYear: [2569, 2568],
+      order: 'budgetAsc',
       minDaysLeft: 3,
       targetPlatforms: ['web_app', 'mobile'],
       limit: 20,
       offset: 20,
     });
     expect(searchHref(values)).toContain('budgetYear=2569%2C2568');
+    expect(searchHref(values)).toContain('order=budgetAsc');
     expect(searchHref(values)).not.toContain('deadlineDays');
   });
 
@@ -204,6 +207,8 @@ describe('search-filter-values', () => {
     expect(withoutSearchFilter(values, 'status')).toEqual({ ...values, status: [] });
     expect(withoutSearchFilter(values, 'budgetYear')).toEqual({ ...values, budgetYear: [] });
     expect(parseSearchFilters({ status: ['invalid', 'drafting'] }).status).toEqual(['drafting']);
+    expect(parseSearchFilters({ order: 'invalid' }).order).toBe('announced');
     expect(toProjectFilters(EMPTY_SEARCH_FILTERS, 20, 0)).not.toHaveProperty('status');
+    expect(toProjectFilters(EMPTY_SEARCH_FILTERS, 20, 0)).toMatchObject({ order: 'announced' });
   });
 });
