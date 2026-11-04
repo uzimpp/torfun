@@ -29,7 +29,6 @@ export type TorReviewData = {
   durationDays: number | null;
   platforms: string[];
   matchScore: number | null;
-  publicationRemovedAt?: string | null;
 };
 
 export interface TorReviewState {
@@ -62,7 +61,6 @@ function toReviewData(procurement: Procurement): TorReviewData {
     durationDays: analysis?.durationDays ?? null,
     platforms: analysis?.targetPlatforms ?? [],
     matchScore: null,
-    publicationRemovedAt: procurement.publicationRemovedAt,
   };
 }
 
