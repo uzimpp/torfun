@@ -32,6 +32,7 @@ import { UserRepository, type UserStore } from './repositories/user.repository';
 import { CompanyRepository, type CompanyStore } from './repositories/company.repository';
 import { ClientRepository, type ClientStore } from './repositories/client.repository';
 import { ExperienceRepository, type ExperienceStore } from './repositories/experience.repository';
+import { FavoriteRepository, type FavoriteStore } from './repositories/favorite.repository';
 import { AuthService } from './services/auth.service';
 import { AdminUsersService } from './services/admin-users.service';
 import { CompanyService } from './services/company.service';
@@ -42,6 +43,7 @@ import { ProcurementAdminService } from './services/procurement-admin.service';
 import { ScheduleService } from './services/schedule.service';
 import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
+import { FavoriteService } from './services/favorite.service';
 import { registerRoutes } from './routes';
 
 /**
@@ -75,6 +77,7 @@ export interface RepositoryOverrides {
   ingestionStats?: IngestionStatsSource;
   /** The setting for when Runs start on their own, and when the last one began. */
   schedule?: ScheduleStore;
+  favorites?: FavoriteStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
 }
@@ -132,6 +135,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const scheduleStore = repositories.schedule ?? new ScheduleRepository(app.mongo.getDb);
   const ingestionRuns = repositories.ingestionRuns ?? new IngestionRunRepository(app.mongo.getDb);
   const ingestionStats = repositories.ingestionStats ?? mongoProcurements;
+  const favoriteRepository = repositories.favorites ?? new FavoriteRepository(app.mongo.getDb);
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
   app.decorate(
@@ -176,6 +180,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   app.decorate('schedulerService', schedulerService);
   app.addHook('onClose', async () => schedulerService.stop());
   app.decorate('torService', new TorService(procurementRepository));
+  app.decorate('favoriteService', new FavoriteService(favoriteRepository, procurementRepository));
   app.decorate(
     'diagnosticsService',
     new DiagnosticsService(createDependencyProbes(env, app.mongo.getDb)),
