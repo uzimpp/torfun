@@ -837,7 +837,9 @@ export class ProcurementRepository
       },
       existing.source_hash ?? null,
     );
-    await collection.replaceOne({ _id: projectId }, updated);
+    // A pass that saw nothing new is not a change worth a notification.
+    if (touch) await this.persist(updated, false);
+    else await collection.replaceOne({ _id: projectId }, updated);
     return toDomain(updated);
   }
 

@@ -276,11 +276,7 @@ describe('notifications over HTTP and Mongo', () => {
     const tor = notificationTor();
     await source.upsert(tor);
     await app.notificationWorkerService.run();
-    await source.upsert({
-      ...tor,
-      timeline: { ...tor.timeline, status: 'cancelled' },
-      updatedAt: new Date(Date.now() + 1).toISOString(),
-    });
+    await source.amend(tor.projectId, { timeline: { ...tor.timeline, status: 'cancelled' } }, true);
     await app.notificationWorkerService.run();
     await app.notificationWorkerService.run();
     const result = await inbox();
