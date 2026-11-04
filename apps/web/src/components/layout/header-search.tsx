@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 import { TorSearchField } from '@/components/search/tor-search-field';
 
@@ -27,9 +27,18 @@ export function HeaderSearch({ enabled = true }: { enabled?: boolean }) {
   if (!enabled || !visible) return null;
 
   return (
+    <HeaderSearchField />
+  );
+}
+
+function HeaderSearchField() {
+  const searchParams = useSearchParams();
+
+  return (
     <TorSearchField
       size="compact"
       label="ค้นหาประกาศ TOR"
+      defaultValue={searchParams.get('q') ?? ''}
       className="hidden w-full max-w-xs min-w-0 md:block lg:max-w-sm"
     />
   );

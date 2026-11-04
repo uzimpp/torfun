@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+const THEME_CHANGE_EVENT = 'torfun-theme-change';
 
 /**
  * The light/dark switch.
@@ -27,12 +29,27 @@ export function ThemeToggle({
   const [theme, setTheme] = useState(initialTheme);
   const label = theme === 'dark' ? 'สลับโหมดกลางวัน' : 'สลับโหมดกลางคืน';
 
+  useEffect(() => {
+    function syncTheme(event: Event) {
+      if (
+        event instanceof CustomEvent &&
+        (event.detail === 'light' || event.detail === 'dark')
+      ) {
+        setTheme(event.detail);
+      }
+    }
+
+    window.addEventListener(THEME_CHANGE_EVENT, syncTheme);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, syncTheme);
+  }, []);
+
   function toggleTheme() {
     const nextTheme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
     document.documentElement.classList.toggle('dark', nextTheme === 'dark');
     document.documentElement.classList.toggle('light', nextTheme === 'light');
     document.cookie = `torfun-theme=${nextTheme}; Path=/; Max-Age=31536000; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
     setTheme(nextTheme);
+    window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, { detail: nextTheme }));
   }
 
   return (

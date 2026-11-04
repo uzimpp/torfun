@@ -39,7 +39,7 @@ export default async function ChromeLayout({ children }: LayoutProps<'/'>) {
       >
         {children}
       </div>
-      <SiteFooter signedIn={user !== null} />
+      <SiteFooter signedIn={user !== null} initialTheme={theme} />
     </>
   );
 }
