@@ -5,7 +5,7 @@ import { WorkspaceNav } from './workspace-nav';
 vi.mock('next/navigation', () => ({ usePathname: () => '/dashboard' }));
 afterEach(cleanup);
 
-test('sidebar shows active destination and marks future routes without dead links', () => {
+test('sidebar shows active destination and admin gets ingestion, not favorited', () => {
   const onNavigate = vi.fn();
   render(<WorkspaceNav role="admin" onNavigate={onNavigate} />);
   const link = screen.getByRole('link', { name: 'แดชบอร์ด' });
@@ -20,16 +20,20 @@ test('sidebar shows active destination and marks future routes without dead link
     '/admin/ingestion',
   );
   expect(screen.getByRole('link', { name: 'ระบบดึงข้อมูล' })).not.toHaveAttribute('aria-current');
-  expect(screen.queryByRole('link', { name: /TOR ของฉัน/ })).not.toBeInTheDocument();
-  expect(screen.getByText('TOR ของฉัน').parentElement).toHaveAttribute('aria-disabled', 'true');
+  // Admins never bid, so they have nothing to favorite.
+  expect(screen.queryByRole('link', { name: /TOR ที่บันทึกไว้/ })).not.toBeInTheDocument();
   link.addEventListener('click', (event) => event.preventDefault(), { once: true });
   fireEvent.click(link);
   expect(onNavigate).toHaveBeenCalledOnce();
 });
 
-test('BD does not see admin navigation but does see search', () => {
+test('BD sees favorited TORs and search, not the admin ingestion console', () => {
   render(<WorkspaceNav role="business_development_officer" />);
   expect(screen.queryByRole('link', { name: 'ระบบดึงข้อมูล' })).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'ประกาศที่ดึงเข้าระบบ' })).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'ค้นหา TOR' })).toHaveAttribute('href', '/search');
+  expect(screen.getByRole('link', { name: 'TOR ที่บันทึกไว้' })).toHaveAttribute(
+    'href',
+    '/favorited',
+  );
 });
