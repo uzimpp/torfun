@@ -2,10 +2,11 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { SiteHeader } from './site-header';
 
-const navigation = vi.hoisted(() => ({ pathname: '/dashboard' }));
+const navigation = vi.hoisted(() => ({ pathname: '/dashboard', search: '' }));
 
 vi.mock('next/navigation', () => ({
   usePathname: () => navigation.pathname,
+  useSearchParams: () => new URLSearchParams(navigation.search),
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 afterEach(cleanup);
@@ -100,11 +101,13 @@ test('the header carries a search field away from the pages that own one', () =>
 
 test('the search page keeps a follow-up search field in the header', () => {
   navigation.pathname = '/search';
+  navigation.search = '?q=ระบบสารสนเทศ';
   render(<SiteHeader user={{ username: 'tester', role: 'business_development_officer' }} />);
   expect(screen.getByRole('search', { name: 'ค้นหาประกาศ TOR' })).toHaveAttribute(
     'action',
     '/search',
   );
-  expect(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveAttribute('name', 'q');
+  expect(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveValue('ระบบสารสนเทศ');
   navigation.pathname = '/dashboard';
+  navigation.search = '';
 });

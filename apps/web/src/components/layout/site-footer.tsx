@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 
+import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { landingSections } from './nav-config';
 
 /**
@@ -24,7 +25,13 @@ import { landingSections } from './nav-config';
  * Every page fills the window before this begins, so it is reached by scrolling
  * rather than met on arrival.
  */
-export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
+export function SiteFooter({
+  signedIn = false,
+  initialTheme = 'light',
+}: {
+  signedIn?: boolean;
+  initialTheme?: 'light' | 'dark';
+}) {
   // Thai calendar year, which is what every date on an announcement uses.
   const year = new Date().getFullYear() + 543;
 
@@ -38,7 +45,7 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
       />
 
       <div className="relative mx-auto max-w-7xl px-4 pt-12 pb-8 sm:px-6 lg:px-10 lg:pt-14">
-        <div className="grid gap-8 sm:grid-cols-2 lg:gap-12">
+        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 lg:gap-12">
           <FooterColumn title="หน้าแรก">
             {landingSections.map(({ href, label }) => (
               <li key={href}>
@@ -69,6 +76,14 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
               </>
             )}
           </FooterColumn>
+          <div>
+            <ThemeToggle
+              initialTheme={initialTheme}
+              withLabel
+              onDarkSurface
+              className="self-start"
+            />
+          </div>
         </div>
 
         <p
@@ -86,7 +101,7 @@ export function SiteFooter({ signedIn = false }: { signedIn?: boolean }) {
           </span>
         </p>
 
-        <div className="mt-5 flex flex-col gap-2 text-xs opacity-75 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-5 flex flex-col gap-3 text-xs opacity-75 sm:flex-row sm:items-center sm:justify-between">
           <p>
             <span data-numeric>&copy; {year}</span> Torfun · งานซอฟต์แวร์ · e-bidding ·
             หน่วยงานภาครัฐ
