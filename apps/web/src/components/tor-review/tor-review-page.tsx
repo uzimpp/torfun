@@ -7,6 +7,7 @@ import { ProcurementStatusBadge } from '@/components/search/procurement-status-b
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { TorDownloadButton } from './tor-download-button';
+import { TorQualificationResults } from './tor-qualification-results';
 import { TorFavoriteButton } from './tor-favorite-button';
 
 const bahtFormat = new Intl.NumberFormat('th-TH');
@@ -98,35 +99,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
           eyebrow="วิเคราะห์เบื้องต้น"
           title="สรุปความเหมาะสมกับบริษัท"
         />
-        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)]">
-          <Card className="bg-primary text-primary-foreground overflow-hidden">
-            <CardContent className="flex min-h-72 flex-col items-center justify-center text-center">
-              <div className="grid size-40 place-items-center rounded-full border-[14px] border-white/20 border-t-white">
-                <div>
-                  <p className="font-mono text-5xl leading-none font-medium">
-                    {tor.matchScore === null ? '-' : `${tor.matchScore}%`}
-                  </p>
-                  <p className="mt-2 text-xs font-medium tracking-widest uppercase opacity-80">
-                    Match
-                  </p>
-                </div>
-              </div>
-              <p className="mt-5 text-sm opacity-85">
-                {tor.matchScore === null
-                  ? 'ยังไม่มีผลการวิเคราะห์ความเหมาะสม'
-                  : 'คะแนนความเหมาะสมโดยประมาณ'}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="flex min-h-72 items-center justify-center p-6 text-center">
-              <p className="text-muted-foreground max-w-sm text-sm leading-relaxed">
-                ระบบจะแสดงรายละเอียดการเปรียบเทียบกับข้อมูลบริษัทเมื่อมีผลการวิเคราะห์ความเหมาะสม
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+        <TorQualificationResults qualifications={tor.qualifications} result={tor.matchResult} />
       </section>
 
       <section aria-labelledby="details-heading" className="mt-12">
@@ -134,7 +107,9 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
         <div className="mt-5 grid gap-5 lg:grid-cols-3">
           <DetailList title="วัตถุประสงค์" items={tor.objectives} />
           <DetailList title="ขอบเขตงาน" items={tor.scope} />
-          <DetailList title="คุณสมบัติผู้เสนอราคา" items={tor.bidderQualifications} />
+          {tor.qualifications === undefined && (
+            <DetailList title="คุณสมบัติผู้เสนอราคาที่ AI สรุป" items={tor.bidderQualifications} />
+          )}
         </div>
       </section>
 

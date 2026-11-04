@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TargetPlatform } from './egp';
+import { MoneyThbSchema, WorkTypeSchema } from './qualification';
 
 /**
  * The vendor side of a match.
@@ -135,6 +136,8 @@ export const ExperienceSchema = z.object({
   companyId: z.string(),
   clientId: z.string(),
   projectName: z.string().trim().min(1).max(300),
+  workType: WorkTypeSchema.nullish(),
+  contractValueThb: MoneyThbSchema.nullish(),
   description: z.string().max(2000).nullable(),
   /** Same shape as `TorAnalysis.techStack`. */
   techStack: z.array(z.string().trim().min(1)).default([]),

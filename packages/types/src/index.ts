@@ -1,6 +1,7 @@
 export * from './user';
 export * from './session';
 export * from './matching';
+export * from './qualification';
 export * from './company';
 export * from './egp';
 export * from './procurement-dates';

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { QualificationCheckSchema } from './qualification';
 
 /**
  * The vendor side of a score now lives in `company.ts` as `Company` and its
@@ -26,3 +27,13 @@ export const MatchResultSchema = z.object({
   computedAt: z.coerce.date(),
 });
 export type MatchResult = z.infer<typeof MatchResultSchema>;
+
+export const QualificationMatchResultSchema = MatchResultSchema.pick({
+  projectId: true,
+  computedAt: true,
+}).extend({
+  companyId: z.string(),
+  overallScore: z.number().min(0).max(1).nullable(),
+  checks: z.array(QualificationCheckSchema),
+});
+export type QualificationMatchResult = z.infer<typeof QualificationMatchResultSchema>;

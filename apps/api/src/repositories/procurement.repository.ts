@@ -263,6 +263,8 @@ export interface FindOptions {
    * or cancelled last.
    */
   order?: 'announced' | 'urgency' | 'daysLeft';
+  /** Optional score within the existing filters. Equal scores keep the base order. */
+  scoreQualifications?: (qualifications: TorAnalysis['qualifications']) => number | null;
   /** Today in Thailand, `YYYY-MM-DD`. The `daysLeft` order counts from it. */
   today?: string;
   limit: number;
@@ -823,6 +825,31 @@ export class ProcurementRepository
         : options.order === 'daysLeft' && options.today
           ? { stages: daysLeftOrder(options.today), fields: DAYS_LEFT_FIELDS }
           : null;
+    if (ranked && options.scoreQualifications) {
+      const score = options.scoreQualifications;
+      // Rank the whole filtered set before slicing. Keep full TOR summaries and
+      // manifests out of this scan and only fetch the selected page.
+      const candidates = collection.aggregate<{
+        _id: string;
+        analysis?: Pick<TorAnalysis, 'qualifications'>;
+      }>([{ $match: filter }, ...ranked.stages, { $project: { 'analysis.qualifications': 1 } }]);
+      const scored: { id: string; score: number }[] = [];
+      for await (const item of candidates) {
+        scored.push({ id: item._id, score: score(item.analysis?.qualifications) ?? -1 });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      const ids = scored.slice(options.offset, options.offset + options.limit).map(({ id }) => id);
+      if (!ids.length) return { items: [], total: scored.length };
+      const page = await collection.find({ $and: [filter, { _id: { $in: ids } }] }).toArray();
+      const byId = new Map(page.map((item) => [item._id, item]));
+      return {
+        items: ids.flatMap((id) => {
+          const item = byId.get(id);
+          return item ? [toDomain(item)] : [];
+        }),
+        total: scored.length,
+      };
+    }
     if (ranked) {
       const [items, total] = await Promise.all([
         collection
