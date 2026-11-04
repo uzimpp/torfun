@@ -302,7 +302,7 @@ function ResultRow({
             <ProcurementTiming item={item} today={today} mode="details" returnTo={detailHref} />
           </div>
 
-          <div className="border-border border-t pt-3 text-left md:w-full md:max-w-48 md:self-start md:justify-self-end md:border-t-0 md:pt-0">
+          <div className="border-border border-t pt-3 text-left md:mt-3 md:w-full md:max-w-48 md:self-start md:justify-self-end md:border-t-0 md:pt-0">
             <p className="text-muted-foreground text-xs">งบประมาณ</p>
             <p data-numeric className="text-primary mt-1 font-mono text-xl font-bold">
               {item.projectMoney === null ? 'ไม่ระบุ' : bahtFormat.format(item.projectMoney)}

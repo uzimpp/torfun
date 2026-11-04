@@ -98,13 +98,6 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
                 : 'ยังไม่มีข้อมูลวันที่ประกาศ'
             }
           />
-          <DateItem
-            label="ปิดรับข้อเสนอ"
-            value={
-              tor.deadline ? formatThaiDate(tor.deadline.at) : 'ยังไม่มีข้อมูลวันปิดรับข้อเสนอ'
-            }
-            urgent
-          />
         </div>
       </section>
 
