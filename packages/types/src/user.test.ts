@@ -23,9 +23,9 @@ describe('UserSchema', () => {
     expect(UserSchema.safeParse({ ...valid, role: 'ADMIN' }).success).toBe(false);
   });
 
-  test('requires a non-empty first and last name', () => {
+  test('requires a first name and accepts a missing family name for mononyms', () => {
     expect(UserSchema.safeParse({ ...valid, firstName: '' }).success).toBe(false);
-    expect(UserSchema.safeParse({ ...valid, lastName: '' }).success).toBe(false);
+    expect(UserSchema.safeParse({ ...valid, lastName: '' }).success).toBe(true);
   });
 });
 
