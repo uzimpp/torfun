@@ -50,6 +50,9 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/tors`                          | user   | Search, filter and paginate procurements          |
 | GET    | `/tors/:projectId`               | user   | One procurement by its project id                 |
 | GET    | `/tors/:projectId/source`        | user   | Download the original TOR PDF                     |
+| POST   | `/tors/:projectId/reports`       | user   | Report a TOR for admin review                     |
+| GET    | `/admin/tor-reports`             | admin  | Shared report queue, newest first                 |
+| PATCH  | `/admin/tor-reports/:reportId`   | admin  | Dismiss a report or remove its TOR from publication |
 | GET    | `/companies/search?q=`           | user   | Typeahead over Thai company names                 |
 | POST   | `/companies`                     | user   | Creates a Company and joins the caller to it      |
 | GET    | `/companies/me`                  | user   | The caller's Company; `404` when they have none   |
@@ -64,9 +67,9 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | POST   | `/experiences`                   | user   | Records work; only client and name are required   |
 | PATCH  | `/experiences/:id`               | user   | Corrects one                                      |
 | DELETE | `/experiences/:id`               | user   | Removes one                                       |
-| GET    | `/favorites`                     | user   | The caller's favorited TORs, with each procurement |
+| GET    | `/favorites`                     | user   | The caller's visible favorited TORs |
 | GET    | `/favorites/:projectId`          | user   | `{ favorited }` for one project                   |
-| POST   | `/favorites`                     | user   | Favorites a project; `404` if never ingested       |
+| POST   | `/favorites`                     | user   | Favorites a project; `404` if the caller cannot see it       |
 | DELETE | `/favorites/:projectId`          | user   | Unfavorites one; `404` if it was not favorited     |
 
 Request and response shapes are zod schemas on each route, most of them imported
@@ -90,6 +93,40 @@ all relative windows use the calendar in Asia/Bangkok and paginate after filteri
 Choose either a relative window or `deadlineFrom`/`deadlineTo`, never both.
 Missing or unreadable deadlines do not match a date filter. The deadlines are AI
 extractions and must be verified against the original TOR before bidding.
+
+## TOR reports
+
+Authenticated users submit one reason and optional `details` (maximum 2,000
+characters). The `other` reason requires nonblank details. The API records the
+reporter's identity from their account and snapshots the TOR title and agency.
+It returns `201`; another pending report from the same user for that TOR returns
+`409`. Different users can report the same TOR.
+
+Reports persist in `tor_reports`. Every active admin can read the queue with
+`limit` (default 25, maximum 100), `offset`, and `status` (`pending`, `dismissed`,
+`removed`, or `all`; default `pending`). The reporter's identity stays visible.
+
+`PATCH /api/admin/tor-reports/:reportId` accepts
+`{ "action": "dismiss" | "remove_tor", "note"?: "..." }`. Notes are trimmed and
+limited to 2,000 characters. Each decision records the verified administrator's
+identity and time. A report can only be decided once; stale requests return `409`.
+Decisions are per report. If another report already removed the same TOR, a
+second removal returns `409` and leaves that report pending so an administrator
+can dismiss it. The original removal retains its author and report ID.
+
+Dismissal leaves publication unchanged. Removal marks the procurement with
+`publication_removed_at`, `publication_removed_by`, and `publication_removed_report_id`.
+Search and favorites exclude removed TORs for all users. Admins can open the
+original record and source from the Removed filter in TOR Reports. Rediscovery
+or retrieval does not republish it.
+The agency's own procurement status and ingestion outcome are not changed.
+Reporting by itself never changes publication. Removal cannot be undone through the app.
+
+Review decisions and publication removal commit in one MongoDB transaction, so
+a replica set is required (Atlas already provides one). A failed write rolls back
+the decision, and competing reviewers cannot overwrite each other. Index setup
+is idempotent and runs lazily. Legacy pending reports need no backfill. Missing
+publication metadata means published.
 
 ## Health checks
 

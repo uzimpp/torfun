@@ -44,6 +44,8 @@ import { ScheduleService } from './services/schedule.service';
 import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
 import { FavoriteService } from './services/favorite.service';
+import { TorReportRepository, type TorReportStore } from './repositories/tor-report.repository';
+import { TorReportService } from './services/tor-report.service';
 import { registerRoutes } from './routes';
 
 /**
@@ -78,6 +80,7 @@ export interface RepositoryOverrides {
   /** The setting for when Runs start on their own, and when the last one began. */
   schedule?: ScheduleStore;
   favorites?: FavoriteStore;
+  torReports?: TorReportStore;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
 }
@@ -179,7 +182,16 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   );
   app.decorate('schedulerService', schedulerService);
   app.addHook('onClose', async () => schedulerService.stop());
-  app.decorate('torService', new TorService(procurementRepository));
+  const torService = new TorService(procurementRepository);
+  app.decorate('torService', torService);
+  app.decorate(
+    'torReportService',
+    new TorReportService(
+      repositories.torReports ?? new TorReportRepository(app.mongo.getDb, mongoProcurements),
+      torService,
+      userRepository,
+    ),
+  );
   app.decorate('favoriteService', new FavoriteService(favoriteRepository, procurementRepository));
   app.decorate(
     'diagnosticsService',

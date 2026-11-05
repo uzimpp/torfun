@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ProcurementSchema, type Favorite, type Procurement } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
+import { audienceOf } from '../services/audience';
 
 /**
  * HTTP surface for an officer's favorited Procurements.
@@ -33,7 +34,10 @@ export const favoriteRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: { response: { 200: z.object({ favorites: z.array(FavoriteResponse) }) } },
     },
     async (request) => {
-      const entries = await app.favoriteService.list(request.user.user_id);
+      const entries = await app.favoriteService.list(
+        request.user.user_id,
+        audienceOf(request.user.role),
+      );
       return {
         favorites: entries.map(({ favorite, procurement }) =>
           toFavoriteResponse(favorite, procurement),
@@ -70,6 +74,7 @@ export const favoriteRoutes: FastifyPluginAsyncZod = async (app) => {
       const { favorite, procurement } = await app.favoriteService.add(
         request.user.user_id,
         request.body.project_id,
+        audienceOf(request.user.role),
       );
       return reply.code(201).send(toFavoriteResponse(favorite, procurement));
     },

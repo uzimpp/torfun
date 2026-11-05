@@ -8,6 +8,7 @@ import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { TorDownloadButton } from './tor-download-button';
 import { TorFavoriteButton } from './tor-favorite-button';
+import { TorReportButton } from './tor-report-button';
 
 const bahtFormat = new Intl.NumberFormat('th-TH');
 
@@ -15,6 +16,14 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
   return (
     <main className="page-fill mx-auto w-full max-w-7xl px-5 py-8 sm:px-8 lg:px-10 lg:py-12">
       <TorReviewBackButton />
+      {tor.publicationRemoval && (
+        <p
+          role="status"
+          className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          TOR นี้ถูกนำออกจากการเผยแพร่แล้ว หน้านี้และเอกสารต้นฉบับเข้าถึงได้เฉพาะผู้ดูแลระบบ
+        </p>
+      )}
 
       <section className="border-border mt-8 border-b pb-10">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] lg:items-center lg:gap-8">
@@ -69,9 +78,10 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               )}
             </div>
             <div className="mt-6 grid grid-cols-2 gap-2">
-              <TorFavoriteButton projectId={tor.projectId} />
+              {!tor.publicationRemoval && <TorFavoriteButton projectId={tor.projectId} />}
               <TorDownloadButton projectId={tor.projectId} />
             </div>
+            {!tor.publicationRemoval && <TorReportButton projectId={tor.projectId} />}
           </div>
         </div>
       </section>

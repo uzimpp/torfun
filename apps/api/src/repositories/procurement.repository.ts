@@ -1,4 +1,4 @@
-import type { AnyBulkWriteOperation, Collection, Db } from 'mongodb';
+import type { AnyBulkWriteOperation, ClientSession, Collection, Db, UpdateFilter } from 'mongodb';
 import type {
   ArchiveDocument,
   DailyDiscovered,
@@ -89,6 +89,10 @@ interface ProcurementDocument {
   hold_reason?: HoldReason | null;
   status_history: StatusChange[];
   approved: { by: string; at: string } | null;
+  /** Owned by report review; ingestion never writes or clears these fields. */
+  publication_removed_at?: string | null;
+  publication_removed_by?: string | null;
+  publication_removed_report_id?: string | null;
   archive: ArchiveRecordDocument | null;
   analysis: TorAnalysis | null;
   /** The feed's fingerprint (`hashSource`); absent on records written before sweeps were fingerprinted. */
@@ -157,6 +161,15 @@ function toDomain(document: ProcurementDocument): Procurement {
       outcome: outcomeFromStored(entry.outcome),
     })),
     approved: document.approved,
+    ...(document.publication_removed_at
+      ? {
+          publicationRemoval: {
+            at: document.publication_removed_at,
+            by: document.publication_removed_by ?? null,
+            reportId: document.publication_removed_report_id ?? null,
+          },
+        }
+      : {}),
     archive: archive
       ? {
           zipId: archive.zip_id,
@@ -219,6 +232,20 @@ function mergedDocument(existing: ProcurementDocument, incoming: Procurement): P
   return toDocument(mergeDiscovered(current, incoming, changed), hashSource(incoming));
 }
 
+/** Replace the ingestion fields while preserving metadata owned by report review. */
+function ingestionUpdate({
+  _id,
+  ...fields
+}: ProcurementDocument): UpdateFilter<ProcurementDocument> {
+  const entries = Object.entries(fields);
+  return {
+    $set: Object.fromEntries(entries.filter(([, value]) => value !== undefined)),
+    $unset: Object.fromEntries(
+      entries.filter(([, value]) => value === undefined).map(([key]) => [key, '']),
+    ),
+  };
+}
+
 export interface FindOptions {
   state?: IngestionState;
   outcome?: IngestionOutcome;
@@ -233,6 +260,8 @@ export interface FindOptions {
    * the record (ADR-0021).
    */
   detailRead?: boolean;
+  /** Publication filter. Report removal is independent of ingestion outcome. */
+  excludeRemoved?: boolean;
   deptName?: string;
   budgetYear?: number;
   /** Filter to one stage of the agency's own lifecycle. */
@@ -625,8 +654,15 @@ export class ProcurementRepository
     }
 
     const merged = mergedDocument(existing, record);
-    await collection.replaceOne({ _id: record.projectId }, merged);
-    return toDomain(merged);
+    // Report-review metadata may change after the read above. Only set fields
+    // owned by ingestion so a concurrent removal and its audit trail survive.
+    const updated = await collection.findOneAndUpdate(
+      { _id: record.projectId },
+      ingestionUpdate(merged),
+      { returnDocument: 'after' },
+    );
+    if (!updated) throw new Error(`Procurement ${record.projectId} disappeared during rediscovery`);
+    return toDomain(updated);
   }
 
   async upsertMany(records: Procurement[]): Promise<UpsertSummary> {
@@ -655,9 +691,9 @@ export class ProcurementRepository
         summary.changed += 1;
       } else summary.unchanged += 1;
       operations.push({
-        replaceOne: {
+        updateOne: {
           filter: { _id: record.projectId },
-          replacement: mergedDocument(existing, record),
+          update: ingestionUpdate(mergedDocument(existing, record)),
         },
       });
     }
@@ -698,8 +734,8 @@ export class ProcurementRepository
       },
       existing.source_hash ?? null,
     );
-    await collection.replaceOne({ _id: projectId }, updated);
-    return toDomain(updated);
+    await collection.updateOne({ _id: projectId }, ingestionUpdate(updated));
+    return this.get(projectId);
   }
 
   async amend(
@@ -719,8 +755,30 @@ export class ProcurementRepository
       },
       existing.source_hash ?? null,
     );
-    await collection.replaceOne({ _id: projectId }, updated);
-    return toDomain(updated);
+    await collection.updateOne({ _id: projectId }, ingestionUpdate(updated));
+    return this.get(projectId);
+  }
+
+  async markRemoved(
+    projectId: string,
+    removal: NonNullable<Procurement['publicationRemoval']>,
+    session: ClientSession,
+  ): Promise<'removed' | 'already_removed' | 'project_missing'> {
+    const records = await this.records();
+    const result = await records.updateOne(
+      { _id: projectId, publication_removed_at: null },
+      {
+        $set: {
+          publication_removed_at: removal.at,
+          publication_removed_by: removal.by,
+          publication_removed_report_id: removal.reportId,
+        },
+      },
+      { session },
+    );
+    if (result.matchedCount === 1) return 'removed';
+    const existing = await records.findOne({ _id: projectId }, { session, projection: { _id: 1 } });
+    return existing ? 'already_removed' : 'project_missing';
   }
 
   async dueForTimeline(page: { limit: number; offset: number }): Promise<Procurement[]> {
@@ -786,6 +844,7 @@ export class ProcurementRepository
       filter.detail_read_at = options.detailRead ? { $ne: null } : null;
     }
     if (options.deptName) filter.dept_name = options.deptName;
+    if (options.excludeRemoved) filter.publication_removed_at = null;
     if (options.budgetYear) filter.budget_year = options.budgetYear;
     if (options.status) filter['timeline.status'] = options.status;
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
