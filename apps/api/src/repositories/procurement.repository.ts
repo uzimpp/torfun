@@ -260,7 +260,7 @@ export interface FindOptions {
    * the record (ADR-0021).
    */
   detailRead?: boolean;
-  /** Officer publication filter; report removal remains independent of outcome. */
+  /** Publication filter. Report removal is independent of ingestion outcome. */
   excludeRemoved?: boolean;
   deptName?: string;
   budgetYear?: number;
