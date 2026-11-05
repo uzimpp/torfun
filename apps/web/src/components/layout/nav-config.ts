@@ -20,7 +20,13 @@ import type { UserRole } from '@torfun/types';
  * smaller product than one on a laptop.
  */
 export interface NavItem {
-  href: '/dashboard' | '/search' | '/admin/procurements' | '/admin/ingestion' | '/notifications';
+  href:
+    | '/dashboard'
+    | '/search'
+    | '/notifications'
+    | '/admin/procurements'
+    | '/admin/ingestion'
+    | '/favorited';
   label: string;
   Icon: LucideIcon;
   /** What this destination is for, shown where there is room to say it. */
@@ -66,18 +72,16 @@ export function workspaceNav(role: UserRole): NavItem[] {
             hint: 'รอบดึงข้อมูล ตารางเวลา และข้อผิดพลาด',
           },
         ] satisfies NavItem[])
-      : []),
+      : ([
+          {
+            href: '/favorited',
+            label: 'TOR ที่บันทึกไว้',
+            Icon: Bookmark,
+            hint: 'ประกาศที่บันทึกไว้พิจารณาภายหลัง',
+          },
+        ] satisfies NavItem[])),
   ];
 }
-
-/**
- * Destinations that exist in the product's plan but not yet in the router.
- * They are listed, and visibly not clickable, rather than hidden: an officer
- * who is told the feature is coming stops looking for it.
- */
-export const plannedNav: { label: string; Icon: LucideIcon }[] = [
-  { label: 'TOR ของฉัน', Icon: Bookmark },
-];
 
 /**
  * The account menu's rows — everything that belongs to the person rather than
@@ -119,6 +123,7 @@ export function accountNav(role: UserRole): AccountNavItem[] {
     { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
     { href: '/notifications', label: 'การแจ้งเตือน', Icon: Bell },
     { href: '/company', label: 'บริษัทและผลงาน', Icon: Building2 },
+    { href: '/favorited', label: 'TOR ที่บันทึกไว้', Icon: Bookmark },
   ];
 }
 

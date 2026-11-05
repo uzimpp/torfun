@@ -13,6 +13,7 @@ import type { ProcurementAdminService } from '../services/procurement-admin.serv
 import type { ScheduleService } from '../services/schedule.service';
 import type { SchedulerService } from '../services/scheduler.service';
 import type { TorService } from '../services/tor.service';
+import type { FavoriteService } from '../services/favorite.service';
 import type { NotificationService } from '../services/notification.service';
 import type { NotificationWorkerService } from '../services/notification-worker.service';
 import type { LineNotificationService } from '../services/line-notification.service';
@@ -48,6 +49,7 @@ declare module 'fastify' {
     scheduleService: ScheduleService;
     schedulerService: SchedulerService;
     torService: TorService;
+    favoriteService: FavoriteService;
     notificationService: NotificationService;
     notificationWorkerService: NotificationWorkerService;
     lineNotificationService: LineNotificationService;

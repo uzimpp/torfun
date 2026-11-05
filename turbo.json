@@ -54,6 +54,7 @@
         "MONGODB_DB",
         "MONGODB_TEST_URI",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
         "VERTEX_AI_MODEL",
