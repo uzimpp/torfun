@@ -16,7 +16,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
   return (
     <main className="page-fill mx-auto w-full max-w-7xl px-5 py-8 sm:px-8 lg:px-10 lg:py-12">
       <TorReviewBackButton />
-      {tor.publicationRemovedAt && (
+      {tor.publicationRemoval && (
         <p
           role="status"
           className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
@@ -81,7 +81,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               <TorFavoriteButton projectId={tor.projectId} />
               <TorDownloadButton projectId={tor.projectId} />
             </div>
-            {!tor.publicationRemovedAt && <TorReportButton projectId={tor.projectId} />}
+            {!tor.publicationRemoval && <TorReportButton projectId={tor.projectId} />}
           </div>
         </div>
       </section>

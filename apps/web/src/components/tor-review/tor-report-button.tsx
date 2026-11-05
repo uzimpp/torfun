@@ -34,7 +34,7 @@ export function TorReportButton({ projectId }: { projectId: string }) {
     if (submitting.current) return;
     const input = CreateTorReportSchema.safeParse({
       reason,
-      ...(reason === 'other' ? { details } : {}),
+      details: details.trim() || undefined,
     });
     if (!input.success) {
       setError(
@@ -42,7 +42,7 @@ export function TorReportButton({ projectId }: { projectId: string }) {
           ? 'กรุณาเลือกเหตุผลในการรายงาน'
           : (input.error.issues[0]?.message ?? 'กรุณาตรวจสอบรายละเอียด'),
       );
-      if (reason === 'other') dialog.current?.querySelector('textarea')?.focus();
+      if (reason !== null) dialog.current?.querySelector('textarea')?.focus();
       else dialog.current?.querySelector('input')?.focus();
       return;
     }
@@ -55,15 +55,23 @@ export function TorReportButton({ projectId }: { projectId: string }) {
       dialog.current?.close();
       setToast(true);
     } catch (caught) {
-      setError(
-        caught instanceof ApiError
-          ? caught.status === 0
-            ? 'เชื่อมต่อ API ไม่สำเร็จ กรุณาลองอีกครั้ง'
-            : caught.status === 401
-              ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนส่งรายงาน'
-              : caught.message
-          : 'ส่งรายงานไม่สำเร็จ กรุณาลองอีกครั้ง',
-      );
+      const status = caught instanceof ApiError ? caught.status : undefined;
+      switch (status) {
+        case 0:
+          setError('เชื่อมต่อ API ไม่สำเร็จ กรุณาลองอีกครั้ง');
+          break;
+        case 401:
+          setError('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนส่งรายงาน');
+          break;
+        case 404:
+          setError('ไม่พบ TOR นี้ หรือ TOR ไม่เปิดให้รายงานแล้ว');
+          break;
+        case 409:
+          setError((caught as ApiError).message);
+          break;
+        default:
+          setError('ส่งรายงานไม่สำเร็จ กรุณาลองอีกครั้ง');
+      }
     } finally {
       submitting.current = false;
       setPending(false);
@@ -86,7 +94,9 @@ export function TorReportButton({ projectId }: { projectId: string }) {
         ref={dialog}
         aria-labelledby={`${id}-title`}
         aria-describedby={`${id}-description`}
-        onCancel={(event) => event.preventDefault()}
+        onCancel={(event) => {
+          if (submitting.current) event.preventDefault();
+        }}
         className="bg-popover text-popover-foreground fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-y-auto overscroll-contain rounded-2xl border p-6 shadow-xl backdrop:overflow-hidden backdrop:overscroll-contain backdrop:bg-black/50"
       >
         <div className="flex items-start justify-between gap-4">
@@ -133,10 +143,10 @@ export function TorReportButton({ projectId }: { projectId: string }) {
               </label>
             ))}
           </fieldset>
-          {reason === 'other' && (
+          {reason !== null && (
             <div className="space-y-2">
               <label htmlFor={`${id}-details`} className="text-sm font-medium">
-                รายละเอียดเพิ่มเติม (จำเป็น)
+                รายละเอียดเพิ่มเติม ({reason === 'other' ? 'จำเป็น' : 'ไม่บังคับ'})
               </label>
               <p id={`${id}-details-hint`} className="text-muted-foreground text-xs">
                 อธิบายปัญหาที่พบ ไม่เกิน 2,000 ตัวอักษร
@@ -145,7 +155,7 @@ export function TorReportButton({ projectId }: { projectId: string }) {
                 id={`${id}-details`}
                 value={details}
                 onChange={(event) => setDetails(event.target.value)}
-                required
+                required={reason === 'other'}
                 maxLength={2000}
                 disabled={pending}
                 rows={4}

@@ -187,7 +187,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   app.decorate(
     'torReportService',
     new TorReportService(
-      repositories.torReports ?? new TorReportRepository(app.mongo.getDb),
+      repositories.torReports ?? new TorReportRepository(app.mongo.getDb, mongoProcurements),
       torService,
       userRepository,
     ),

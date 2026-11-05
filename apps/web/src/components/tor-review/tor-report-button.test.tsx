@@ -19,7 +19,10 @@ beforeEach(() => {
     this.removeAttribute('open');
   };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 async function open() {
   const user = userEvent.setup();
@@ -43,11 +46,11 @@ test('requires a single reason and requires nonblank details for other', async (
   expect(screen.getByRole('dialog')).toBeInTheDocument();
 });
 
-test('Escape and outside clicks do not close; the provided close button does', async () => {
+test('allows native Escape dismissal while idle and keeps outside clicks inert', async () => {
   const user = await open();
   const dialog = screen.getByRole('dialog');
   const event = new Event('cancel', { cancelable: true });
-  expect(dialog.dispatchEvent(event)).toBe(false);
+  expect(dialog.dispatchEvent(event)).toBe(true);
   await user.click(document.body);
   expect(dialog).toHaveAttribute('open');
   await user.click(screen.getByRole('button', { name: 'ปิด' }));
@@ -69,6 +72,9 @@ test('shows loading, blocks repeat submissions, closes after persistence and sho
   expect(screen.getByRole('button', { name: 'กำลังส่งรายงาน…' })).toBeDisabled();
   fireEvent.submit(screen.getByRole('button', { name: 'กำลังส่งรายงาน…' }).closest('form')!);
   expect(submitTorReport).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('dialog').dispatchEvent(new Event('cancel', { cancelable: true }))).toBe(
+    false,
+  );
   expect(submitTorReport).toHaveBeenCalledWith('project-1', {
     reason: 'other',
     details: 'ข้อกำหนดขัดแย้งกัน',
@@ -82,6 +88,7 @@ test('shows loading, blocks repeat submissions, closes after persistence and sho
     reason: 'other',
     details: 'ข้อกำหนดขัดแย้งกัน',
     status: 'pending',
+    review: null,
     created_at: '2026-10-11T00:00:00.000Z',
   });
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -98,4 +105,41 @@ test('a failed request keeps the form and details for retry', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('เชื่อมต่อ API ไม่สำเร็จ');
   expect(screen.getByRole('textbox')).toHaveValue('รายละเอียดที่ไม่ควรหาย');
   expect(screen.getByRole('button', { name: 'ส่งรายงาน' })).toBeEnabled();
+});
+
+test.each([
+  [401, 'เซสชันหมดอายุ'],
+  [404, 'ไม่พบ TOR นี้'],
+  [409, 'รายงานนี้กำลังรอตรวจสอบ'],
+  [503, 'ส่งรายงานไม่สำเร็จ'],
+])('shows useful feedback for submission HTTP %i', async (status, message) => {
+  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  vi.mocked(submitTorReport).mockImplementationOnce(actual.submitTorReport);
+  const transport = vi
+    .fn()
+    .mockImplementation(async () =>
+      Response.json({ message: 'รายงานนี้กำลังรอตรวจสอบ' }, { status }),
+    );
+  vi.stubGlobal('fetch', transport);
+  const user = await open();
+  await user.click(screen.getByRole('radio', { name: 'ข้อมูล TOR ไม่ถูกต้อง' }));
+  await user.type(screen.getByRole('textbox'), 'รายละเอียดเพิ่มเติม');
+  await user.click(screen.getByRole('button', { name: 'ส่งรายงาน' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(message);
+  expect(screen.getByRole('textbox')).toHaveValue('รายละเอียดเพิ่มเติม');
+  expect(transport).toHaveBeenCalledWith(
+    expect.stringContaining('/api/tors/project-1/reports'),
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ reason: 'incorrect_information', details: 'รายละเอียดเพิ่มเติม' }),
+    }),
+  );
+  if (status === 401) {
+    expect(transport).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/refresh'),
+      expect.anything(),
+    );
+  }
+  if (status === 503)
+    expect(screen.getByRole('alert')).not.toHaveTextContent('รายงานนี้กำลังรอตรวจสอบ');
 });

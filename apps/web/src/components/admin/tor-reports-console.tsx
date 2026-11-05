@@ -63,7 +63,6 @@ export function TorReportsConsole() {
         <select
           id="report-status"
           value={status}
-          disabled={loading}
           onChange={(event) => {
             setStatus(event.target.value as TorReportFilter);
             setOffset(0);

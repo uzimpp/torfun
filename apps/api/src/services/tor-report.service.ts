@@ -21,7 +21,7 @@ export class TorReportService {
     const reporter = await this.users.findById(reporterId);
     if (!reporter?.isActive) throw new UnauthorizedError();
     const tor = await this.tors.get(projectId, audienceOf(reporter.role));
-    if (tor.publicationRemovedAt) throw new ConflictError('TOR นี้ถูกนำออกจากการเผยแพร่แล้ว');
+    if (tor.publicationRemoval) throw new ConflictError('TOR นี้ถูกนำออกจากการเผยแพร่แล้ว');
     const report = await this.reports.create({
       projectId: tor.projectId,
       projectName: tor.projectName,
@@ -34,7 +34,6 @@ export class TorReportService {
       },
       reason: input.reason,
       details: input.details?.trim() || null,
-      status: 'pending',
       createdAt: new Date().toISOString(),
     });
     if (!report) throw new ConflictError('คุณได้รายงาน TOR นี้แล้ว และกำลังรอผู้ดูแลตรวจสอบ');
@@ -65,12 +64,17 @@ export class TorReportService {
       reviewedAt: new Date().toISOString(),
       note: input.note?.trim() || null,
     });
-    if (result.kind === 'not_found') throw new NotFoundError('ไม่พบรายงานนี้');
-    if (result.kind === 'project_missing')
-      throw new NotFoundError('ไม่พบ TOR ต้นฉบับ กรุณารีเฟรชรายการ');
-    if (result.kind === 'already_reviewed')
-      throw new ConflictError('รายงานนี้ได้รับการตรวจสอบแล้ว กรุณารีเฟรชรายการ');
-    if (result.kind === 'reviewed') return result.report;
-    throw new Error('Unexpected review result');
+    switch (result.kind) {
+      case 'not_found':
+        throw new NotFoundError('ไม่พบรายงานนี้');
+      case 'project_missing':
+        throw new NotFoundError('ไม่พบ TOR ต้นฉบับ กรุณารีเฟรชรายการ');
+      case 'already_reviewed':
+        throw new ConflictError('รายงานนี้ได้รับการตรวจสอบแล้ว กรุณารีเฟรชรายการ');
+      case 'already_removed':
+        throw new ConflictError('TOR นี้ถูกนำออกแล้ว คุณยังสามารถปิดรายงานนี้ได้');
+      case 'reviewed':
+        return result.report;
+    }
   }
 }

@@ -6,39 +6,37 @@ import {
   TorReportListResponseSchema,
   TorReportResponseSchema,
   ReviewTorReportSchema,
+  type ReportActor,
   type TorReport,
+  type TorReportResponse,
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
 import { requireAdmin } from '../hooks/require-admin';
 
-function toResponse(report: TorReport) {
-  return {
+function actorResponse(actor: ReportActor) {
+  return { id: actor.id, username: actor.username, full_name: actor.fullName, email: actor.email };
+}
+
+function toResponse(report: TorReport): TorReportResponse {
+  const details = {
     id: report.id,
     project_id: report.projectId,
     project_name: report.projectName,
     dept_name: report.deptName,
-    reporter: {
-      id: report.reporter.id,
-      username: report.reporter.username,
-      full_name: report.reporter.fullName,
-      email: report.reporter.email,
-    },
+    reporter: actorResponse(report.reporter),
     reason: report.reason,
     details: report.details,
-    status: report.status,
     created_at: report.createdAt,
-    review: report.review
-      ? {
-          reviewer: {
-            id: report.review.reviewer.id,
-            username: report.review.reviewer.username,
-            full_name: report.review.reviewer.fullName,
-            email: report.review.reviewer.email,
-          },
-          reviewed_at: report.review.reviewedAt,
-          note: report.review.note,
-        }
-      : null,
+  };
+  if (report.status === 'pending') return { ...details, status: report.status, review: null };
+  return {
+    ...details,
+    status: report.status,
+    review: {
+      reviewer: actorResponse(report.review.reviewer),
+      reviewed_at: report.review.reviewedAt,
+      note: report.review.note,
+    },
   };
 }
 

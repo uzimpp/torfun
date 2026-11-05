@@ -21,13 +21,19 @@ export function useTorReportsData(offset: number, status: TorReportFilter) {
       })
       .catch((caught: unknown) => {
         if (controller.signal.aborted) return;
+        const status = caught instanceof ApiError ? caught.status : undefined;
+        console.error('Failed to load TOR reports', { status });
         setResult({
           key: requestKey,
           data: null,
           error:
-            caught instanceof ApiError && caught.status === 0
+            status === 0
               ? 'เชื่อมต่อ API ไม่สำเร็จ กรุณาลองอีกครั้ง'
-              : 'โหลดรายงาน TOR ไม่สำเร็จ กรุณาลองอีกครั้ง',
+              : status === 401
+                ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่'
+                : status === 403
+                  ? 'บัญชีนี้ไม่มีสิทธิ์ดูรายงาน TOR'
+                  : 'โหลดรายงาน TOR ไม่สำเร็จ กรุณาลองอีกครั้ง',
         });
       });
     return () => controller.abort();

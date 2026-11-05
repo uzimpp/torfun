@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ApiError, fetchTorReports, reviewTorReport } from '@/lib/api';
@@ -9,7 +9,10 @@ vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
   return { ...actual, fetchTorReports: vi.fn(), reviewTorReport: vi.fn() };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 beforeEach(() => {
   vi.resetAllMocks();
   HTMLDialogElement.prototype.showModal = function () {
@@ -34,6 +37,7 @@ const report = {
   reason: 'other' as const,
   details: 'ข้อกำหนดขัดแย้งกัน',
   status: 'pending' as const,
+  review: null,
   created_at: '2026-10-11T00:00:00.000Z',
 };
 
@@ -85,6 +89,12 @@ test('admin report navigation immediately follows the failure log and is not off
   ).toBe(false);
 });
 
+const review = {
+  reviewer: { id: 'admin', username: 'reviewer', full_name: 'ผู้ดูแลระบบ', email: null },
+  reviewed_at: '2026-10-15T00:00:00.000Z',
+  note: null,
+};
+
 const page = { items: [report], total: 1, limit: 25, offset: 0 };
 const emptyPage = { ...page, items: [], total: 0 };
 
@@ -105,7 +115,7 @@ test('review requires confirmation and cancelling makes no API call', async () =
 
 test('dismissal saves the note, refreshes the pending queue and confirms unchanged publication', async () => {
   vi.mocked(fetchTorReports).mockResolvedValueOnce(page).mockResolvedValue(emptyPage);
-  vi.mocked(reviewTorReport).mockResolvedValue({ ...report, status: 'dismissed' });
+  vi.mocked(reviewTorReport).mockResolvedValue({ ...report, status: 'dismissed', review });
   const user = userEvent.setup();
   render(<TorReportsConsole />);
   await user.click(await screen.findByRole('button', { name: 'ปิดรายงาน' }));
@@ -144,7 +154,7 @@ test('removal shows loading and prevents duplicate confirmation before success',
   if (!form) throw new Error('Confirmation form missing');
   fireEvent.submit(form);
   expect(reviewTorReport).toHaveBeenCalledTimes(1);
-  finish({ ...report, status: 'removed' });
+  finish({ ...report, status: 'removed', review });
   expect(await screen.findByText('นำ TOR ออกจากการเผยแพร่แล้ว')).toBeInTheDocument();
 });
 
@@ -205,4 +215,69 @@ test('status filters include reviewed history with reviewer identity and no furt
   expect(screen.getByText('บันทึกการตรวจสอบ: ตรวจสอบเงื่อนไขแล้ว')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'ปิดรายงาน' })).not.toBeInTheDocument();
   expect(fetchTorReports).toHaveBeenLastCalledWith(0, expect.any(AbortSignal), 'all');
+});
+
+test.each([
+  [401, 'เซสชันหมดอายุ'],
+  [403, 'บัญชีนี้ไม่มีสิทธิ์ตรวจสอบรายงานแล้ว'],
+  [404, 'ไม่พบรายงานนี้'],
+  [503, 'บันทึกผลการตรวจสอบไม่สำเร็จ'],
+])('shows useful feedback for review HTTP %i', async (status, message) => {
+  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  vi.mocked(fetchTorReports).mockResolvedValue(page);
+  vi.mocked(reviewTorReport).mockImplementationOnce(actual.reviewTorReport);
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn()
+      .mockImplementation(async () => Response.json({ message: 'ไม่พบรายงานนี้' }, { status })),
+  );
+  const user = userEvent.setup();
+  render(<TorReportsConsole />);
+  await user.click(await screen.findByRole('button', { name: 'ปิดรายงาน' }));
+  await user.click(screen.getByRole('button', { name: 'ยืนยันปิดรายงาน' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(message);
+  if (status === 404) {
+    expect(screen.getByRole('button', { name: 'ยืนยันปิดรายงาน' })).toBeDisabled();
+    expect(fetchTorReports).toHaveBeenCalledTimes(2);
+  }
+});
+
+test.each([
+  [401, 'เซสชันหมดอายุ'],
+  [403, 'บัญชีนี้ไม่มีสิทธิ์ดูรายงาน TOR'],
+  [500, 'โหลดรายงาน TOR ไม่สำเร็จ'],
+])('distinguishes list HTTP %i and recovers after refresh', async (status, message) => {
+  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
+  vi.mocked(fetchTorReports).mockImplementation(actual.fetchTorReports);
+  const transport = vi.fn().mockResolvedValueOnce(Response.json({}, { status }));
+  if (status === 401) transport.mockResolvedValueOnce(Response.json({}, { status }));
+  transport.mockResolvedValueOnce(Response.json(page));
+  vi.stubGlobal('fetch', transport);
+  const user = userEvent.setup();
+  render(<TorReportsConsole />);
+  expect(await screen.findByRole('alert')).toHaveTextContent(message);
+  await user.click(screen.getByRole('button', { name: 'รีเฟรช' }));
+  expect(await screen.findByRole('link', { name: report.project_name })).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+test('changing the filter while loading aborts the old request and ignores its late response', async () => {
+  let finish!: (response: typeof page) => void;
+  vi.mocked(fetchTorReports)
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(emptyPage);
+  const user = userEvent.setup();
+  render(<TorReportsConsole />);
+  await user.selectOptions(screen.getByRole('combobox', { name: 'สถานะรายงาน' }), 'removed');
+  expect(vi.mocked(fetchTorReports).mock.calls[0]?.[1]?.aborted).toBe(true);
+  expect(await screen.findByText('ยังไม่มีรายงาน TOR ในหน้านี้')).toBeInTheDocument();
+  await act(async () => finish(page));
+  expect(screen.queryByRole('link', { name: report.project_name })).not.toBeInTheDocument();
+  expect(screen.getByText('ยังไม่มีรายงาน TOR ในหน้านี้')).toBeInTheDocument();
 });

@@ -11,7 +11,7 @@ import { ApiError, fetchTor } from '@/lib/api';
 
 export type TorReviewData = {
   projectId: string;
-  publicationRemovedAt?: string | null;
+  publicationRemoval?: Procurement['publicationRemoval'];
   title: string;
   agency: string;
   budget: number | null;
@@ -43,7 +43,7 @@ function toReviewData(procurement: Procurement): TorReviewData {
   const analysis = procurement.analysis;
   return {
     projectId: procurement.projectId,
-    publicationRemovedAt: procurement.publicationRemovedAt ?? null,
+    publicationRemoval: procurement.publicationRemoval ?? null,
     title: procurement.projectName,
     agency: procurement.deptName,
     budget: procurement.projectMoney,
