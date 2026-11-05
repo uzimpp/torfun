@@ -36,7 +36,8 @@ export type CreateTorReport = z.infer<typeof CreateTorReportSchema>;
 
 export const TorReportStatus = z.enum(['pending', 'dismissed', 'removed']);
 export type TorReportStatus = z.infer<typeof TorReportStatus>;
-export type TorReportFilter = TorReportStatus | 'all';
+export const TorReportFilter = z.enum([...TorReportStatus.options, 'all']);
+export type TorReportFilter = z.infer<typeof TorReportFilter>;
 export const TOR_REPORT_STATUS_LABELS: Record<TorReportStatus, string> = {
   pending: 'รอตรวจสอบ',
   dismissed: 'ปิดรายงานแล้ว',
@@ -50,61 +51,72 @@ export const ReviewTorReportSchema = z
   })
   .strict();
 export type ReviewTorReport = z.infer<typeof ReviewTorReportSchema>;
+export interface ReportActor {
+  id: string;
+  username: string;
+  fullName: string;
+  email: string | null;
+}
+
 export interface TorReportReview {
-  reviewer: TorReport['reporter'];
+  reviewer: ReportActor;
   reviewedAt: string;
   note: string | null;
 }
 
-/** A report records what the person saw; it never changes publication itself. */
-export interface TorReport {
+interface TorReportDetails {
   id: string;
   projectId: string;
   projectName: string;
   deptName: string;
-  reporter: { id: string; username: string; fullName: string; email: string | null };
+  reporter: ReportActor;
   reason: TorReportReason;
   details: string | null;
-  status: TorReportStatus;
-  review?: TorReportReview | null;
   createdAt: string;
 }
 
-export const TorReportResponseSchema = z.object({
+/** Submission records what the reporter saw. An administrator may later remove publication. */
+export type TorReport = TorReportDetails &
+  (
+    | { status: 'pending'; review: null }
+    | { status: 'dismissed' | 'removed'; review: TorReportReview }
+  );
+
+const ReportActorResponse = z.object({
+  id: z.string(),
+  username: z.string(),
+  full_name: z.string(),
+  email: z.string().nullable(),
+});
+
+const TorReportDetailsResponse = z.object({
   id: z.string(),
   project_id: z.string(),
   project_name: z.string(),
   dept_name: z.string(),
-  reporter: z.object({
-    id: z.string(),
-    username: z.string(),
-    full_name: z.string(),
-    email: z.string().nullable(),
-  }),
+  reporter: ReportActorResponse,
   reason: TorReportReason,
   details: z.string().nullable(),
-  status: TorReportStatus,
-  review: z
-    .object({
-      reviewer: z.object({
-        id: z.string(),
-        username: z.string(),
-        full_name: z.string(),
-        email: z.string().nullable(),
-      }),
-      reviewed_at: z.string().datetime(),
-      note: z.string().nullable(),
-    })
-    .nullable()
-    .optional(),
   created_at: z.string().datetime(),
 });
+
+export const TorReportResponseSchema = z.discriminatedUnion('status', [
+  TorReportDetailsResponse.extend({ status: z.literal('pending'), review: z.null() }),
+  TorReportDetailsResponse.extend({
+    status: z.enum(['dismissed', 'removed']),
+    review: z.object({
+      reviewer: ReportActorResponse,
+      reviewed_at: z.string().datetime(),
+      note: z.string().nullable(),
+    }),
+  }),
+]);
 export type TorReportResponse = z.infer<typeof TorReportResponseSchema>;
 
 export const TorReportListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   offset: z.coerce.number().int().nonnegative().default(0),
-  status: z.enum(['pending', 'dismissed', 'removed', 'all']).default('pending'),
+  status: TorReportFilter.default('pending'),
 });
 export const TorReportListResponseSchema = z.object({
   items: z.array(TorReportResponseSchema),

@@ -466,7 +466,13 @@ export const ProcurementSchema = z.object({
   statusHistory: z.array(StatusChangeSchema),
   approved: ApprovalSchema.nullable(),
   /** Admin publication decision, independent of the agency lifecycle and AI outcome. */
-  publicationRemovedAt: z.string().datetime().nullish(),
+  publicationRemoval: z
+    .object({
+      at: z.string().datetime(),
+      by: z.string().nullable(),
+      reportId: z.string().nullable(),
+    })
+    .nullish(),
 
   /** Null until the archive is fetched. */
   archive: ArchiveSchema.nullable(),

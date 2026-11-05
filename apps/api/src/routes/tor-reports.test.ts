@@ -8,6 +8,7 @@ import { testEnv } from '../testing/env';
 import { InMemoryUserStore } from '../testing/user-store';
 import { ProcurementRepository } from '../repositories/procurement.repository';
 import { TorService } from '../services/tor.service';
+import { InMemoryFavoriteStore } from '../testing/favorite-store';
 
 const uri = process.env.MONGODB_TEST_URI ?? process.env.MONGODB_URI;
 const client = uri ? new MongoClient(uri) : null;
@@ -70,7 +71,8 @@ describeMongo('TOR report flow with MongoDB', () => {
     app = await buildApp(testEnv({ LOG_LEVEL: 'fatal' }), {
       users,
       procurements: tors,
-      torReports: new TorReportRepository(getDb),
+      favorites: new InMemoryFavoriteStore(),
+      torReports: new TorReportRepository(getDb, tors),
     });
   });
   afterEach(async () => app.close());
@@ -147,7 +149,7 @@ describeMongo('TOR report flow with MongoDB', () => {
       });
     }
     // New repository instance proves storage survives an API restart.
-    expect((await new TorReportRepository(getDb).list(25, 0)).total).toBe(1);
+    expect((await new TorReportRepository(getDb, tors).list(25, 0)).total).toBe(1);
     expect(await tors.get(procurement.projectId)).toEqual(before);
   });
 
@@ -165,7 +167,7 @@ describeMongo('TOR report flow with MongoDB', () => {
     { reason: 'outdated', reporter_id: 'someone-else' },
   ])('rejects invalid reason/details or caller-supplied identity: %j', async (payload) => {
     expect((await submit(officer, payload)).statusCode).toBe(400);
-    expect((await new TorReportRepository(getDb).list(25, 0)).total).toBe(0);
+    expect((await new TorReportRepository(getDb, tors).list(25, 0)).total).toBe(0);
   });
 
   test('does not report a nonexistent or admin-held TOR for an officer', async () => {
@@ -183,7 +185,7 @@ describeMongo('TOR report flow with MongoDB', () => {
     const responses = await Promise.all([submit(officer), submit(officer)]);
     expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 409]);
     expect((await submit(admin)).statusCode).toBe(201);
-    expect((await new TorReportRepository(getDb).list(25, 0)).total).toBe(2);
+    expect((await new TorReportRepository(getDb, tors).list(25, 0)).total).toBe(2);
   });
 
   test('queue pagination returns total and validates its bounds', async () => {
@@ -247,11 +249,19 @@ describeMongo('TOR report flow with MongoDB', () => {
         })
       ).statusCode,
     ).toBe(200);
-    expect((await tors.get(procurement.projectId))?.publicationRemovedAt).toBeUndefined();
+    expect((await tors.get(procurement.projectId))?.publicationRemoval).toBeUndefined();
     expect((await submit(officer)).statusCode).toBe(201);
   });
 
   test('removal hides list, detail and downloads from officers, preserving admin evidence through ingestion', async () => {
+    const favorite = () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/favorites',
+        cookies: cookies(officer),
+        payload: { project_id: procurement.projectId },
+      });
+    expect((await favorite()).statusCode).toBe(201);
     const report = (await submit(officer)).json();
     const decision = await review(admin, report.id, {
       action: 'remove_tor',
@@ -260,7 +270,11 @@ describeMongo('TOR report flow with MongoDB', () => {
     expect(decision.statusCode).toBe(200);
     expect(decision.json().status).toBe('removed');
     const stored = await tors.get(procurement.projectId);
-    expect(stored?.publicationRemovedAt).toBe(decision.json().review.reviewed_at);
+    expect(stored?.publicationRemoval).toEqual({
+      at: decision.json().review.reviewed_at,
+      by: admin.id,
+      reportId: report.id,
+    });
     expect(stored?.timeline).toEqual(procurement.timeline);
     expect(stored?.state).toBe(procurement.state);
     expect(
@@ -283,15 +297,23 @@ describeMongo('TOR report flow with MongoDB', () => {
       cookies: cookies(secondAdmin),
     });
     expect(detail.statusCode).toBe(200);
-    expect(detail.json().publicationRemovedAt).toBe(stored?.publicationRemovedAt);
+    expect(detail.json().publicationRemoval).toEqual(stored?.publicationRemoval);
     expect((await queue(secondAdmin, 'removed')).json().items[0].reporter.id).toBe(officer.id);
     expect((await submit(officer)).statusCode).toBe(404);
+    expect((await favorite()).statusCode).toBe(404);
+    const favorites = await app.inject({
+      method: 'GET',
+      url: '/api/favorites',
+      cookies: cookies(officer),
+    });
+    expect(favorites.statusCode).toBe(200);
+    expect(favorites.json<{ favorites: unknown[] }>().favorites).toEqual([]);
     expect((await submit(admin)).statusCode).toBe(409);
     // Neither rediscovery nor later retrieval transitions may republish it.
     await tors.upsert({ ...procurement, projectName: 'ชื่อโครงการที่อัปเดตจากต้นทาง' });
     await tors.transition(procurement.projectId, 'tor_analysed');
-    expect((await tors.get(procurement.projectId))?.publicationRemovedAt).toBe(
-      stored?.publicationRemovedAt,
+    expect((await tors.get(procurement.projectId))?.publicationRemoval).toEqual(
+      stored?.publicationRemoval,
     );
     expect(
       (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(officer) })).json()
@@ -300,6 +322,48 @@ describeMongo('TOR report flow with MongoDB', () => {
     expect(
       (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(admin) })).json().total,
     ).toBe(1);
+  });
+
+  test('only one report removes a TOR and the other can still be dismissed', async () => {
+    const first = (await submit(officer)).json();
+    const second = (await submit(secondAdmin)).json();
+    const decisions = await Promise.all([
+      review(admin, first.id, { action: 'remove_tor' }),
+      review(secondAdmin, second.id, { action: 'remove_tor' }),
+    ]);
+    expect(decisions.map(({ statusCode }) => statusCode).sort()).toEqual([200, 409]);
+    const winner = decisions.find(({ statusCode }) => statusCode === 200)!.json();
+    const pending = decisions[0].statusCode === 409 ? first : second;
+    expect((await queue(admin)).json().items.map(({ id }: { id: string }) => id)).toEqual([
+      pending.id,
+    ]);
+    expect((await queue(admin, 'removed')).json().items).toEqual([winner]);
+    expect((await review(admin, pending.id, { action: 'dismiss' })).statusCode).toBe(200);
+    expect((await queue(admin, 'dismissed')).json().items[0].id).toBe(pending.id);
+    expect((await tors.get(procurement.projectId))?.publicationRemoval).toEqual({
+      at: winner.review.reviewed_at,
+      by: winner.review.reviewer.id,
+      reportId: winner.id,
+    });
+  });
+
+  test('equal timestamps paginate in descending report ID order', async () => {
+    const first = (await submit(officer)).json();
+    const second = (await submit(secondAdmin)).json();
+    await (
+      await getDb()
+    )
+      .collection('tor_reports')
+      .updateMany({}, { $set: { created_at: first.created_at } });
+    const ids = [first.id, second.id].sort().reverse();
+    for (const [offset, id] of ids.entries()) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/admin/tor-reports?status=pending&limit=1&offset=${offset}`,
+        cookies: cookies(admin),
+      });
+      expect(response.json()).toMatchObject({ items: [{ id }], total: 2 });
+    }
   });
 
   test.each(['upsert', 'upsertMany', 'transition', 'amend'] as const)(
@@ -368,7 +432,7 @@ describeMongo('TOR report flow with MongoDB', () => {
         publication_removed_by: admin.id,
         publication_removed_report_id: id,
       });
-      expect((await tors.get(procurement.projectId))?.publicationRemovedAt).toBeTruthy();
+      expect((await tors.get(procurement.projectId))?.publicationRemoval).toBeTruthy();
       expect(
         (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(officer) })).json()
           .total,
@@ -423,7 +487,7 @@ describeMongo('TOR report flow with MongoDB', () => {
     const winner = results.find((result) => result.statusCode === 200)?.json();
     const history = (await queue(admin, 'all')).json().items[0];
     expect(history).toEqual(winner);
-    expect(Boolean((await tors.get(procurement.projectId))?.publicationRemovedAt)).toBe(
+    expect(Boolean((await tors.get(procurement.projectId))?.publicationRemoval)).toBe(
       history.status === 'removed',
     );
     expect((await review(admin, id, { action: 'dismiss' })).statusCode).toBe(409);
@@ -453,9 +517,22 @@ describeMongo('TOR report flow with MongoDB', () => {
       expect((await review(admin, id, { action: 'remove_tor' })).statusCode).toBe(500);
       const report = (await queue(secondAdmin)).json().items[0];
       expect(report).toMatchObject({ status: 'pending', review: null });
-      expect((await tors.get(procurement.projectId))?.publicationRemovedAt).toBeUndefined();
+      expect((await tors.get(procurement.projectId))?.publicationRemoval).toBeUndefined();
     } finally {
       await db.command({ collMod: 'procurements', validator: {} });
+    }
+  });
+
+  test('a failed report write rolls back publication removal', async () => {
+    const id = (await submit(officer)).json().id;
+    const db = await getDb();
+    await db.command({ collMod: 'tor_reports', validator: { status: 'pending' } });
+    try {
+      expect((await review(admin, id, { action: 'remove_tor' })).statusCode).toBe(500);
+      expect((await tors.get(procurement.projectId))?.publicationRemoval).toBeUndefined();
+      expect((await queue(admin)).json().items[0]).toMatchObject({ id, status: 'pending' });
+    } finally {
+      await db.command({ collMod: 'tor_reports', validator: {} });
     }
   });
 

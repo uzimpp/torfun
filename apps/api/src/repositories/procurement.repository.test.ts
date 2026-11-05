@@ -333,6 +333,19 @@ describeMongo('ProcurementRepository', () => {
     expect(found?.projectId).toBe('66059313551');
   });
 
+  test('an ingestion patch clears an absent field without clearing publication metadata', async () => {
+    const record = await repository.upsert(procurement({ typeId: '123' }));
+    const collection = (await getDb()).collection<{ _id: string }>('procurements');
+    await collection.updateOne(
+      { _id: record.projectId },
+      { $set: { publication_removed_at: '2026-10-01T00:00:00.000Z' } },
+    );
+    await repository.amend(record.projectId, { typeId: undefined }, false);
+    const stored = await collection.findOne({ _id: record.projectId });
+    expect(stored).not.toHaveProperty('type_id');
+    expect(stored).toMatchObject({ publication_removed_at: '2026-10-01T00:00:00.000Z' });
+  });
+
   test('a transition with no detail leaves the field absent, not null', async () => {
     // The Mongo driver serialises an `undefined` object property as BSON
     // null rather than dropping the key, and StatusChangeSchema.detail is an

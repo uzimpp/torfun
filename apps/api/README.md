@@ -67,9 +67,9 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | POST   | `/experiences`                   | user   | Records work; only client and name are required   |
 | PATCH  | `/experiences/:id`               | user   | Corrects one                                      |
 | DELETE | `/experiences/:id`               | user   | Removes one                                       |
-| GET    | `/favorites`                     | user   | The caller's favorited TORs, with each procurement |
+| GET    | `/favorites`                     | user   | The caller's visible favorited TORs |
 | GET    | `/favorites/:projectId`          | user   | `{ favorited }` for one project                   |
-| POST   | `/favorites`                     | user   | Favorites a project; `404` if never ingested       |
+| POST   | `/favorites`                     | user   | Favorites a project; `404` if the caller cannot see it       |
 | DELETE | `/favorites/:projectId`          | user   | Unfavorites one; `404` if it was not favorited     |
 
 Request and response shapes are zod schemas on each route, most of them imported
@@ -106,46 +106,26 @@ Reports persist in `tor_reports`. Every active admin can read the queue with
 `limit` (default 25, maximum 100), `offset`, and `status` (`pending`, `dismissed`,
 `removed`, or `all`; default `pending`). The reporter's identity stays visible.
 
-For US-21 / FR-43 (#80), `PATCH /api/admin/tor-reports/:reportId` accepts
+`PATCH /api/admin/tor-reports/:reportId` accepts
 `{ "action": "dismiss" | "remove_tor", "note"?: "..." }`. Notes are trimmed and
 limited to 2,000 characters. Each decision records the verified administrator's
 identity and time. A report can only be decided once; stale requests return `409`.
-Decisions are per report, including when several users report the same TOR.
+Decisions are per report. If another report already removed the same TOR, a
+second removal returns `409` and leaves that report pending so an administrator
+can dismiss it. The original removal retains its author and report ID.
 
 Dismissal leaves publication unchanged. Removal marks the procurement with
 `publication_removed_at`, `publication_removed_by`, and `publication_removed_report_id`.
-Officers can no longer list, open, download, or report that TOR. Admins retain
+Officers can no longer list, favorite, open, download, or report that TOR. Admins retain
 the original record and source, and rediscovery or retrieval does not republish it.
 The agency's own procurement status and ingestion outcome are not changed.
-Reporting by itself never changes publication.
+Reporting by itself never changes publication. Removal cannot be undone through the app.
 
 Review decisions and publication removal commit in one MongoDB transaction, so
 a replica set is required (Atlas already provides one). A failed write rolls back
 the decision, and competing reviewers cannot overwrite each other. Index setup
-is idempotent and runs lazily; deployment setup is in
-`docs/migrations/2026-10-15-tor-report-review.js`. Legacy pending reports need no
-backfill; missing publication metadata means published.
-
-## Shared Atlas record compatibility
-
-The API can read the current `develop` records and the alternate schema used by
-the shared ingestion pipeline in the same database. `budget_year` is read as
-`year` when `year` is absent; `open` and `awarded` are served as `invitation` and
-`award_announced`. Stored review outcomes and document-reading provenance stay
-visible to administrators. Records held as `needs_review` are excluded from
-officer listings, details and source downloads until reviewed by the pipeline
-that owns that decision.
-
-Missing title classification and AI confidence are returned as `null`, not
-guessed. Procurement-method filters fall back to the published method when the
-stored `e_bidding` flag is absent. Reads do not migrate or backfill records;
-rediscovery and transitions preserve fields belonging to the other pipeline.
-Unknown enum values and records without either fiscal-year field still fail
-validation rather than silently changing procurement evidence.
-
-An Atlas URI with no database path selects MongoDB's default `test` database.
-Keep the team's chosen URI when working on its shared dataset; resetting local
-Docker MongoDB does not affect Atlas.
+is idempotent and runs lazily. Legacy pending reports need no backfill. Missing
+publication metadata means published.
 
 ## Health checks
 

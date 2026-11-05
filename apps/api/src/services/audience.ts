@@ -24,7 +24,7 @@ export const OFFICER_VISIBLE_OUTCOME = 'tor_analysed' as const satisfies Ingesti
 export function isVisibleTo(audience: Audience, procurement: Procurement): boolean {
   return (
     audience === 'admin' ||
-    (procurement.outcome === OFFICER_VISIBLE_OUTCOME && !procurement.publicationRemovedAt)
+    (procurement.outcome === OFFICER_VISIBLE_OUTCOME && !procurement.publicationRemoval)
   );
 }
 
