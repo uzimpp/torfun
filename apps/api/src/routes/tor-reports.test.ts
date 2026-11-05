@@ -253,15 +253,16 @@ describeMongo('TOR report flow with MongoDB', () => {
     expect((await submit(officer)).statusCode).toBe(201);
   });
 
-  test('removal hides list, detail and downloads from officers, preserving admin evidence through ingestion', async () => {
-    const favorite = () =>
+  test('removal hides search and favorites for both roles while preserving admin access', async () => {
+    const favorite = (user: User) =>
       app.inject({
         method: 'POST',
         url: '/api/favorites',
-        cookies: cookies(officer),
+        cookies: cookies(user),
         payload: { project_id: procurement.projectId },
       });
-    expect((await favorite()).statusCode).toBe(201);
+    expect((await favorite(officer)).statusCode).toBe(201);
+    expect((await favorite(admin)).statusCode).toBe(201);
     const report = (await submit(officer)).json();
     const decision = await review(admin, report.id, {
       action: 'remove_tor',
@@ -277,9 +278,20 @@ describeMongo('TOR report flow with MongoDB', () => {
     });
     expect(stored?.timeline).toEqual(procurement.timeline);
     expect(stored?.state).toBe(procurement.state);
-    expect(
-      (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(officer) })).json(),
-    ).toMatchObject({ items: [], total: 0 });
+    for (const user of [officer, admin]) {
+      const search = await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(user) });
+      expect(search.statusCode).toBe(200);
+      expect(search.json()).toMatchObject({ items: [], total: 0 });
+
+      expect((await favorite(user)).statusCode).toBe(404);
+      const favorites = await app.inject({
+        method: 'GET',
+        url: '/api/favorites',
+        cookies: cookies(user),
+      });
+      expect(favorites.statusCode).toBe(200);
+      expect(favorites.json<{ favorites: unknown[] }>().favorites).toEqual([]);
+    }
     for (const suffix of ['', '/source']) {
       expect(
         (
@@ -300,14 +312,6 @@ describeMongo('TOR report flow with MongoDB', () => {
     expect(detail.json().publicationRemoval).toEqual(stored?.publicationRemoval);
     expect((await queue(secondAdmin, 'removed')).json().items[0].reporter.id).toBe(officer.id);
     expect((await submit(officer)).statusCode).toBe(404);
-    expect((await favorite()).statusCode).toBe(404);
-    const favorites = await app.inject({
-      method: 'GET',
-      url: '/api/favorites',
-      cookies: cookies(officer),
-    });
-    expect(favorites.statusCode).toBe(200);
-    expect(favorites.json<{ favorites: unknown[] }>().favorites).toEqual([]);
     expect((await submit(admin)).statusCode).toBe(409);
     // Neither rediscovery nor later retrieval transitions may republish it.
     await tors.upsert({ ...procurement, projectName: 'ชื่อโครงการที่อัปเดตจากต้นทาง' });
@@ -320,8 +324,8 @@ describeMongo('TOR report flow with MongoDB', () => {
         .total,
     ).toBe(0);
     expect(
-      (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(admin) })).json().total,
-    ).toBe(1);
+      (await app.inject({ method: 'GET', url: '/api/tors', cookies: cookies(admin) })).json(),
+    ).toMatchObject({ items: [], total: 0 });
   });
 
   test('only one report removes a TOR and the other can still be dismissed', async () => {

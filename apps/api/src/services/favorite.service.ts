@@ -28,7 +28,9 @@ export class FavoriteService {
     const entries = await Promise.all(
       favorites.map(async (favorite) => {
         const procurement = await this.procurements.get(favorite.projectId);
-        if (!procurement || !isVisibleTo(audience, procurement)) return null;
+        if (!procurement || procurement.publicationRemoval || !isVisibleTo(audience, procurement)) {
+          return null;
+        }
         return { favorite, procurement: presentTo(audience, procurement) };
       }),
     );
@@ -41,7 +43,7 @@ export class FavoriteService {
 
   async add(userId: string, projectId: string, audience: Audience): Promise<FavoriteEntry> {
     const procurement = await this.procurements.get(projectId);
-    if (!procurement || !isVisibleTo(audience, procurement)) {
+    if (!procurement || procurement.publicationRemoval || !isVisibleTo(audience, procurement)) {
       throw new NotFoundError(`No ingested project ${projectId}`);
     }
 

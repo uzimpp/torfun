@@ -116,8 +116,9 @@ can dismiss it. The original removal retains its author and report ID.
 
 Dismissal leaves publication unchanged. Removal marks the procurement with
 `publication_removed_at`, `publication_removed_by`, and `publication_removed_report_id`.
-Officers can no longer list, favorite, open, download, or report that TOR. Admins retain
-the original record and source, and rediscovery or retrieval does not republish it.
+Search and favorites exclude removed TORs for all users. Admins can open the
+original record and source from the Removed filter in TOR Reports. Rediscovery
+or retrieval does not republish it.
 The agency's own procurement status and ingestion outcome are not changed.
 Reporting by itself never changes publication. Removal cannot be undone through the app.
 

@@ -78,7 +78,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
               )}
             </div>
             <div className="mt-6 grid grid-cols-2 gap-2">
-              <TorFavoriteButton projectId={tor.projectId} />
+              {!tor.publicationRemoval && <TorFavoriteButton projectId={tor.projectId} />}
               <TorDownloadButton projectId={tor.projectId} />
             </div>
             {!tor.publicationRemoval && <TorReportButton projectId={tor.projectId} />}
