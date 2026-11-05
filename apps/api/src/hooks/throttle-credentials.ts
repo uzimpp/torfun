@@ -22,20 +22,25 @@ const WINDOW = '15 minutes';
  * A preHandler rather than the usual onRequest, because the key needs the
  * parsed body.
  */
-export function createCredentialThrottle(app: FastifyInstance) {
+export function createCredentialThrottle(
+  app: FastifyInstance,
+  accountKey?: (request: FastifyRequest) => string,
+) {
   const limiter = app.createRateLimit({
     max: MAX_ATTEMPTS,
     timeWindow: WINDOW,
-    keyGenerator: (request) => {
-      const body = request.body as { username?: unknown } | undefined;
-      // Lower-cased so capitalising a letter doesn't buy a fresh budget, and
-      // falling back to the IP so a request that omits the field entirely is
-      // still counted rather than sharing one key with every other malformed
-      // attempt.
-      return typeof body?.username === 'string'
-        ? `credentials:${body.username.toLowerCase()}`
-        : `credentials-anon:${request.ip}`;
-    },
+    keyGenerator:
+      accountKey ??
+      ((request) => {
+        const body = request.body as { username?: unknown } | undefined;
+        // Lower-cased so capitalising a letter doesn't buy a fresh budget, and
+        // falling back to the IP so a request that omits the field entirely is
+        // still counted rather than sharing one key with every other malformed
+        // attempt.
+        return typeof body?.username === 'string'
+          ? `credentials:${body.username.toLowerCase()}`
+          : `credentials-anon:${request.ip}`;
+      }),
   });
 
   return async function throttleCredentials(request: FastifyRequest, reply: FastifyReply) {
