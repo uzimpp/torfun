@@ -1,6 +1,12 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { ACCESS_COOKIE, fullName, REFRESH_COOKIE } from '@torfun/types';
+import {
+  ACCESS_COOKIE,
+  ChangePasswordSchema,
+  fullName,
+  REFRESH_COOKIE,
+  UpdateProfileSchema,
+} from '@torfun/types';
 import { AppError, BadRequestError, UnauthorizedError } from '../core/errors';
 import { ACCESS_TTL_SECONDS, REFRESH_COOKIE_PATH } from '../plugins/jwt';
 import { REFRESH_TTL_SECONDS, type AuthResult } from '../services/auth.service';
@@ -191,7 +197,40 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.get('/me', { onRequest: [requireAuth] }, async (request) => {
-    const user = await app.authService.getById(request.user.user_id);
-    return withCompany(user);
+    const { user, hasLocalPassword } = await app.authService.getAccount(request.user.user_id);
+    return { ...(await withCompany(user)), has_local_password: hasLocalPassword };
   });
+
+  app.patch('/me', { onRequest: [requireAuth] }, async (request, reply) => {
+    const parsed = UpdateProfileSchema.safeParse(request.body);
+    if (!parsed.success) throw new BadRequestError('Invalid profile data');
+
+    await app.authService.updateProfile(request.user.user_id, {
+      firstName: parsed.data.first_name,
+      lastName: parsed.data.last_name,
+    });
+    return reply.code(204).send();
+  });
+
+  app.patch(
+    '/me/password',
+    {
+      onRequest: [requireAuth],
+      config: { rateLimit: authIpRateLimit },
+      preHandler: [
+        createCredentialThrottle(app, (request) => `password-change:${request.user.user_id}`),
+      ],
+    },
+    async (request, reply) => {
+      const parsed = ChangePasswordSchema.safeParse(request.body);
+      if (!parsed.success) throw new BadRequestError('Invalid password data');
+
+      await app.authService.changePassword(
+        request.user.user_id,
+        parsed.data.current_password,
+        parsed.data.new_password,
+      );
+      return reply.code(204).send();
+    },
+  );
 }
