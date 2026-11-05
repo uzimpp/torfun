@@ -1,6 +1,7 @@
 import { ACCESS_COOKIE, REFRESH_COOKIE } from '@torfun/types';
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { AUTH_RETURN_COOKIE, authReturnCookiePath } from './lib/auth-return';
 import { renewSession } from './lib/session';
 
 /**
@@ -19,6 +20,14 @@ import { renewSession } from './lib/session';
  */
 export async function proxy(request: NextRequest) {
   const refresh = request.cookies.get(REFRESH_COOKIE);
+  // Google keeps its existing callback and PKCE flow. On returning to the
+  // dashboard, resume only one of the narrowly allowlisted notification links.
+  const next = authReturnCookiePath(request.cookies.get(AUTH_RETURN_COOKIE)?.value);
+  if (request.nextUrl.pathname === '/dashboard' && request.cookies.has(ACCESS_COOKIE) && next) {
+    const response = NextResponse.redirect(new URL(next, request.url));
+    response.cookies.delete(AUTH_RETURN_COOKIE);
+    return response;
+  }
 
   // Either the access token is still good, or there is no session at all and
   // the page itself decides where to send the visitor.

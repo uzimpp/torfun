@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { AUTH_RETURN_COOKIE, requestedAuthReturnPath } from '@/lib/auth-return';
 import { cn } from '@/lib/utils';
 import { api_url as apiUrl } from '@/lib/config';
 import { FLOW_ACTION } from './controls';
@@ -19,7 +20,11 @@ export function GoogleButton({ intent }: { intent: 'signin' | 'signup' }) {
     <Button
       type="button"
       variant="outline"
-      onClick={() => window.location.assign(new URL('/api/auth/google', apiUrl).toString())}
+      onClick={() => {
+        const next = requestedAuthReturnPath();
+        document.cookie = `${AUTH_RETURN_COOKIE}=${next ? encodeURIComponent(next) : ''}; Path=/; Max-Age=${next ? 600 : 0}; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`;
+        window.location.assign(new URL('/api/auth/google', apiUrl).toString());
+      }}
       className={cn(FLOW_ACTION, 'w-full gap-3 font-medium')}
     >
       <GoogleMark />

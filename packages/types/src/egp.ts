@@ -477,6 +477,8 @@ export const ProcurementSchema = z.object({
    * is a true "recently updated", not "recently looked at".
    */
   updatedAt: z.string(),
+  /** Set by publication review when available; notification readers must honour it. */
+  publicationRemovedAt: z.string().nullable().optional(),
 });
 export type Procurement = z.infer<typeof ProcurementSchema>;
 
