@@ -1,6 +1,12 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import { EMPTY_STAGES, EMPTY_TIMELINE, OUTCOME_STATE } from '@torfun/types';
+import {
+  currentDeadline,
+  EMPTY_STAGES,
+  EMPTY_TIMELINE,
+  OUTCOME_STATE,
+  ProcurementSchema,
+} from '@torfun/types';
 import type {
   ArchiveDocument,
   IngestionFailure,
@@ -112,6 +118,67 @@ describeMongo('ProcurementRepository', () => {
       ),
     );
     await repository.ensureIndexes();
+  });
+
+  test('lists flat procurement documents that predate the nested timeline and archive', async () => {
+    const projectId = 'legacy-flat';
+    const draftAt = '2026-09-02T00:00:00.000Z';
+    const readAt = '2026-09-04T00:00:00.000Z';
+    const deadlineAt = '2026-10-15T00:00:00.000Z';
+    const main = doc();
+    await repository.upsert(
+      procurement({
+        projectId,
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        analysis: analysis({ deadlineAt }),
+      }),
+    );
+    await (await getDb()).collection('procurements').updateOne(
+      { _id: projectId as never },
+      {
+        $unset: { timeline: '', archive: '', detail_read_at: '', budget_year: '', approved: '' },
+        $set: {
+          status: 'invitation',
+          detail_checked_at: readAt,
+          timeline_checked_at: readAt,
+          milestones: { drafted: { at: draftAt } },
+          deadline_at: deadlineAt,
+          deadline_source: 'tor',
+          zip_id: 'legacy-zip',
+          documents: [main],
+          tor_ambiguous: false,
+          approved_by: 'operator',
+          approved_at: readAt,
+          year: 2568,
+        },
+      },
+    );
+
+    const [recent] = await repository.recent(5);
+    const listing = await repository.find({
+      limit: 25,
+      offset: 0,
+      status: 'open',
+      detailRead: true,
+    });
+    expect(listing.items).toEqual([recent!]);
+    const parsed = ProcurementSchema.parse(recent);
+    expect(parsed).toMatchObject({
+      projectId,
+      budgetYear: null,
+      detailReadAt: readAt,
+      timeline: {
+        status: 'open',
+        lastReadAt: readAt,
+        deadlineAt: null,
+        stages: { drafted: draftAt },
+      },
+      archive: { zipId: 'legacy-zip', documents: [main], torAmbiguous: false },
+      approved: { by: 'operator', at: readAt },
+    });
+    expect(currentDeadline(parsed)).toEqual({ kind: 'bids', at: deadlineAt, readByModel: true });
+    expect((await repository.find({ limit: 25, offset: 0, detailRead: false })).total).toBe(0);
   });
 
   test('ranks the filtered candidates before paginating and keeps unscored records last', async () => {

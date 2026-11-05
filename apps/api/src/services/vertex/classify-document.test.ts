@@ -29,12 +29,20 @@ const validAnswer = {
     targetPlatforms: ['web_app'],
     requiredQualifications: ['ผลงานภาครัฐย้อนหลัง 3 ปี'],
     qualifications: [
-      { kind: 'manual', text: 'ผลงานภาครัฐย้อนหลัง 3 ปี', source: 'ข้อ 2.1' },
+      {
+        kind: 'past_work',
+        workType: null,
+        minValueThb: null,
+        text: 'ผลงานภาครัฐย้อนหลัง 3 ปี',
+        source: 'ข้อ 2.1',
+        manualReviewReason: 'ต้องตรวจประเภทผู้ว่าจ้างและช่วงเวลาของผลงาน',
+      },
       {
         kind: 'registered_capital',
         text: 'ทุนขั้นต่ำ 2 ล้านบาท',
         source: 'หน้า 3',
         minValueThb: 2_000_000,
+        manualReviewReason: null,
       },
     ] satisfies TorQualification[],
     isSoftware: true,

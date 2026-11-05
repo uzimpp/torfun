@@ -8,6 +8,8 @@ const standard = label;
 const clause = z.object({
   text: z.string().trim().min(1).max(2000),
   source: z.string().trim().min(1).max(200),
+  // Legacy extractions did not say whether the structured fields cover the whole clause.
+  manualReviewReason: z.string().trim().min(1).max(500).nullable().optional(),
 });
 
 export const TorQualificationSchema = z.discriminatedUnion('kind', [

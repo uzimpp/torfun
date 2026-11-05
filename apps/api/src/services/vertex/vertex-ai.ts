@@ -122,6 +122,12 @@ export const ANSWER_SCHEMA: Schema = {
               },
               text: { type: Type.STRING },
               source: { type: Type.STRING },
+              manualReviewReason: {
+                type: Type.STRING,
+                nullable: true,
+                description:
+                  'Conditions a person still needs to verify. Null only if the structured fields cover the whole clause.',
+              },
               role: { type: Type.STRING },
               headcount: { type: Type.INTEGER, nullable: true },
               degree: { type: Type.STRING, nullable: true },
@@ -132,7 +138,7 @@ export const ANSWER_SCHEMA: Schema = {
               standard: { type: Type.STRING },
               issuer: { type: Type.STRING, nullable: true },
             },
-            required: ['kind', 'text', 'source'],
+            required: ['kind', 'text', 'source', 'manualReviewReason'],
           },
         },
         isSoftware: { type: Type.BOOLEAN },
