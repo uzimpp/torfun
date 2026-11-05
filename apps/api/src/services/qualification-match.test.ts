@@ -13,6 +13,7 @@ const profile: CompanyQualificationsRecord = {
 };
 const certificate: TorQualification = {
   kind: 'company_certificate',
+  manualReviewReason: null,
   standard: 'ISO 9001',
   issuer: null,
   text: 'ISO 9001',
@@ -20,6 +21,7 @@ const certificate: TorQualification = {
 };
 const work: TorQualification = {
   kind: 'past_work',
+  manualReviewReason: null,
   workType: 'Web development',
   minValueThb: 100_000,
   text: 'Relevant work',
@@ -63,5 +65,66 @@ describe('qualification evidence', () => {
     expect(score([relevant, unrelated])).toBe(0);
     expect(score([relevant, unrelated, experience])).toBeNull();
     expect(score([{ ...relevant, contractValueThb: 100_000 }])).toBe(1);
+  });
+
+  test('does not award points for a project count the personnel roster cannot prove', () => {
+    const requirement = {
+      kind: 'personnel',
+      role: 'Project Manager',
+      headcount: 1,
+      degree: null,
+      minYears: 5,
+      certificates: [],
+      text: 'มีประสบการณ์เป็นผู้จัดการโครงการด้านสารสนเทศไม่น้อยกว่า ๒ โครงการ ในระยะ ๕ ปีที่ผ่านมา',
+      source: 'ข้อ ๔.๓ หน้า ๔',
+    } satisfies TorQualification;
+    const company = {
+      ...profile,
+      personnel: [
+        { role: 'Project Manager', yearsOfExperience: 5, degree: null, certificates: [] },
+      ],
+    };
+    const evaluate = (clause: TorQualification) =>
+      evaluateQualifications([clause], company, [], '2026-11-04');
+
+    expect(evaluate(requirement).overallScore).toBeNull();
+    expect(evaluate({ ...requirement, manualReviewReason: null }).checks[0]?.status).toBe(
+      'unknown',
+    );
+
+    const manualReviewReason = 'ต้องตรวจว่าบริหารครบสองโครงการในห้าปีที่ผ่านมา';
+    expect(evaluate({ ...requirement, manualReviewReason }).checks[0]).toMatchObject({
+      status: 'unknown',
+      evidence: expect.arrayContaining([manualReviewReason]),
+    });
+    expect(
+      evaluate({
+        ...requirement,
+        text: 'ผู้จัดการโครงการ 1 คน มีประสบการณ์อย่างน้อย 5 ปี',
+        manualReviewReason: null,
+      }).overallScore,
+    ).toBe(1);
+  });
+
+  test('keeps legacy and conditional clauses out of the matched count', () => {
+    const capital = {
+      kind: 'registered_capital',
+      minValueThb: 2_000_000,
+      text: 'ทุนขั้นต่ำ 2 ล้านบาท เฉพาะบริษัทที่ยังไม่ได้ยื่นงบ',
+      source: 'ข้อ 3.12 หน้า 2',
+    } satisfies TorQualification;
+    const company = { ...profile, registeredCapitalThb: 3_000_000 };
+    const result = evaluateQualifications(
+      [
+        certificate,
+        capital,
+        { ...capital, manualReviewReason: 'ต้องตรวจว่าบริษัทได้ยื่นงบแล้วหรือไม่' },
+      ],
+      company,
+      [],
+      '2026-11-04',
+    );
+    expect(result.checks.map((item) => item.status)).toEqual(['met', 'unknown', 'unknown']);
+    expect(result.overallScore).toBe(1 / 3);
   });
 });

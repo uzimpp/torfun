@@ -138,6 +138,7 @@ describe('TOR detail routes', () => {
       qualifications: [
         {
           kind: 'company_certificate',
+          manualReviewReason: null,
           standard: 'ISO/IEC 27001',
           issuer: null,
           source: 'ข้อ 4.2',
@@ -145,6 +146,7 @@ describe('TOR detail routes', () => {
         },
         {
           kind: 'personnel',
+          manualReviewReason: null,
           role: 'Developer',
           degree: 'BSc',
           headcount: 2,
@@ -153,10 +155,30 @@ describe('TOR detail routes', () => {
           source: 'หน้า 12',
           text: 'ต้องมีนักพัฒนา 2 คน',
         },
+        {
+          kind: 'personnel',
+          role: 'Developer',
+          degree: 'BSc',
+          headcount: 1,
+          minYears: 3,
+          certificates: ['PMP'],
+          source: 'หน้า 13',
+          text: 'ต้องมีนักพัฒนา 1 คน ที่มีผลงานอย่างน้อย ๒ โครงการ',
+          manualReviewReason: 'ต้องตรวจจำนวนโครงการของบุคลากร',
+        },
         { kind: 'manual', source: 'ข้อ 4.9', text: 'ตรวจเงื่อนไขทางกฎหมาย' },
       ],
     };
     await procurements.upsert(procurement({ projectId: 'qualified', analysis }));
+    await procurements.upsert(
+      procurement({
+        projectId: 'other-qualified',
+        analysis: {
+          ...analysis,
+          qualifications: analysis.qualifications?.filter((clause) => clause.source !== 'หน้า 13'),
+        },
+      }),
+    );
     const detailUrl = '/api/tors/qualified';
     const detail = await app.inject({ url: detailUrl, cookies: cookiesFor(member) });
     expect(detail.statusCode).toBe(200);
@@ -164,13 +186,14 @@ describe('TOR detail routes', () => {
     expect(detail.json().analysis.qualifications[0].source).toBe('ข้อ 4.2');
     expect(detail.json().matchResult).toMatchObject({
       companyId: company.id,
-      overallScore: 1 / 3,
+      overallScore: 1 / 4,
       checks: [
         { status: 'met', evidence: [expect.stringContaining('Security')] },
         {
           status: 'not_met',
           evidence: expect.arrayContaining([expect.stringContaining('Developer')]),
         },
+        { status: 'unknown', evidence: expect.arrayContaining(['ต้องตรวจจำนวนโครงการของบุคลากร']) },
         { status: 'unknown' },
       ],
     });
@@ -178,23 +201,20 @@ describe('TOR detail routes', () => {
     expect(outsideDetail.json().matchResult).toMatchObject({
       companyId: other.id,
       overallScore: null,
-      checks: [{ status: 'unknown' }, { status: 'unknown' }, { status: 'unknown' }],
+      checks: Array.from({ length: 4 }, () => ({ status: 'unknown' })),
     });
     expect(outsideDetail.body).not.toContain('Security');
 
-    const list = await app.inject({ url: '/api/tors?limit=1', cookies: cookiesFor(member) });
+    const list = await app.inject({ url: '/api/tors?limit=3', cookies: cookiesFor(member) });
     expect(list.json()).toMatchObject({
-      items: [{ projectId: 'qualified', matchScore: 1 / 3 }],
-      total: 2,
+      items: [
+        { projectId: 'other-qualified', matchScore: 1 / 3 },
+        { projectId: 'qualified', matchScore: 1 / 4 },
+        { projectId: 'project-1', matchScore: null },
+      ],
+      total: 3,
     });
-    expect(list.json().items[0].matchResult).toBeUndefined();
-    const unranked = await app.inject({
-      url: '/api/tors?limit=1&offset=1',
-      cookies: cookiesFor(member),
-    });
-    expect(unranked.json()).toMatchObject({
-      items: [{ projectId: 'project-1', matchScore: null }],
-    });
+    expect(list.json().items[1].matchResult).toBeUndefined();
 
     await users.setCompanyId(member.id, other.id);
     expect((await save(member, fromCompanyQualificationsPayload(saved.json()))).statusCode).toBe(

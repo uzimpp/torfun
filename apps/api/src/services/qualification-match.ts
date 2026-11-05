@@ -21,6 +21,9 @@ const check = (
 ): QualificationCheck => ({ status, evidence });
 const recorded = (meets: boolean) => (meets ? 'met' : 'not_met');
 const noEvidence = 'ยังไม่มีข้อมูลบริษัทที่ใช้ตรวจเงื่อนไขนี้';
+const manualReview = 'ต้องตรวจเงื่อนไขข้อนี้ในเอกสารต้นฉบับ';
+// The roster stores years of experience, but has no evidence of a person's project count.
+const personnelProjectCount = /[0-9๐-๙]+\s*(?:โครงการ|projects?\b)/iu;
 
 function pastWork(
   requirement: Extract<TorQualification, { kind: 'past_work' }>,
@@ -103,9 +106,18 @@ function compare(
   experiences: Experience[],
   today: string,
 ): QualificationCheck {
+  if (requirement.manualReviewReason) {
+    return check('unknown', manualReview, requirement.manualReviewReason);
+  }
+  if (requirement.kind === 'manual') return check('unknown', manualReview);
+  if (requirement.kind === 'personnel' && personnelProjectCount.test(requirement.text)) {
+    return check('unknown', 'ต้องตรวจจำนวนโครงการของบุคลากรจากเอกสารต้นฉบับ');
+  }
+  if (requirement.manualReviewReason === undefined) {
+    return check('unknown', 'ยังไม่ทราบว่าข้อมูลที่สกัดครอบคลุมทุกเงื่อนไข โปรดตรวจเอกสารต้นฉบับ');
+  }
+
   switch (requirement.kind) {
-    case 'manual':
-      return check('unknown', 'ต้องตรวจเงื่อนไขข้อนี้ในเอกสารต้นฉบับ');
     case 'past_work':
       return pastWork(requirement, experiences);
     case 'registered_capital': {
