@@ -17,7 +17,7 @@ const item: Procurement = {
   deptSubName: null,
   deptCode: '1234567890',
   announceDate: '2025-03-06',
-  purchaseMethodName: 'e-bidding',
+  purchaseMethodName: 'ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)',
   discoveredAt: '2025-03-06T00:00:00.000Z',
   budgetYear: 2568,
   typeId: null,
@@ -62,7 +62,6 @@ describe('SearchResults cards', () => {
         page={2}
         onPageChange={vi.fn()}
         onOrderChange={vi.fn()}
-        today="2025-03-01"
       />,
     );
 
@@ -88,7 +87,6 @@ describe('SearchResults cards', () => {
         page={1}
         onPageChange={vi.fn()}
         onOrderChange={onOrderChange}
-        today="2025-03-01"
       />,
     );
 
@@ -110,12 +108,15 @@ describe('SearchResults cards', () => {
     const cardLink = screen.getByRole('link', { name: item.projectName });
     expect(cardLink).toHaveAttribute('href', '/tor/project%2F123?returnTo=%2Fsearch');
     expect(screen.getByText('e-bidding')).toBeInTheDocument();
-    expect(screen.getByText('เปิดรับข้อเสนอ')).toBeInTheDocument();
+    expect(screen.queryByText('ประกวดราคาอิเล็กทรอนิกส์ (e-bidding)')).not.toBeInTheDocument();
+    expect(screen.getByText('สถานะ: เปิดรับข้อเสนอ')).toBeInTheDocument();
     expect(screen.getByText('สำนักงานพัฒนารัฐบาลดิจิทัล')).toBeInTheDocument();
-    expect(screen.getByText('ประกาศ 6 มี.ค. 2568')).toBeInTheDocument();
     expect(screen.getByText('ปิดรับ 20 มี.ค. 2568')).toBeInTheDocument();
+    expect(screen.getByText('ประกาศ 6 มี.ค. 2568')).toBeInTheDocument();
+    expect(screen.queryByText('วันที่ประกาศ')).not.toBeInTheDocument();
     expect(screen.getByText('฿3,600,000')).toBeInTheDocument();
-    expect(screen.getAllByText('ปีงบประมาณ 2568')).toHaveLength(2);
+    expect(screen.getAllByText('ปีงบประมาณ 2568')).toHaveLength(1);
+    expect(screen.queryByText('เตรียมตัวก่อนเปิดรับข้อเสนอ')).not.toBeInTheDocument();
     expect(screen.getByText('สรุปขอบเขตงานสำหรับทดสอบ')).toBeInTheDocument();
     const sourceLink = screen.getByRole('link', { name: 'ตรวจสอบ TOR ต้นฉบับ' });
     expect(sourceLink).toHaveAttribute('href', '/tor/project%2F123?returnTo=%2Fsearch');
@@ -135,8 +136,8 @@ describe('SearchResults cards', () => {
       'font-semibold',
     );
     expect(sourceLink).toHaveClass('pointer-events-auto', 'z-20');
-    expect(within(card as HTMLElement).getByText('งบประมาณ').parentElement).toHaveClass(
-      'md:self-start',
-    );
+    expect(
+      within(card as HTMLElement).getByText('งบประมาณ').parentElement?.parentElement,
+    ).toHaveClass('md:self-start', 'md:justify-self-end');
   });
 });

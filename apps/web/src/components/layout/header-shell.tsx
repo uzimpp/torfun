@@ -101,8 +101,8 @@ export function HeaderShell({ children }: { children: ReactNode }) {
       className={[
         'group/header sticky top-0 z-40 will-change-transform',
         'bg-background/80 supports-[backdrop-filter]:bg-background/70 backdrop-blur-xl',
-        'border-b border-transparent shadow-sm transition-[border-color,box-shadow] duration-300',
-        'data-[scrolled=true]:border-border data-[scrolled=true]:shadow-md',
+        'border-b border-transparent shadow-[0_8px_24px_-20px_rgb(15_23_42_/_0.24)] transition-[border-color,box-shadow] duration-300',
+        'data-[scrolled=true]:border-border/40 data-[scrolled=true]:shadow-[0_12px_30px_-20px_rgb(15_23_42_/_0.3)]',
       ].join(' ')}
     >
       {children}

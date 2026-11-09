@@ -1,7 +1,8 @@
 import Link from 'next/link';
+import { Bell } from 'lucide-react';
 
 import type { CurrentUser } from '@/lib/auth';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
@@ -18,8 +19,8 @@ import { MobileMenu } from './mobile-menu';
  * dashboard, which quietly took away the way back to the page describing the
  * product; the dashboard is reachable from the account menu instead.
  *
- * The theme switch sits beside search, where it remains available without
- * competing with the account menu.
+ * The search field is centered in the space between the brand and account
+ * controls; the theme switch remains beside the account menu.
  */
 export function SiteHeader({
   user,
@@ -40,11 +41,23 @@ export function SiteHeader({
         <MobileMenu role={user?.role} withSearch={withSearch} />
         <Brand href="/" className="shrink-0" />
 
-        <div className="ms-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
+        <div className="flex min-w-0 flex-1 justify-center">
           <HeaderSearch enabled={withSearch} />
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            aria-label="การแจ้งเตือนยังไม่พร้อมใช้งาน"
+            className="hidden size-10 rounded-full border-border/60 bg-background/80 shadow-none disabled:opacity-100 sm:inline-flex"
+          >
+            <Bell aria-hidden="true" />
+          </Button>
           <ThemeToggle
             initialTheme={initialTheme}
-            className="size-10 rounded-full border-border/80 shadow-sm sm:size-11"
+            className="size-10 rounded-full border-border/60 bg-background/80 shadow-none"
           />
           {user ? (
             <UserMenu user={user} />

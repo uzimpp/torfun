@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ProcurementFilters } from './procurement-filters';
 import { ScrollButtons } from './scroll-buttons';
+import { TorSearchField } from './tor-search-field';
 import {
   parseSearchFilters,
   parseSearchPage,
@@ -25,8 +26,9 @@ function readSearchUrl(): { filters: SearchFilterValues; page: number } {
  *
  * Typing searches live: `query` (what actually gets searched) trails `value`
  * (what's on screen) by `DEBOUNCE_MS`, so a fast typist doesn't fire one
- * request per keystroke. Submitting — Enter, the button, or a suggestion chip
- * — skips the wait. A new search always starts back at page 1.
+ * request per keystroke. Pressing Enter skips the wait; this page hides the
+ * submit button and doesn't provide suggestion chips. A new search always
+ * starts back at page 1.
  *
  * Typing updates the address bar via a raw `history.replaceState`: the
  * router's `replace` would re-run the server component on every keystroke,
@@ -40,11 +42,9 @@ function readSearchUrl(): { filters: SearchFilterValues; page: number } {
 export function SearchExperience({
   initialFilters,
   initialPage,
-  today,
 }: {
   initialFilters: SearchFilterValues;
   initialPage: number;
-  today: string;
 }) {
   const initialKey = searchHref(initialFilters, initialPage);
   const [serverKey, setServerKey] = useState(initialKey);
@@ -53,6 +53,7 @@ export function SearchExperience({
   const [query, setQuery] = useState(initialFilters.query);
   const [page, setPage] = useState(initialPage);
   const [queryForPage, setQueryForPage] = useState(initialFilters.query);
+  const [filterPanelVersion, setFilterPanelVersion] = useState(0);
   const resultsRef = useRef<HTMLElement>(null);
 
   // Filter forms and clear links navigate through Next.js. The client boundary
@@ -77,7 +78,6 @@ export function SearchExperience({
   }
 
   const filters = useMemo(() => ({ ...baseFilters, query }), [baseFilters, query]);
-  const filterPanelKey = searchHref({ ...filters, query: '', order: 'announced' });
 
   useEffect(() => {
     const trimmed = value.trim();
@@ -93,6 +93,7 @@ export function SearchExperience({
   useEffect(() => {
     function onPopState() {
       const restored = readSearchUrl();
+      setFilterPanelVersion((version) => version + 1);
       setBaseFilters(restored.filters);
       setValue(restored.filters.query);
       setQuery(restored.filters.query);
@@ -136,14 +137,25 @@ export function SearchExperience({
   return (
     <>
       <div className="grid items-start gap-6 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-10">
-        <ProcurementFilters key={filterPanelKey} values={filters} onApply={applyFilters} />
+        <ProcurementFilters
+          key={`${serverKey}::${filterPanelVersion}`}
+          values={filters}
+          onApply={applyFilters}
+        />
         <section ref={resultsRef} aria-label="ผลการค้นหา" className="min-w-0 scroll-mt-24">
-          <h1 className="mb-2 text-3xl font-semibold tracking-tight">ค้นหาประกาศ TOR</h1>
+          <h1 className="sr-only">ค้นหาประกาศ TOR</h1>
+          <TorSearchField
+            size="compact"
+            value={value}
+            onValueChange={setValue}
+            onSubmit={(nextQuery) => applyFilters({ ...filters, query: nextQuery })}
+            showSubmitButton={false}
+            className="mb-4 w-full"
+          />
           <SearchResults
             key={`${searchHref(filters)}::${page}`}
             filters={filters}
             page={page}
-            today={today}
             onOrderChange={changeOrder}
             onPageChange={goToPage}
           />

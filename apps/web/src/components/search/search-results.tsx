@@ -15,7 +15,6 @@ import {
   WifiOff,
 } from 'lucide-react';
 import {
-  currentDeadline,
   ProcurementOrderSchema,
   type Procurement,
   type ProcurementOrder,
@@ -23,10 +22,9 @@ import {
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { ProcurementDeadline } from './procurement-deadline';
 import { ProcurementStatusBadge } from './procurement-status-badge';
 import { hasSearchCriteria, searchHref, type SearchFilterValues } from './search-filter-values';
-import { DaysLeftBadge, ProcurementTiming } from './procurement-timing';
+import { ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
 
 const bahtFormat = new Intl.NumberFormat('th-TH', {
@@ -40,10 +38,8 @@ export function SearchResults({
   page,
   onPageChange,
   onOrderChange,
-  today,
 }: {
   filters: SearchFilterValues;
-  today: string;
   /** 1-indexed, matching what shows in the URL and in "หน้า X จาก Y". */
   page: number;
   onPageChange: (page: number) => void;
@@ -132,7 +128,6 @@ export function SearchResults({
           <ResultRow
             key={item.projectId}
             item={item}
-            today={today}
             detailHref={detailHref(item.projectId)}
           />
         ))}
@@ -243,11 +238,9 @@ export const RESULT_ROW_SELECTOR = '[data-result-row]';
 
 function ResultRow({
   item,
-  today,
   detailHref,
 }: {
   item: Procurement;
-  today: string;
   detailHref: string;
 }) {
   return (
@@ -262,22 +255,14 @@ function ResultRow({
       />
       <div className="pointer-events-none relative z-10">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <DaysLeftBadge item={item} today={today} />
-          <ProcurementStatusBadge status={item.timeline.status} />
-          <span data-numeric className="text-muted-foreground font-mono text-xs">
-            ปีงบประมาณ {item.budgetYear ?? '—'}
+          <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
+            e-bidding
           </span>
-          <ProcurementDeadline deadline={currentDeadline(item)} status={item.timeline.status} />
+          <ProcurementStatusBadge status={item.timeline.status} showStatusLabel />
         </div>
 
         <div className="grid gap-5 md:grid-cols-[minmax(0,4fr)_minmax(9rem,1fr)] md:items-start md:gap-4">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="bg-primary/10 text-primary rounded-full px-2.5 py-1 text-xs font-medium">
-                {item.purchaseMethodName ?? 'e-bidding'}
-              </span>
-            </div>
-
             <h3 className="mt-3 text-base leading-normal font-semibold text-balance">
               <span className="group-hover:text-primary transition-colors">{item.projectName}</span>
             </h3>
@@ -290,27 +275,29 @@ function ResultRow({
               {item.announceDate && (
                 <span className="inline-flex items-center gap-2">
                   <CalendarDays aria-hidden="true" className="size-4 shrink-0" />
-                  <ProcurementTiming item={item} today={today} mode="published" />
+                  <ProcurementTiming item={item} mode="published" />
                 </span>
               )}
               <span className="inline-flex items-center gap-2">
                 <Clock3 aria-hidden="true" className="size-4 shrink-0" />
-                <ProcurementTiming item={item} today={today} mode="deadline" />
+                <ProcurementTiming item={item} mode="deadline" />
               </span>
             </div>
 
-            <ProcurementTiming item={item} today={today} mode="details" returnTo={detailHref} />
+            <ProcurementTiming item={item} mode="details" returnTo={detailHref} />
           </div>
 
-          <div className="border-border border-t pt-3 text-left md:mt-3 md:w-full md:max-w-48 md:self-start md:justify-self-end md:border-t-0 md:pt-0">
-            <p className="text-muted-foreground text-xs">งบประมาณ</p>
-            <p data-numeric className="text-primary mt-1 font-mono text-xl font-bold">
-              {item.projectMoney === null ? 'ไม่ระบุ' : bahtFormat.format(item.projectMoney)}
-            </p>
-            <p data-numeric className="text-muted-foreground mt-1 text-sm">
-              ปีงบประมาณ {item.budgetYear ?? '—'}
-            </p>
-          </div>
+          <aside className="text-left md:mt-0 md:w-full md:max-w-48 md:self-start md:justify-self-end">
+            <div className="border-border border-t pt-3 md:border-t-0 md:pt-0">
+              <p className="text-muted-foreground text-xs">งบประมาณ</p>
+              <p data-numeric className="text-primary mt-1 font-mono text-xl font-bold">
+                {item.projectMoney === null ? 'ไม่ระบุ' : bahtFormat.format(item.projectMoney)}
+              </p>
+              <p data-numeric className="text-muted-foreground mt-1 text-sm">
+                ปีงบประมาณ {item.budgetYear ?? '—'}
+              </p>
+            </div>
+          </aside>
         </div>
 
         {/* What Gemini read is offered as a reading aid and labelled as one. The

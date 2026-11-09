@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { deadlineLabel, deadlineText } from '@/lib/deadline-display';
 import { formatThaiDate } from '@/lib/format-date';
 import { ProcurementStatusBadge } from '@/components/search/procurement-status-badge';
-import { cn } from '@/lib/utils';
 import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { TorDownloadButton } from './tor-download-button';
@@ -15,7 +14,7 @@ const bahtFormat = new Intl.NumberFormat('th-TH');
 
 export function TorReviewPage({ tor }: { tor: TorReviewData }) {
   return (
-    <main className="page-fill mx-auto w-full max-w-7xl px-5 pt-6 pb-8 sm:px-8 lg:px-10 lg:pt-10 lg:pb-12">
+    <main className="page-fill mx-auto w-full max-w-[96rem] px-5 pt-2 pb-8 sm:px-8 lg:px-10 lg:pt-4 lg:pb-12 mt-2">
       <TorReviewBackButton />
       {tor.publicationRemoval && (
         <p
@@ -26,16 +25,16 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
         </p>
       )}
 
-      <section className="mt-4 pb-6">
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] lg:items-center lg:gap-8">
+      <section className="mt-1 pb-1">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] lg:items-start lg:gap-6">
           <div className="min-w-0">
-            <p className="text-primary flex items-center gap-2 text-sm font-medium">
+            <p className="mt-5 text-primary flex items-center gap-2 text-sm font-medium">
               {tor.agency}
               <span className="text-muted-foreground">·</span>
               <span className="text-muted-foreground">ประกาศจัดซื้อจัดจ้าง</span>
             </p>
             <h1 className="mt-4 text-2xl font-medium tracking-tight text-balance">{tor.title}</h1>
-            <div className="text-muted-foreground mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
               <span className="inline-flex items-center gap-2">
                 <CalendarDays aria-hidden="true" className="size-4" />
                 ปีงบประมาณ {tor.budgetYear ?? '—'}
@@ -50,26 +49,42 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
             </div>
           </div>
 
-          <div className="bg-muted/60 rounded-xl p-5 sm:p-5">
+          <div className="bg-muted/60 rounded-xl p-4">
             <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
               <Banknote aria-hidden="true" className="text-primary size-4" />
               งบประมาณ
             </p>
-            <p data-numeric className="mt-2 text-2xl font-medium tracking-tight">
+            <p data-numeric className="mt-1 text-2xl font-medium tracking-tight">
               {tor.budget === null
                 ? 'ยังไม่มีข้อมูลงบประมาณ'
                 : `${bahtFormat.format(tor.budget)} บาท`}
             </p>
+            <div className="border-border my-4 border-b" />
+            <div
+              role="group"
+              aria-label="วันที่ประกาศ"
+              className="mt-3"
+            >
+              <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
+                <CalendarDays aria-hidden="true" className="text-primary size-4" />
+                วันที่ประกาศ
+              </p>
+              <p data-numeric className="mt-1 text-base font-medium">
+                {tor.announcementDate
+                  ? formatThaiDate(tor.announcementDate)
+                  : 'ยังไม่มีข้อมูลวันที่ประกาศ'}
+              </p>
+            </div>
             <div
               role="group"
               aria-label={deadlineLabel(tor.deadline)}
-              className="border-border mt-5 border-t pt-4"
+              className="mt-3"
             >
               <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
                 <Clock3 aria-hidden="true" className="size-4 text-amber-600" />
                 {deadlineLabel(tor.deadline)}
               </p>
-              <p data-numeric className="mt-2 text-lg font-medium">
+              <p data-numeric className="mt-1 text-base font-medium">
                 {deadlineText(tor.deadline, tor.status)}
               </p>
               {tor.deadline?.readByModel && (
@@ -78,7 +93,7 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
                 </p>
               )}
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2">
   {!tor.publicationRemoval && <TorFavoriteButton projectId={tor.projectId} />}
               <TorDownloadButton projectId={tor.projectId} />
             </div>
@@ -87,23 +102,9 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
         </div>
       </section>
 
-      <section aria-labelledby="dates-heading" className="mt-6 pb-4">
-        <SectionHeading id="dates-heading" title="กำหนดการสำคัญ" />
-        <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-          <DateItem
-            label="วันที่ประกาศ"
-            value={
-              tor.announcementDate
-                ? formatThaiDate(tor.announcementDate)
-                : 'ยังไม่มีข้อมูลวันที่ประกาศ'
-            }
-          />
-        </div>
-      </section>
-
-      <section aria-labelledby="summary-heading" className="mt-10">
+      <section aria-labelledby="summary-heading" className="mt-2">
         <SectionHeading id="summary-heading" title="สรุปโครงการ" />
-        <Card className="border-primary/20 bg-primary/5 mt-5">
+        <Card className="border-primary/20 bg-primary/5 mt-4">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Sparkles role="img" aria-label="สรุปโดย AI" className="text-primary size-4" />
@@ -205,34 +206,5 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function DateItem({
-  label,
-  value,
-  urgent = false,
-}: {
-  label: string;
-  value: string;
-  urgent?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        'bg-muted/60 flex items-center gap-4 rounded-xl px-4 py-3',
-        urgent && 'border border-amber-200 dark:border-amber-900',
-      )}
-    >
-      {urgent ? (
-        <Clock3 aria-hidden="true" className="size-6 shrink-0 text-amber-600" />
-      ) : (
-        <CalendarDays aria-hidden="true" className="text-primary size-6 shrink-0" />
-      )}
-      <span>
-        <span className="text-muted-foreground block text-xs">{label}</span>
-        <span className="mt-0.5 block font-medium">{value}</span>
-      </span>
-    </div>
   );
 }

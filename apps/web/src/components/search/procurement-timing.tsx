@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { CalendarDays, Clock3 } from 'lucide-react';
-import { currentDeadline, daysUntil, procurementDay, type Procurement } from '@torfun/types';
-import { cn } from '@/lib/utils';
+import { currentDeadline, procurementDay, type Procurement } from '@torfun/types';
 
 const dateFormat = new Intl.DateTimeFormat('th-TH', {
   day: 'numeric',
@@ -12,56 +11,18 @@ const dateFormat = new Intl.DateTimeFormat('th-TH', {
 
 const formatDate = (day: string) => dateFormat.format(new Date(`${day}T00:00:00Z`));
 
-export function DaysLeftBadge({ item, today }: { item: Procurement; today: string }) {
-  const deadline = procurementDay(currentDeadline(item)?.at);
-  const remaining = deadline ? daysUntil(deadline, today) : null;
-  const base = 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm tabular-nums';
-
-  if (item.timeline.status === 'drafting') {
-    return (
-      <span className={cn(base, 'bg-primary/10 text-primary font-medium')}>
-        เตรียมตัวก่อนเปิดรับข้อเสนอ
-      </span>
-    );
-  }
-  if (item.timeline.status !== 'open' || remaining === null) return null;
-  if (remaining < 0) {
-    return (
-      <span className={cn(base, 'bg-muted text-muted-foreground')}>
-        พ้นกำหนดตาม TOR แล้ว {Math.abs(remaining)} วัน
-      </span>
-    );
-  }
-  return (
-    <span
-      className={cn(
-        base,
-        'font-semibold',
-        remaining <= 3 ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary',
-      )}
-    >
-      <Clock3 aria-hidden="true" className="size-4" />
-      {remaining === 0 ? 'ครบกำหนดวันนี้' : `เหลืออีก ${remaining} วัน`}
-    </span>
-  );
-}
-
 export function ProcurementTiming({
   item,
-  today,
   mode = 'all',
   returnTo,
 }: {
   item: Procurement;
-  today: string;
   mode?: 'all' | 'published' | 'deadline' | 'details';
   returnTo?: string;
 }) {
   const current = currentDeadline(item);
   const deadline = procurementDay(current?.at);
   const published = procurementDay(item.announceDate);
-  const remaining = deadline ? daysUntil(deadline, today) : null;
-  const expired = item.timeline.status === 'open' && remaining !== null && remaining < 0;
 
   if (mode === 'published') {
     return published ? <>ประกาศ {formatDate(published)}</> : null;
@@ -71,29 +32,17 @@ export function ProcurementTiming({
   }
 
   if (mode === 'details') {
+    if (!deadline || !current?.readByModel) return null;
+
     return (
-      <div className="text-muted-foreground mt-2 space-y-1 text-xs">
-        {(item.timeline.status === 'drafting' || expired) && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {item.timeline.status === 'drafting' && (
-              <span className="text-primary">เตรียมตัวก่อนเปิดรับข้อเสนอ</span>
-            )}
-            {expired && remaining !== null && (
-              <span>พ้นกำหนดตาม TOR แล้ว {Math.abs(remaining)} วัน</span>
-            )}
-          </div>
-        )}
-        {deadline && current?.readByModel && (
-          <div>
-            วันที่สกัดโดย AI ·{' '}
-            <Link
-              href={returnTo ?? `/tor/${encodeURIComponent(item.projectId)}`}
-              className="hover:text-primary pointer-events-auto relative z-20 underline underline-offset-4"
-            >
-              ตรวจสอบ TOR ต้นฉบับ
-            </Link>
-          </div>
-        )}
+      <div className="text-muted-foreground mt-2 text-xs">
+        วันที่สกัดโดย AI ·{' '}
+        <Link
+          href={returnTo ?? `/tor/${encodeURIComponent(item.projectId)}`}
+          className="hover:text-primary pointer-events-auto relative z-20 underline underline-offset-4"
+        >
+          ตรวจสอบ TOR ต้นฉบับ
+        </Link>
       </div>
     );
   }
