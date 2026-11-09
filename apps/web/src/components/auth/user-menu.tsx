@@ -45,7 +45,7 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
         render={
           <Button
             variant="ghost"
-            className="bg-card h-auto min-h-12 gap-3 rounded-xl border px-2 py-2 sm:px-3"
+            className="bg-card h-auto min-h-12 gap-3 rounded-xl border px-2 py-2 hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/40 sm:px-3"
             aria-label={`บัญชี ${user.username} · ${role}`}
           />
         }

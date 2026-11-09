@@ -1,6 +1,13 @@
 'use client';
 
-import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type MouseEvent,
+} from 'react';
 import Link from 'next/link';
 import { CircleAlert, ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react';
 import { STATUS_LABELS, ProcurementStatus, type TargetPlatform } from '@torfun/types';
@@ -8,7 +15,6 @@ import { BudgetRangeFilter } from './budget-range-filter';
 import { DateRangeFilter } from './date-range-filter';
 
 import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -28,6 +34,8 @@ interface ActiveFilter {
   criterion: SearchFilterCriterion;
   label: string;
 }
+
+const TEXT_FILTER_DEBOUNCE_MS = 350;
 
 function activeFilters(values: SearchFilterValues): ActiveFilter[] {
   const filters: ActiveFilter[] = [];
@@ -156,7 +164,13 @@ const TECHNOLOGY_OPTIONS = [
   'Google Cloud',
 ];
 
-function TechnologyFilter({ value }: { value: string }) {
+function TechnologyFilter({
+  value,
+  onValueChange,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+}) {
   const [selected, setSelected] = useState(() => {
     const terms = value
       .split(',')
@@ -180,16 +194,21 @@ function TechnologyFilter({ value }: { value: string }) {
       .split(',')
       .map((term) => term.trim())
       .filter(Boolean);
-    setSelected((current) => {
-      const next = [...current];
-      for (const term of additions) {
-        if (!next.some((existing) => existing.toLowerCase() === term.toLowerCase())) {
-          next.push(term);
-        }
+    const next = [...selected];
+    for (const term of additions) {
+      if (!next.some((existing) => existing.toLowerCase() === term.toLowerCase())) {
+        next.push(term);
       }
-      return next;
-    });
+    }
+    setSelected(next);
+    onValueChange(next.join(', '));
     setQuery('');
+  }
+
+  function removeTerm(technology: string) {
+    const next = selected.filter((term) => term !== technology);
+    setSelected(next);
+    onValueChange(next.join(', '));
   }
 
   return (
@@ -206,9 +225,7 @@ function TechnologyFilter({ value }: { value: string }) {
               <button
                 type="button"
                 aria-label={`ลบเทคโนโลยี ${technology}`}
-                onClick={() =>
-                  setSelected((current) => current.filter((term) => term !== technology))
-                }
+                onClick={() => removeTerm(technology)}
                 className="hover:bg-primary/15 focus-visible:ring-ring/70 inline-flex size-4 items-center justify-center rounded-full outline-none focus-visible:ring-1"
               >
                 <X aria-hidden="true" className="size-3" />
@@ -311,6 +328,13 @@ export function ProcurementFilters({
   const [fiscalYearRequest, setFiscalYearRequest] = useState(0);
   const [formValues, setFormValues] = useState(values);
   const [formResetKey, setFormResetKey] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
+  const onApplyRef = useRef(onApply);
+  const textChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    onApplyRef.current = onApply;
+  }, [onApply]);
 
   useEffect(() => {
     let active = true;
@@ -330,29 +354,72 @@ export function ProcurementFilters({
     };
   }, [fiscalYearRequest]);
 
-  function apply(event: FormEvent<HTMLFormElement>) {
-    if (!onApply) return;
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
+  useEffect(
+    () => () => {
+      if (textChangeTimer.current) clearTimeout(textChangeTimer.current);
+    },
+    [],
+  );
+
+  function readForm(form: HTMLFormElement): Record<string, string | string[]> {
+    const data = new FormData(form);
     const raw: Record<string, string | string[]> = {};
     for (const [key, entry] of data) {
       if (typeof entry !== 'string' || !entry) continue;
       const previous = raw[key];
       raw[key] = previous ? [...(Array.isArray(previous) ? previous : [previous]), entry] : entry;
     }
-    onApply(parseSearchFilters(raw));
-    setOpen(false);
+    return raw;
+  }
+
+  function applyForm(form: HTMLFormElement, overrides?: Record<string, string | string[]>) {
+    if (!onApplyRef.current) return;
+    onApplyRef.current(parseSearchFilters({ ...readForm(form), ...overrides }));
+  }
+
+  function applyChange(event: ChangeEvent<HTMLFormElement>) {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement) || !target.name)
+      return;
+    if (target.name === 'status' || target.name === 'minDaysLeft') return;
+    if (textChangeTimer.current) clearTimeout(textChangeTimer.current);
+    if (target.name === 'deptName' || target.name === 'industry') {
+      textChangeTimer.current = setTimeout(() => {
+        textChangeTimer.current = null;
+        if (formRef.current) applyForm(formRef.current);
+      }, TEXT_FILTER_DEBOUNCE_MS);
+      return;
+    }
+    applyForm(event.currentTarget);
+  }
+
+  function applySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    applyForm(event.currentTarget);
+  }
+
+  function applyOverrides(overrides: Record<string, string | string[]>) {
+    if (formRef.current) applyForm(formRef.current, overrides);
   }
 
   function clear(event: MouseEvent<HTMLAnchorElement>, next: SearchFilterValues) {
     if (!onApply || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
+    if (textChangeTimer.current) clearTimeout(textChangeTimer.current);
     onApply(next);
+    setFormValues(next);
+    setMinDaysLeft(next.minDaysLeft);
+    setSelectedStatuses(next.status);
+    setFiscalYearMode(next.budgetYear.length > 0 ? 'select' : 'all');
+    setSelectedFiscalYears(next.budgetYear);
+    setFormResetKey((current) => current + 1);
   }
 
   function clearForm() {
+    if (textChangeTimer.current) clearTimeout(textChangeTimer.current);
     const clearedValues = { ...EMPTY_SEARCH_FILTERS, query: values.query };
     setFormValues(clearedValues);
+    setMinDaysLeft('');
     setSelectedStatuses([]);
     setFiscalYearMode('all');
     setSelectedFiscalYears([]);
@@ -384,11 +451,11 @@ export function ProcurementFilters({
       aria-label="ตัวกรองประกาศ"
       className="bg-card border-border self-start rounded-2xl border shadow-sm lg:sticky lg:top-[calc(var(--header-h)+1rem)] lg:max-h-[calc(100dvh-var(--header-h)-2rem)] lg:overflow-y-auto"
     >
-      <div className="lg:border-border lg:bg-card flex items-center justify-between gap-3 px-4 py-2 lg:sticky lg:top-0 lg:z-10 lg:border-b lg:px-5 lg:pt-5 lg:pb-3">
-        <div className="hidden min-w-0 items-center gap-2 lg:flex">
+      <div className="lg:border-border lg:bg-card grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 lg:sticky lg:top-0 lg:z-10 lg:border-b lg:px-5 lg:pt-5 lg:pb-3">
+        <div className="hidden shrink-0 items-center gap-2 lg:flex">
           <SlidersHorizontal aria-hidden="true" className="text-primary size-4 shrink-0" />
-          <h2 className="font-semibold">ตัวกรองประกาศ</h2>
-          {count > 0 && <Badge variant="secondary">{count}</Badge>}
+          <h2 className="font-semibold whitespace-nowrap">ตัวกรองประกาศ</h2>
+          {count > 0 && <Badge className="shrink-0" variant="secondary">{count}</Badge>}
         </div>
         <button
           type="button"
@@ -405,6 +472,14 @@ export function ProcurementFilters({
             aria-hidden="true"
             className={cn('size-4 transition-transform', open && 'rotate-180')}
           />
+        </button>
+        <button
+          type="button"
+          onClick={clearForm}
+          disabled={count === 0}
+          className="text-primary hover:text-primary/80 focus-visible:ring-ring/70 -mr-2 min-h-10 shrink-0 justify-self-end rounded-md px-2 text-sm font-medium cursor-pointer underline-offset-4 outline-none transition-colors hover:underline focus-visible:ring-2 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+        >
+          ล้างทั้งหมด
         </button>
       </div>
       <div id="procurement-filter-fields" className={cn(open ? 'block' : 'hidden', 'lg:block')}>
@@ -428,11 +503,13 @@ export function ProcurementFilters({
           </div>
         )}
         <form
+          ref={formRef}
           key={formResetKey}
           action="/search"
           method="get"
-          onSubmit={apply}
-          className="space-y-5 px-5 pt-4 pb-5"
+          onSubmit={applySubmit}
+          onChange={applyChange}
+          className={cn('space-y-5 px-5 pb-5', active.length > 0 ? 'pt-0' : 'pt-4')}
         >
           {values.query && <input type="hidden" name="q" value={values.query} />}
           <fieldset aria-label="ขั้นตอนจัดซื้อจัดจ้าง" className="relative space-y-1.5">
@@ -466,6 +543,10 @@ export function ProcurementFilters({
                     const next = event.target.checked ? [...ProcurementStatus.options] : [];
                     setSelectedStatuses(next);
                     if (next.some((status) => status !== 'open')) setMinDaysLeft('');
+                    applyOverrides({
+                      status: next,
+                      minDaysLeft: next.some((status) => status !== 'open') ? '' : minDaysLeft,
+                    });
                   }}
                   className="accent-primary size-4 shrink-0"
                 />
@@ -487,6 +568,10 @@ export function ProcurementFilters({
                         : selectedStatuses.filter((status) => status !== stage);
                       setSelectedStatuses(next);
                       if (next.some((status) => status !== 'open')) setMinDaysLeft('');
+                      applyOverrides({
+                        status: next,
+                        minDaysLeft: next.some((status) => status !== 'open') ? '' : minDaysLeft,
+                      });
                     }}
                     className="accent-primary size-4 shrink-0"
                   />
@@ -536,6 +621,17 @@ export function ProcurementFilters({
                       setMinDaysLeft(next);
                       if (next !== '') setSelectedStatuses(['open']);
                     }
+                    const nextDays =
+                      next === 'custom'
+                        ? DAYS_LEFT_PRESETS.some(([days]) => days === minDaysLeft)
+                          ? ''
+                          : minDaysLeft
+                        : next;
+                    applyOverrides({
+                      minDaysLeft: nextDays,
+                      status: nextDays ? ['open'] : selectedStatuses,
+                      ...(nextDays ? { deadlineFrom: '', deadlineTo: '' } : {}),
+                    });
                   }}
                   className={cn(selectClass, 'appearance-none pr-10')}
                 >
@@ -571,6 +667,11 @@ export function ProcurementFilters({
                   onChange={(event) => {
                     setMinDaysLeft(event.target.value);
                     if (event.target.value !== '') setSelectedStatuses(['open']);
+                    applyOverrides({
+                      minDaysLeft: event.target.value,
+                      ...(event.target.value ? { status: ['open'] } : {}),
+                      ...(event.target.value ? { deadlineFrom: '', deadlineTo: '' } : {}),
+                    });
                   }}
                   className="h-11"
                 />
@@ -613,6 +714,7 @@ export function ProcurementFilters({
                     setSelectedFiscalYears([]);
                     setFiscalYearSearch('');
                   }
+                  applyOverrides({ budgetYear: mode === 'all' ? [] : selectedFiscalYears });
                 }}
                 className={cn(selectClass, 'appearance-none pr-10')}
               >
@@ -709,7 +811,10 @@ export function ProcurementFilters({
             </div>
           </div>
           <div className="border-border space-y-4 border-t pt-4">
-            <TechnologyFilter value={formValues.techStack} />
+            <TechnologyFilter
+              value={formValues.techStack}
+              onValueChange={(techStack) => applyOverrides({ techStack })}
+            />
             <fieldset>
               <legend className="text-sm font-medium">แพลตฟอร์มเป้าหมาย (ตรงอย่างน้อยหนึ่ง)</legend>
               <div className="mt-1 grid grid-cols-2 gap-x-3">
@@ -739,21 +844,6 @@ export function ProcurementFilters({
                 มีสรุป TOR แล้ว
               </label>
             </div>
-          </div>
-          <div className="bg-card sticky bottom-0 -mx-5 -mb-5 grid grid-cols-2 gap-2 border-t px-5 py-4">
-            <button
-              type="button"
-              onClick={clearForm}
-              className={cn(
-                buttonVariants({ variant: 'secondary' }),
-                'border-border bg-muted/60 text-muted-foreground hover:bg-muted h-11',
-              )}
-            >
-              ล้างตัวกรอง
-            </button>
-            <button type="submit" className={cn(buttonVariants(), 'h-11')}>
-              ใช้ตัวกรอง
-            </button>
           </div>
         </form>
       </div>

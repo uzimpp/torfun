@@ -20,8 +20,11 @@ test('guest header contains brand and both ways in, without workspace links', ()
   );
   expect(screen.getByRole('link', { name: 'Torfun' })).toHaveAttribute('href', '/');
   expect(screen.queryByRole('link', { name: 'แดชบอร์ด' })).not.toBeInTheDocument();
-  // Notifications are not built, so the header does not offer a dead bell.
-  expect(screen.queryByRole('button', { name: /การแจ้งเตือน/ })).not.toBeInTheDocument();
+  const noticeButton = screen.getByRole('button', {
+    name: 'การแจ้งเตือนยังไม่พร้อมใช้งาน',
+  });
+  expect(noticeButton).toBeDisabled();
+  expect(noticeButton).toHaveClass('border-border/60', 'size-10', 'rounded-full');
   expect(screen.queryByRole('button', { name: /เปลี่ยนภาษา/ })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /สลับโหมด/ })).toBeInTheDocument();
 });
@@ -92,22 +95,36 @@ test('the administrator menu reaches every admin page', async () => {
 
 test('the header carries a search field away from the pages that own one', () => {
   render(<SiteHeader user={{ username: 'tester', role: 'business_development_officer' }} />);
-  expect(screen.getByRole('search', { name: 'ค้นหาประกาศ TOR' })).toHaveAttribute(
+  const search = screen.getByRole('search', { name: 'ค้นหาประกาศ TOR' });
+  expect(search).toHaveAttribute(
     'action',
     '/search',
   );
   expect(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveAttribute('name', 'q');
+  expect(search.parentElement?.parentElement).toHaveClass('flex-1', 'justify-center');
+  expect(search.parentElement).toHaveClass('max-w-[28rem]', 'lg:block');
 });
 
-test('the search page keeps a follow-up search field in the header', () => {
+test('header actions use restrained borders and show profile focus ring only on focus', () => {
+  render(<SiteHeader user={{ username: 'tester', role: 'business_development_officer' }} />);
+
+  expect(screen.getByRole('button', { name: /สลับโหมด/ })).toHaveClass(
+    'border-border/60',
+    'shadow-none',
+  );
+  expect(screen.getByRole('button', { name: 'บัญชี tester · BD' })).toHaveClass(
+    'bg-card',
+    'rounded-xl',
+    'hover:bg-muted/70',
+    'focus-visible:ring-2',
+  );
+});
+
+test('the search page owns its search field instead of showing one in the header', () => {
   navigation.pathname = '/search';
   navigation.search = '?q=ระบบสารสนเทศ';
   render(<SiteHeader user={{ username: 'tester', role: 'business_development_officer' }} />);
-  expect(screen.getByRole('search', { name: 'ค้นหาประกาศ TOR' })).toHaveAttribute(
-    'action',
-    '/search',
-  );
-  expect(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveValue('ระบบสารสนเทศ');
+  expect(screen.queryByRole('search', { name: 'ค้นหาประกาศ TOR' })).not.toBeInTheDocument();
   navigation.pathname = '/dashboard';
   navigation.search = '';
 });

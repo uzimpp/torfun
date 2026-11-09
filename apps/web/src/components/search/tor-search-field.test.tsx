@@ -35,3 +35,22 @@ test('updates the existing search box when URL state changes without duplicating
   expect(screen.getAllByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveLength(1);
   expect(searchbox).toHaveValue('พัฒนาเว็บไซต์');
 });
+
+test('can submit with Enter without rendering the submit button', async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn();
+  render(
+    <TorSearchField
+      value="ระบบโรงพยาบาล"
+      onValueChange={vi.fn()}
+      onSubmit={onSubmit}
+      showSubmitButton={false}
+    />,
+  );
+
+  expect(screen.queryByRole('button', { name: 'ค้นหา' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' }));
+  await user.keyboard('{Enter}');
+
+  expect(onSubmit).toHaveBeenCalledWith('ระบบโรงพยาบาล');
+});

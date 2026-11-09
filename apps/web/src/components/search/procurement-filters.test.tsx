@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -38,7 +38,10 @@ describe('ProcurementFilters', () => {
     const user = userEvent.setup();
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} />);
 
-    expect(screen.getByRole('button', { name: 'ล้างตัวกรอง' })).toBeInTheDocument();
+    const clearButton = screen.getByRole('button', { name: 'ล้างทั้งหมด' });
+    expect(clearButton).toBeDisabled();
+    expect(clearButton).toHaveClass('disabled:cursor-not-allowed');
+    expect(screen.queryByRole('button', { name: 'ใช้ตัวกรอง' })).not.toBeInTheDocument();
     const toggle = screen.getByRole('button', { name: /^ตัวกรอง/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await user.click(toggle);
@@ -55,6 +58,29 @@ describe('ProcurementFilters', () => {
     expect(screen.queryByLabelText('สถานที่ดำเนินงาน')).not.toBeInTheDocument();
   });
 
+  test('clears selected filters from the heading and preserves the search words', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(
+      <ProcurementFilters
+        values={{ ...EMPTY_SEARCH_FILTERS, query: 'ระบบ', status: ['drafting'] }}
+        onApply={onApply}
+      />,
+    );
+
+    const clearButton = screen.getByRole('button', { name: 'ล้างทั้งหมด' });
+    expect(screen.getByRole('heading', { name: 'ตัวกรองประกาศ' })).toHaveClass('whitespace-nowrap');
+    expect(clearButton).toHaveClass('justify-self-end', '-mr-2');
+    expect(clearButton.parentElement).toHaveClass('grid-cols-[minmax(0,1fr)_auto]');
+    expect(screen.getByLabelText('ตัวกรองที่ใช้งาน')).toHaveClass('py-4');
+    expect(screen.getByLabelText('ตัวกรองที่ใช้งาน').nextElementSibling).toHaveClass('pt-0');
+    expect(clearButton).toBeEnabled();
+    expect(clearButton).toHaveClass('cursor-pointer');
+    await user.click(clearButton);
+
+    expect(onApply).toHaveBeenCalledWith({ ...EMPTY_SEARCH_FILTERS, query: 'ระบบ' });
+  });
+
   test('allows selecting multiple valid procurement statuses', async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();
@@ -62,10 +88,24 @@ describe('ProcurementFilters', () => {
 
     await user.click(screen.getByRole('checkbox', { name: 'ร่าง / เตรียมการ' }));
     await user.click(screen.getByRole('checkbox', { name: 'อยู่ระหว่างพิจารณา' }));
-    await user.click(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }));
 
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ status: ['drafting', 'evaluating'] }),
+    );
+  });
+
+  test('applies text filters as they are entered without a submit button', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} onApply={onApply} />);
+
+    await user.click(screen.getByRole('button', { name: /^ตัวกรอง/ }));
+    await user.type(screen.getByLabelText('คำค้นในชื่อโครงการ'), 'โรงพยาบาล');
+
+    await waitFor(() =>
+      expect(onApply).toHaveBeenLastCalledWith(
+        expect.objectContaining({ industry: 'โรงพยาบาล' }),
+      ),
     );
   });
 
@@ -77,6 +117,9 @@ describe('ProcurementFilters', () => {
     await user.click(screen.getByRole('checkbox', { name: 'ทุกขั้นตอน' }));
     expect(screen.getByRole('checkbox', { name: 'ร่าง / เตรียมการ' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'ยังไม่ทราบสถานะ' })).toBeChecked();
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({ status: expect.arrayContaining(['drafting', 'open']) }),
+    );
     await user.click(screen.getByRole('checkbox', { name: 'ทุกขั้นตอน' }));
     expect(screen.getByRole('checkbox', { name: 'ร่าง / เตรียมการ' })).not.toBeChecked();
   });
@@ -91,7 +134,6 @@ describe('ProcurementFilters', () => {
     const previousYear = String(currentThaiFiscalYear() - 1);
     await user.click(await screen.findByLabelText(`ปีงบประมาณ ${latestYear}`));
     await user.click(screen.getByLabelText(`ปีงบประมาณ ${previousYear}`));
-    await user.click(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }));
 
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ budgetYear: [latestYear, previousYear] }),
@@ -114,7 +156,6 @@ describe('ProcurementFilters', () => {
 
     await user.selectOptions(screen.getByLabelText('เวลาที่เหลือก่อนปิดรับ'), '14');
     expect(screen.getByLabelText('กำหนดส่งตั้งแต่')).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }));
 
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -150,7 +191,6 @@ describe('ProcurementFilters', () => {
     fireEvent.change(screen.getByLabelText('กำหนดส่งตั้งแต่'), { target: { value: '2026-10-05' } });
     fireEvent.change(screen.getByLabelText('กำหนดส่งถึง'), { target: { value: '2026-10-15' } });
     fireEvent.change(screen.getByLabelText('ขั้นต่ำ'), { target: { value: '1000' } });
-    fireEvent.submit(screen.getByRole('button', { name: 'ใช้ตัวกรอง' }).closest('form')!);
 
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({

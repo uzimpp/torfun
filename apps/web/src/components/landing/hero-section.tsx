@@ -38,7 +38,7 @@ export function HeroSection({ signedIn = false }: { signedIn?: boolean }) {
           <h1
             id="hero-heading"
             className="enter mt-6 font-semibold tracking-tighter text-balance [--enter:0]"
-            style={{ fontSize: 'clamp(2.625rem, 7vw, 6rem)', lineHeight: 1.12 }}
+            style={{ fontSize: 'clamp(2.6rem, 5.1vw, 6rem)', lineHeight: 1.15 }}
           >
             ค้นหาโอกาสจาก TOR
             <br />

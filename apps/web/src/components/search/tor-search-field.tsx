@@ -21,9 +21,11 @@ export function TorSearchField({
   onValueChange,
   onSubmit,
   label = 'ค้นหาประกาศ TOR',
+  appearance = 'default',
   suggestions,
   preservedParams = [],
   autoFocus = false,
+  showSubmitButton = true,
   className,
 }: {
   /** `hero` is the landing page's centrepiece; `compact` rides in the header. */
@@ -39,11 +41,13 @@ export function TorSearchField({
   /** Overrides the default submit behaviour (navigate to `/search`). */
   onSubmit?: (query: string) => void;
   label?: string;
+  appearance?: 'default' | 'subtle';
   /** Example queries, offered as one-tap starting points below the field. */
   suggestions?: readonly string[];
   /** Existing URL filters that should survive when only the search words change. */
   preservedParams?: ReadonlyArray<readonly [string, string]>;
   autoFocus?: boolean;
+  showSubmitButton?: boolean;
   className?: string;
 }) {
   const router = useRouter();
@@ -90,8 +94,10 @@ export function TorSearchField({
         onSubmit={handleSubmit}
         aria-label={label}
         className={cn(
-          'group bg-card border-input flex items-center border transition-[box-shadow,border-color] duration-300',
-          'focus-within:border-ring focus-within:ring-ring/25 focus-within:ring-4',
+          'group flex items-center border transition-[box-shadow,border-color] duration-200',
+          appearance === 'subtle'
+            ? 'border-border/60 bg-background/80 focus-within:border-ring/70 focus-within:ring-ring/15 focus-within:ring-2'
+            : 'bg-card border-input focus-within:border-ring focus-within:ring-ring/25 focus-within:ring-4',
           hero
             ? 'shadow-soft has-[input:focus-visible]:shadow-lifted gap-2 rounded-2xl p-2 sm:gap-3'
             : 'gap-2 rounded-xl py-1 pr-1 pl-3',
@@ -132,22 +138,27 @@ export function TorSearchField({
             hero ? 'py-3 text-base sm:text-lg' : 'py-2 text-sm',
           )}
         />
-        <button
-          type="submit"
-          className={cn(
-            'bg-primary text-primary-foreground inline-flex shrink-0 items-center justify-center',
-            'focus-visible:ring-ring/50 font-medium transition-[transform,background-color] outline-none',
-            'hover:bg-primary/90 focus-visible:ring-4 active:translate-y-px',
-            hero
-              ? 'h-12 gap-2 rounded-xl px-4 text-sm sm:px-6 sm:text-base'
-              : 'size-8 rounded-lg text-xs',
-          )}
-        >
-          {/* The label is always in the accessibility tree; on a narrow screen
-              it simply stops taking up room next to the arrow. */}
-          <span className={hero ? 'sr-only sm:not-sr-only' : 'sr-only'}>ค้นหา</span>
-          <ArrowRight aria-hidden="true" className="size-4" />
-        </button>
+        {showSubmitButton && (
+          <button
+            type="submit"
+            className={cn(
+              'inline-flex shrink-0 items-center justify-center',
+              appearance === 'subtle'
+                ? 'text-muted-foreground bg-transparent hover:bg-primary/10 hover:text-primary'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90',
+              'focus-visible:ring-ring/50 font-medium transition-[transform,background-color] outline-none',
+              'focus-visible:ring-4 active:translate-y-px',
+              hero
+                ? 'h-12 gap-2 rounded-xl px-4 text-sm sm:px-6 sm:text-base'
+                : 'size-8 rounded-lg text-xs',
+            )}
+          >
+            {/* The label is always in the accessibility tree; on a narrow screen
+                it simply stops taking up room next to the arrow. */}
+            <span className={hero ? 'sr-only sm:not-sr-only' : 'sr-only'}>ค้นหา</span>
+            <ArrowRight aria-hidden="true" className="size-4" />
+          </button>
+        )}
       </form>
 
       {suggestions && suggestions.length > 0 && (
