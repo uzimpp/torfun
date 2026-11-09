@@ -1,6 +1,12 @@
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { MongoClient, type Db } from 'mongodb';
-import { EMPTY_STAGES, EMPTY_TIMELINE, OUTCOME_STATE } from '@torfun/types';
+import {
+  currentDeadline,
+  EMPTY_STAGES,
+  EMPTY_TIMELINE,
+  OUTCOME_STATE,
+  ProcurementSchema,
+} from '@torfun/types';
 import type {
   ArchiveDocument,
   IngestionFailure,
@@ -112,6 +118,109 @@ describeMongo('ProcurementRepository', () => {
       ),
     );
     await repository.ensureIndexes();
+  });
+
+  test('lists flat procurement documents that predate the nested timeline and archive', async () => {
+    const projectId = 'legacy-flat';
+    const draftAt = '2026-09-02T00:00:00.000Z';
+    const readAt = '2026-09-04T00:00:00.000Z';
+    const deadlineAt = '2026-10-15T00:00:00.000Z';
+    const main = doc();
+    await repository.upsert(
+      procurement({
+        projectId,
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        analysis: analysis({ deadlineAt }),
+      }),
+    );
+    await (await getDb()).collection('procurements').updateOne(
+      { _id: projectId as never },
+      {
+        $unset: { timeline: '', archive: '', detail_read_at: '', budget_year: '', approved: '' },
+        $set: {
+          status: 'invitation',
+          detail_checked_at: readAt,
+          timeline_checked_at: readAt,
+          milestones: { drafted: { at: draftAt } },
+          deadline_at: deadlineAt,
+          deadline_source: 'tor',
+          zip_id: 'legacy-zip',
+          documents: [main],
+          tor_ambiguous: false,
+          approved_by: 'operator',
+          approved_at: readAt,
+          year: 2568,
+        },
+      },
+    );
+
+    const [recent] = await repository.recent(5);
+    const listing = await repository.find({
+      limit: 25,
+      offset: 0,
+      status: 'open',
+      detailRead: true,
+    });
+    expect(listing.items).toEqual([recent!]);
+    const parsed = ProcurementSchema.parse(recent);
+    expect(parsed).toMatchObject({
+      projectId,
+      budgetYear: null,
+      detailReadAt: readAt,
+      timeline: {
+        status: 'open',
+        lastReadAt: readAt,
+        deadlineAt: null,
+        stages: { drafted: draftAt },
+      },
+      archive: { zipId: 'legacy-zip', documents: [main], torAmbiguous: false },
+      approved: { by: 'operator', at: readAt },
+    });
+    expect(currentDeadline(parsed)).toEqual({ kind: 'bids', at: deadlineAt, readByModel: true });
+    expect((await repository.find({ limit: 25, offset: 0, detailRead: false })).total).toBe(0);
+  });
+
+  test('ranks published candidates before paginating and keeps unscored records last', async () => {
+    const capital = (minValueThb: number) =>
+      analysis({
+        qualifications: [
+          { kind: 'registered_capital', minValueThb, text: 'ทุนขั้นต่ำ', source: 'ข้อ 4' },
+        ],
+      });
+    await repository.upsertMany([
+      procurement({ projectId: 'unscored', announceDate: '2026-10-25' }),
+      procurement({ projectId: 'lower', analysis: capital(50_000) }),
+      procurement({ projectId: 'higher', analysis: capital(10_000) }),
+      procurement({ projectId: 'excluded', deptName: 'Excluded', analysis: capital(1) }),
+      procurement({ projectId: 'removed', analysis: capital(1) }),
+    ]);
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne(
+        { _id: 'removed' as never },
+        { $set: { publication_removed_at: '2026-10-26T00:00:00.000Z' } },
+      );
+    const options: FindOptions = {
+      deptName: 'กรุงเทพมหานคร',
+      excludeRemoved: true,
+      order: 'daysLeft',
+      today: '2026-10-26',
+      limit: 1,
+      offset: 0,
+      scoreQualifications: (qualifications) => {
+        const clause = qualifications?.[0];
+        if (clause?.kind !== 'registered_capital') return null;
+        return Math.max(0, 1 - clause.minValueThb / 50_000);
+      },
+    };
+    for (const [offset, projectId] of ['higher', 'lower', 'unscored'].entries()) {
+      const result = await repository.find({ ...options, offset });
+      expect(result.total).toBe(3);
+      expect(result.items.map((item) => item.projectId)).toEqual([projectId]);
+    }
   });
 
   const seed = async (records: Procurement[]) => {

@@ -11,7 +11,7 @@ import {
   Search,
   WifiOff,
 } from 'lucide-react';
-import { currentDeadline, type Procurement } from '@torfun/types';
+import { currentDeadline, type TorListItem } from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -175,7 +175,7 @@ function SearchPagination({
 /** Selector for the last-rendered row — what "scroll to bottom" jumps to, not the page's actual end. */
 export const RESULT_ROW_SELECTOR = '[data-result-row]';
 
-function ResultRow({ item, today }: { item: Procurement; today: string }) {
+function ResultRow({ item, today }: { item: TorListItem; today: string }) {
   return (
     <li
       data-result-row
@@ -184,6 +184,11 @@ function ResultRow({ item, today }: { item: Procurement; today: string }) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <DaysLeftBadge item={item} today={today} />
         <ProcurementStatusBadge status={item.timeline.status} />
+        {item.matchScore != null && (
+          <span className="text-primary text-xs font-medium">
+            คะแนนคุณสมบัติโดยประมาณ {Math.round(item.matchScore * 100)}%
+          </span>
+        )}
         <span data-numeric className="text-muted-foreground font-mono text-xs">
           ปีงบประมาณ {item.budgetYear ?? '—'}
         </span>

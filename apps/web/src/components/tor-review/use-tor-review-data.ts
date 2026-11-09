@@ -4,14 +4,16 @@ import { useEffect, useState } from 'react';
 import {
   currentDeadline,
   type CurrentDeadline,
-  type Procurement,
+  type TorDetail,
+  type TorQualification,
+  type QualificationMatchResult,
   type ProcurementStatus,
 } from '@torfun/types';
 import { ApiError, fetchTor } from '@/lib/api';
 
 export type TorReviewData = {
   projectId: string;
-  publicationRemoval?: Procurement['publicationRemoval'];
+  publicationRemoval?: TorDetail['publicationRemoval'];
   title: string;
   agency: string;
   budget: number | null;
@@ -28,7 +30,8 @@ export type TorReviewData = {
   referencePrice: number | null;
   durationDays: number | null;
   platforms: string[];
-  matchScore: number | null;
+  qualifications?: TorQualification[];
+  matchResult?: QualificationMatchResult | null;
 };
 
 export interface TorReviewState {
@@ -39,7 +42,7 @@ export interface TorReviewState {
   error: string | null;
 }
 
-function toReviewData(procurement: Procurement): TorReviewData {
+function toReviewData(procurement: TorDetail): TorReviewData {
   const analysis = procurement.analysis;
   return {
     projectId: procurement.projectId,
@@ -60,7 +63,8 @@ function toReviewData(procurement: Procurement): TorReviewData {
     referencePrice: procurement.priceBuild,
     durationDays: analysis?.durationDays ?? null,
     platforms: analysis?.targetPlatforms ?? [],
-    matchScore: null,
+    qualifications: analysis?.qualifications,
+    matchResult: procurement.matchResult,
   };
 }
 

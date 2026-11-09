@@ -1,6 +1,8 @@
 import type {
   ChangePassword,
   ClientKind,
+  CompanyQualificationsPayload,
+  CompanyQualificationsRecord,
   DurationUnit,
   IngestionFailure,
   IngestionSummary,
@@ -8,6 +10,8 @@ import type {
   ProcurementFilters,
   ProcurementListResponse,
   TargetPlatform,
+  TorDetail,
+  TorListOrder,
   UpdateProfile,
   UserRole,
   CreateTorReport,
@@ -16,6 +20,7 @@ import type {
   TorReportFilter,
   ReviewTorReport,
 } from '@torfun/types';
+import { fromCompanyQualificationsPayload, toCompanyQualificationsPayload } from '@torfun/types';
 
 /**
  * Thin client for the torfun API.
@@ -30,7 +35,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 export type IngestionSummaryResponse = IngestionSummary & { agencies: string[] };
 
 export type ProjectListResponse = ProcurementListResponse;
-export type ProjectFilters = ProcurementFilters;
+export type ProjectFilters = ProcurementFilters & { order?: TorListOrder };
 
 export class ApiError extends Error {
   constructor(
@@ -176,8 +181,8 @@ export function fetchProjects(filters: ProjectFilters = {}): Promise<ProjectList
   return request<ProjectListResponse>(`/api/tors${query ? `?${query}` : ''}`);
 }
 
-export function fetchTor(projectId: string): Promise<Procurement> {
-  return request<Procurement>(`/api/tors/${encodeURIComponent(projectId)}`);
+export function fetchTor(projectId: string): Promise<TorDetail> {
+  return request<TorDetail>(`/api/tors/${encodeURIComponent(projectId)}`);
 }
 
 export function submitTorReport(
@@ -259,6 +264,23 @@ export function changePassword(password: ChangePassword): Promise<void> {
   });
 }
 
+export async function fetchCompanyQualifications(): Promise<CompanyQualificationsRecord | null> {
+  const payload = await request<CompanyQualificationsPayload | null>(
+    '/api/companies/me/qualifications',
+  );
+  return payload ? fromCompanyQualificationsPayload(payload) : null;
+}
+
+export async function saveCompanyQualifications(
+  input: CompanyQualificationsRecord,
+): Promise<CompanyQualificationsRecord> {
+  const payload = await request<CompanyQualificationsPayload>('/api/companies/me/qualifications', {
+    method: 'POST',
+    body: JSON.stringify(toCompanyQualificationsPayload(input)),
+  });
+  return fromCompanyQualificationsPayload(payload);
+}
+
 export interface CompanyResponse {
   id: string;
   name_th: string;
@@ -277,6 +299,8 @@ export interface ClientResponse {
  * can show two years as two years without doing arithmetic of its own.
  */
 export interface ExperienceResponse {
+  work_type?: string | null;
+  contract_value_thb?: number | null;
   id: string;
   client_id: string;
   project_name: string;
@@ -299,6 +323,8 @@ export interface ClientInput {
 }
 
 export interface ExperienceInput {
+  work_type?: string | null;
+  contract_value_thb?: number | null;
   client_id: string;
   project_name: string;
   description?: string | null;

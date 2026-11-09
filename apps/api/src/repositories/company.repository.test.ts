@@ -69,6 +69,38 @@ describeMongo('company-scoped repositories', () => {
     expect(typeof read?.id).toBe('string');
   });
 
+  test('replaces qualification evidence atomically for the expected revision', async () => {
+    const company = await companies.create({ nameTh: 'บริษัท สยามซอฟต์ จำกัด', tin: null });
+    const other = await companies.create({ nameTh: 'บริษัท คู่แข่ง จำกัด', tin: null });
+    expect(await companies.findQualifications(company.id)).toMatchObject({
+      companyId: company.id,
+      revision: null,
+      certificates: [],
+      personnel: [],
+    });
+    const input = {
+      registeredCapitalThb: 100_000,
+      certificates: [
+        { name: 'Quality', standard: 'ISO 9001', issuer: 'Issuer', validUntil: '2026-11-04' },
+      ],
+      personnel: [{ role: 'Developer', yearsOfExperience: 5, degree: 'BSc', certificates: null }],
+    };
+    const results = await Promise.all([
+      companies.replaceQualifications(company.id, null, input),
+      companies.replaceQualifications(company.id, null, input),
+    ]);
+    const saved = results.find((result) => result !== null);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(saved).toMatchObject({ companyId: company.id, ...input });
+    expect(await companies.findQualifications(company.id)).toEqual(saved ?? null);
+    expect(await companies.findQualifications(other.id)).toMatchObject({
+      companyId: other.id,
+      revision: null,
+      certificates: [],
+      personnel: [],
+    });
+  });
+
   test('the name search matches a substring anywhere in the name', async () => {
     await companies.create({ nameTh: 'บริษัท สยามซอฟต์ จำกัด', tin: null });
     await companies.create({ nameTh: 'ห้างหุ้นส่วนจำกัด สยามดาต้า', tin: null });

@@ -25,7 +25,7 @@ import type {
   Tombstone,
   TombstoneReason,
 } from '@torfun/types';
-import { appendStatusChange, currentDeadline, OUTCOME_STATE } from '@torfun/types';
+import { appendStatusChange, currentDeadline, EMPTY_STAGES, OUTCOME_STATE } from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 import { hashSource, hasUpstreamChange } from './source-hash';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
@@ -80,14 +80,14 @@ interface ProcurementDocument {
   announce_date: string | null;
   purchase_method_name: string | null;
   discovered_at: string;
-  budget_year: number | null;
+  budget_year?: number | null;
   /** Absent on records written before the project detail was read. */
   type_id?: string | null;
   goods_id?: string | null;
   project_money: number | null;
   price_build: number | null;
-  detail_read_at: string | null;
-  timeline: TimelineDocument;
+  detail_read_at?: string | null;
+  timeline?: TimelineDocument;
   state: IngestionState;
   outcome: IngestionOutcome;
   /** Absent on records written before retries were counted. */
@@ -95,18 +95,29 @@ interface ProcurementDocument {
   /** Why the record is held for review; absent unless its outcome is `needs_review`. */
   hold_reason?: HoldReason | null;
   status_history: StatusChange[];
-  approved: { by: string; at: string } | null;
+  approved?: { by: string; at: string } | null;
   /** Owned by report review; ingestion never writes or clears these fields. */
   publication_removed_at?: string | null;
   publication_removed_by?: string | null;
   publication_removed_report_id?: string | null;
-  archive: ArchiveRecordDocument | null;
+  archive?: ArchiveRecordDocument | null;
   analysis: TorAnalysis | null;
   /** The feed's fingerprint (`hashSource`); absent on records written before sweeps were fingerprinted. */
   source_hash?: string | null;
   /** `currentDeadline` as of the last write, for search and ordering; not part of the domain. */
-  deadline_at: string | null;
+  deadline_at?: string | null;
   updated_at: string;
+  /** Flat fields stored before ADR-0021. Canonical fields take precedence. */
+  status?: string;
+  detail_checked_at?: string | null;
+  timeline_checked_at?: string | null;
+  milestones?: Partial<Record<keyof Stages, { at: string | null } | null>>;
+  deadline_source?: 'timeline' | 'invitation' | 'tor' | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  zip_id?: string | null;
+  documents?: ArchiveDocument[];
+  tor_ambiguous?: boolean;
 }
 
 interface TimelineDocument {
@@ -136,7 +147,19 @@ export function holdReasonFor(
 }
 
 function toDomain(document: ProcurementDocument): Procurement {
-  const { timeline, archive } = document;
+  const timeline = document.timeline ?? legacyTimeline(document);
+  const archive =
+    document.archive === undefined && document.zip_id
+      ? {
+          zip_id: document.zip_id,
+          documents: document.documents ?? [],
+          tor_ambiguous: document.tor_ambiguous ?? false,
+        }
+      : document.archive;
+  const approved =
+    document.approved === undefined && document.approved_by && document.approved_at
+      ? { by: document.approved_by, at: document.approved_at }
+      : (document.approved ?? null);
   return {
     projectId: document._id,
     projectName: document.project_name,
@@ -146,12 +169,15 @@ function toDomain(document: ProcurementDocument): Procurement {
     announceDate: document.announce_date,
     purchaseMethodName: document.purchase_method_name,
     discoveredAt: document.discovered_at,
-    budgetYear: document.budget_year,
+    budgetYear: document.budget_year ?? null,
     typeId: document.type_id ?? null,
     goodsId: document.goods_id ?? null,
     projectMoney: document.project_money,
     priceBuild: document.price_build,
-    detailReadAt: document.detail_read_at,
+    detailReadAt:
+      document.detail_read_at === undefined
+        ? (document.detail_checked_at ?? null)
+        : document.detail_read_at,
     timeline: {
       status: statusFromStored(timeline.status),
       lastReadAt: timeline.last_read_at,
@@ -167,7 +193,7 @@ function toDomain(document: ProcurementDocument): Procurement {
       ...entry,
       outcome: outcomeFromStored(entry.outcome),
     })),
-    approved: document.approved,
+    approved,
     ...(document.publication_removed_at
       ? {
           publicationRemoval: {
@@ -186,6 +212,22 @@ function toDomain(document: ProcurementDocument): Procurement {
       : null,
     analysis: document.analysis,
     updatedAt: document.updated_at,
+  };
+}
+
+function legacyTimeline(document: ProcurementDocument): TimelineDocument {
+  const stages = { ...EMPTY_STAGES };
+  for (const stage of Object.keys(stages) as (keyof Stages)[]) {
+    stages[stage] = document.milestones?.[stage]?.at ?? null;
+  }
+  const officialDeadline =
+    document.deadline_source === 'timeline' || document.deadline_source === 'invitation';
+  return {
+    status: statusFromStored(document.status ?? 'unknown'),
+    last_read_at: document.timeline_checked_at ?? null,
+    comments_close_at: null,
+    deadline_at: officialDeadline ? (document.deadline_at ?? null) : null,
+    stages,
   };
 }
 
@@ -299,6 +341,8 @@ export interface FindOptions {
    * or cancelled last.
    */
   order?: 'announced' | 'urgency' | 'daysLeft';
+  /** Optional score within the existing filters. Equal scores keep the base order. */
+  scoreQualifications?: (qualifications: TorAnalysis['qualifications']) => number | null;
   /** Today in Thailand, `YYYY-MM-DD`. The `daysLeft` order counts from it. */
   today?: string;
   limit: number;
@@ -942,7 +986,7 @@ export class ProcurementRepository
       .find({
         state: { $in: ['Completed', 'Failed'] },
         outcome: { $ne: 'out_of_scope' },
-        'timeline.status': { $ne: 'contracted' },
+        $expr: { $ne: [STORED_TIMELINE_STATUS, 'contracted'] },
       })
       // Never read sorts first: null sorts before any date.
       .sort({ 'timeline.last_read_at': 1, _id: 1 })
@@ -995,12 +1039,20 @@ export class ProcurementRepository
       });
     }
     if (options.detailRead !== undefined) {
-      filter.detail_read_at = options.detailRead ? { $ne: null } : null;
+      const date = options.detailRead ? { $ne: null } : null;
+      clauses.push({
+        $or: [
+          { detail_read_at: options.detailRead ? date : { $type: 'null' } },
+          { detail_read_at: { $exists: false }, detail_checked_at: date },
+        ],
+      });
     }
     if (options.deptName) filter.dept_name = options.deptName;
     if (options.excludeRemoved) filter.publication_removed_at = null;
     if (options.budgetYear) filter.budget_year = options.budgetYear;
-    if (options.status) filter['timeline.status'] = options.status;
+    if (options.status) {
+      clauses.push({ $expr: { $in: [STORED_TIMELINE_STATUS, storedStatuses(options.status)] } });
+    }
     if (options.minBudget !== undefined || options.maxBudget !== undefined) {
       filter.project_money = {
         ...(options.minBudget !== undefined ? { $gte: options.minBudget } : {}),
@@ -1036,6 +1088,31 @@ export class ProcurementRepository
         : options.order === 'daysLeft' && options.today
           ? { stages: daysLeftOrder(options.today), fields: DAYS_LEFT_FIELDS }
           : null;
+    if (ranked && options.scoreQualifications) {
+      const score = options.scoreQualifications;
+      // Rank the whole filtered set before slicing. Keep full TOR summaries and
+      // manifests out of this scan and only fetch the selected page.
+      const candidates = collection.aggregate<{
+        _id: string;
+        analysis?: Pick<TorAnalysis, 'qualifications'>;
+      }>([{ $match: filter }, ...ranked.stages, { $project: { 'analysis.qualifications': 1 } }]);
+      const scored: { id: string; score: number }[] = [];
+      for await (const item of candidates) {
+        scored.push({ id: item._id, score: score(item.analysis?.qualifications) ?? -1 });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      const ids = scored.slice(options.offset, options.offset + options.limit).map(({ id }) => id);
+      if (!ids.length) return { items: [], total: scored.length };
+      const page = await collection.find({ $and: [filter, { _id: { $in: ids } }] }).toArray();
+      const byId = new Map(page.map((item) => [item._id, item]));
+      return {
+        items: ids.flatMap((id) => {
+          const item = byId.get(id);
+          return item ? [toDomain(item)] : [];
+        }),
+        total: scored.length,
+      };
+    }
     if (ranked) {
       const [items, total] = await Promise.all([
         collection
@@ -1258,6 +1335,7 @@ function storedStatuses(...statuses: ProcurementStatus[]): string[] {
   return [...statuses, ...legacy];
 }
 
+const STORED_TIMELINE_STATUS = { $ifNull: ['$timeline.status', '$status', 'unknown'] };
 const OPEN = storedStatuses('open');
 const DRAFTING = storedStatuses('drafting');
 const CLOSED = storedStatuses('awarded', 'contracted', 'cancelled');
@@ -1274,7 +1352,7 @@ const DAYS_LEFT_FIELDS = ['days_left_rank', 'days_left_day'];
 
 /** Most days left first. `today` and the deadline are both Thai calendar days. */
 function daysLeftOrder(today: string) {
-  const isOpen = { $in: ['$timeline.status', OPEN] };
+  const isOpen = { $in: [STORED_TIMELINE_STATUS, OPEN] };
   return [
     {
       $addFields: {
@@ -1296,9 +1374,9 @@ function daysLeftOrder(today: string) {
               // A null day compares below any date, so it never counts as upcoming.
               { case: { $and: [isOpen, { $gte: ['$days_left_day', today] }] }, then: 0 },
               { case: { $and: [isOpen, { $eq: ['$days_left_day', null] }] }, then: 1 },
-              { case: { $in: ['$timeline.status', DRAFTING] }, then: 2 },
-              { case: { $eq: ['$timeline.status', 'unknown'] }, then: 3 },
-              { case: { $in: ['$timeline.status', CLOSED] }, then: 5 },
+              { case: { $in: [STORED_TIMELINE_STATUS, DRAFTING] }, then: 2 },
+              { case: { $eq: [STORED_TIMELINE_STATUS, 'unknown'] }, then: 3 },
+              { case: { $in: [STORED_TIMELINE_STATUS, CLOSED] }, then: 5 },
             ],
             // Open with a past deadline, and evaluating.
             default: 4,
@@ -1316,7 +1394,7 @@ const URGENCY_ORDER = [
       urgency_rank: {
         $switch: {
           branches: URGENCY_RANKS.map(([rank, statuses]) => ({
-            case: { $in: ['$timeline.status', statuses] },
+            case: { $in: [STORED_TIMELINE_STATUS, statuses] },
             then: rank,
           })),
           default: 2,

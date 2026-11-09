@@ -8,6 +8,7 @@ import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { MatchEvidence } from '@/components/notifications/match-evidence';
 import { TorDownloadButton } from './tor-download-button';
+import { TorQualificationResults } from './tor-qualification-results';
 import { TorFavoriteButton } from './tor-favorite-button';
 import { TorReportButton } from './tor-report-button';
 
@@ -107,17 +108,30 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
         <SectionHeading
           id="match-heading"
           eyebrow="วิเคราะห์เบื้องต้น"
-          title="สรุปความเหมาะสมกับบริษัท"
+          title="คุณสมบัติผู้เสนอราคาเทียบกับบริษัท"
         />
-        <MatchEvidence projectId={tor.projectId} />
+        <TorQualificationResults qualifications={tor.qualifications} result={tor.matchResult} />
       </section>
+
+      {!tor.publicationRemoval && (
+        <section className="mt-10">
+          <SectionHeading
+            id="technology-match-heading"
+            eyebrow="เทียบกับผลงานบริษัท"
+            title="ความตรงกันของเทคโนโลยีและแพลตฟอร์ม"
+          />
+          <MatchEvidence projectId={tor.projectId} />
+        </section>
+      )}
 
       <section aria-labelledby="details-heading" className="mt-12">
         <SectionHeading id="details-heading" eyebrow="ข้อมูลจากประกาศ" title="รายละเอียดโครงการ" />
         <div className="mt-5 grid gap-5 lg:grid-cols-3">
           <DetailList title="วัตถุประสงค์" items={tor.objectives} />
           <DetailList title="ขอบเขตงาน" items={tor.scope} />
-          <DetailList title="คุณสมบัติผู้เสนอราคา" items={tor.bidderQualifications} />
+          {tor.qualifications === undefined && (
+            <DetailList title="คุณสมบัติผู้เสนอราคาที่ AI สรุป" items={tor.bidderQualifications} />
+          )}
         </div>
       </section>
 

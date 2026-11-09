@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+import type { TorQualification } from '@torfun/types';
 import {
   classifyTorDocument,
   MAX_INLINE_PDF_BYTES,
@@ -27,6 +28,23 @@ const validAnswer = {
     techStack: ['React', 'PostgreSQL'],
     targetPlatforms: ['web_app'],
     requiredQualifications: ['ผลงานภาครัฐย้อนหลัง 3 ปี'],
+    qualifications: [
+      {
+        kind: 'past_work',
+        workType: null,
+        minValueThb: null,
+        text: 'ผลงานภาครัฐย้อนหลัง 3 ปี',
+        source: 'ข้อ 2.1',
+        manualReviewReason: 'ต้องตรวจประเภทผู้ว่าจ้างและช่วงเวลาของผลงาน',
+      },
+      {
+        kind: 'registered_capital',
+        text: 'ทุนขั้นต่ำ 2 ล้านบาท',
+        source: 'หน้า 3',
+        minValueThb: 2_000_000,
+        manualReviewReason: null,
+      },
+    ] satisfies TorQualification[],
     isSoftware: true,
     confidence: 'high',
     reason: 'จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน',
@@ -41,6 +59,7 @@ describe('classifyTorDocument', () => {
     expect(result.torKind).toBe('final');
     expect(result.analysis?.budgetThb).toBe(4_500_000);
     expect(result.analysis?.techStack).toEqual(['React', 'PostgreSQL']);
+    expect(result.analysis?.qualifications).toEqual(validAnswer.analysis.qualifications);
     expect(result.unreadable).toBeUndefined();
   });
 
@@ -59,6 +78,18 @@ describe('classifyTorDocument', () => {
     );
     expect((await withDeadline('ภายใน 30 วัน')).analysis?.deadlineAt).toBeNull();
     expect((await withDeadline(null)).analysis?.deadlineAt).toBeNull();
+  });
+
+  test('rejects a structured qualification without a source pointer', async () => {
+    const answer = {
+      ...validAnswer,
+      analysis: {
+        ...validAnswer.analysis,
+        qualifications: [{ kind: 'manual', text: 'ต้องมีผลงานภาครัฐ' }],
+      },
+    };
+    const result = await classifyTorDocument(answering(answer), pdf());
+    expect(result.unreadable).toContain('schema');
   });
 
   test('accepts a document the model says is not a TOR', async () => {
