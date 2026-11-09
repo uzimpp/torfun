@@ -13,6 +13,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ back: vi.fn() }) }));
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchTor: vi.fn(),
+  fetchTorMatch: vi.fn(),
 }));
 
 const api = await import('@/lib/api');
@@ -48,7 +49,10 @@ const officialDeadline = {
   timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-20T09:30:00.000Z' },
 } as Procurement;
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocked.fetchTorMatch.mockResolvedValue({ match: null });
+});
 
 describe('TorReviewContent', () => {
   test('shows the summary without any confidence line', async () => {
@@ -59,7 +63,19 @@ describe('TorReviewContent', () => {
     expect(screen.queryByText(/ระดับความมั่นใจ/)).not.toBeInTheDocument();
   });
 
-  test('shows the qualification score, the TOR source pointer and the evidence used', async () => {
+  test('shows separate qualification and technology scores with their evidence', async () => {
+    mocked.fetchTorMatch.mockResolvedValueOnce({
+      match: {
+        company_id: 'company',
+        project_id: tor.projectId,
+        overall_score: 0.7,
+        reasons: ['เทคโนโลยีที่ตรงกับผลงาน: typescript'],
+        unmatched: [],
+        scoring_version: 'technology-platform-v1',
+        input_version: 'fixture',
+        computed_at: new Date(0).toISOString(),
+      },
+    });
     mocked.fetchTor.mockResolvedValue({
       ...tor,
       analysis: {
@@ -88,6 +104,9 @@ describe('TorReviewContent', () => {
     expect(screen.getByText('อ้างอิง TOR · ข้อ 4.1 หน้า 6')).toBeInTheDocument();
     expect(screen.getByText('ไม่ตรงเงื่อนไข')).toBeInTheDocument();
     expect(screen.getByText('ใบรับรองที่ตรงเงื่อนไขหมดอายุแล้ว')).toBeInTheDocument();
+    expect(await screen.findByText('คะแนนเทียบเทคโนโลยีและแพลตฟอร์ม')).toBeInTheDocument();
+    expect(screen.getByText('70%')).toBeInTheDocument();
+    expect(screen.getByText('เทคโนโลยีที่ตรงกับผลงาน: typescript')).toBeInTheDocument();
   });
 
   test('shows an official bid deadline with no note that the model read it', async () => {

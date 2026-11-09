@@ -181,7 +181,7 @@ describeMongo('ProcurementRepository', () => {
     expect((await repository.find({ limit: 25, offset: 0, detailRead: false })).total).toBe(0);
   });
 
-  test('ranks the filtered candidates before paginating and keeps unscored records last', async () => {
+  test('ranks published candidates before paginating and keeps unscored records last', async () => {
     const capital = (minValueThb: number) =>
       analysis({
         qualifications: [
@@ -193,16 +193,27 @@ describeMongo('ProcurementRepository', () => {
       procurement({ projectId: 'lower', analysis: capital(50_000) }),
       procurement({ projectId: 'higher', analysis: capital(10_000) }),
       procurement({ projectId: 'excluded', deptName: 'Excluded', analysis: capital(1) }),
+      procurement({ projectId: 'removed', analysis: capital(1) }),
     ]);
+    await (
+      await getDb()
+    )
+      .collection('procurements')
+      .updateOne(
+        { _id: 'removed' as never },
+        { $set: { publication_removed_at: '2026-10-26T00:00:00.000Z' } },
+      );
     const options: FindOptions = {
       deptName: 'กรุงเทพมหานคร',
+      excludeRemoved: true,
       order: 'daysLeft',
       today: '2026-10-26',
       limit: 1,
       offset: 0,
       scoreQualifications: (qualifications) => {
         const clause = qualifications?.[0];
-        return clause?.kind === 'registered_capital' ? Number(clause.minValueThb <= 20_000) : null;
+        if (clause?.kind !== 'registered_capital') return null;
+        return Math.max(0, 1 - clause.minValueThb / 50_000);
       },
     };
     for (const [offset, projectId] of ['higher', 'lower', 'unscored'].entries()) {
