@@ -1,5 +1,6 @@
 import {
   Bookmark,
+  Bell,
   FileStack,
   Building2,
   Database,
@@ -21,7 +22,13 @@ import type { UserRole } from '@torfun/types';
  * smaller product than one on a laptop.
  */
 export interface NavItem {
-  href: '/dashboard' | '/search' | '/admin/procurements' | '/admin/ingestion' | '/favorited';
+  href:
+    | '/dashboard'
+    | '/search'
+    | '/notifications'
+    | '/admin/procurements'
+    | '/admin/ingestion'
+    | '/favorited';
   label: string;
   Icon: LucideIcon;
   /** What this destination is for, shown where there is room to say it. */
@@ -42,6 +49,16 @@ export function workspaceNav(role: UserRole): NavItem[] {
       Icon: Search,
       hint: 'ค้นประกาศจากคลังข้อมูล',
     },
+    ...(role === 'business_development_officer'
+      ? [
+          {
+            href: '/notifications' as const,
+            label: 'การแจ้งเตือน',
+            Icon: Bell,
+            hint: 'โอกาสที่ตรงกับบริษัทและการเปลี่ยนสถานะ',
+          },
+        ]
+      : []),
     ...(role === 'admin'
       ? ([
           {
@@ -105,6 +122,7 @@ export function accountNav(role: UserRole): AccountNavItem[] {
         Icon: ScrollText,
       },
       { href: '/admin/tor-reports', label: 'รายงาน TOR จากผู้ใช้', Icon: Flag },
+      { href: '/admin/notifications', label: 'บันทึกการส่งแจ้งเตือน', Icon: Bell },
       { href: '/admin/accounts', label: 'จัดการบัญชีผู้ใช้', Icon: Users },
       settings,
     ];
@@ -112,6 +130,7 @@ export function accountNav(role: UserRole): AccountNavItem[] {
 
   return [
     { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
+    { href: '/notifications', label: 'การแจ้งเตือน', Icon: Bell },
     { href: '/company', label: 'บริษัทและผลงาน', Icon: Building2 },
     { href: '/favorited', label: 'TOR ที่บันทึกไว้', Icon: Bookmark },
     settings,
