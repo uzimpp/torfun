@@ -1,4 +1,11 @@
-import type { AnyBulkWriteOperation, ClientSession, Collection, Db, UpdateFilter } from 'mongodb';
+import {
+  ObjectId,
+  type AnyBulkWriteOperation,
+  type ClientSession,
+  type Collection,
+  type Db,
+  type UpdateFilter,
+} from 'mongodb';
 import type {
   ArchiveDocument,
   DailyDiscovered,
@@ -427,6 +434,23 @@ interface FeedCursorDocument {
   units: FeedCursor;
 }
 
+interface ChangeDocument {
+  _id: ObjectId;
+  record: ProcurementDocument;
+  created_at: Date;
+  lease_until?: Date;
+  lease_token?: string;
+  attempts: number;
+  done?: boolean;
+  expires_at?: Date;
+}
+
+export interface ProcurementChange {
+  id: string;
+  record: Procurement;
+  leaseToken: string;
+}
+
 /** The persistence shape of a Tombstone; snake_case like the rest of what is in Atlas. */
 interface TombstoneDocument {
   _id: string;
@@ -547,6 +571,109 @@ export class ProcurementRepository
 {
   constructor(private readonly getDb: () => Promise<Db>) {}
 
+  /** Store the procurement and its change record in the same transaction. */
+  private async persist(
+    document: ProcurementDocument,
+    insert: boolean,
+    notify = true,
+  ): Promise<ProcurementDocument | null> {
+    const db = await this.getDb();
+    const session = db.client.startSession();
+    try {
+      return await session.withTransaction(async () => {
+        const records = db.collection<ProcurementDocument>('procurements');
+        let stored = document;
+        if (insert) {
+          await records.insertOne(document, { session });
+        } else {
+          // A report review can change publication metadata after the caller's read.
+          const updated = await records.findOneAndUpdate(
+            { _id: document._id },
+            ingestionUpdate(document),
+            { session, returnDocument: 'after' },
+          );
+          if (!updated) return null;
+          stored = updated;
+        }
+        if (notify)
+          await db.collection<ChangeDocument>('notification_procurement_changes').insertOne(
+            {
+              _id: new ObjectId(),
+              record: stored,
+              created_at: new Date(),
+              attempts: 0,
+            },
+            { session },
+          );
+        return stored;
+      });
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async claimNotificationChange(now: Date): Promise<ProcurementChange | null> {
+    const leaseToken = crypto.randomUUID();
+    const row = await (
+      await this.getDb()
+    )
+      .collection<ChangeDocument>('notification_procurement_changes')
+      .findOneAndUpdate(
+        {
+          done: { $ne: true },
+          $or: [{ lease_until: { $exists: false } }, { lease_until: { $lte: now } }],
+        },
+        {
+          $set: { lease_token: leaseToken, lease_until: new Date(now.getTime() + 120000) },
+          $inc: { attempts: 1 },
+        },
+        { sort: { _id: 1 }, returnDocument: 'after' },
+      );
+    return row ? { id: row._id.toString(), record: toDomain(row.record), leaseToken } : null;
+  }
+
+  async finishNotificationChange(change: ProcurementChange): Promise<void> {
+    await (
+      await this.getDb()
+    )
+      .collection<ChangeDocument>('notification_procurement_changes')
+      .updateOne(
+        { _id: new ObjectId(change.id), lease_token: change.leaseToken },
+        {
+          $set: { done: true, expires_at: new Date(Date.now() + 30 * 86400000) },
+          $unset: { lease_until: '', lease_token: '' },
+        },
+      );
+  }
+
+  /** A bounded reconciliation read also picks up profile edits and accounts joining later. */
+  async notificationPage(after: string, limit: number): Promise<Procurement[]> {
+    const records = await (
+      await this.records()
+    )
+      .find({ _id: { $gt: after } })
+      .sort({ _id: 1 })
+      .limit(limit)
+      .toArray();
+    return records.map(toDomain);
+  }
+
+  async isPublished(projectId: string): Promise<boolean> {
+    return Boolean(
+      await (
+        await this.getDb()
+      )
+        .collection<ProcurementDocument>('procurements')
+        .findOne({ _id: projectId, publication_removed_at: null }, { projection: { _id: 1 } }),
+    );
+  }
+
+  async notificationRecords(projectIds: string[]): Promise<Procurement[]> {
+    return (await (await this.records()).find({ _id: { $in: projectIds } }).toArray()).map(
+      toDomain,
+    );
+  }
+
   private async records(): Promise<Collection<ProcurementDocument>> {
     return (await this.getDb()).collection<ProcurementDocument>('procurements');
   }
@@ -570,6 +697,14 @@ export class ProcurementRepository
    * the retrieval sort is a collection scan on every run.
    */
   async ensureIndexes(): Promise<void> {
+    await (
+      await this.getDb()
+    )
+      .collection('notification_procurement_changes')
+      .createIndexes([
+        { key: { done: 1, lease_until: 1, _id: 1 } },
+        { key: { expires_at: 1 }, expireAfterSeconds: 0 },
+      ]);
     await (
       await this.records()
     ).createIndexes([
@@ -649,18 +784,12 @@ export class ProcurementRepository
 
     if (!existing) {
       const document = toDocument(record, hashSource(record));
-      await collection.insertOne(document);
+      await this.persist(document, true);
       return toDomain(document);
     }
 
     const merged = mergedDocument(existing, record);
-    // Report-review metadata may change after the read above. Only set fields
-    // owned by ingestion so a concurrent removal and its audit trail survive.
-    const updated = await collection.findOneAndUpdate(
-      { _id: record.projectId },
-      ingestionUpdate(merged),
-      { returnDocument: 'after' },
-    );
+    const updated = await this.persist(merged, false, merged.updated_at !== existing.updated_at);
     if (!updated) throw new Error(`Procurement ${record.projectId} disappeared during rediscovery`);
     return toDomain(updated);
   }
@@ -678,28 +807,53 @@ export class ProcurementRepository
     );
 
     const operations: AnyBulkWriteOperation<ProcurementDocument>[] = [];
+    const changes: ChangeDocument[] = [];
     for (const record of records) {
       const existing = stored.get(record.projectId);
       if (!existing) {
         summary.created += 1;
         summary.createdIds.push(record.projectId);
-        operations.push({ insertOne: { document: toDocument(record, hashSource(record)) } });
+        const document = toDocument(record, hashSource(record));
+        operations.push({ insertOne: { document } });
+        changes.push({
+          _id: new ObjectId(),
+          record: document,
+          created_at: new Date(),
+          attempts: 0,
+        });
         continue;
       }
 
       if (hasUpstreamChange(existing.source_hash ?? null, toDomain(existing), record)) {
         summary.changed += 1;
       } else summary.unchanged += 1;
+      const document = mergedDocument(existing, record);
       operations.push({
-        updateOne: {
-          filter: { _id: record.projectId },
-          update: ingestionUpdate(mergedDocument(existing, record)),
-        },
+        updateOne: { filter: { _id: record.projectId }, update: ingestionUpdate(document) },
       });
+      if (document.updated_at !== existing.updated_at)
+        changes.push({
+          _id: new ObjectId(),
+          record: document,
+          created_at: new Date(),
+          attempts: 0,
+        });
     }
 
-    // Unordered: one bad document must not stop the rest of a sweep being stored.
-    await collection.bulkWrite(operations, { ordered: false });
+    // Commit the feed batch with its outbox; a failed write leaves neither half stored.
+    const db = await this.getDb();
+    const session = db.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await collection.bulkWrite(operations, { ordered: false, session });
+        if (changes.length)
+          await db
+            .collection<ChangeDocument>('notification_procurement_changes')
+            .insertMany(changes, { session });
+      });
+    } finally {
+      await session.endSession();
+    }
     return summary;
   }
 
@@ -734,8 +888,8 @@ export class ProcurementRepository
       },
       existing.source_hash ?? null,
     );
-    await collection.updateOne({ _id: projectId }, ingestionUpdate(updated));
-    return this.get(projectId);
+    const stored = await this.persist(updated, false);
+    return stored ? toDomain(stored) : undefined;
   }
 
   async amend(
@@ -755,8 +909,8 @@ export class ProcurementRepository
       },
       existing.source_hash ?? null,
     );
-    await collection.updateOne({ _id: projectId }, ingestionUpdate(updated));
-    return this.get(projectId);
+    const stored = await this.persist(updated, false, touch);
+    return stored ? toDomain(stored) : undefined;
   }
 
   async markRemoved(

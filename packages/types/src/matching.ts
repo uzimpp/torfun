@@ -6,9 +6,9 @@ import { z } from 'zod';
  * here was never imported and described the same thing differently — see
  * ADR-0009.
  *
- * `MatchResult` is still keyed on `projectId` alone. It needs a company key
- * before scoring is built, or one vendor's score would be shown to another;
- * that change belongs to the matching feature (ADR-0007).
+ * Scores belong to a company, never to a procurement alone (ADR-0007).
+ * This first scorer compares documented technology and platform overlap.
+ * Legal qualifications, industry and delivery capacity remain unverified.
  */
 export const MatchScoreBreakdownSchema = z.object({
   techStackScore: z.number().min(0).max(1),
@@ -20,9 +20,14 @@ export const MatchScoreBreakdownSchema = z.object({
 export type MatchScoreBreakdown = z.infer<typeof MatchScoreBreakdownSchema>;
 
 export const MatchResultSchema = z.object({
+  companyId: z.string(),
   projectId: z.string(),
   overallScore: z.number().min(0).max(1),
   breakdown: MatchScoreBreakdownSchema,
   computedAt: z.coerce.date(),
+  reasons: z.array(z.string()),
+  unmatched: z.array(z.string()),
+  scoringVersion: z.string(),
+  inputVersion: z.string(),
 });
 export type MatchResult = z.infer<typeof MatchResultSchema>;
