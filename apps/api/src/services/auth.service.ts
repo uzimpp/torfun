@@ -1,6 +1,12 @@
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../core/errors';
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  UnauthorizedError,
+} from '../core/errors';
 import type { User, UserRole } from '@torfun/types';
 import type { RefreshTokenStore } from '../repositories/refresh-token.repository';
 import type { UserStore } from '../repositories/user.repository';
@@ -174,7 +180,7 @@ export class AuthService {
   }
 
   async login(username: string, password: string): Promise<AuthResult> {
-    const credentials = await this.users.findCredentials(username);
+    const credentials = await this.users.findCredentials({ username });
 
     // One message for "no such user" and "wrong password" alike, so the
     // endpoint can't be used to enumerate valid usernames.
@@ -219,9 +225,34 @@ export class AuthService {
     return this.issue(created);
   }
 
-  async getById(id: string): Promise<User> {
-    const user = await this.users.findById(id);
-    if (!user) throw new NotFoundError('User not found');
-    return user;
+  private async activeCredentials(id: string) {
+    const credentials = await this.users.findCredentials({ id });
+    if (!credentials) throw new NotFoundError('User not found');
+    if (!credentials.user.isActive) throw new ForbiddenError('Account is deactivated');
+    return credentials;
+  }
+
+  async getAccount(id: string) {
+    const { user, passwordHash } = await this.activeCredentials(id);
+    return { user, hasLocalPassword: Boolean(passwordHash) };
+  }
+
+  async updateProfile(id: string, profile: Pick<User, 'firstName' | 'lastName'>) {
+    if (!(await this.users.updateProfile(id, profile))) {
+      throw new ForbiddenError('Account is unavailable');
+    }
+  }
+
+  async changePassword(id: string, currentPassword: string, newPassword: string) {
+    const { passwordHash } = await this.activeCredentials(id);
+    if (!passwordHash) throw new ForbiddenError('This account has no Torfun password');
+    if (!(await bcrypt.compare(currentPassword, passwordHash))) {
+      throw new BadRequestError('Current password is incorrect');
+    }
+
+    const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    if (!(await this.users.replacePassword(id, passwordHash, newHash))) {
+      throw new ConflictError('Account changed during this request. Please try again.');
+    }
   }
 }

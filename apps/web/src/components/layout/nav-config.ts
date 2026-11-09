@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   ScrollText,
   Search,
+  Settings,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -87,6 +88,11 @@ export interface AccountNavItem {
 }
 
 export function accountNav(role: UserRole): AccountNavItem[] {
+  const settings = {
+    href: '/settings',
+    label: 'ตั้งค่าบัญชี',
+    Icon: Settings,
+  } satisfies AccountNavItem;
   if (role === 'admin') {
     return [
       { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
@@ -100,6 +106,7 @@ export function accountNav(role: UserRole): AccountNavItem[] {
       },
       { href: '/admin/tor-reports', label: 'รายงาน TOR จากผู้ใช้', Icon: Flag },
       { href: '/admin/accounts', label: 'จัดการบัญชีผู้ใช้', Icon: Users },
+      settings,
     ];
   }
 
@@ -107,6 +114,7 @@ export function accountNav(role: UserRole): AccountNavItem[] {
     { href: '/dashboard', label: 'แดชบอร์ด', Icon: LayoutDashboard },
     { href: '/company', label: 'บริษัทและผลงาน', Icon: Building2 },
     { href: '/favorited', label: 'TOR ที่บันทึกไว้', Icon: Bookmark },
+    settings,
   ];
 }
 
