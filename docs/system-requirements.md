@@ -140,8 +140,9 @@ A fuller treatment is in [architecture.md §3](architecture.md#3-system-context)
 | BD Officer | `business_development_officer` | Thai-speaking sales/bid staff at a software house; reads many TORs; not technical about the pipeline | Sees only procurements whose TOR was read and approved for display; manages own Company record, favourites; reports TORs |
 | Site Administrator | `admin` | Operator; understands pipeline states and failures | Sees the full queue (including held and failed); runs ingestion; moderates; manages accounts. Never holds a Company |
 
-Self-registration always yields a BD Officer; admin is granted in the database
-and never self-claimed (FR-AUTH-04).
+Self-registration always yields a BD Officer; admin is never self-claimed: an
+existing administrator grants it (`PATCH /api/admin/users/:id`), and the first
+administrator is set in the database (FR-AUTH-04).
 
 ### 2.4 Operating environment
 
@@ -183,11 +184,11 @@ Priority: **M** Must, **S** Should, **C** Could. Status: **I** Implemented, **P*
 | FR-AUTH-01 | A visitor shall be able to register with username, first/last name and password. | M | I |
 | FR-AUTH-02 | A user shall be able to sign in with username/password. | M | I |
 | FR-AUTH-03 | A user shall be able to sign in with Google (OAuth 2.0); the callback redirects into the web app. | M | I |
-| FR-AUTH-04 | Self-registration shall always create a `business_development_officer`. The `admin` role shall be assignable only in the database. | M | I |
+| FR-AUTH-04 | Self-registration shall always create a `business_development_officer`. The `admin` role shall be assignable only by an existing administrator (not on their own account; the last active administrator cannot be demoted or deactivated) or directly in the database. | M | I |
 | FR-AUTH-05 | Sessions shall use a short-lived access JWT (15 min) and a long-lived refresh token (30 days), both in `httpOnly` cookies. | M | I |
 | FR-AUTH-06 | Refresh tokens shall rotate on use; presenting a revoked or reused token shall revoke the whole token family. | M | I |
 | FR-AUTH-07 | Credential endpoints shall be throttled per IP (30 / 15 min) and per account (10 / 15 min). | M | I |
-| FR-AUTH-08 | An administrator shall be able to list accounts and change an account's status (activate/deactivate). | S | I |
+| FR-AUTH-08 | An administrator shall be able to list accounts, activate or deactivate an account, and grant or revoke the `admin` role. | S | I |
 | FR-AUTH-09 | A deactivated account shall be unable to sign in or refresh. | M | I |
 | FR-AUTH-10 | A signed-in officer without a Company shall be directed to the Company-setup flow before using protected pages (administrators exempt). | S | I |
 

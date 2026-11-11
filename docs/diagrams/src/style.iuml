@@ -1,0 +1,26 @@
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam defaultFontName DejaVu Sans
+skinparam defaultFontSize 12
+skinparam roundCorner 8
+skinparam ArrowColor #44546A
+skinparam titleFontSize 16
+skinparam NoteBackgroundColor #FFF8DC
+skinparam NoteBorderColor #B8A04A
+skinparam ActivityBackgroundColor #F2F6FC
+skinparam ActivityBorderColor #4A6FA5
+skinparam ActivityDiamondBackgroundColor #FFF4D6
+skinparam ActivityDiamondBorderColor #B8860B
+skinparam PartitionBorderColor #7F8FA9
+skinparam PartitionBackgroundColor #FAFBFD
+skinparam ComponentBackgroundColor #F2F6FC
+skinparam ComponentBorderColor #4A6FA5
+skinparam ClassBackgroundColor #F2F6FC
+skinparam ClassBorderColor #4A6FA5
+skinparam StateBackgroundColor #F2F6FC
+skinparam StateBorderColor #4A6FA5
+skinparam SequenceLifeLineBorderColor #7F8FA9
+skinparam SequenceParticipantBackgroundColor #F2F6FC
+skinparam SequenceParticipantBorderColor #4A6FA5
+skinparam packageStyle rectangle
+skinparam dpi 150

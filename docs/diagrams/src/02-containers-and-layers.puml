@@ -1,0 +1,50 @@
+@startuml 02-containers-and-layers
+!pragma layout smetana
+!include style.iuml
+title Containers and API layers
+package "packages/types (the contract)" as types {
+  [zod schemas\nProcurement, User, Company,\nSchedule, TorReport ...] as schemas
+  [Thai labels, cookie names,\nshared constants] as consts
+}
+package "apps/web - Next.js App Router" as web {
+  [Server components\nrequireUser / requireAdmin] as sc
+  [Client components\nuse*Data hooks, lib/api.ts] as cc
+}
+package "apps/api - Fastify" as api {
+  package "HTTP edge" as edge {
+    [plugins\nhelmet, CORS, rate-limit,\nJWT, Google OAuth] as plugins
+    [hooks\nrequireAuth, requireAdmin,\ncredential throttle] as hooks
+    [routes\nvalidate -> ONE service -> shape response] as routes
+  }
+  package "Business logic" as biz {
+    [services\nauth, company, tor, favorite,\ntor-report, ingestion, scheduler,\nprocurement-admin] as services
+    [services/egp\nadapter + pipeline + Gate] as egp
+    [services/vertex\nprompts + model calls] as vertex
+  }
+  [repositories\nonly document <-> domain mapping] as repos
+  [core\nMongo lifecycle, error taxonomy] as core
+}
+database "MongoDB" as db
+cloud "e-GP" as e
+cloud "Vertex AI" as v
+sc --> routes : cookies forwarded
+cc --> routes : fetch, credentials include
+plugins --> routes
+hooks --> routes
+routes --> services
+services --> egp
+services --> vertex
+services --> repos
+egp --> repos
+repos --> core
+core --> db
+egp --> e : via the Gate
+vertex --> v
+web ..> types : imports
+api ..> types : imports
+note bottom of routes
+  ESLint enforces the arrows:
+  routes never import repositories,
+  services never import Fastify types.
+end note
+@enduml

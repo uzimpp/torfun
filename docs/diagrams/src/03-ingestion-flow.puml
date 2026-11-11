@@ -1,0 +1,78 @@
+@startuml 03-ingestion-flow
+!include style.iuml
+title Procurement ingestion - full flow of one new procurement
+start
+partition "1. Discovery  (through the Gate: tier new_day or history)" {
+  :Ask the e-GP announcement feed for ONE agency,\nONE type (B0 draft or D0 invitation) and ONE day;
+  :For each feed row;
+  if (Agency in Source Registry?) then (no)
+    :skip - not_registry;
+    stop
+  elseif (Method is e-bidding?) then (no)
+    :skip - not_e_bidding;
+    stop
+  elseif (Tombstoned?) then (yes)
+    :skip - tombstoned;
+    stop
+  else (admit)
+  endif
+  :Store record\nstate Queued, outcome queued\ndetailReadAt = null, budgetYear = null;
+  :Save the agency-day to the Feed Cursor\n(today is never recorded as done);
+}
+partition "2. Detail turn  (Gate tier detail, once per project)" {
+  :getProcurementDetail\n-> goodsId, typeId, amounts;
+  if (goodsId in 4010 / 4016 / 99\nor unknown?) then (no)
+    :outcome = out_of_scope\nnothing more is read;
+    stop
+  else (yes)
+  endif
+  :getProjectDetail -> budgetYear\n(null until read, never guessed);
+  :detailReadAt = now;
+}
+:Wait for a waiting-room place\n(at most ANALYSIS_CONCURRENCY archives in memory);
+partition "3. Retrieval turn  (Gate tier fresh, ONE hold)" {
+  :outcome = downloading;
+  :Timeline (greenBook)\n-> Procurement Status from milestones only;
+  :Archive lookup infoProcureDocAnnounZip -> zipId;
+  if (zipId present?) then (no)
+    :outcome = no_tor_package\n(state Failed, kind no_tor);
+    stop
+  else (yes)
+  endif
+  :Download ZIP downloadFileTest(zipId)\ncheck content-type and PK magic number;
+  :Release the Gate\nthen politeness pause 4 to 6 s;
+}
+partition "4. Analysis  (outside the Gate - Vertex AI only)" {
+  :outcome = analysing;
+  :List members, apply path-traversal guard\n(unsafe members are surfaced in the failure log);
+  :Extract TOR-named PDFs only\n(plus at most 4 unlabelled candidates);
+  if (Any candidate?) then (no)
+    :outcome = no_tor_in_archive;
+    stop
+  else (yes)
+  endif
+  :Gemini classifies and analyses each PDF\n(one call per document);
+  :assignDocumentRoles\nmain_tor / tor_variant / not_tor / unreadable;
+  if (Main TOR found?) then (no)
+    if (Any candidate unreadable?) then (yes)
+      :outcome = analysis_failed;
+    else (no)
+      :outcome = no_tor_in_archive;
+    endif
+    stop
+  else (yes)
+  endif
+  :decideOutcome(isSoftware, confidence, partialRead);
+  if (Partial read or low confidence?) then (yes)
+    :outcome = needs_review\nholdReason set - an administrator decides;
+  elseif (Software and high confidence?) then (yes)
+    :outcome = tor_analysed\nvisible to officers;
+  else (not software, high)
+    :Tombstone ai_not_software\nrecord deleted, quote kept;
+    stop
+  endif
+  :Read invitation PDF -> official bid deadline;
+  :Store analysis, archive manifest, timeline.deadlineAt\n(the PDF itself is NOT stored);
+}
+stop
+@enduml

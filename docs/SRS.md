@@ -174,7 +174,8 @@ crawling errors, manage system configuration and monitor platform health.
 
 > **Note.** In the code the roles are `business_development_officer` and `admin`
 > (the two roles of FR-02). "Guest" is the absence of a session. Self-registration
-> always creates a BD Officer; `admin` is granted in the database, never claimed.
+> always creates a BD Officer; `admin` is never self-claimed. An existing administrator can grant or
+> revoke it (`PATCH /api/admin/users/:id`), and the first one is set in the database.
 
 ### 2.3 Assumptions and Dependencies
 
@@ -213,6 +214,10 @@ crawling errors, manage system configuration and monitor platform health.
 ---
 
 ## 3. User Stories
+
+![Use cases](diagrams/png/16-use-cases.png)
+
+The diagram maps the stories to the built system; planned stories are marked.
 
 Status reflects whether the story can be completed end to end in the built system.
 
@@ -255,7 +260,7 @@ Status reflects whether the story can be completed end to end in the built syste
 | FR-03 | The authentication mechanism SHALL support both username/password and Google OAuth. | ✅ | |
 | FR-04 | The authentication mechanism SHALL also provide a mechanism to add themselves to any company and be able to create one if it does not exist. | ✅ | Company typeahead, join and create (`/companies`). |
 | FR-05 | The system SHALL provide a Sign Out function that invalidates the current session. | ✅ | Clears cookies and revokes the refresh-token family. |
-| FR-06 | Site Administrators SHALL be able to create, suspend, and remove Authenticated User accounts. | 🟡 | **⚠ Open (D-07).** List and activate/deactivate (suspend) exist. Create-by-admin and remove do not. |
+| FR-06 | Site Administrators SHALL be able to create, suspend, and remove Authenticated User accounts. | 🟡 | **⚠ Open (D-07).** List, activate/deactivate (suspend) and grant/revoke the admin role exist (not on their own account; the last active admin is protected). Create-by-admin and remove do not. |
 | FR-07 | Site Administrators SHALL be able to edit their own profile and credentials. | ❔ | No profile or password-change route found on `develop`. A `feature/account-settings` branch exists. |
 
 ### 4.2 Announcement Ingestion
@@ -411,7 +416,7 @@ The *Original wording* column preserves what the SRS said before.
 | D-11 | Appendix B had terms from another project | **Applied** — Appendix B | Quota ("songs"), Standard Audio Controls, UUID ("shared songs") | Copy-paste from a template. Added TOR, e-GP, Procurement, Archive, Run/Gate. |
 | D-12 | Authentication is decided | **Applied** — §1.3 | "The authentication mechanism is TBD" | FR-03 already fixes username/password and Google OAuth. |
 | **D-05** | One shared Company Profile, admin-edited, vs. a Company per vendor made of Clients and Experience, edited by officers | **⚠ Open** — FR-21, FR-22, §1.3 and "Per-user profiles" unchanged | — | The code follows ADR-0007 and -0009. It conflicts with the "single shared profile" scope and with the out-of-scope item. If several vendors share one deployment, rewrite FR-21/22 and drop the exclusion. If not, the code has to change. Also decides how FR-23 (matching) is keyed. |
-| **D-07** | Admins create, suspend and **remove** accounts | **⚠ Open** — FR-06 unchanged | — | Built: list and activate/deactivate; users self-register. Decide whether admin-created and removable accounts are wanted. |
+| **D-07** | Admins create, suspend and **remove** accounts | **⚠ Open** — FR-06 unchanged | — | Built: list, activate/deactivate and grant/revoke admin; users self-register. Decide whether admin-created and removable accounts are wanted. |
 | **D-08** | Admins manage the Source Registry | **⚠ Open** — FR-40 unchanged | — | Built: a fixed list in code ("membership is a product decision, not configuration"). Either build an admin UI or reword FR-40 to "changed by a reviewed code change". |
 
 ### 6.3 Remaining gaps (not deviations)
