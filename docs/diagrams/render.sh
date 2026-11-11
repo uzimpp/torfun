@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Renders every diagram in docs/diagrams/src/*.puml to png/ and svg/.
+# Renders every diagram in docs/diagrams/src/*.puml to png/.
 #
 # Needs Java 17+ and plantuml.jar. Point PLANTUML_JAR at the jar (default: a
 # `plantuml` on PATH). The sources use PlantUML's built-in Smetana layout, so
@@ -17,7 +17,6 @@ else
   run=(plantuml)
 fi
 export PLANTUML_LIMIT_SIZE=16384  # default 4096 px silently clips tall diagrams
-mkdir -p "$here/png" "$here/svg"
+mkdir -p "$here/png"
 "${run[@]}" -charset UTF-8 -tpng -o ../png "$here"/src/[0-9]*.puml
-"${run[@]}" -charset UTF-8 -tsvg -o ../svg "$here"/src/[0-9]*.puml
-echo "rendered $(ls "$here"/png | wc -l) diagrams to $here/{png,svg}"
+echo "rendered $(ls "$here"/png | wc -l) diagrams to $here/png"
