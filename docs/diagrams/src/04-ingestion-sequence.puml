@@ -1,0 +1,49 @@
+@startuml 04-ingestion-sequence
+!include style.iuml
+title Ingestion - who talks to whom (one new project)
+autonumber
+participant "Discovery" as D
+database "MongoDB" as DB
+participant "Retrieval queue" as Q
+participant "Gate" as G
+participant "e-GP" as E
+participant "Retrieval worker" as W
+participant "Analysis task" as A
+participant "Vertex AI" as V
+D -> G : acquire(new_day)
+G -> E : GET feed (agency, type, day)
+E --> D : RSS items
+D -> DB : admit, insert Queued, save Feed Cursor
+D -> Q : enqueue project
+D -> G : acquire(detail)
+G -> E : getProcurementDetail
+G -> E : getProjectDetail
+E --> D : goodsId, budgetYear
+alt goods category out of scope
+  D -> DB : outcome = out_of_scope
+else in scope
+  D -> DB : detailReadAt = now
+end
+W -> Q : pick() - needs a waiting-room place
+Q --> W : project + place
+W -> DB : outcome = downloading
+W -> G : acquire(fresh)
+G -> E : timeline (greenBook)
+E --> W : milestones
+W -> DB : timeline + Procurement Status
+G -> E : infoProcureDocAnnounZip
+E --> W : zipId or none
+G -> E : downloadFileTest(zipId)
+E --> W : ZIP bytes
+W -> G : release (pause 4-6 s)
+W -> A : start(archive) - held in memory
+A -> DB : outcome = analysing
+loop each TOR-named PDF
+  A -> V : classify + analyse (base64 PDF)
+  V --> A : isTor, isSoftware, confidence, analysis
+end
+A -> V : read invitation PDF
+V --> A : bid date
+A -> DB : decideOutcome -> tor_analysed / needs_review / tombstone
+A -> Q : release waiting-room place
+@enduml

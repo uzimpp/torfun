@@ -39,6 +39,10 @@ this page and the code disagree, the code wins — fix this page.
 
 ## 3. Entity relationships
 
+![Domain model](diagrams/png/09-domain-model.png)
+
+The Mermaid ER diagram below is the same model in diff-friendly form.
+
 ```mermaid
 erDiagram
     COMPANY ||--o{ USER : "employs (company_id)"

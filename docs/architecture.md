@@ -9,6 +9,14 @@
 
 Requirement IDs (FR-*, NFR-*, CON-*) refer to [system-requirements.md](system-requirements.md).
 
+**Rendered diagrams (PNG/SVG, PlantUML)** are in [`diagrams/`](diagrams/README.md); the full
+retrieval flow is in [ingestion-flow.md](ingestion-flow.md) and the HTTP surface in [api.md](api.md).
+The Mermaid blocks below stay in sync as the quick, diff-friendly version.
+
+![System context](diagrams/png/01-system-context.png)
+
+![Containers and API layers](diagrams/png/02-containers-and-layers.png)
+
 ## 1. Introduction and goals
 
 torfun finds Thai government software procurement a software house can bid on.
@@ -233,10 +241,12 @@ sequenceDiagram
     D->>G: feed(agency, type, day)
     G->>E: GET RSS
     E-->>D: items
-    D->>DB: insert Queued (unless tombstoned)
+    D->>DB: insert Queued, detail unread (unless tombstoned)
     D->>R: enqueue projectId
-    R->>G: turn (detail → timeline → archive lookup → download)
-    G->>E: getProjectDetail
+    D->>G: turn at tier 'detail' (once per project)
+    G->>E: getProcurementDetail, then getProjectDetail
+    Note over D,DB: goods category out of scope → out_of_scope, stop
+    R->>G: turn at tier 'fresh' (one hold)
     G->>E: greenBook timeline
     Note over R,DB: status from milestones only
     G->>E: archive lookup + download

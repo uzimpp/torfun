@@ -1,0 +1,44 @@
+@startuml 16-use-cases
+!pragma layout smetana
+!include style.iuml
+title Use cases (SRS user stories mapped to the built system)
+left to right direction
+actor "Guest" as G
+actor "BD Officer" as O
+actor "Site Administrator" as A
+rectangle "torfun" {
+  usecase "Register / sign in\n(password or Google)" as UC1
+  usecase "Join or create a Company" as UC2
+  usecase "Record Clients and Experience" as UC3
+  usecase "Search and filter TORs\nUS-03, US-04" as UC4
+  usecase "Read AI summary and analysis\nUS-05" as UC5
+  usecase "View or download source TOR\nUS-06, US-07" as UC6
+  usecase "Favourite a TOR (My TOR)\nUS-10" as UC7
+  usecase "Report a TOR\nUS-14" as UC8
+  usecase "Run / stop / schedule ingestion\nUS-15" as UC9
+  usecase "Monitor collection and failures\nUS-17, US-18" as UC10
+  usecase "Review held records\nUS-16" as UC11
+  usecase "Moderate TORs\nand reports\nUS-20, US-21" as UC12
+  usecase "Manage accounts\nUS-19" as UC13
+  usecase "Match score vs Company\nUS-08 (PLANNED)" as UC14
+  usecase "Notifications\nUS-11 to US-13 (PLANNED)" as UC15
+}
+G --> UC1
+O --> UC1
+A --> UC1
+O --> UC2
+O --> UC3
+O --> UC4
+O --> UC5
+O --> UC6
+O --> UC7
+O --> UC8
+O --> UC14
+O --> UC15
+A --> UC9
+A --> UC10
+A --> UC11
+A --> UC12
+A --> UC13
+UC5 ..> UC6 : <<extend>>
+@enduml

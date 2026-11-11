@@ -1,0 +1,25 @@
+@startuml 01-system-context
+!pragma layout smetana
+!include style.iuml
+title System context - torfun
+left to right direction
+actor "BD Officer" as officer
+actor "Site Administrator" as admin
+rectangle "torfun" {
+  component "Web app\nNext.js 16" as web
+  component "API\nFastify 5 on Bun" as api
+}
+database "MongoDB Atlas" as db
+cloud "e-GP\nprocess.gprocurement.go.th\n(feed, project pages, TOR archives)" as egp
+cloud "Vertex AI\nGemini" as vertex
+cloud "Google OAuth 2.0" as oauth
+cloud "e-GP open-data API\n(health check only)" as od
+officer --> web : search, review,\nfavourite, report
+admin --> web : run ingestion,\nmoderate, manage accounts
+web --> api : JSON over HTTPS\nhttpOnly cookies
+api --> db : read / write
+api --> egp : read-only, ONE request at a\ntime through the Gate
+api --> vertex : TOR PDFs in,\nstructured analysis out
+api --> oauth : sign-in
+api ..> od : dependency probe
+@enduml
