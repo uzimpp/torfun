@@ -1,0 +1,30 @@
+@startuml 06-failure-handling
+!include style.iuml
+title What happens when a record's turn fails
+start
+:A record's turn throws;
+if (Gate latched or closed?\n(the Run is stopping)) then (yes)
+  :Never reached the site.\nFresh record goes back to queued.\nAttempt NOT spent.;
+  stop
+elseif (Site stopped answering?\n(siteDown)) then (yes)
+  :Logged. Fresh record goes back to queued.\nAttempt NOT spent. Gate closes.;
+  stop
+elseif (429 or 403 refusal?) then (yes)
+  :Gate LATCHED for the rest of the Run.\nLogged. Fresh record goes back to queued.\nAttempt NOT spent.;
+  stop
+else (deadline 5 min or other transport error)
+endif
+:Log the failure with its stage;
+if (Fresh project?) then (no - refresh)
+  :Outcome untouched, counted as failed;
+  stop
+else (yes)
+endif
+:attempts = attempts + 1;
+if (attempts >= 3?) then (yes)
+  :outcome = abandoned\nstate Failed;
+else (no)
+  :outcome = error\nstate Queued - retried next Run;
+endif
+stop
+@enduml

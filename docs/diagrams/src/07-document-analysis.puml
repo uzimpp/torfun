@@ -1,0 +1,44 @@
+@startuml 07-document-analysis
+!include style.iuml
+title Analysis - from ZIP to a decision
+start
+:ZIP held in memory;
+:List member names - nothing inflated yet;
+if (Name passes the path-traversal guard?) then (no)
+  :Surface in the failure log\nnever silently dropped;
+  stop
+else (yes)
+endif
+if (Name matches a TOR pattern\n(canonical or loose)?) then (yes)
+  :Candidate;
+elseif (Not a known boilerplate member?\n(bonds, contracts, forms, announcement)) then (yes)
+  :Unlabelled candidate - at most 4;
+else (no)
+  :Ignored - never read;
+  stop
+endif
+:Inflate only the chosen members;
+if (PDF 15 MB or less?) then (yes)
+  :Send the whole PDF as base64\nreadMode = pdf;
+else (no - oversize)
+  if (Text layer available?) then (yes)
+    :Send text\nreadMode = text;
+  elseif (First pages fit 14 MB?) then (yes)
+    :Send first pages\nreadMode = first_pages;
+  else (no)
+    :Mark unreadable;
+    stop
+  endif
+endif
+:Gemini returns isTor, torKind,\nanalysis and software judgement;
+:assignDocumentRoles picks ONE main TOR\nmarks variants, not-TOR, ambiguity;
+:decideOutcome;
+note right
+  software + high + whole PDF -> tor_analysed
+  software + low              -> needs_review
+  not software + high + whole -> dropped + tombstone
+  not software + low          -> needs_review
+  partial read (text / pages) -> needs_review
+end note
+stop
+@enduml

@@ -1,0 +1,38 @@
+@startuml 17-deployment
+!pragma layout smetana
+!include style.iuml
+title Deployment and delivery pipeline
+actor "Developer" as dev
+cloud "GitHub" {
+  [Pull request] as pr
+  [CI\nlint, typecheck, unit tests (real Mongo),\nbuild, Playwright e2e] as ci
+  [Security\nbun audit, gitleaks, CodeQL,\nTrivy, OWASP ZAP] as sec
+  [Release workflow\nbuild images + Trivy scan] as rel
+}
+cloud "Google Cloud" {
+  node "Artifact Registry" as ar
+  node "Cloud Run: web" as crweb
+  node "Cloud Run: api" as crapi
+  node "Secret Manager" as sm
+  node "Vertex AI" as vx
+}
+database "MongoDB Atlas" as atlas
+cloud "e-GP" as egp
+dev --> pr : push branch
+pr --> ci
+pr --> sec
+pr --> rel : merge to main or v* tag
+rel --> ar : push images
+ar --> crweb : deploy (main)
+ar --> crapi : deploy (main)
+crapi --> sm : MONGODB_URI, JWT_SECRET,\nGOOGLE_*, EGP_API_KEY
+crapi --> atlas
+crapi --> vx : runtime service account
+crapi --> egp : one request at a time
+crweb --> crapi : browser to API (public URL)
+note bottom of crapi
+  Local: docker compose (mongodb, api, web)
+  or bun run dev. Vertex AI access by
+  service-account impersonation (no key files).
+end note
+@enduml
