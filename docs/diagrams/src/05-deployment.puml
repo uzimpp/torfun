@@ -1,4 +1,4 @@
-@startuml 17-deployment
+@startuml 05-deployment
 !pragma layout smetana
 !include style.iuml
 title Deployment and delivery pipeline

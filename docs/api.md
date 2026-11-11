@@ -8,8 +8,6 @@ what exists, who may call it and how a request travels. To run the API, see
 Related: [architecture.md](architecture.md), [data-model.md](data-model.md).
 Diagram sources are in [`diagrams/`](diagrams/README.md).
 
-![API route map](diagrams/png/11-api-route-map.png)
-
 ## 1. Conventions
 
 | Topic | Rule |
@@ -35,7 +33,14 @@ Diagram sources are in [`diagrams/`](diagrams/README.md).
 
 ## 2. How a request travels
 
-![API request lifecycle](diagrams/png/10-api-request-lifecycle.png)
+1. helmet headers, the CORS allowlist and the global rate limit apply to every request.
+2. The access JWT is read from the cookie and verified.
+3. The route scope's hook runs: `requireAuth` returns 401 without a valid token, `requireAdmin` returns 403 for a non-admin.
+4. The route's zod schema validates params, query and body, and returns 400 on failure.
+5. The handler calls exactly one service.
+6. The service applies the business rules and the audience filter, and throws typed errors.
+7. The repository maps between documents and domain objects.
+8. The error handler turns a thrown `AppError` into `{ message }` with its status, and the response schema serialises a success.
 
 Visibility is enforced in the service, not the route. `/tors/*` and
 `/ingestion/projects*` read the same data with an audience, `officer` or `admin`.
@@ -158,23 +163,7 @@ behave as if they do not exist.
 `GET /dashboard` (user) and `GET /admin/test` (admin) only return a greeting and
 are not part of the product surface (system-requirements OI-07).
 
-## 4. Sequences
-
-An officer finds, reads and verifies a TOR:
-
-![Officer reads a TOR](diagrams/png/12-seq-officer-reads-tor.png)
-
-An administrator starts a Run, watches it and stops it:
-
-![Administrator runs ingestion](diagrams/png/13-seq-admin-run.png)
-
-An administrator resolves a held record:
-
-![Administrator resolves a held record](diagrams/png/14-seq-admin-moderation.png)
-
-Sign-in, refresh and Google are in [architecture.md](architecture.md#5-runtime).
-
-## 5. Change rules
+## 4. Change rules
 
 - Request and response shapes live in `packages/types`. Changing one breaks both apps' compile, which is intended.
 - Renaming a wire field breaks `apps/web`. snake_case on the wire is a contract, not a style.

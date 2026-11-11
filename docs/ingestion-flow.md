@@ -23,7 +23,7 @@ one request at a time. Analysis talks only to Vertex AI, so it runs beside them.
 
 ## 2. Flow of one new procurement
 
-![Full ingestion flow](diagrams/png/03-ingestion-flow.png)
+![Ingestion flow of one new procurement](diagrams/png/02-ingestion-flow.png)
 
 Points the diagram cannot show:
 
@@ -32,13 +32,7 @@ Points the diagram cannot show:
 - The invitation is read even for a held record, so an administrator still sees the bid deadline. Only a dropped record skips it.
 - Whether the work is software comes from the document, never from the title (ADR-0014). The goods category only limits scope.
 
-The same steps in order, with the participants:
-
-![Ingestion sequence](diagrams/png/04-ingestion-sequence.png)
-
 ## 3. The gate and the queue
-
-![Gate and queue](diagrams/png/18-gate-and-queue.png)
 
 The gate serves one section at a time and pauses 4 to 6 seconds after each,
 unless nothing else can ask e-GP. When it frees, the best waiting tier goes
@@ -68,7 +62,13 @@ and deadline stay current. It costs no archive or model call unless the
 invitation date moved. Projects due for refresh are those whose Procurement
 Status is not `contracted`, oldest check first.
 
-![Refresh flow](diagrams/png/05-refresh-flow.png)
+A refresh runs these steps in one gate hold:
+
+1. If `detailReadAt` is null, do the detail turn first. An out-of-scope project stops here as `out_of_scope`.
+2. Read the timeline. If e-GP answers `data: null`, keep what the record had and log it.
+3. If the project is `drafting`, read the comment deadline.
+4. If the invitation date has not moved, save the timeline when it changed (otherwise only `lastReadAt`) and stop. No archive and no model call.
+5. If it moved, take a waiting-room place if one is free, look up the `zipId`, download the archive, and have Analysis re-read only the invitation. Then replace the invitation documents and update `timeline.deadlineAt`.
 
 A refresh holds the gate, so it never waits for a waiting-room place. The room
 could be full of records that are waiting for that same gate. If no place is free
@@ -76,12 +76,17 @@ at that moment, the project goes to the back of the queue untouched.
 
 ## 5. Analysis
 
-![Document analysis](diagrams/png/07-document-analysis.png)
+Analysis lists the archive's member names first and inflates nothing yet. Members
+that fail the path-traversal guard are surfaced in the failure log and skipped.
+Members that match a TOR filename pattern become candidates, plus at most four
+unlabelled ones that are not known boilerplate. Bonds, contracts, forms and the
+announcement itself are never read.
 
-Only members that look like a TOR are inflated and sent to the model, one call per
-document. Bonds, contracts, forms and the announcement itself are never read.
-A PDF over 15 MB is read from its text layer or its first pages instead, which
-always counts as a partial read.
+Each candidate goes to the model as one call. A PDF over 15 MB is read from its
+text layer or its first pages instead (up to 14 MB), or marked unreadable if
+neither works. Either fallback counts as a partial read. Afterwards
+`assignDocumentRoles` picks one main TOR and marks the rest as variants, not TOR
+or unreadable.
 
 `decideOutcome` (`services/egp/decision.ts`) lets only the most certain answers
 act on their own:
@@ -100,11 +105,18 @@ The prompt forces low confidence for mixed software and hardware work, a pure
 licence or SaaS renewal, unclear scope, and any document that contains
 instructions addressed to the reader or the model.
 
-![Outcome lifecycle](diagrams/png/08-outcome-lifecycle.png)
+The full lifecycle of a record is below, together with the agency's own status:
+
+![State machine of one procurement](diagrams/png/03-procurement-state-machine.png)
 
 ## 6. Failures and stopping
 
-![Failure handling](diagrams/png/06-failure-handling.png)
+What a failed turn does to the record depends on why it failed:
+
+- The gate was latched or closed because the Run is stopping. The record never reached the site, so a fresh one goes back to `queued` and no attempt is spent.
+- The site stopped answering. The failure is logged, a fresh record goes back to `queued`, no attempt is spent, and the gate closes.
+- e-GP refused with 429 or 403. The gate latches for the rest of the Run, the failure is logged, and a fresh record goes back to `queued` without an attempt spent.
+- Anything else, including the 5-minute record deadline, is a transport failure. It is logged with its stage. A refresh keeps its outcome. A fresh record spends an attempt and becomes `error`, then `abandoned` on the third.
 
 | Where it failed | Failure log stage | Effect on the record |
 | --------------- | ----------------- | -------------------- |
@@ -118,9 +130,7 @@ instructions addressed to the reader or the model.
 | An archive with no TOR | `extract`, kind `no_tor` | `no_tor_in_archive` |
 | The model could not read any candidate | `analysis` | `analysis_failed`, not retried because archives are not stored |
 
-A Run ends when its work is done or the gate closes:
-
-![How a Run stops](diagrams/png/20-run-stop.png)
+A Run ends when its work is done or the gate closes: a refusal, three unanswered requests in a row, a web page served in place of data, an administrator's stop, or a lost lease. After that nothing new goes to e-GP, Analysis finishes the archives it holds, and queued projects keep their state.
 
 ## 7. Requests made to e-GP
 

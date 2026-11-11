@@ -8,7 +8,7 @@
 | [ingestion-flow.md](ingestion-flow.md) | How one procurement travels from the e-GP feed to a decided record, and what happens when it fails | Developers, operators |
 | [api.md](api.md) | Every HTTP endpoint, who may call it, and how a request travels | Developers, QA |
 | [data-model.md](data-model.md) | What is stored, how it relates, and what the enums mean | Developers |
-| [diagrams/](diagrams/README.md) | All 20 diagrams as PlantUML source with rendered PNG and SVG | Everyone |
+| [diagrams/](diagrams/README.md) | The five diagrams that matter, as PlantUML source with rendered PNG and SVG | Everyone |
 | [`../CONTEXT.md`](../CONTEXT.md) | The domain vocabulary. Read it before naming anything | Everyone |
 | [`../AGENTS.md`](../AGENTS.md) | Product intent and guardrails for upstream access and AI output | Everyone, coding agents |
 

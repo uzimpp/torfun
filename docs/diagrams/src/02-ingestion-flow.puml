@@ -1,4 +1,4 @@
-@startuml 03-ingestion-flow
+@startuml 02-ingestion-flow
 !include style.iuml
 title Procurement ingestion - full flow of one new procurement
 start

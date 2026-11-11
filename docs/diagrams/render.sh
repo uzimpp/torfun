@@ -5,6 +5,9 @@
 # `plantuml` on PATH). The sources use PlantUML's built-in Smetana layout, so
 # Graphviz is NOT required.
 #
+# The diagrams use the Poppins font (SIL OFL). Install it for your user, or
+# PlantUML falls back to a default sans-serif and the layout shifts slightly.
+#
 #   PLANTUML_JAR=~/tools/plantuml.jar ./docs/diagrams/render.sh
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
