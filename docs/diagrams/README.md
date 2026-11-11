@@ -2,7 +2,7 @@
 
 PlantUML sources live in [`src/`](src); rendered output is in [`png/`](png)
 (for docs and slides) and [`svg/`](svg) (scalable, searchable text). The images
-are committed so they show up on GitHub and in any viewer without tooling.
+are committed so they show in any viewer without tooling.
 
 | # | Diagram | Shows | Used in |
 | - | ------- | ----- | ------- |
@@ -23,7 +23,9 @@ are committed so they show up on GitHub and in any viewer without tooling.
 | 15 | [Authentication](png/15-seq-auth.png) | Login, refresh rotation, Google | api |
 | 16 | [Use cases](png/16-use-cases.png) | SRS user stories, built vs planned | SRS |
 | 17 | [Deployment](png/17-deployment.png) | CI, release, Cloud Run, secrets | architecture |
-| 18 | [Gate and queue](png/18-gate-and-queue.png) | Tier priority, waiting room, pick() | ingestion-flow |
+| 18 | [Gate and queue](png/18-gate-and-queue.png) | Tier priority, waiting room, pick() | ingestion-flow, architecture |
+| 19 | [Web data flow](png/19-web-data-flow.png) | Session gate, then client fetches | architecture |
+| 20 | [How a Run stops](png/20-run-stop.png) | Stop conditions and what happens next | ingestion-flow, architecture |
 
 ![Full ingestion flow](png/03-ingestion-flow.png)
 
@@ -40,9 +42,6 @@ PLANTUML_JAR=/path/to/plantuml.jar docs/diagrams/render.sh
 4096 px image cap, which would otherwise silently clip tall diagrams such as
 the ingestion flow.
 
-Rules: edit the `.puml`, never the image; keep text ASCII (fonts vary between
-machines); shared styling is in `src/style.iuml`; commit the regenerated
-`png/` and `svg/` together with the source change.
-
-Mermaid versions of several diagrams are also embedded in the Markdown pages.
-When the flow changes, update both, or delete the Mermaid copy.
+Edit the `.puml`, never the image. Keep text ASCII because fonts vary between
+machines. Shared styling is in `src/style.iuml`. Commit the regenerated `png/`
+and `svg/` with the source change.
