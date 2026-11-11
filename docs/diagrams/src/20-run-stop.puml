@@ -1,0 +1,22 @@
+@startuml 20-run-stop
+!include style.iuml
+title How a Run stops
+start
+:Run works through the queue;
+if (A stop condition holds?) then (yes)
+  :Gate latched or closed;
+  note right
+    429 or 403 from e-GP (latched)
+    3 requests in a row unanswered
+    A web page instead of data (site closed)
+    Administrator stop
+    Lease taken over by another Run
+  end note
+  :No new request goes to e-GP\nNothing new leaves the queue\nQueued projects keep their state, no attempt spent;
+  :Analysis finishes the archives it already holds;
+else (no)
+  :Continue until Discovery is done,\nthe queue is empty and every Analysis has settled;
+endif
+:Run ends;
+stop
+@enduml

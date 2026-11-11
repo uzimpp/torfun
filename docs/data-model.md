@@ -1,118 +1,63 @@
-# Data model — torfun
+# Data model
 
-|             |                                                                  |
-| ----------- | ---------------------------------------------------------------- |
-| **Version** | 0.1 (draft)                                                      |
-| **Baseline**| `develop` @ `5e622a3`                                            |
-| **Source of truth** | `packages/types/src/*.ts` (domain) and `apps/api/src/repositories/*.ts` (stored documents) |
-| **Related** | [system-requirements.md](system-requirements.md) · [architecture.md](architecture.md) · [`CONTEXT.md`](../CONTEXT.md) |
+Baseline: `develop` @ `5e622a3`. Field-level truth is in `packages/types/src/*.ts`
+(domain) and `apps/api/src/repositories/*.ts` (stored documents). This page is a
+map, so when it disagrees with the code, the code wins.
 
-This page is a map, not a copy: field-level truth lives in the zod schemas. If
-this page and the code disagree, the code wins — fix this page.
+Related: [architecture.md](architecture.md), [ingestion-flow.md](ingestion-flow.md),
+[`CONTEXT.md`](../CONTEXT.md).
 
 ## 1. Conventions
 
-- Database: MongoDB (Atlas; `mongodb-atlas-local:8.0` for development and CI).
-- Stored documents are **snake_case**; domain objects are **camelCase**. The mapping happens only in `repositories/` (CON-06, DR-02). Nothing above a repository sees an `ObjectId`.
-- `Procurement` is keyed by the upstream 11-digit `projectId`, not an `ObjectId`.
-- Times are ISO-8601 strings in the domain; Thai calendar logic uses Asia/Bangkok.
-- Stored-data schema changes ship an idempotent `mongosh` migration in `docs/migrations/` (NFR-MNT-05).
+- MongoDB (Atlas; `mongodb-atlas-local:8.0` for development and CI).
+- Stored documents use snake_case and domain objects use camelCase. The mapping lives only in `repositories/`, and nothing above a repository sees an `ObjectId`.
+- A `Procurement` is keyed by the upstream 11-digit `projectId`.
+- Times are ISO-8601 strings in the domain. Thai calendar logic uses Asia/Bangkok.
+- A change to stored data ships an idempotent `mongosh` migration in `docs/migrations/`.
 
-## 2. Collections
-
-| Collection | Holds | Key / reference fields |
-| ---------- | ----- | ---------------------- |
-| `procurements` | The central record: feed data, retrieval data, timeline, analysis, State/Outcome | `projectId` |
-| `tombstones` | Projects judged non-software; stops re-ingestion; keeps a feed snapshot for restore | `projectId` |
-| `ingestion_failures` | Failure log shown to administrators | `projectId`, `stage`, `kind` |
-| `ingestion_runs` | Finished Runs: start/end, counts | run id |
-| `ingestion_meta` | Feed Cursor — contiguous range of fully-read days per agency × type | agency, type |
-| `run_lease` | Single document: who holds the right to run, live view, in-flight work | fixed id |
-| `schedule` | Single document: automatic-run setting and last run start | fixed id |
-| `users` | Accounts; `role`; `password_hash` (only via `findCredentials`); `google_id`; `company_id` | `company_id → companies` |
-| `refresh_tokens` | Hashed refresh tokens, token family, expiry, revocation | `user_id → users`, `family_id`, `token_hash` |
-| `companies` | Vendor; Thai name, optional TIN; index on `name_th` | — |
-| `clients` | Organisations a Company has delivered for (`government` \| `private`) | `company_id → companies` |
-| `experiences` | Work a Company delivered | `company_id`, `client_id → clients` |
-| `favorites` | A user's shortlisted procurements | `user_id → users`, `project_id → procurements` |
-| `tor_reports` | Reports on a TOR and the administrator's review | `project_id`, `reporter_id → users` |
-
-## 3. Entity relationships
+## 2. Domain model
 
 ![Domain model](diagrams/png/09-domain-model.png)
 
-The Mermaid ER diagram below is the same model in diff-friendly form.
+## 3. Collections
 
-```mermaid
-erDiagram
-    COMPANY ||--o{ USER : "employs (company_id)"
-    COMPANY ||--o{ CLIENT : "has"
-    COMPANY ||--o{ EXPERIENCE : "delivered"
-    CLIENT  ||--o{ EXPERIENCE : "for"
-    USER    ||--o{ FAVORITE : "shortlists"
-    USER    ||--o{ REFRESH_TOKEN : "holds"
-    USER    ||--o{ TOR_REPORT : "files"
-    PROCUREMENT ||--o{ FAVORITE : "saved in"
-    PROCUREMENT ||--o{ TOR_REPORT : "reported by"
-    PROCUREMENT ||--o| TOMBSTONE : "may be replaced by"
-    PROCUREMENT ||--o{ INGESTION_FAILURE : "logs"
+| Collection | Holds | Key or reference |
+| ---------- | ----- | ---------------- |
+| `procurements` | The central record: feed data, retrieval data, timeline, analysis, State and Outcome | `projectId` |
+| `tombstones` | Projects judged non-software, which stops re-ingestion, plus a feed snapshot for restore | `projectId` |
+| `ingestion_failures` | The failure log shown to administrators | `projectId`, `stage`, `kind` |
+| `ingestion_runs` | Finished Runs: start, end, counts | run id |
+| `ingestion_meta` | The Feed Cursor: a contiguous range of fully read days per agency and type | agency, type |
+| `run_lease` | One document: who may run, the live view, work in flight | fixed id |
+| `schedule` | One document: the automatic-run setting and the last run start | fixed id |
+| `users` | Accounts: `role`, `password_hash` (only through `findCredentials`), `google_id`, `company_id` | `company_id` to `companies` |
+| `refresh_tokens` | Hashed refresh tokens with family, expiry and revocation | `user_id`, `family_id`, `token_hash` |
+| `companies` | The vendor: Thai name, optional TIN, index on `name_th` | |
+| `clients` | Organisations a Company delivered for (`government` or `private`) | `company_id` |
+| `experiences` | Work a Company delivered | `company_id`, `client_id` |
+| `favorites` | A user's shortlisted procurements | `user_id`, `project_id` |
+| `tor_reports` | Reports on a TOR and the administrator's review | `project_id`, `reporter_id` |
 
-    COMPANY {
-        string name_th "Thai only"
-        string tin "13 digits, optional"
-    }
-    USER {
-        string username
-        string role "admin | business_development_officer"
-        string company_id "null for admin / before join"
-        bool   is_active
-    }
-    CLIENT {
-        string name
-        string kind "government | private"
-    }
-    EXPERIENCE {
-        string project_name
-        string[] tech_stack
-        string[] target_platforms
-        int    duration_months
-    }
-    PROCUREMENT {
-        string projectId "11 digits (key)"
-        string state
-        string outcome
-    }
-    TOMBSTONE {
-        string projectId
-        string reason
-        object feed "snapshot for restore"
-    }
-    TOR_REPORT {
-        string reason
-        string status "pending | dismissed | removed"
-    }
-```
-
-Run-level collections (`ingestion_runs`, `ingestion_meta`, `run_lease`,
-`schedule`) are operational state and have no foreign keys.
+The run-level collections (`ingestion_runs`, `ingestion_meta`, `run_lease`,
+`schedule`) are operational state with no foreign keys.
 
 ## 4. The `Procurement` record
 
-Grouped by who writes it, as in `ProcurementSchema`:
+Grouped by who writes each part, as in `ProcurementSchema`:
 
-| Group | Fields (domain names) | Written by |
-| ----- | --------------------- | ---------- |
+| Group | Fields | Written by |
+| ----- | ------ | ---------- |
 | Feed | `projectId`, `projectName`, `deptName`, `deptCode`, `announceDate`, `purchaseMethodName`, `discoveredAt` | Discovery |
-| Project detail | `deptSubName`, `budgetYear`, `typeId`, `goodsId`, `projectMoney`, `priceBuild`, `detailReadAt` (null until read; never guessed) | Retrieval |
-| Timeline | `timeline.status` (Procurement Status), `lastReadAt`, `commentsCloseAt`, `deadlineAt`, `stages.{drafted,invited,priced,evaluated,awarded,contracted}` | Retrieval — from milestones only, never a model |
-| Pipeline | `state`, `outcome`, `attempts`, `statusHistory` (last 50), `holdReason` | Pipeline, `decideOutcome` |
+| Detail | `deptSubName`, `budgetYear`, `typeId`, `goodsId`, `projectMoney`, `priceBuild`, `detailReadAt` (null until read, never guessed) | Retrieval |
+| Timeline | `timeline.status` (Procurement Status), `lastReadAt`, `commentsCloseAt`, `deadlineAt`, `stages.{drafted, invited, priced, evaluated, awarded, contracted}` | Retrieval, from milestones only, never a model |
+| Pipeline | `state`, `outcome`, `attempts`, `statusHistory` (last 50), `holdReason` | The pipeline and `decideOutcome` |
 | Moderation | `approved {by, at}`, `publicationRemoval {at, by, reportId}` | Administrator actions |
-| Archive | `archive.zipId`, `archive.documents[]` (member, filename, bytes, role, read mode), `torAmbiguous` | Retrieval / classification |
-| Analysis | `summary`, `scopeOfWork[]`, `budgetThb`, `deadlineAt`, `durationDays`, `techStack[]`, `targetPlatforms[]`, `requiredQualifications[]`, `reason`, `promptVersion` | Gemini (summary only — not an authority) |
-| Bookkeeping | `updatedAt` | Repository |
+| Archive | `archive.zipId`, `archive.documents[]` (member, filename, bytes, role, read mode), `torAmbiguous` | Retrieval and classification |
+| Analysis | `summary`, `scopeOfWork[]`, `budgetThb`, `deadlineAt`, `durationDays`, `techStack[]`, `targetPlatforms[]`, `requiredQualifications[]`, `reason`, `promptVersion` | Gemini. A summary, not an authority |
+| Bookkeeping | `updatedAt` | The repository |
 
-Derived helper: `currentDeadline()` returns the comment deadline while
-`drafting`, else e-GP's bid deadline, else the model-read deadline (flagged
+`currentDeadline()` returns the comment deadline while a project is `drafting`,
+otherwise e-GP's bid deadline, otherwise the deadline the model read (flagged
 `readByModel`).
 
 ## 5. Enumerations
@@ -134,29 +79,30 @@ Derived helper: `currentDeadline()` returns the comment deadline while
 | Failure `stage` | `discovery`, `timeline`, `info`, `download`, `extract`, `analysis` |
 | Failure `kind` | `fault`, `no_tor` |
 
-`OUTCOME_STATE` (in `packages/types`) maps each outcome to exactly one state;
-writers look the state up rather than choosing it.
+`OUTCOME_STATE` in `packages/types` maps each outcome to exactly one state, so
+writers look the state up instead of choosing it. The transitions are in
+[ingestion-flow.md](ingestion-flow.md#5-analysis).
 
 ## 6. Constants that shape the data
 
 | Constant | Value | Meaning |
 | -------- | ----- | ------- |
 | `MAX_RETRIEVAL_ATTEMPTS` | 3 | Transport failures before `abandoned` |
-| `RECORD_DEADLINE_MS` | 5 min | Longest one record may take in a Run |
+| `RECORD_DEADLINE_MS` | 5 minutes | Longest one record may take in a Run |
 | `STATUS_HISTORY_LIMIT` | 50 | Entries kept in `statusHistory` |
-| `SOFTWARE_REASON_MAX_CHARS` | 200 | Max length of the model's reason / tombstone evidence |
+| `SOFTWARE_REASON_MAX_CHARS` | 200 | Length of the model's reason and a tombstone's evidence |
 | `FEED_HISTORY_DAYS` | 365 | How far back Discovery backfills |
 | `FEED_BACKFILL_REQUESTS_PER_RUN` | 60 | History requests per Run |
-| `MIN_/MAX_INTERVAL_HOURS` | 6 / 168 | Schedule bounds |
-| `ACCESS_TTL` / `REFRESH_TTL` | 15 min / 30 days | Session lifetimes |
+| `MIN_INTERVAL_HOURS`, `MAX_INTERVAL_HOURS` | 6, 168 | Schedule bounds |
+| Access and refresh token lifetimes | 15 minutes, 30 days | Session lifetimes |
 
-## 7. Data lifecycle and retention
+## 7. Retention
 
-| Data | Retention | Note |
-| ---- | --------- | ---- |
-| TOR PDFs / archives | **Not stored** | Held in memory during analysis; re-downloaded by `zipId` on demand (CON-05) |
-| Procurements | Kept; deleted only by an administrator action | Delete may leave a tombstone |
-| Tombstones | Kept until an administrator removes or restores | Carry a feed snapshot |
-| Status history | Last 50 changes per record | |
-| Refresh tokens | Until expiry or revocation | Reuse revokes the family |
-| Personal data | Username, name, optional email, password hash, Google id | PDPA review open (system-requirements OI-05) |
+| Data | Retention |
+| ---- | --------- |
+| TOR PDFs and archives | Not stored. Held in memory during analysis and re-downloaded by `zipId` on request (CON-05) |
+| Procurements | Kept until an administrator deletes one, which may leave a tombstone |
+| Tombstones | Kept until an administrator removes or restores them |
+| Status history | The last 50 changes per record |
+| Refresh tokens | Until expiry or revocation. Reuse revokes the family |
+| Personal data | Username, name, optional email, password hash and Google id. The PDPA review is open (system-requirements OI-05) |
