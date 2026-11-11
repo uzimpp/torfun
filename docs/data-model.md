@@ -17,7 +17,7 @@ Related: [architecture.md](architecture.md), [ingestion-flow.md](ingestion-flow.
 
 ## 2. Domain model
 
-![Domain model](diagrams/png/09-domain-model.png)
+![Domain model](diagrams/png/04-domain-model.png)
 
 ## 3. Collections
 
@@ -81,7 +81,7 @@ otherwise e-GP's bid deadline, otherwise the deadline the model read (flagged
 
 `OUTCOME_STATE` in `packages/types` maps each outcome to exactly one state, so
 writers look the state up instead of choosing it. The transitions are in
-[ingestion-flow.md](ingestion-flow.md#5-analysis).
+[ingestion-flow.md](ingestion-flow.md#5-analysis) and the state machine diagram there.
 
 ## 6. Constants that shape the data
 
