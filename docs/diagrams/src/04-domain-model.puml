@@ -1,4 +1,4 @@
-@startuml 09-domain-model
+@startuml 04-domain-model
 !pragma layout smetana
 !include style.iuml
 title Domain model (packages/types and MongoDB collections)

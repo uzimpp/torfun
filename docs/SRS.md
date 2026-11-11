@@ -117,7 +117,7 @@ The platform interfaces with:
 - **Authentication provider** — manages identity and secures user-specific features. Credentials and sensitive information shall not be stored in plaintext.
 - **Official procurement sources** — Torfun maintains links to the original sources so users can verify information and access the official TOR before deciding to participate.
 
-![System context](diagrams/png/01-system-context.png)
+![torfun architecture](diagrams/png/01-architecture.png)
 
 The architecture is in [architecture.md](architecture.md).
 
@@ -182,10 +182,6 @@ crawling errors, manage system configuration and monitor platform health.
 | C-03 | **AI output is a summary, never an authority.** The original document SHALL remain reachable from every analysed record. |
 
 ## 3. User Stories
-
-![Use cases](diagrams/png/16-use-cases.png)
-
-The diagram maps the stories to the built system; planned stories are marked.
 
 Status reflects whether the story can be completed end to end in the built system.
 

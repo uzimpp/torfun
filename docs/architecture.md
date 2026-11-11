@@ -28,8 +28,6 @@ on. Three goals shape the design, in priority order:
 
 ## 3. System context
 
-![System context](diagrams/png/01-system-context.png)
-
 Officers and administrators use the web app. The API reads e-GP through the
 gate, sends TOR PDFs to Vertex AI (Gemini), signs users in through Google, and
 stores everything in MongoDB Atlas. The e-GP open-data API is probed by the
@@ -37,7 +35,7 @@ health check and kept for a future winner lookup.
 
 ## 4. Building blocks
 
-![Containers and layers](diagrams/png/02-containers-and-layers.png)
+![torfun architecture](diagrams/png/01-architecture.png)
 
 | Block | Responsibility |
 | ----- | -------------- |
@@ -82,8 +80,6 @@ apps/web/src
   lib/          api client, session, config, CSP, formatters
 ```
 
-![Web data flow](diagrams/png/19-web-data-flow.png)
-
 Server components gate access with `requireUser` and `requireAdmin`; the session
 cookie is `httpOnly`, so only the server can read it. Client components call the
 API through `lib/api.ts`. Each console has a `use*Data` hook for fetching and
@@ -98,17 +94,11 @@ The ingestion pipeline is the core of the system and has its own page:
 overlap. Discovery and Retrieval share the gate and talk to e-GP; Analysis talks
 only to Vertex AI.
 
-![Gate and queue](diagrams/png/18-gate-and-queue.png)
-
-A Run ends when the work is done or the gate closes.
-
-![How a Run stops](diagrams/png/20-run-stop.png)
+A Run ends when its work is done or the gate closes. The gate closes on a refusal (429 or 403), on three unanswered requests in a row, on a web page served in place of data, on an administrator's stop, or when another Run takes over the lease. After that nothing new goes to e-GP, Analysis finishes the archives it already holds, and queued projects keep their state without an attempt being spent.
 
 Authentication uses two `httpOnly` cookies: a 15-minute access JWT and a 30-day
 refresh token that rotates on every use. Presenting a revoked token revokes the
-whole token family.
-
-![Authentication](diagrams/png/15-seq-auth.png)
+whole token family. Google sign-in goes through `/auth/google` and its callback, which sets the same cookies.
 
 `SchedulerService` starts Runs on the stored schedule. `server.ts` starts it,
 not `buildApp`, so tests never run a timer. The lease keeps Runs from
@@ -116,7 +106,7 @@ overlapping.
 
 ## 6. Deployment
 
-![Deployment](diagrams/png/17-deployment.png)
+![Deployment](diagrams/png/05-deployment.png)
 
 Locally, `docker compose up -d mongodb` plus `bun run dev` runs the stack, or
 `bun run docker:up` runs all three containers. Vertex AI access goes through

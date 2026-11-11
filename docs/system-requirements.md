@@ -46,7 +46,7 @@ Terms not defined in the SRS glossary:
 
 ### 2.1 Product perspective
 
-![System context](diagrams/png/01-system-context.png)
+![torfun architecture](diagrams/png/01-architecture.png)
 
 torfun is a web system with two deployable services and one shared contract
 package, and it depends on e-GP, Vertex AI, Google OAuth and MongoDB Atlas.
