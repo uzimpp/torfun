@@ -1,181 +1,97 @@
-# System Requirements (technical, code-derived) — torfun
+# System requirements
 
-|              |                                                                    |
-| ------------ | ------------------------------------------------------------------ |
-| **Document** | SYS-001 |
-| **Version**  | 0.1 (draft)                                                        |
-| **Status**   | Draft for team review                                              |
-| **Baseline** | `develop` @ `5e622a3`                                              |
-| **Format**   | Follows the structure of ISO/IEC/IEEE 29148:2018 (software SRS)    |
-| **Related**  | [architecture.md](architecture.md) · [data-model.md](data-model.md) · [`CONTEXT.md`](../CONTEXT.md) |
+Technical requirements read from the code, one layer below the product-level
+[SRS](SRS.md). They cover the pipeline, the gate, security, reliability and data,
+and they have their own IDs (FR-AUTH-01, NFR-UP-03, ...). Where this page and the
+SRS overlap, the SRS ID is authoritative. Scope, user stories and the glossary are
+in the SRS; the vocabulary is defined in [`CONTEXT.md`](../CONTEXT.md).
 
-> **Relationship to the SRS.** [SRS.md](SRS.md) is the team's product-level SRS. This page is the technical layer beneath it: requirements read from the code (pipeline, gate, security, data), with their own IDs. Where they overlap, the SRS ID is authoritative.
->
-> **How to read this document.** Every requirement has a stable ID, a priority
-> (MoSCoW) and a **Status** reflecting the code on the baseline commit:
-> `Implemented`, `Partial` or `Planned`. Requirements are written from the
-> behaviour the code enforces today; where the product intent is known but the
-> code does not yet deliver it, the requirement is marked `Planned` rather than
-> omitted, so the gap is visible. Domain terms (Procurement, Run, Gate, …) are
-> used exactly as defined in [`CONTEXT.md`](../CONTEXT.md).
+Baseline: `develop` @ `5e622a3`. Version 0.1, draft for team review. The structure
+follows ISO/IEC/IEEE 29148:2018.
 
-## Revision history
+Each requirement has a stable ID, a priority (M must, S should, C could) and a
+status against the baseline: I implemented, P partial, PL planned. A requirement
+the code does not yet meet is marked planned instead of omitted, so the gap shows.
 
-| Version | Date       | Change        |
-| ------- | ---------- | ------------- |
-| 0.1     | 2026-11-11 | Initial draft |
-
----
+Related: [architecture.md](architecture.md), [data-model.md](data-model.md),
+[ingestion-flow.md](ingestion-flow.md), [api.md](api.md).
 
 ## 1. Introduction
 
-### 1.1 Purpose
+### 1.1 Abbreviations
 
-This document specifies what torfun must do and the qualities it must have. It
-is the reference for scoping, design review, test planning and acceptance. It
-describes _what_ the system does; _how_ it is built is in
-[architecture.md](architecture.md).
-
-### 1.2 Scope
-
-**torfun** finds Thai government software procurement that a software house can
-credibly bid on. It reads the e-GP (electronic Government Procurement)
-announcement feed for e-bidding tenders, has a generative model (Gemini on
-Vertex AI) read each Terms of Reference (TOR) PDF to keep the software-related
-ones, and presents them to a Business Development Officer so that the ten
-opportunities that matter are read instead of the four hundred that do not.
-
-In scope:
-
-- Collecting e-bidding announcements from the e-GP feed for a fixed registry of agencies.
-- Reading each project's lifecycle (timeline) and TOR archive; extracting a structured analysis from the TOR.
-- Deciding, from the TOR document, whether the work is software.
-- Search, filtering and review of procurements by officers.
-- A vendor's own record: Company, Clients and past Experience.
-- Administration: running and scheduling ingestion, reviewing held and failed records, managing accounts, reviewing TOR reports.
-
-Out of scope (deliberately — widening any of these is a product decision):
-
-- Non-software procurement; non-e-bidding procurement methods.
-- Submitting bids, or any write action against e-GP.
-- Hosting or permanently storing TOR documents (ADR-0002, see §9).
-- Calling the e-GP `process5` project search (behind Cloudflare Turnstile) or circumventing any access control.
-
-### 1.3 Definitions, acronyms and abbreviations
+Terms not defined in the SRS glossary:
 
 | Term | Meaning |
 | ---- | ------- |
-| **e-GP** | Thai government's electronic procurement system, `gprocurement.go.th` |
-| **TOR** | Terms of Reference — the PDF stating what an agency wants built |
-| **Procurement** | One government procurement project, keyed by an 11-digit `projectId`; the central record |
-| **Archive** | The ZIP an announcement publishes, containing the TOR beside unrelated documents |
-| **Discovery / Retrieval / Analysis** | The three pipeline stages that run side by side inside a Run |
-| **Run** | One execution of the pipeline; never overlaps another Run |
-| **Gate** | The single choke point through which a Run reaches e-GP: one request at a time, with a pause after each |
-| **Source Registry** | The fixed list of agencies collected under |
-| **Tombstone** | A record that a project was judged non-software and must not be re-ingested |
-| **State / Outcome** | Pipeline lifecycle (Queued → Processing → Completed/Failed) and its finer-grained reason |
-| **Procurement Status** | The agency's own lifecycle position (`drafting`, `open`, … `contracted`, `cancelled`) |
-| **BD Officer** | Business Development Officer — the primary user |
-| **Site Administrator** | Operator of the pipeline and accounts |
-| **Company / Client / Experience** | The vendor, an organisation it has delivered for, and one piece of delivered work |
-| **TIN** | 13-digit Thai taxpayer identification number |
-| **ADC** | Google Application Default Credentials |
+| Discovery, Retrieval, Analysis | The three pipeline stages that overlap inside a Run |
+| Gate | The single path a Run uses to reach e-GP: one request at a time, with a pause after each |
+| Source Registry | The fixed list of agencies collected under |
+| Tombstone | A record that a project was judged non-software and must not be ingested again |
+| State, Outcome | The pipeline lifecycle (Queued, Processing, Completed, Failed) and its finer reason |
+| Procurement Status | The agency's own lifecycle position, from `drafting` to `contracted` or `cancelled` |
+| ADC | Google Application Default Credentials |
 
-### 1.4 References
+### 1.2 References
 
 | Ref | Document |
 | --- | -------- |
-| [R1] | [`CONTEXT.md`](../CONTEXT.md) — domain vocabulary |
-| [R2] | [`AGENTS.md`](../AGENTS.md), [`apps/api/AGENTS.md`](../apps/api/AGENTS.md), [`apps/web/AGENTS.md`](../apps/web/AGENTS.md) — product intent and guardrails |
-| [R3] | [`README.md`](../README.md), [`apps/api/README.md`](../apps/api/README.md), [`apps/web/README.md`](../apps/web/README.md) — setup, endpoints, pages |
-| [R4] | [architecture.md](architecture.md), [data-model.md](data-model.md) |
-| [R5] | ISO/IEC/IEEE 29148:2018 — Requirements engineering |
-| [R6] | ADR-0002, -0004, -0006, -0007, -0009, -0015, -0018, -0020, -0021 — cited in code and docs but **not present in this branch** (see §10) |
-
----
+| R1 | [`CONTEXT.md`](../CONTEXT.md), the domain vocabulary |
+| R2 | [`AGENTS.md`](../AGENTS.md) and the per-app `AGENTS.md` files, for product intent and guardrails |
+| R3 | The root and per-app `README.md` files, for setup, endpoints and pages |
+| R4 | ISO/IEC/IEEE 29148:2018, Requirements engineering |
+| R5 | ADR-0002, -0004, -0006, -0007, -0009, -0015, -0018, -0020 and -0021, cited in the code but not on this branch (OI-02) |
 
 ## 2. Overall description
 
 ### 2.1 Product perspective
 
-torfun is a self-contained web system with two deployable services and one
-shared contract package, depending on three external systems.
+![System context](diagrams/png/01-system-context.png)
 
-```mermaid
-flowchart LR
-    officer([BD Officer])
-    admin([Site Administrator])
-    torfun[["torfun<br/>web + API"]]
-    egp[(e-GP<br/>feed, project pages,<br/>TOR archives)]
-    vertex[Vertex AI<br/>Gemini]
-    google[Google<br/>OAuth 2.0]
-    atlas[(MongoDB Atlas)]
+torfun is a web system with two deployable services and one shared contract
+package, and it depends on e-GP, Vertex AI, Google OAuth and MongoDB Atlas.
 
-    officer -->|search, review| torfun
-    admin -->|operate, moderate| torfun
-    torfun -->|read-only, rate-limited| egp
-    torfun -->|TOR PDFs for reading| vertex
-    torfun -->|sign-in| google
-    torfun --- atlas
-```
+### 2.2 User classes
 
-A fuller treatment is in [architecture.md §3](architecture.md#3-system-context).
+| Class | Role value | Sees | Does |
+| ----- | ---------- | ---- | ---- |
+| BD Officer | `business_development_officer` | Procurements whose TOR was read and approved for display | Searches, reads, favourites, reports TORs, keeps the Company record |
+| Site Administrator | `admin` | The full queue, including held and failed records | Runs ingestion, moderates, manages accounts. Never holds a Company |
 
-### 2.2 Product functions (summary)
-
-1. **Account & access** — register, sign in (password or Google), roles.
-2. **Vendor record** — Company, Clients, Experience.
-3. **Procurement discovery** — search and filter software tenders; read analysis; open the source TOR.
-4. **Personal shortlist** — favourites.
-5. **Quality feedback** — report a TOR; administrator reviews.
-6. **Ingestion operations** — start/stop/schedule Runs, observe progress, review failures and held records.
-7. **Moderation** — approve, reclassify, delete, tombstone/restore.
-8. **Match scoring** — _planned_.
-
-### 2.3 User classes
-
-| Class | Role value | Characteristics | Privileges |
-| ----- | ---------- | --------------- | ---------- |
-| BD Officer | `business_development_officer` | Thai-speaking sales/bid staff at a software house; reads many TORs; not technical about the pipeline | Sees only procurements whose TOR was read and approved for display; manages own Company record, favourites; reports TORs |
-| Site Administrator | `admin` | Operator; understands pipeline states and failures | Sees the full queue (including held and failed); runs ingestion; moderates; manages accounts. Never holds a Company |
-
-Self-registration always yields a BD Officer; admin is never self-claimed: an
+Self-registration always creates a BD Officer. Admin is never self-claimed: an
 existing administrator grants it (`PATCH /api/admin/users/:id`), and the first
 administrator is set in the database (FR-AUTH-04).
 
-### 2.4 Operating environment
+### 2.3 Operating environment
 
 - Web: modern evergreen browsers; UI in Thai with English technical terms.
-- API: Bun 1.3.x runtime, Fastify 5; web: Next.js (App Router), React 19.
-- Data: MongoDB Atlas (8.0 locally via `mongodb-atlas-local`).
-- AI: Google Vertex AI (default model `gemini-3.5-flash`, region `asia-southeast1`).
-- Hosting: Google Cloud Run, images in Artifact Registry (see architecture §9).
+- API: Bun 1.3.x, Fastify 5. Web: Next.js 16 (App Router), React 19.
+- Data: MongoDB Atlas (8.0 locally through `mongodb-atlas-local`).
+- AI: Vertex AI, default model `gemini-3.5-flash`, region `asia-southeast1`.
+- Hosting: Google Cloud Run, with images in Artifact Registry.
 
-### 2.5 Design and implementation constraints
+### 2.4 Design and implementation constraints
 
 | ID | Constraint |
 | -- | ---------- |
-| CON-01 | **Upstream access is conditional.** `gprocurement.go.th` publishes `robots.txt: Disallow: /`; the project operates under a research authorisation whose limits are not recorded in the repository. The system must remain conspicuously low-impact (single-file requests, delay after each, abort on refusal). |
-| CON-02 | The `process5` project search must never be called; no captcha solver, copied browser token or headless browser may be used to reach it. |
-| CON-03 | No Service-account keys are available (organisation policy); Google access uses impersonation/ADC or the Cloud Run runtime identity. |
-| CON-04 | Scope is software procurement via e-bidding only. |
-| CON-05 | TOR archives are not persisted; they are held in memory only while analysed. |
-| CON-06 | Shared domain types live in `packages/types` (zod); API wire format is snake_case, domain objects camelCase. |
-| CON-07 | API layering `routes → services → repositories → core` is enforced by ESLint. |
+| CON-01 | Upstream access is conditional. `gprocurement.go.th` publishes `robots.txt: Disallow: /`, and the project operates under a research authorisation whose limits are not recorded in the repository. The system stays low impact: single-file requests, a pause after each, and an abort on refusal |
+| CON-02 | The `process5` project search is never called, and no captcha solver, copied browser token or headless browser may be used to reach it |
+| CON-03 | No service-account keys exist (organisation policy). Google access uses impersonation, ADC or the Cloud Run runtime identity |
+| CON-04 | Scope is software procurement through e-bidding only |
+| CON-05 | TOR archives are not persisted. They are held in memory only while analysed |
+| CON-06 | Shared domain types live in `packages/types` (zod). The wire format is snake_case and domain objects are camelCase |
+| CON-07 | The API layering `routes`, `services`, `repositories`, `core` is enforced by ESLint |
 
-### 2.6 Assumptions and dependencies
+### 2.5 Assumptions and dependencies
 
-- e-GP continues to publish the announcement RSS feed, project-detail and timeline (greenBook) endpoints in their current shape; a change to them breaks ingestion (risk R-01).
+- e-GP keeps publishing the announcement RSS feed and the project-detail and timeline (greenBook) endpoints in their current shape. A change breaks ingestion (R-01).
 - The research authorisation to read e-GP remains valid.
 - Vertex AI quota supports `ANALYSIS_CONCURRENCY` concurrent calls.
-- Thai-language TOR PDFs are readable natively by Gemini; very large files may be read partially (and are then held for review, FR-ANA-06).
+- Gemini reads Thai TOR PDFs natively. Very large files are read partially and then held for review (FR-ING-14).
 
----
+## 3. Functional requirements
 
-## 3. Specific requirements — functional
-
-Priority: **M** Must, **S** Should, **C** Could. Status: **I** Implemented, **P** Partial, **PL** Planned.
+Priority: M must, S should, C could. Status: I implemented, P partial, PL planned.
 
 ### 3.1 Authentication and accounts (AUTH)
 
@@ -215,13 +131,13 @@ Priority: **M** Must, **S** Should, **C** Could. Status: **I** Implemented, **P*
 | FR-DISC-04 | `minDaysLeft` and an explicit deadline range shall be mutually exclusive; every range's maximum shall be ≥ its minimum. | M | I |
 | FR-DISC-05 | A user shall be able to open one procurement and see its summary, scope of work, budget, deadline, tech stack, target platforms, required qualifications and lifecycle timeline. | M | I |
 | FR-DISC-06 | A user shall be able to download or view the original TOR PDF of a procurement so that AI output can be verified against the source. | M | I |
-| FR-DISC-07 | Officers shall see **only** procurements whose TOR was read and shown (`tor_analysed`) and not removed from publication; administrators shall see every record. | M | I |
+| FR-DISC-07 | Officers shall see only procurements whose TOR was read and shown (`tor_analysed`) and not removed from publication; administrators shall see every record. | M | I |
 | FR-DISC-08 | Fields that are an administrator's business (who approved a record, why it was held) shall be blanked for officers. | M | I |
 | FR-DISC-09 | The public `/search` page shall accept a query from a guest and tell them what access the index needs, rather than discarding the query. | S | P |
-| FR-DISC-10 | The system shall present a **match score** of each procurement against the officer's Company Experience, with a breakdown (tech stack, deadline, industry, target platform, decision rules). | M | PL |
-| FR-DISC-11 | Each user shall be able to record a personal **Review Status** (their own judgement) on a procurement, without affecting what colleagues see. | S | PL |
+| FR-DISC-10 | The system shall present a match score of each procurement against the officer's Company Experience, with a breakdown (tech stack, deadline, industry, target platform, decision rules). | M | PL |
+| FR-DISC-11 | Each user shall be able to record a personal Review Status (their own judgement) on a procurement, without affecting what colleagues see. | S | PL |
 
-> **Note (FR-DISC-09, FR-DISC-10).** `/search` is reachable by guests, but the
+> Note (FR-DISC-09, FR-DISC-10). `/search` is reachable by guests, but the
 > list endpoint requires authentication. `MatchResult` exists in
 > `packages/types` as a placeholder keyed on `projectId` only; it must gain a
 > company key before scoring is built, or one vendor's score would be shown to
@@ -242,7 +158,7 @@ Priority: **M** Must, **S** Should, **C** Could. Status: **I** Implemented, **P*
 | -- | ----------- | --- | ------ |
 | FR-REP-01 | A user shall be able to report a TOR with a reason (`unreasonable_requirements`, `incorrect_information`, `outdated`, `invalid_document`, `other`) and optional details (≤ 2000 chars); details are mandatory for `other`. | M | I |
 | FR-REP-02 | An administrator shall see a shared report queue (default filter: pending), newest first, paginated. | M | I |
-| FR-REP-03 | An administrator shall be able to **dismiss** a report or **remove the TOR from publication**, optionally with a note; the decision, reviewer and time shall be recorded. | M | I |
+| FR-REP-03 | An administrator shall be able to dismiss a report or remove the TOR from publication, optionally with a note; the decision, reviewer and time shall be recorded. | M | I |
 | FR-REP-04 | A TOR removed from publication shall disappear from officers' search and favourites. | M | I |
 
 ### 3.5.1 Notifications (NOT)
@@ -257,20 +173,20 @@ A `feature/notifications` branch exists upstream; nothing is on `develop`.
 
 | ID | Requirement | Pri | Status |
 | -- | ----------- | --- | ------ |
-| FR-ING-01 | **Discovery.** A Run shall read the e-GP announcement feed one agency × announcement type (draft TOR `B0`, invitation `D0`) × day per request, over the Source Registry, and admit e-bidding projects that have no tombstone. | M | I |
+| FR-ING-01 | Discovery. A Run shall read the e-GP announcement feed one agency × announcement type (draft TOR `B0`, invitation `D0`) × day per request, over the Source Registry, and admit e-bidding projects that have no tombstone. | M | I |
 | FR-ING-02 | Discovery shall never consult the project title to admit or reject a project. | M | I |
 | FR-ING-03 | Discovery shall read days since the last Run first (new days always read in full), then a bounded share of history (`FEED_BACKFILL_REQUESTS_PER_RUN`, default 60 requests per Run, back `FEED_HISTORY_DAYS` = 365), tracked by a per-agency/type Feed Cursor. Today is re-read and never recorded as done. | M | I |
 | FR-ING-04 | A new project shall be stored as `Queued` from the feed alone and handed to Retrieval immediately. | M | I |
-| FR-ING-05 | **Retrieval.** For each project, in one Gate turn, the system shall read project detail (until read once), the announcement timeline (greenBook), then locate and download the announcement archive and extract TOR PDFs. | M | I |
+| FR-ING-05 | Retrieval. For each project, in one Gate turn, the system shall read project detail (until read once), the announcement timeline (greenBook), then locate and download the announcement archive and extract TOR PDFs. | M | I |
 | FR-ING-06 | Retrieval shall serve never-read projects first (newest announcement first), then re-read the timeline of already-read, non-`contracted` projects, oldest check first; an unchanged timeline shall cost no archive or model call, and a moved invitation date shall re-read the invitation alone. | M | I |
 | FR-ING-07 | Procurement Status shall be derived only from timeline milestones; no model output shall set it. | M | I |
 | FR-ING-08 | The budget year shall be left empty until read from project detail, never guessed. | M | I |
-| FR-ING-09 | **Analysis.** Each downloaded Archive shall be classified per document (main TOR, TOR variant, not-TOR, invitation, bidding document, unreadable) by reading the document, never by filename. | M | I |
+| FR-ING-09 | Analysis. Each downloaded Archive shall be classified per document (main TOR, TOR variant, not-TOR, invitation, bidding document, unreadable) by reading the document, never by filename. | M | I |
 | FR-ING-10 | Analysis shall extract: summary, scope of work, budget (THB), bid deadline, duration (days), tech stack, target platforms, required qualifications; unknowns shall be `null`/empty, never guessed. | M | I |
 | FR-ING-11 | Analysis shall judge `isSoftware` with a confidence of `high` or `low` and a Thai one-line reason quoting the document (≤ 200 chars); mixed hardware/software, licence-only/SaaS and unclear scope shall always be `low`. | M | I |
 | FR-ING-12 | Each analysis shall record the prompt version that produced it. | S | I |
 | FR-ING-13 | Document text shall be treated as data: instructions embedded in a TOR shall not be followed, and shall force `low` confidence. | M | I |
-| FR-ING-14 | **Decision.** Only a confident, whole-document answer shall act: _software + high_ → shown to officers; _not software + high_ → dropped and tombstoned; everything else, and any partial read, → held (`needs_review`) with a hold reason. | M | I |
+| FR-ING-14 | Decision. Only a confident, whole-document answer shall act: _software + high_ → shown to officers; _not software + high_ → dropped and tombstoned; everything else, and any partial read, → held (`needs_review`) with a hold reason. | M | I |
 | FR-ING-15 | A project whose Goods Category carries no software work shall be kept as `out_of_scope` and nothing further read for it (ADR-0021). | S | I |
 | FR-ING-16 | A project publishing no TOR (`no_tor_package`, `no_tor_in_archive`) shall be recorded as a legitimate upstream answer, distinct from a failure, and surfaced to administrators. | M | I |
 | FR-ING-17 | Transport failures shall requeue a record up to `MAX_RETRIEVAL_ATTEMPTS` (3), after which it is `abandoned`. A record shall have a per-record deadline of 5 minutes (`RECORD_DEADLINE_MS`). | M | I |
@@ -301,11 +217,11 @@ A `feature/notifications` branch exists upstream; nothing is on `develop`.
 
 | ID | Requirement | Pri | Status |
 | -- | ----------- | --- | ------ |
-| FR-MOD-01 | An administrator shall be able to **approve** a held record, making it visible to officers; approver and time are recorded. | M | I |
-| FR-MOD-02 | An administrator shall be able to mark a record **non-software**, producing a tombstone. | M | I |
-| FR-MOD-03 | An administrator shall be able to **read anyway** a record that was out of scope. | S | I |
-| FR-MOD-04 | An administrator shall be able to **delete** a record with or without a tombstone. | M | I |
-| FR-MOD-05 | An administrator shall be able to list tombstones and **remove** one, or **restore** a tombstoned project; restore runs as a one-project Run that rebuilds the record from the feed snapshot the tombstone kept. | M | I |
+| FR-MOD-01 | An administrator shall be able to approve a held record, making it visible to officers; approver and time are recorded. | M | I |
+| FR-MOD-02 | An administrator shall be able to mark a record non-software, producing a tombstone. | M | I |
+| FR-MOD-03 | An administrator shall be able to read anyway a record that was out of scope. | S | I |
+| FR-MOD-04 | An administrator shall be able to delete a record with or without a tombstone. | M | I |
+| FR-MOD-05 | An administrator shall be able to list tombstones and remove one, or restore a tombstoned project; restore runs as a one-project Run that rebuilds the record from the feed snapshot the tombstone kept. | M | I |
 | FR-MOD-06 | Administrator overrides shall sit outside the officer visibility rule and be attributed to the administrator. | M | I |
 
 ### 3.9 Administration and operations views (ADM)
@@ -317,8 +233,6 @@ A `feature/notifications` branch exists upstream; nothing is on `develop`.
 | FR-ADM-03 | An administrator shall have a dashboard with KPIs, outcome breakdown, trends, an approval queue, system health and recent activity. | S | I |
 | FR-ADM-04 | An administrator shall be able to check live dependency health (database, Vertex AI, open-data). | S | I |
 | FR-ADM-05 | A public liveness endpoint shall touch no external dependency. | M | I |
-
----
 
 ## 4. External interface requirements
 
@@ -357,8 +271,6 @@ request/response shapes are the zod schemas on each route, imported from `@torfu
 ### 4.3 Hardware interfaces
 
 None.
-
----
 
 ## 5. Non-functional requirements
 
@@ -401,7 +313,7 @@ None.
 
 | ID | Requirement | Target |
 | -- | ----------- | ------ |
-| NFR-PERF-01 | Search / list latency for an officer (p95, server time, filters applied) | _TBD — to be measured; no baseline recorded_ |
+| NFR-PERF-01 | Search / list latency for an officer (p95, server time, filters applied) | TBD. To be measured; no baseline is recorded. |
 | NFR-PERF-02 | A Run processes the whole queue without a volume cap; end-to-end throughput is bounded by the Gate (≈ one project per 4–6 s plus transfer time) | By design |
 | NFR-PERF-03 | Archives up to ~30 MB over a slow origin shall download within 120 s | `torTimeoutMs` |
 | NFR-PERF-04 | A model call shall not exceed the record deadline (5 min) | `RECORD_DEADLINE_MS` |
@@ -413,7 +325,7 @@ None.
 | NFR-USE-01 | Pages shall fill the viewport; the header shall offer every destination on every screen size. |
 | NFR-USE-02 | A UI shall distinguish "cannot reach the API" (network) from "the API failed" (HTTP 5xx). |
 | NFR-USE-03 | Date/time displays shall be in Asia/Bangkok; Thai calendar-day logic shall be used for "days left". |
-| NFR-USE-04 | Accessibility target: WCAG 2.1 AA _(not yet audited — see §10)_. |
+| NFR-USE-04 | Accessibility target: WCAG 2.1 AA (not yet audited, see section 10). |
 
 ### 5.6 Maintainability and testability
 
@@ -439,23 +351,19 @@ None.
 
 | ID | Requirement |
 | -- | ----------- |
-| NFR-LEG-01 | The upstream research authorisation's limits shall be recorded and linked from this repository _(currently not recorded — open issue OI-01)_. |
+| NFR-LEG-01 | The upstream research authorisation's limits shall be recorded and linked from this repository (currently not recorded, open issue OI-01). |
 | NFR-LEG-02 | Personal data held is limited to account data (name, username, optional email, password hash, Google id). The data-protection position under Thailand's PDPA shall be reviewed _(open issue OI-05)_. |
 | NFR-LEG-03 | Only publicly published procurement data shall be ingested. |
-
----
 
 ## 6. Data requirements (summary)
 
 The authoritative description is [data-model.md](data-model.md).
 
-- **DR-01** — A Procurement is keyed by its 11-digit `projectId` and carries feed data, retrieval data, timeline, analysis and the pipeline's State/Outcome.
-- **DR-02** — Persistence documents are snake_case; domain objects are camelCase; the mapping occurs only in repositories.
-- **DR-03** — TOR PDFs are not persisted; only the archive id and per-document roles are stored so the source can be re-fetched on demand.
-- **DR-04** — A Tombstone shall retain a feed snapshot sufficient to rebuild the record on restore.
-- **DR-05** — Favourites, Clients and Experience are owned by user / Company and never leak across them.
-
----
+- DR-01: A Procurement is keyed by its 11-digit `projectId` and carries feed data, retrieval data, timeline, analysis and the pipeline's State/Outcome.
+- DR-02: Persistence documents are snake_case; domain objects are camelCase; the mapping occurs only in repositories.
+- DR-03: TOR PDFs are not persisted; only the archive id and per-document roles are stored so the source can be re-fetched on demand.
+- DR-04: A Tombstone shall retain a feed snapshot sufficient to rebuild the record on restore.
+- DR-05: Favourites, Clients and Experience are owned by user / Company and never leak across them.
 
 ## 7. Use cases
 
@@ -490,9 +398,7 @@ _Alternate:_ another Run is live → `409`. _Exception:_ upstream refusal → Ru
 2. Administrator reads the source TOR.
 3. Administrator approves (visible to officers), marks non-software (tombstone) or deletes.
 
----
-
-## 8. Requirements traceability (feature → components)
+## 8. Requirements traceability (feature to components)
 
 | Feature | Requirements | API | Web |
 | ------- | ------------ | --- | --- |
@@ -505,11 +411,9 @@ _Alternate:_ another Run is live → `409`. _Exception:_ upstream refusal → Ru
 | Run control | FR-RUN-* | `ingestion.service.ts`, `scheduler.service.ts`, `routes/{ingestion,schedule}.ts` | `components/ingestion/*` |
 | Moderation | FR-MOD-* | `procurement-admin.service.ts` | `components/ingestion/project-action-*` |
 
----
-
 ## 9. Key decisions that constrain requirements
 
-Decision records are cited throughout the code but are **not in this branch**;
+Decision records are cited throughout the code but are not on this branch;
 summarised here from those citations so the requirements read in context.
 
 | ADR | Decision (as cited) |
@@ -523,8 +427,6 @@ summarised here from those citations so the requirements read in context.
 | 0018 | Discovery reads the RSS announcement feed; backfill takes a fixed share of each Run |
 | 0020 | Discovery, Retrieval and Analysis run side by side through one gate |
 | 0021 | Projects whose Goods Category carries no software work are kept as `out_of_scope` |
-
----
 
 ## 10. Open issues and risks
 
