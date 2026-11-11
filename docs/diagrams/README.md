@@ -2,9 +2,8 @@
 
 Five diagrams, kept to the ones that explain something a table cannot.
 Simple flows (authentication, request handling, refresh) are written out in the
-pages instead. PlantUML sources are in [`src/`](src), with rendered output in
-[`png/`](png) (for docs and slides) and [`svg/`](svg) (scalable, searchable text).
-The images are committed so they show in any viewer without tooling.
+pages instead. PlantUML sources are in [`src/`](src), with the rendered PNGs in [`png/`](png).
+The PNGs are committed so they show in any viewer without tooling.
 
 | # | Diagram | Shows | Used in |
 | - | ------- | ----- | ------- |
@@ -31,5 +30,5 @@ or put a `plantuml` command on `PATH`. The script lifts PlantUML's default 4096 
 image cap, which would otherwise clip the tall ingestion flow.
 
 Edit the `.puml`, never the image. Keep text ASCII. Shared styling is in
-`src/style.iuml`. Commit the regenerated `png/` and `svg/` with the source change.
+`src/style.iuml`. Commit the regenerated `png/` with the source change.
 Add a diagram only when a table or a paragraph would be harder to follow.
