@@ -1,4 +1,5 @@
 import type {
+  ChangePassword,
   ClientKind,
   DurationUnit,
   IngestionFailure,
@@ -8,6 +9,7 @@ import type {
   ProcurementListResponse,
   ProcurementYearsResponse,
   TargetPlatform,
+  UpdateProfile,
   UserRole,
   CreateTorReport,
   TorReportResponse,
@@ -116,8 +118,8 @@ function refreshSession(): Promise<void> {
  * One call to the API, carrying the session cookie and surviving its expiry.
  *
  * A 401 on a data call is answered with a refresh and a single retry. The auth
- * endpoints are exempt — a 401 from a login is a wrong password to show, not a
- * session to renew — and nothing loops: a 401 that survives a refresh means the
+ * endpoints other than /me are exempt — a 401 from a login is a wrong password
+ * to show — and nothing loops: a 401 that survives a refresh means the
  * session is over. Any other non-2xx response is returned for the caller to
  * turn into an error.
  */
@@ -138,7 +140,10 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 
   const sentAt = refreshEpoch;
   const response = await attempt();
-  if (response.status !== 401 || path.startsWith('/api/auth/')) return response;
+  const sessionEndpoint = path === '/api/auth/me' || path === '/api/auth/me/password';
+  if (response.status !== 401 || (path.startsWith('/api/auth/') && !sessionEndpoint)) {
+    return response;
+  }
 
   if (refreshEpoch === sentAt) await refreshSession();
   const retried = await attempt();
@@ -246,6 +251,17 @@ export function stopIngestionRun(): Promise<{ stopping: true }> {
 export async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
   const response = await apiFetch(path, init);
   if (!response.ok) throw await failure(response);
+}
+
+export function updateProfile(profile: UpdateProfile): Promise<void> {
+  return requestNoContent('/api/auth/me', { method: 'PATCH', body: JSON.stringify(profile) });
+}
+
+export function changePassword(password: ChangePassword): Promise<void> {
+  return requestNoContent('/api/auth/me/password', {
+    method: 'PATCH',
+    body: JSON.stringify(password),
+  });
 }
 
 export interface CompanyResponse {

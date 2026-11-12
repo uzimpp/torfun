@@ -26,6 +26,7 @@ export type CurrentUser = {
    */
   company_name: string | null;
   role: 'admin' | 'business_development_officer';
+  has_local_password: boolean;
 };
 
 /** Reads the session, or null when there isn't one. Never throws. */
