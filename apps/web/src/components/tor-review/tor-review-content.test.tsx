@@ -25,7 +25,7 @@ const tor = {
   projectMoney: 4_500_000,
   priceBuild: null,
   timeline: { ...EMPTY_TIMELINE, status: 'open' },
-  announceDate: null,
+  announceDate: '2026-10-01',
   purchaseMethodName: null,
   budgetYear: 2568,
   analysis: {
@@ -51,6 +51,23 @@ const officialDeadline = {
 beforeEach(() => vi.clearAllMocks());
 
 describe('TorReviewContent', () => {
+  test('shows announcement date in its own section beneath budget, beside the deadline', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    render(<TorReviewContent projectId="66059313551" />);
+
+    const announcement = await screen.findByRole('group', { name: 'วันที่ประกาศ' });
+    expect(announcement).toHaveTextContent('1 ตุลาคม 2569');
+    expect(announcement).toHaveClass('mt-3');
+    expect(announcement).not.toHaveClass('border-t');
+    expect(within(announcement).getByText('1 ตุลาคม 2569')).toHaveClass('text-base');
+    expect(screen.queryByRole('heading', { name: 'กำหนดการสำคัญ' })).not.toBeInTheDocument();
+    const deadline = screen.getByRole('group', { name: 'กำหนดยื่นข้อเสนอ' });
+    expect(deadline).toBeInTheDocument();
+    expect(deadline).toHaveClass('mt-3');
+    expect(deadline).not.toHaveClass('border-t');
+    expect(within(deadline).getByText('—')).toHaveClass('text-base');
+  });
+
   test('shows the summary without any confidence line', async () => {
     mocked.fetchTor.mockResolvedValue(tor);
     render(<TorReviewContent projectId="66059313551" />);

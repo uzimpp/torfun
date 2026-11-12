@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+const THEME_CHANGE_EVENT = 'torfun-theme-change';
 
 /**
  * The light/dark switch.
@@ -17,13 +19,29 @@ export function ThemeToggle({
   initialTheme,
   withLabel = false,
   onDarkSurface = false,
+  className,
 }: {
   initialTheme: 'light' | 'dark';
   withLabel?: boolean;
   onDarkSurface?: boolean;
+  className?: string;
 }) {
   const [theme, setTheme] = useState(initialTheme);
   const label = theme === 'dark' ? 'สลับโหมดกลางวัน' : 'สลับโหมดกลางคืน';
+
+  useEffect(() => {
+    function syncTheme(event: Event) {
+      if (
+        event instanceof CustomEvent &&
+        (event.detail === 'light' || event.detail === 'dark')
+      ) {
+        setTheme(event.detail);
+      }
+    }
+
+    window.addEventListener(THEME_CHANGE_EVENT, syncTheme);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, syncTheme);
+  }, []);
 
   function toggleTheme() {
     const nextTheme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
@@ -31,6 +49,7 @@ export function ThemeToggle({
     document.documentElement.classList.toggle('light', nextTheme === 'light');
     document.cookie = `torfun-theme=${nextTheme}; Path=/; Max-Age=31536000; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
     setTheme(nextTheme);
+    window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, { detail: nextTheme }));
   }
 
   return (
@@ -42,6 +61,7 @@ export function ThemeToggle({
         withLabel ? 'min-h-11 gap-2 px-3 text-sm font-normal' : 'size-10',
         onDarkSurface &&
           'border-current/25 bg-current/10 text-current hover:bg-current/20 focus-visible:ring-current/40 dark:bg-current/10 dark:hover:bg-current/20',
+        className,
       )}
       title={label}
       aria-label={label}

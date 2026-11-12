@@ -120,8 +120,8 @@ export function toProjectQuery(filters: ProcurementListFilters, page: number): P
     ...(filters.q ? { q: filters.q } : {}),
     ...(filters.state ? { state: filters.state } : {}),
     ...(filters.outcome ? { outcome: filters.outcome } : {}),
-    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.status ? { status: [filters.status] } : {}),
     ...(filters.agency ? { deptName: filters.agency } : {}),
-    ...(filters.year ? { budgetYear: Number(filters.year) } : {}),
+    ...(filters.year ? { budgetYear: [Number(filters.year)] } : {}),
   };
 }

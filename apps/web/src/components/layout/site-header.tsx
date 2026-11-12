@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import { Bell } from 'lucide-react';
 
 import type { CurrentUser } from '@/lib/auth';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
 import { Brand } from './brand';
@@ -17,17 +19,18 @@ import { MobileMenu } from './mobile-menu';
  * dashboard, which quietly took away the way back to the page describing the
  * product; the dashboard is reachable from the account menu instead.
  *
- * The light/dark control is not here. It is a setting, chosen once and rarely
- * changed, and it was taking a permanent slot in the row a person uses on every
- * visit; it now lives in the footer, alongside the rest of the site's plumbing.
+ * The search field is centered in the space between the brand and account
+ * controls; the theme switch remains beside the account menu.
  */
 export function SiteHeader({
   user,
   withSearch = true,
+  initialTheme = 'light',
 }: {
   user: Pick<CurrentUser, 'username' | 'role'> | null;
   /** The 404 sets this false: it is reached at every URL, and carries its own field. */
   withSearch?: boolean;
+  initialTheme?: 'light' | 'dark';
 }) {
   return (
     <HeaderShell>
@@ -38,8 +41,24 @@ export function SiteHeader({
         <MobileMenu role={user?.role} withSearch={withSearch} />
         <Brand href="/" className="shrink-0" />
 
-        <div className="ms-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
+        <div className="flex min-w-0 flex-1 justify-center">
           <HeaderSearch enabled={withSearch} />
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            aria-label="การแจ้งเตือนยังไม่พร้อมใช้งาน"
+            className="hidden size-10 rounded-full border-border/60 bg-background/80 shadow-none disabled:opacity-100 sm:inline-flex"
+          >
+            <Bell aria-hidden="true" />
+          </Button>
+          <ThemeToggle
+            initialTheme={initialTheme}
+            className="size-10 rounded-full border-border/60 bg-background/80 shadow-none"
+          />
           {user ? (
             <UserMenu user={user} />
           ) : (

@@ -26,7 +26,13 @@ const STYLES: Record<ProcurementStatus, string> = {
 
 const DRAFTING_NOTE = 'อยู่ในช่วงร่าง/เตรียมการ — เตรียมตัวล่วงหน้าได้ก่อนประกาศเชิญชวน';
 
-export function ProcurementStatusBadge({ status }: { status: ProcurementStatus }) {
+export function ProcurementStatusBadge({
+  status,
+  showStatusLabel = false,
+}: {
+  status: ProcurementStatus;
+  showStatusLabel?: boolean;
+}) {
   return (
     <span
       data-status={status}
@@ -38,7 +44,7 @@ export function ProcurementStatusBadge({ status }: { status: ProcurementStatus }
       )}
     >
       {status === 'drafting' && <Clock aria-hidden="true" className="size-3.5 shrink-0" />}
-      {STATUS_LABELS[status]}
+      {showStatusLabel ? `สถานะ: ${STATUS_LABELS[status]}` : STATUS_LABELS[status]}
     </span>
   );
 }

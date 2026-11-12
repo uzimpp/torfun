@@ -42,4 +42,10 @@ describe('ProcurementStatusBadge', () => {
     expect(badge).toHaveAttribute('data-status', 'unknown');
     expect(badge).not.toHaveAttribute('title');
   });
+
+  test('can prefix the status label for procurement cards', () => {
+    render(<ProcurementStatusBadge status="open" showStatusLabel />);
+
+    expect(screen.getByText('สถานะ: เปิดรับข้อเสนอ')).toBeInTheDocument();
+  });
 });
