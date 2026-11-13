@@ -86,7 +86,7 @@ class TorReport <<tor_reports>> {
 class Run <<ingestion_runs>> {
   startedAt, endedAt, counts
 }
-class Schedule <<schedule>> {
+class Schedule <<ingestion_meta>> {
   enabled, mode, timeOfDay
   weekdays, everyHours (6-168)
 }

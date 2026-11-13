@@ -177,7 +177,8 @@ A `feature/notifications` branch exists upstream; nothing is on `develop`.
 | FR-ING-02 | Discovery shall never consult the project title to admit or reject a project. | M | I |
 | FR-ING-03 | Discovery shall read days since the last Run first (new days always read in full), then a bounded share of history (`FEED_BACKFILL_REQUESTS_PER_RUN`, default 60 requests per Run, back `FEED_HISTORY_DAYS` = 365), tracked by a per-agency/type Feed Cursor. Today is re-read and never recorded as done. | M | I |
 | FR-ING-04 | A new project shall be stored as `Queued` from the feed alone and handed to Retrieval immediately. | M | I |
-| FR-ING-05 | Retrieval. For each project, in one Gate turn, the system shall read project detail (until read once), the announcement timeline (greenBook), then locate and download the announcement archive and extract TOR PDFs. | M | I |
+| FR-ING-05 | Detail. For each project whose detail has not been read, one Gate turn (tier `detail`) shall read the procurement detail and, while the budget year is unknown, the project detail; the record is then judged for scope admission. | M | I |
+| FR-ING-05a | Retrieval. For each admitted project, in a separate Gate turn, the system shall read the announcement timeline (greenBook), then locate and download the announcement archive and extract TOR PDFs. | M | I |
 | FR-ING-06 | Retrieval shall serve never-read projects first (newest announcement first), then re-read the timeline of already-read, non-`contracted` projects, oldest check first; an unchanged timeline shall cost no archive or model call, and a moved invitation date shall re-read the invitation alone. | M | I |
 | FR-ING-07 | Procurement Status shall be derived only from timeline milestones; no model output shall set it. | M | I |
 | FR-ING-08 | The budget year shall be left empty until read from project detail, never guessed. | M | I |
@@ -205,7 +206,7 @@ A `feature/notifications` branch exists upstream; nothing is on `develop`.
 | FR-RUN-03 | An administrator shall be able to stop a running Run; Analysis shall finish the Archives it already holds, nothing new shall be requested from e-GP. | M | I |
 | FR-RUN-04 | A rate-limit or forbidden response from e-GP (429/403) shall close the Gate for the rest of the Run. | M | I |
 | FR-RUN-05 | `SITE_UNREACHABLE_AFTER` (3) consecutive unanswered requests, or a lookup answered with a web page instead of data (site closed notice), shall close the Gate. | M | I |
-| FR-RUN-06 | The Gate shall allow one upstream request in flight, with a randomised pause (4–6 s) after each, serving tiers in priority order: new days → never-read → refresh → history. | M | I |
+| FR-RUN-06 | The Gate shall allow one upstream request in flight, with a randomised pause (4–6 s) after each, serving tiers in priority order: new days → detail → fresh (never-read) → refresh → history. | M | I |
 | FR-RUN-07 | Model calls in flight shall be bounded by `ANALYSIS_CONCURRENCY` (default 8, max 32); the in-memory "waiting room" shall have that many places, and Retrieval of new projects shall wait while it is full. | M | I |
 | FR-RUN-08 | An administrator shall be able to configure an automatic schedule: either every _N_ hours (6 ≤ N ≤ 168) or chosen weekdays at a time of day (Asia/Bangkok). Default: disabled. | M | I |
 | FR-RUN-09 | The schedule view shall show last run, next run and the next few upcoming runs. | S | I |
@@ -278,7 +279,7 @@ None.
 
 | ID | Requirement | Verification |
 | -- | ----------- | ------------ |
-| NFR-UP-01 | At most one request in flight to `gprocurement.go.th` at any time, platform-wide. | Test of `site-gate`; code review that no caller bypasses the gate |
+| NFR-UP-01 | At most one request in flight to `gprocurement.go.th` at any time within an ingestion Run. Known gap: on-demand source downloads (`TorService.source()`) bypass the gate (OI-08). | Test of `site-gate`; code review of ingestion callers |
 | NFR-UP-02 | A politeness pause (4–6 s) shall follow each project retrieval. | Unit test on `POLITENESS` use |
 | NFR-UP-03 | A 429/403 shall stop all upstream requests for the remainder of the Run, with no retry past a refusal. | Pipeline test |
 | NFR-UP-04 | Retries shall be at most 2, with 5 s / 15 s back-off; feed and detail lookups time out at 20 s with no retry. | Config review |
@@ -439,6 +440,7 @@ summarised here from those citations so the requirements read in context.
 | OI-05 | No data-protection (PDPA) review is recorded. | Decide and document |
 | OI-06 | No performance baseline (NFR-PERF-01) or accessibility audit (NFR-USE-04). | Measure; set targets |
 | OI-07 | `/api/dashboard` and `/api/admin/test` are placeholders returning a greeting. | Remove or implement |
+| OI-08 | `GET /api/tors/:projectId/source` downloads the archive from e-GP without the Gate, so it can overlap other downloads and a Run, and a latched Gate does not stop it. | Route it through a shared gate, or record the research authorisation's position (see OI-01) |
 | R-01 | Dependence on undocumented e-GP endpoints and RSS shape; any change silently stops ingestion. | Dependency-health check, failure log, alerting |
 | R-02 | The Gate makes throughput inherently slow; history backfill competes with fresh work. | Tiered scheduling (FR-RUN-06) |
 | R-03 | Model verdicts may be wrong; mistakes either hide a good tender (tombstone) or show a bad one. | Confidence gating (FR-ING-14); admin review; TOR reports |

@@ -27,9 +27,7 @@ Related: [architecture.md](architecture.md), [ingestion-flow.md](ingestion-flow.
 | `tombstones` | Projects judged non-software, which stops re-ingestion, plus a feed snapshot for restore | `projectId` |
 | `ingestion_failures` | The failure log shown to administrators | `projectId`, `stage`, `kind` |
 | `ingestion_runs` | Finished Runs: start, end, counts | run id |
-| `ingestion_meta` | The Feed Cursor: a contiguous range of fully read days per agency and type | agency, type |
-| `run_lease` | One document: who may run, the live view, work in flight | fixed id |
-| `schedule` | One document: the automatic-run setting and the last run start | fixed id |
+| `ingestion_meta` | Singleton documents: the Feed Cursor (`_id: 'feed_cursor'`, a contiguous range of fully read days per agency and type), the run lease (who may run, the live view, work in flight) and the schedule (the automatic-run setting and the last run start) | fixed `_id` |
 | `users` | Accounts: `role`, `password_hash` (only through `findCredentials`), `google_id`, `company_id` | `company_id` to `companies` |
 | `refresh_tokens` | Hashed refresh tokens with family, expiry and revocation | `user_id`, `family_id`, `token_hash` |
 | `companies` | The vendor: Thai name, optional TIN, index on `name_th` | |
@@ -38,8 +36,9 @@ Related: [architecture.md](architecture.md), [ingestion-flow.md](ingestion-flow.
 | `favorites` | A user's shortlisted procurements | `user_id`, `project_id` |
 | `tor_reports` | Reports on a TOR and the administrator's review | `project_id`, `reporter_id` |
 
-The run-level collections (`ingestion_runs`, `ingestion_meta`, `run_lease`,
-`schedule`) are operational state with no foreign keys.
+The run-level collections (`ingestion_runs`, `ingestion_meta`) are operational state with no
+foreign keys. The run lease and the schedule are documents inside `ingestion_meta`, not
+collections of their own.
 
 ## 4. The `Procurement` record
 
