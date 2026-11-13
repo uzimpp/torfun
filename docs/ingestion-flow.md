@@ -134,8 +134,13 @@ A Run ends when its work is done or the gate closes: a refusal, three unanswered
 
 ## 7. Requests made to e-GP
 
-Every request goes through the gate. Nothing else is ever sent to
+Every request an ingestion Run makes goes through the gate, and the Run sends nothing else to
 `gprocurement.go.th`.
+
+**Open compliance gap.** The on-demand source download (`GET /api/tors/:projectId/source`, through
+`TorService.source()`) calls `downloadArchive` directly and does not use the gate. The gate is
+created inside each Run, so concurrent source downloads can overlap each other and a Run, and a
+Run's latched gate does not stop them.
 
 | Request | Made by | Tier | When | Notes |
 | ------- | ------- | ---- | ---- | ----- |
