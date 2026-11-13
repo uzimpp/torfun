@@ -1,0 +1,111 @@
+@startuml 04-domain-model
+!pragma layout smetana
+!include style.iuml
+title Domain model (packages/types and MongoDB collections)
+hide empty members
+class Procurement <<procurements>> {
+  projectId : 11 digits (key)
+  projectName, deptName, deptCode
+  announceDate, purchaseMethodName
+  budgetYear, goodsId, projectMoney
+  detailReadAt
+  state : Queued | Processing | Completed | Failed
+  outcome : queued ... abandoned
+  attempts, holdReason
+  statusHistory (last 50)
+  approved, publicationRemoval
+}
+class Timeline {
+  status : Procurement Status
+  lastReadAt
+  commentsCloseAt
+  deadlineAt
+}
+class Stages {
+  drafted, invited, priced
+  evaluated, awarded, contracted
+}
+class Archive {
+  zipId
+  torAmbiguous
+}
+class ArchiveDocument {
+  member, filename, bytes
+  role : main_tor | tor_variant | not_tor |\nunreadable | invitation | bidding_document
+  readMode : pdf | text | first_pages
+}
+class TorAnalysis {
+  summary, scopeOfWork[]
+  budgetThb, deadlineAt, durationDays
+  techStack[], targetPlatforms[]
+  requiredQualifications[]
+  promptVersion
+}
+class Tombstone <<tombstones>> {
+  projectId
+  reason : ai_not_software | admin_non_software | admin_deleted
+  evidence (<= 200 chars)
+  feed snapshot
+}
+class IngestionFailure <<ingestion_failures>> {
+  projectId
+  stage, kind : fault | no_tor
+  error, at
+}
+class User <<users>> {
+  username
+  role : admin | business_development_officer
+  companyId, isActive
+  email, google_id, password_hash
+}
+class RefreshToken <<refresh_tokens>> {
+  familyId, tokenHash
+  expiresAt, revokedAt
+}
+class Company <<companies>> {
+  nameTh (Thai only)
+  tin (13 digits, optional)
+}
+class Client <<clients>> {
+  name
+  kind : government | private
+}
+class Experience <<experiences>> {
+  projectName, description
+  techStack[], targetPlatforms[]
+  durationMonths
+}
+class Favorite <<favorites>> {
+  userId, projectId
+}
+class TorReport <<tor_reports>> {
+  reason, details
+  status : pending | dismissed | removed
+  review
+}
+class Run <<ingestion_runs>> {
+  startedAt, endedAt, counts
+}
+class Schedule <<ingestion_meta>> {
+  enabled, mode, timeOfDay
+  weekdays, everyHours (6-168)
+}
+Procurement *-- Timeline
+Timeline *-- Stages
+Procurement *-- "0..1" Archive
+Archive *-- "*" ArchiveDocument
+Procurement *-- "0..1" TorAnalysis
+Procurement ..> Tombstone : replaced by\non a drop
+Procurement "1" -- "*" IngestionFailure
+Company "1" -- "*" User : employs
+Company "1" -- "*" Client
+Company "1" -- "*" Experience
+Client "1" -- "*" Experience : for
+User "1" -- "*" Favorite
+User "1" -- "*" RefreshToken
+User "1" -- "*" TorReport : files
+Procurement "1" -- "*" Favorite
+Procurement "1" -- "*" TorReport
+Run ..> Procurement : produces
+Schedule ..> Run : starts
+@enduml
