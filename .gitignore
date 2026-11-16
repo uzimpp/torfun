@@ -51,6 +51,9 @@ yarn-error.log*
 *.pem
 .vercel
 
+# Operational Python helpers
+__pycache__/
+
 # Local authentication test cookies
 cookies.txt
 **/cookies.txt

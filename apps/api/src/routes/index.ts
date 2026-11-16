@@ -12,6 +12,7 @@ import { experienceRoutes } from './experiences';
 import { torRoutes } from './tors';
 import { favoriteRoutes } from './favorites';
 import { torReportRoutes } from './tor-reports';
+import { notificationRoutes, notificationWorkerRoutes, lineWebhookRoutes } from './notifications';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes, { prefix: '/api' });
@@ -29,6 +30,9 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(torRoutes, { prefix: '/api' });
   await app.register(favoriteRoutes, { prefix: '/api' });
   await app.register(torReportRoutes, { prefix: '/api' });
+  await app.register(notificationRoutes, { prefix: '/api' });
+  await app.register(notificationWorkerRoutes, { prefix: '/api' });
+  await app.register(lineWebhookRoutes, { prefix: '/api' });
 
   // Future route groups (per feature analysis in the project brief):
   // - /api/tors/:id/source (download/read original source, USR-07)

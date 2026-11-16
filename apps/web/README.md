@@ -24,14 +24,14 @@ it for a deployment means a rebuild, not a restart.
 
 ## Pages
 
-| Route                  | Access | What it does                                        |
-| ---------------------- | ------ | --------------------------------------------------- |
-| `/`                    | public | Landing page, with the search field as its hero     |
-| `/search`              | public | Results for `?q=`; says what access the index needs |
-| `/login`               | public | Password sign-in, or the Google redirect            |
-| `/register`            | public | Self-registration, always as a BD Officer           |
-| `/dashboard`           | user   | Signed-in landing                                   |
-| `/company`             | user   | The officer's own Company and the work it delivered |
+| Route                  | Access | What it does                                         |
+| ---------------------- | ------ | ---------------------------------------------------- |
+| `/`                    | public | Landing page, with the search field as its hero      |
+| `/search`              | public | Results for `?q=`; says what access the index needs  |
+| `/login`               | public | Password sign-in, or the Google redirect             |
+| `/register`            | public | Self-registration, always as a BD Officer            |
+| `/dashboard`           | user   | Signed-in landing                                    |
+| `/company`             | user   | The officer's own Company and the work it delivered  |
 | `/company-experiences` | user   | The same record, guided, as step two of registration |
 | `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log |
 | `/tor/:projectId`      | user   | Read, download, or report a TOR                     |
@@ -61,3 +61,11 @@ into a form that loses them. The announcement index is served by
 `/api/ingestion/projects`, which is **admin-only**, so a BD Officer's search
 currently reports that rather than returning rows — opening the index to that
 role is an API change, not a UI one.
+
+## Notifications
+
+BD officers use `/notifications` for their inbox and event/channel preferences.
+`/notifications/link-line` confirms the standard LINE account-link flow.
+Administrators use `/admin/notifications` for delivery failures and retries.
+See the [API notification configuration](../api/README.md#notifications) for channel
+setup and the production worker.

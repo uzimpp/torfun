@@ -15,6 +15,9 @@ import type { SchedulerService } from '../services/scheduler.service';
 import type { TorService } from '../services/tor.service';
 import type { FavoriteService } from '../services/favorite.service';
 import type { TorReportService } from '../services/tor-report.service';
+import type { NotificationService } from '../services/notification.service';
+import type { NotificationWorkerService } from '../services/notification-worker.service';
+import type { LineNotificationService } from '../services/line-notification.service';
 import type { UserRole } from '@torfun/types';
 
 /** The JWT payload. snake_case is the on-the-wire claim shape. */
@@ -49,6 +52,9 @@ declare module 'fastify' {
     torService: TorService;
     favoriteService: FavoriteService;
     torReportService: TorReportService;
+    notificationService: NotificationService;
+    notificationWorkerService: NotificationWorkerService;
+    lineNotificationService: LineNotificationService;
     diagnosticsService: DiagnosticsService;
   }
 }

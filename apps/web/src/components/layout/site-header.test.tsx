@@ -20,11 +20,9 @@ test('guest header contains brand and both ways in, without workspace links', ()
   );
   expect(screen.getByRole('link', { name: 'Torfun' })).toHaveAttribute('href', '/');
   expect(screen.queryByRole('link', { name: 'แดชบอร์ด' })).not.toBeInTheDocument();
-  const noticeButton = screen.getByRole('button', {
-    name: 'การแจ้งเตือนยังไม่พร้อมใช้งาน',
-  });
-  expect(noticeButton).toBeDisabled();
-  expect(noticeButton).toHaveClass('border-border/60', 'size-10', 'rounded-full');
+  expect(
+    screen.queryByRole('button', { name: 'การแจ้งเตือนยังไม่พร้อมใช้งาน' }),
+  ).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /เปลี่ยนภาษา/ })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /สลับโหมด/ })).toBeInTheDocument();
 });
@@ -96,10 +94,7 @@ test('the administrator menu reaches every admin page', async () => {
 test('the header carries a search field away from the pages that own one', () => {
   render(<SiteHeader user={{ username: 'tester', role: 'business_development_officer' }} />);
   const search = screen.getByRole('search', { name: 'ค้นหาประกาศ TOR' });
-  expect(search).toHaveAttribute(
-    'action',
-    '/search',
-  );
+  expect(search).toHaveAttribute('action', '/search');
   expect(screen.getByRole('searchbox', { name: 'ค้นหาประกาศ TOR' })).toHaveAttribute('name', 'q');
   expect(search.parentElement?.parentElement).toHaveClass('flex-1', 'justify-center');
   expect(search.parentElement).toHaveClass('max-w-[28rem]', 'lg:block');

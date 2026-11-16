@@ -8,3 +8,4 @@ export * from './schedule';
 export * from './ingestion-ops';
 export * from './favorite';
 export * from './tor-report';
+export * from './notification';

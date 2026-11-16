@@ -1,8 +1,8 @@
 import Link from 'next/link';
-import { Bell } from 'lucide-react';
 
 import type { CurrentUser } from '@/lib/auth';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
@@ -41,23 +41,15 @@ export function SiteHeader({
         <MobileMenu role={user?.role} withSearch={withSearch} />
         <Brand href="/" className="shrink-0" />
 
-        <div className="flex min-w-0 flex-1 justify-center">
+        <div className="hidden min-w-0 flex-1 justify-center sm:flex">
           <HeaderSearch enabled={withSearch} />
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled
-            aria-label="การแจ้งเตือนยังไม่พร้อมใช้งาน"
-            className="hidden size-10 rounded-full border-border/60 bg-background/80 shadow-none disabled:opacity-100 sm:inline-flex"
-          >
-            <Bell aria-hidden="true" />
-          </Button>
+          {user?.role === 'business_development_officer' && <NotificationBell />}
           <ThemeToggle
             initialTheme={initialTheme}
-            className="size-10 rounded-full border-border/60 bg-background/80 shadow-none"
+            className="border-border/60 bg-background/80 size-10 rounded-full shadow-none"
           />
           {user ? (
             <UserMenu user={user} />
