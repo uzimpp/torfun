@@ -3,6 +3,9 @@ name: Security
 on:
   pull_request:
     branches: [develop, main]
+    # `labeled` lets a reviewer add the `dast` label to any PR to run the image
+    # scan and ZAP against it on demand (assignment criterion 15, issue #191).
+    types: [opened, synchronize, reopened, labeled]
   schedule:
     # Catch newly-disclosed CVEs in unchanged dependencies.
     - cron: '0 6 * * 1'
@@ -60,7 +63,10 @@ jobs:
       - uses: github/codeql-action/analyze@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
 
   container-scan:
-    if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main'
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.base.ref == 'main' ||
+      contains(github.event.pull_request.labels.*.name, 'dast')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -89,7 +95,13 @@ jobs:
           category: trivy-${{ matrix.app }}
 
   dast-zap-baseline:
-    if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main'
+    # Runs after the image scan but not only when it passes: a Trivy finding
+    # must not also hide the ZAP results, which test different things.
+    if: >-
+      !cancelled() && (
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.base.ref == 'main' ||
+      contains(github.event.pull_request.labels.*.name, 'dast'))
     runs-on: ubuntu-latest
     needs: [container-scan]
     steps:
@@ -118,8 +130,18 @@ jobs:
           done
           echo "web did not become ready in time" >&2
           exit 1
+      - name: Wait for the API to be ready
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/api/health && exit 0
+            sleep 2
+          done
+          echo "api did not become ready in time" >&2
+          exit 1
       # OWASP DAST pass against the running app (XSS, headers, injection probes).
-      - name: OWASP ZAP baseline scan
+      # Each scan uploads its HTML/JSON/Markdown report as a workflow artifact,
+      # which is the evidence kept for the report.
+      - name: OWASP ZAP baseline scan (web)
         uses: zaproxy/action-baseline@6c5a007541891231cd9e0ddec25d4f25c59c9874 # v0.15.0
         with:
           target: 'http://localhost:3000'
@@ -127,6 +149,17 @@ jobs:
           rules_file_name: '.zap/rules.tsv'
           fail_action: true
           allow_issue_writing: false
+          artifact_name: zap-web
+      - name: OWASP ZAP baseline scan (API)
+        if: always()
+        uses: zaproxy/action-baseline@6c5a007541891231cd9e0ddec25d4f25c59c9874 # v0.15.0
+        with:
+          target: 'http://localhost:8080/api/health'
+          cmd_options: '-a'
+          rules_file_name: '.zap/rules.tsv'
+          fail_action: true
+          allow_issue_writing: false
+          artifact_name: zap-api
       - name: Stop stack
         if: always()
         run: docker compose down -v
