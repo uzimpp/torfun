@@ -206,6 +206,13 @@ export class AuthService {
    * button and land in the same account.
    */
   async loginWithGoogle(profile: GoogleProfile): Promise<AuthResult> {
+    // An unverified address is only a claim. Without this, anyone who could get
+    // Google to report a victim's email (an unverified secondary address, say)
+    // would be linked straight into the victim's existing account below.
+    if (profile.email_verified !== true) {
+      throw new UnauthorizedError('Your Google account email is not verified');
+    }
+
     const linked = await this.users.findByGoogleId(profile.sub);
     if (linked) return this.issue(linked);
 
