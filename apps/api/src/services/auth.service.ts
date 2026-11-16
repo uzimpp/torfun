@@ -1,3 +1,4 @@
+import { assertPasswordAcceptable } from './password-policy';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../core/errors';
@@ -158,6 +159,8 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<AuthResult> {
+    assertPasswordAcceptable(input.password, input.username);
+
     if (await this.users.findByUsername(input.username)) {
       throw new ConflictError('Username already exists');
     }
