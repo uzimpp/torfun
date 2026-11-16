@@ -42,9 +42,11 @@ export function MatchEvidence({ projectId }: { projectId: string }) {
       ) : (
         <>
           <p className="text-primary text-4xl font-semibold tabular-nums">
-            {Math.round(match.overall_score * 100)}%
+            {match.overall_score === null
+              ? 'ยังไม่มีคะแนน'
+              : `${Math.round(match.overall_score * 100)}%`}
             <span className="text-muted-foreground ms-3 text-sm font-normal">
-              คะแนนเทียบเทคโนโลยีและแพลตฟอร์ม
+              คะแนนเทียบคุณสมบัติจาก TOR
             </span>
           </p>
           {match.reasons.length > 0 && (
@@ -55,7 +57,7 @@ export function MatchEvidence({ projectId }: { projectId: string }) {
             </ul>
           )}
           <p className="text-muted-foreground mt-3 text-xs">
-            เทคโนโลยี 60% + แพลตฟอร์ม 40% · ข้อมูลที่ไม่มีจะไม่นับเป็นคะแนน
+            สัดส่วนเงื่อนไขที่ตรงจากเงื่อนไขทั้งหมด · ข้อมูลที่ยังไม่ทราบจะไม่นับเป็นคะแนน
           </p>
           <p className="mt-5 text-sm font-medium">ส่วนที่ยังไม่ตรงหรือยังไม่ได้ตรวจสอบ</p>
           <ul className="text-muted-foreground mt-2 space-y-1 text-sm">

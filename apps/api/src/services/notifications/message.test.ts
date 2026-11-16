@@ -37,7 +37,7 @@ describe('notification presentation', () => {
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('<img');
     expect(html).toContain('https://torfun.example/tor/a%2Fb%3Fc');
-    expect(html).toContain('href="https://torfun.example/notifications"');
+    expect(html).toContain('href="https://torfun.example/settings"');
     expect(html).toContain('เอกสาร TOR ต้นฉบับ');
     expect(message.text).toContain(message.url);
     expect(message.text).toContain('ค่าประมาณ');

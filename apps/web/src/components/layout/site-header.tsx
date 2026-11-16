@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { CurrentUser } from '@/lib/auth';
 import { buttonVariants } from '@/components/ui/button';
 import { NotificationBell } from '@/components/notifications/notification-bell';
+import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
 import { Brand } from './brand';
@@ -18,17 +19,18 @@ import { MobileMenu } from './mobile-menu';
  * dashboard, which quietly took away the way back to the page describing the
  * product; the dashboard is reachable from the account menu instead.
  *
- * The light/dark control is not here. It is a setting, chosen once and rarely
- * changed, and it was taking a permanent slot in the row a person uses on every
- * visit; it now lives in the footer, alongside the rest of the site's plumbing.
+ * The search field is centered in the space between the brand and account
+ * controls; the theme switch remains beside the account menu.
  */
 export function SiteHeader({
   user,
   withSearch = true,
+  initialTheme = 'light',
 }: {
   user: Pick<CurrentUser, 'username' | 'role'> | null;
   /** The 404 sets this false: it is reached at every URL, and carries its own field. */
   withSearch?: boolean;
+  initialTheme?: 'light' | 'dark';
 }) {
   return (
     <HeaderShell>
@@ -39,9 +41,16 @@ export function SiteHeader({
         <MobileMenu role={user?.role} withSearch={withSearch} />
         <Brand href="/" className="shrink-0" />
 
-        <div className="ms-auto flex min-w-0 flex-1 items-center justify-end gap-1 sm:gap-2">
+        <div className="hidden min-w-0 flex-1 justify-center sm:flex">
           <HeaderSearch enabled={withSearch} />
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2">
           {user?.role === 'business_development_officer' && <NotificationBell />}
+          <ThemeToggle
+            initialTheme={initialTheme}
+            className="border-border/60 bg-background/80 size-10 rounded-full shadow-none"
+          />
           {user ? (
             <UserMenu user={user} />
           ) : (

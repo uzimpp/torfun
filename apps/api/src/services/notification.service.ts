@@ -11,6 +11,7 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from '../core/errors';
+import type { CompanyStore } from '../repositories/company.repository';
 import type { UserStore } from '../repositories/user.repository';
 import type { ExperienceStore } from '../repositories/experience.repository';
 import type { NotificationStore } from '../repositories/notification.repository';
@@ -18,7 +19,7 @@ import type { NotificationContactStore } from '../repositories/notification-cont
 import type { ProcurementRepository } from '../repositories/procurement.repository';
 import type { EmailSender } from './notifications/email';
 import { renderAccountEmail } from './notifications/email-template';
-import { computeMatch, visibleForNotification } from './notifications/matching';
+import { computeNotificationMatch, visibleForNotification } from './notifications/matching';
 
 export type NotificationSource = Pick<
   ProcurementRepository,
@@ -41,6 +42,7 @@ export class NotificationService {
     private readonly emailSender: EmailSender | null,
     private readonly config: { webUrl: string; lineAvailable: boolean; lineOaId: string },
     private readonly now: () => Date = () => new Date(),
+    private readonly companies?: CompanyStore,
   ) {}
 
   async officer(userId: string) {
@@ -66,35 +68,30 @@ export class NotificationService {
 
   async list(userId: string, query: { filter: 'all' | 'unread'; limit: number; offset: number }) {
     const user = await this.officer(userId);
-    if (!user.companyId) return { items: [], total: 0, unreadCount: 0 };
     return this.store.list(
       user.id,
-      user.companyId,
+      user.companyId ?? '',
       query.filter === 'unread',
       query.limit,
       query.offset,
-      await this.visibleIds(user.id, user.companyId),
+      await this.visibleIds(user.id, user.companyId ?? ''),
     );
   }
 
   async update(userId: string, id: string, action: 'read' | 'dismiss') {
     const user = await this.officer(userId);
-    if (
-      !user.companyId ||
-      !(await this.store.update(user.id, user.companyId, id, action, this.now()))
-    )
+    if (!(await this.store.update(user.id, user.companyId ?? '', id, action, this.now())))
       throw new NotFoundError('ไม่พบการแจ้งเตือนนี้');
   }
 
   async readAll(userId: string) {
     const user = await this.officer(userId);
-    if (user.companyId)
-      await this.store.readAll(
-        user.id,
-        user.companyId,
-        await this.visibleIds(user.id, user.companyId),
-        this.now(),
-      );
+    await this.store.readAll(
+      user.id,
+      user.companyId ?? '',
+      await this.visibleIds(user.id, user.companyId ?? ''),
+      this.now(),
+    );
   }
 
   async settings(userId: string): Promise<NotificationSettingsView> {
@@ -119,12 +116,12 @@ export class NotificationService {
     await this.officer(userId);
     const contact = await this.contacts.get(userId);
     if (
-      (value.matchFound.email || value.statusChanged.email) &&
+      (value.matchFound.email || value.statusChanged.email || value.newOpen.email) &&
       (!this.emailSender || !contact.emailVerifiedAt)
     )
       throw new ConflictError('กรุณายืนยันอีเมลก่อนเปิดการแจ้งเตือนทางอีเมล');
     if (
-      (value.matchFound.line || value.statusChanged.line) &&
+      (value.matchFound.line || value.statusChanged.line || value.newOpen.line) &&
       (!this.config.lineAvailable || !contact.lineUserId || !contact.lineFollowing)
     )
       throw new ConflictError('กรุณาเชื่อมต่อ LINE ก่อนเปิดการแจ้งเตือน');
@@ -175,6 +172,7 @@ export class NotificationService {
     const contact = await this.contacts.get(userId);
     contact.preferences.matchFound[channel] = false;
     contact.preferences.statusChanged[channel] = false;
+    contact.preferences.newOpen[channel] = false;
     await this.contacts.savePreferences(userId, contact.preferences);
     return this.settings(userId);
   }
@@ -183,14 +181,14 @@ export class NotificationService {
     const user = await this.users.findById(userId);
     if (!user?.isActive) throw new UnauthorizedError();
     if (user.role === 'admin') return null;
-    if (!user.companyId) return null;
     const tor = await this.source.get(projectId);
     if (!tor || !visibleForNotification(tor))
       throw new NotFoundError('ไม่มี TOR ที่เผยแพร่สำหรับเปรียบเทียบ');
-    return computeMatch(
-      user.companyId,
+    return computeNotificationMatch(
+      user.companyId ?? '',
       tor,
-      await this.experiences.listByCompany(user.companyId),
+      user.companyId ? ((await this.companies?.findQualifications(user.companyId)) ?? null) : null,
+      user.companyId ? await this.experiences.listByCompany(user.companyId) : [],
       this.now(),
     );
   }

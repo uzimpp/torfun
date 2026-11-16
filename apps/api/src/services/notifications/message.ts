@@ -2,18 +2,25 @@ import { STATUS_LABELS, type Notification } from '@torfun/types';
 
 export function notificationMessage(notification: Notification, webUrl: string) {
   const url = new URL(`/tor/${encodeURIComponent(notification.projectId)}`, webUrl).href;
-  const settingsUrl = new URL('/notifications', webUrl).href;
+  const settingsUrl = new URL('/settings', webUrl).href;
   const title =
     notification.event === 'match_found'
       ? 'พบ TOR ที่ตรงกับผลงานบริษัท'
-      : 'TOR ที่สนใจเปลี่ยนสถานะ';
-  const scorePercent = Math.round(notification.score * 100);
+      : notification.event === 'new_open'
+        ? 'TOR เปิดรับข้อเสนอใหม่'
+        : 'TOR ที่สนใจเปลี่ยนสถานะหรือกำหนดเวลา';
+  const scoreLabel =
+    notification.scoringVersion === 'qualification-clauses-v1' || notification.score === null
+      ? 'คะแนนคุณสมบัติจาก TOR'
+      : 'คะแนนเทียบเทคโนโลยีและแพลตฟอร์ม';
+  const scorePercent = notification.score === null ? null : Math.round(notification.score * 100);
+  const scoreText = scorePercent === null ? 'ยังไม่มีคะแนนคุณสมบัติ' : `${scorePercent}%`;
   const statusLabel = `${notification.previousStatus ? `${STATUS_LABELS[notification.previousStatus]} → ` : ''}${STATUS_LABELS[notification.status]}`;
   const deadlineLabel = formatNotificationDeadline(notification.deadlineAt);
   const lines = [
     title,
     notification.projectName,
-    `คะแนนเทียบเทคโนโลยีและแพลตฟอร์ม: ${Math.round(notification.score * 100)}% (ค่าประมาณ)`,
+    `${scoreLabel}: ${scoreText} (ค่าประมาณ)`,
     ...notification.reasons,
     `สถานะ: ${notification.previousStatus ? `${STATUS_LABELS[notification.previousStatus]} → ` : ''}${STATUS_LABELS[notification.status]}`,
     `กำหนดยื่นข้อเสนอ (โปรดตรวจสอบต้นฉบับ): ${deadlineLabel}`,
@@ -26,6 +33,8 @@ export function notificationMessage(notification: Notification, webUrl: string) 
     event: notification.event,
     projectName: notification.projectName,
     scorePercent,
+    scoreText,
+    scoreLabel,
     statusLabel,
     deadlineLabel,
     reasons: notification.reasons,

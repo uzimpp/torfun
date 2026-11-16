@@ -24,19 +24,19 @@ it for a deployment means a rebuild, not a restart.
 
 ## Pages
 
-| Route                  | Access | What it does                                         |
-| ---------------------- | ------ | ---------------------------------------------------- |
-| `/`                    | public | Landing page, with the search field as its hero      |
-| `/search`              | public | Results for `?q=`; says what access the index needs  |
-| `/login`               | public | Password sign-in, or the Google redirect             |
-| `/register`            | public | Self-registration, always as a BD Officer            |
-| `/dashboard`           | user   | Signed-in landing                                    |
-| `/company`             | user   | The officer's own Company and the work it delivered  |
-| `/company-experiences` | user   | The same record, guided, as step two of registration |
-| `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log |
-| `/tor/:projectId`      | user   | Read, download, or report a TOR                     |
+| Route                  | Access | What it does                                                       |
+| ---------------------- | ------ | ------------------------------------------------------------------ |
+| `/`                    | public | Landing page, with the search field as its hero                    |
+| `/search`              | public | Results for `?q=`; says what access the index needs                |
+| `/login`               | public | Password sign-in, or the Google redirect                           |
+| `/register`            | public | Self-registration, always as a BD Officer                          |
+| `/dashboard`           | user   | Signed-in landing                                                  |
+| `/company`             | user   | The officer's own Company and the work it delivered                |
+| `/company-experiences` | user   | The same record, guided, as step two of registration               |
+| `/admin/ingestion`     | admin  | Run ingestion, watch progress, read the failure log                |
+| `/tor/:projectId`      | user   | Read, download, or report a TOR                                    |
 | `/admin/tor-reports`   | admin  | Review, dismiss, or unpublish reported TORs; read decision history |
-| any unmatched URL      | public | `not-found.tsx`: a 404 with its own search field    |
+| any unmatched URL      | public | `not-found.tsx`: a 404 with its own search field                   |
 
 Protected pages redirect from the server component; the session cookie is
 `httpOnly` and unreadable from the browser. `requireCompany` additionally sends a
@@ -64,7 +64,10 @@ role is an API change, not a UI one.
 
 ## Notifications
 
-BD officers use `/notifications` for their inbox and event/channel preferences.
+BD officers use `/settings` for profile/password changes, a setup checklist and
+notification preferences with agency, budget, platform and qualification-score
+filters. `/notifications` remains their inbox. New-open alerts are a separate opt-in
+that does not require company evidence.
 `/notifications/link-line` confirms the standard LINE account-link flow.
 Administrators use `/admin/notifications` for delivery failures and retries.
 See the [API notification configuration](../api/README.md#notifications) for channel

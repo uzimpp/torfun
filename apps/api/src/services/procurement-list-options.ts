@@ -10,11 +10,11 @@ export function resolveProcurementListOptions(
   const today = thailandDay(now);
   if (minDaysLeft === undefined) return { ...filters, today };
   // Only an open tender has days left; asking for another status finds nothing.
-  if (filters.status && filters.status !== 'open') return null;
+  if (filters.status?.length && !filters.status.includes('open')) return null;
   return {
     ...filters,
     today,
-    status: 'open',
+    status: ['open'],
     deadlineFrom: addCalendarDays(today, minDaysLeft),
   };
 }

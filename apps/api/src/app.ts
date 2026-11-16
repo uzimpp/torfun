@@ -176,6 +176,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     notificationSource,
     emailSender,
     { webUrl: env.WEB_APP_URL, lineAvailable: lineSender !== null, lineOaId: env.LINE_OA_ID },
+    undefined,
+    companyRepository,
   );
   const lineNotificationService = new LineNotificationService(
     contacts,
@@ -198,6 +200,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
       await notifications.ensureIndexes?.();
       await contacts.ensureIndexes?.();
     },
+    companyRepository,
+    favoriteRepository,
   );
   app.decorate('notificationService', notificationService);
   app.decorate('lineNotificationService', lineNotificationService);

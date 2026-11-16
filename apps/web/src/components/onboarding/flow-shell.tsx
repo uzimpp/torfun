@@ -26,7 +26,7 @@ export function FlowShell({
 }: {
   step?: OnboardingStepId;
   title: string;
-  description: string;
+  description?: string;
   /** `wide` is for the company step, which holds lists rather than a short form. */
   width?: 'narrow' | 'wide';
   children: ReactNode;
@@ -46,11 +46,15 @@ export function FlowShell({
             width === 'narrow' && 'bg-card border-border rounded-2xl border p-6 shadow-sm sm:p-8',
           )}
         >
-          <header className="mb-8">
-            <h1 className="text-foreground text-2xl font-medium tracking-tight">{title}</h1>
-            <p className="text-muted-foreground mt-2 max-w-[60ch] text-sm leading-relaxed">
-              {description}
-            </p>
+          <header className={cn(description ? 'mb-8' : 'mb-5')}>
+            <h1 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">
+              {title}
+            </h1>
+            {description && (
+              <p className="text-muted-foreground mt-2 max-w-[60ch] text-sm leading-relaxed">
+                {description}
+              </p>
+            )}
           </header>
 
           {children}

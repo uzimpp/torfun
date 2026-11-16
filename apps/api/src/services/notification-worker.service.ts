@@ -4,6 +4,8 @@ import {
   type Procurement,
   type User,
 } from '@torfun/types';
+import type { CompanyStore } from '../repositories/company.repository';
+import type { FavoriteStore } from '../repositories/favorite.repository';
 import type { UserStore } from '../repositories/user.repository';
 import type { ExperienceStore } from '../repositories/experience.repository';
 import type { NotificationStore } from '../repositories/notification.repository';
@@ -12,7 +14,12 @@ import type { NotificationSource } from './notification.service';
 import type { EmailSender } from './notifications/email';
 import { DeliveryError } from './notifications/email';
 import type { LineSender } from './notifications/line';
-import { computeMatch, openForMatch, visibleForNotification } from './notifications/matching';
+import {
+  computeNotificationMatch,
+  passesNotificationFilters,
+  openForMatch,
+  visibleForNotification,
+} from './notifications/matching';
 import { observationId, planNotification } from './notifications/events';
 import { renderNotificationEmail } from './notifications/email-template';
 import { renderNotificationLine } from './notifications/line-template';
@@ -33,6 +40,8 @@ export class NotificationWorkerService {
     private readonly logger: { error(message: string): void },
     private readonly now: () => Date = () => new Date(),
     private readonly ensure: () => Promise<void> = async () => {},
+    private readonly companies?: CompanyStore,
+    private readonly favorites?: FavoriteStore,
   ) {}
 
   async run() {
@@ -43,7 +52,7 @@ export class NotificationWorkerService {
     try {
       await this.ensure();
       const officers = (await this.users.list()).filter(
-        (u) => u.isActive && u.role === 'business_development_officer' && u.companyId,
+        (u) => u.isActive && u.role === 'business_development_officer',
       );
       // The journal closes the crash gap. Stale snapshots are skipped: the
       // reconciliation pass reads the latest evidence rather than announcing obsolete states.
@@ -57,16 +66,16 @@ export class NotificationWorkerService {
       }
       // One company and 20 real records per pass, with a persisted round-robin
       // cursor. Profile edits and newly joined users are eventually re-evaluated.
-      const companies = [...new Set(officers.map((u) => u.companyId!))].sort();
+      const companies = [...new Set(officers.map((u) => u.companyId ?? ''))].sort();
       const afterCompany = await this.store.cursor('_company');
       const companyId = companies.find((id) => id > afterCompany) ?? companies[0];
-      if (companyId) {
+      if (companyId !== undefined) {
         const after = await this.store.cursor(companyId);
         const records = await this.source.notificationPage(after, 20);
         for (const record of records)
           await this.evaluate(
             record,
-            officers.filter((u) => u.companyId === companyId),
+            officers.filter((u) => (u.companyId ?? '') === companyId),
           );
         await this.store.saveCursor(
           companyId,
@@ -87,22 +96,24 @@ export class NotificationWorkerService {
 
   private async evaluate(tor: Procurement, users: User[]) {
     if (!visibleForNotification(tor) || !(await this.source.isPublished(tor.projectId))) return;
-    const companies = [...new Set(users.map((u) => u.companyId!))];
+    const companies = [...new Set(users.map((u) => u.companyId ?? ''))];
     for (const companyId of companies) {
-      const match = computeMatch(
+      const match = computeNotificationMatch(
         companyId,
         tor,
-        await this.experiences.listByCompany(companyId),
+        companyId ? ((await this.companies?.findQualifications(companyId)) ?? null) : null,
+        companyId ? await this.experiences.listByCompany(companyId) : [],
         this.now(),
       );
-      for (const officer of users.filter((u) => u.companyId === companyId)) {
+      for (const officer of users.filter((u) => (u.companyId ?? '') === companyId)) {
         const current = await this.users.findById(officer.id);
         if (
           !current?.isActive ||
           current.role !== 'business_development_officer' ||
-          current.companyId !== companyId
+          (current.companyId ?? '') !== companyId
         )
           continue;
+        const contact = await this.contacts.get(current.id);
         const input = {
           userId: current.id,
           companyId,
@@ -112,8 +123,18 @@ export class NotificationWorkerService {
           deadlineAt: tor.timeline.deadlineAt ?? tor.analysis?.deadlineAt ?? null,
           match,
           qualifies:
-            match.overallScore >= MATCH_NOTIFICATION_THRESHOLD && openForMatch(tor, this.now()),
-          contact: await this.contacts.get(current.id),
+            match.overallScore !== null &&
+            !match.disqualified &&
+            match.overallScore >= MATCH_NOTIFICATION_THRESHOLD &&
+            openForMatch(tor, this.now()),
+          open: openForMatch(tor, this.now()),
+          followed: Boolean(await this.favorites?.find(current.id, tor.projectId)),
+          acceptsFilters: passesNotificationFilters(
+            tor,
+            match.overallScore,
+            contact.preferences.filters,
+          ),
+          contact,
           now: this.now(),
           sourceUpdatedAt: tor.updatedAt,
         };
@@ -143,7 +164,7 @@ export class NotificationWorkerService {
       if (
         !user?.isActive ||
         user.role !== 'business_development_officer' ||
-        user.companyId !== job.notification.companyId ||
+        (user.companyId ?? '') !== job.notification.companyId ||
         !current ||
         !visibleForNotification(current) ||
         !(await this.source.isPublished(current.projectId))
@@ -153,7 +174,9 @@ export class NotificationWorkerService {
       const preferences =
         job.notification.event === 'match_found'
           ? contact.preferences.matchFound
-          : contact.preferences.statusChanged;
+          : job.notification.event === 'new_open'
+            ? contact.preferences.newOpen
+            : contact.preferences.statusChanged;
       const destination =
         job.channel === 'email'
           ? contact.emailVerifiedAt
@@ -164,21 +187,31 @@ export class NotificationWorkerService {
             : null;
       if (!preferences[job.channel] || destination !== job.recipient)
         return finish('skipped', 'Channel disabled or destination changed');
-      if (job.notification.event === 'match_found' && !openForMatch(current, now))
+      if (job.notification.event !== 'status_changed' && !openForMatch(current, now))
         return finish('skipped', 'Opportunity is no longer open');
-      if (job.notification.event === 'match_found') {
-        const match = computeMatch(
-          user.companyId!,
-          current,
-          await this.experiences.listByCompany(user.companyId!),
-          now,
-        );
-        if (match.overallScore < MATCH_NOTIFICATION_THRESHOLD)
-          return finish('skipped', 'Company profile no longer meets the matching threshold');
-      }
+      const match = computeNotificationMatch(
+        user.companyId ?? '',
+        current,
+        user.companyId
+          ? ((await this.companies?.findQualifications(user.companyId)) ?? null)
+          : null,
+        user.companyId ? await this.experiences.listByCompany(user.companyId) : [],
+        now,
+      );
+      if (!passesNotificationFilters(current, match.overallScore, contact.preferences.filters))
+        return finish('skipped', 'Notification filters changed');
+      if (
+        job.notification.event === 'match_found' &&
+        (match.overallScore === null ||
+          match.disqualified ||
+          match.overallScore < MATCH_NOTIFICATION_THRESHOLD)
+      )
+        return finish('skipped', 'Company profile no longer meets the matching threshold');
       if (
         job.notification.event === 'status_changed' &&
-        job.notification.status !== current.timeline.status
+        (job.notification.status !== current.timeline.status ||
+          job.notification.deadlineAt !==
+            (current.timeline.deadlineAt ?? current.analysis?.deadlineAt ?? null))
       )
         return finish('skipped', 'A newer procurement status superseded this message');
       if (now.getTime() - Date.parse(job.createdAt) >= 24 * 3600000)

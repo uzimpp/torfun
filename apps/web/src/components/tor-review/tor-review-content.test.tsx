@@ -26,7 +26,7 @@ const tor = {
   projectMoney: 4_500_000,
   priceBuild: null,
   timeline: { ...EMPTY_TIMELINE, status: 'open' },
-  announceDate: null,
+  announceDate: '2026-10-01',
   purchaseMethodName: null,
   budgetYear: 2568,
   analysis: {
@@ -55,6 +55,23 @@ beforeEach(() => {
 });
 
 describe('TorReviewContent', () => {
+  test('shows announcement date in its own section beneath budget, beside the deadline', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    render(<TorReviewContent projectId="66059313551" />);
+
+    const announcement = await screen.findByRole('group', { name: 'วันที่ประกาศ' });
+    expect(announcement).toHaveTextContent('1 ตุลาคม 2569');
+    expect(announcement).toHaveClass('mt-3');
+    expect(announcement).not.toHaveClass('border-t');
+    expect(within(announcement).getByText('1 ตุลาคม 2569')).toHaveClass('text-base');
+    expect(screen.queryByRole('heading', { name: 'กำหนดการสำคัญ' })).not.toBeInTheDocument();
+    const deadline = screen.getByRole('group', { name: 'กำหนดยื่นข้อเสนอ' });
+    expect(deadline).toBeInTheDocument();
+    expect(deadline).toHaveClass('mt-3');
+    expect(deadline).not.toHaveClass('border-t');
+    expect(within(deadline).getByText('—')).toHaveClass('text-base');
+  });
+
   test('shows the summary without any confidence line', async () => {
     mocked.fetchTor.mockResolvedValue(tor);
     render(<TorReviewContent projectId="66059313551" />);
@@ -63,15 +80,15 @@ describe('TorReviewContent', () => {
     expect(screen.queryByText(/ระดับความมั่นใจ/)).not.toBeInTheDocument();
   });
 
-  test('shows separate qualification and technology scores with their evidence', async () => {
+  test('shows qualification results and consistent notification evidence', async () => {
     mocked.fetchTorMatch.mockResolvedValueOnce({
       match: {
         company_id: 'company',
         project_id: tor.projectId,
-        overall_score: 0.7,
-        reasons: ['เทคโนโลยีที่ตรงกับผลงาน: typescript'],
+        overall_score: 0,
+        reasons: ['ไม่ตรงเงื่อนไข: ต้องมี ISO 9001'],
         unmatched: [],
-        scoring_version: 'technology-platform-v1',
+        scoring_version: 'qualification-clauses-v1',
         input_version: 'fixture',
         computed_at: new Date(0).toISOString(),
       },
@@ -104,9 +121,9 @@ describe('TorReviewContent', () => {
     expect(screen.getByText('อ้างอิง TOR · ข้อ 4.1 หน้า 6')).toBeInTheDocument();
     expect(screen.getByText('ไม่ตรงเงื่อนไข')).toBeInTheDocument();
     expect(screen.getByText('ใบรับรองที่ตรงเงื่อนไขหมดอายุแล้ว')).toBeInTheDocument();
-    expect(await screen.findByText('คะแนนเทียบเทคโนโลยีและแพลตฟอร์ม')).toBeInTheDocument();
-    expect(screen.getByText('70%')).toBeInTheDocument();
-    expect(screen.getByText('เทคโนโลยีที่ตรงกับผลงาน: typescript')).toBeInTheDocument();
+    expect(await screen.findByText('คะแนนเทียบคุณสมบัติจาก TOR')).toBeInTheDocument();
+    expect(screen.getByText('0%')).toBeInTheDocument();
+    expect(screen.getByText('ไม่ตรงเงื่อนไข: ต้องมี ISO 9001')).toBeInTheDocument();
   });
 
   test('shows an official bid deadline with no note that the model read it', async () => {

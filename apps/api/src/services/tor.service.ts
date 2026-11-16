@@ -43,7 +43,7 @@ export class TorService {
       audience === 'admin' ? options : { ...options, outcome: OFFICER_VISIBLE_OUTCOME };
     const now = this.now();
     const filters = resolveProcurementListOptions(
-      { ...narrowed, order: 'daysLeft', excludeRemoved: true },
+      { ...narrowed, order: order === 'match' ? 'daysLeft' : order, excludeRemoved: true },
       now,
     );
     if (!filters) return { items: [], total: 0 };
@@ -73,6 +73,10 @@ export class TorService {
       })),
       total,
     };
+  }
+
+  years(): Promise<number[]> {
+    return this.procurements.years();
   }
 
   /** A record the audience may not see is reported exactly as one that does not exist. */

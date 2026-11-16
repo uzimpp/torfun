@@ -24,6 +24,7 @@ const toResponse = (item: Notification) => ({
   project_name: item.projectName,
   event: item.event,
   score: item.score,
+  scoring_version: item.scoringVersion,
   reasons: item.reasons,
   previous_status: item.previousStatus,
   status: item.status,

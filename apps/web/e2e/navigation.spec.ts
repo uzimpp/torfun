@@ -29,11 +29,11 @@ test('the narrow header keeps only what a guest needs on every visit', async ({ 
   const header = page.getByRole('banner');
   await expect(header.getByRole('button', { name: /เปลี่ยนภาษา/ })).toHaveCount(0);
   await expect(header.getByRole('button', { name: /การแจ้งเตือน/ })).toHaveCount(0);
-  // The light/dark control moved to the footer; the header must not keep one too.
-  await expect(header.getByRole('button', { name: /สลับโหมด/ })).toHaveCount(0);
+  // Theme selection is available in both the header and footer.
+  await expect(header.getByRole('button', { name: /สลับโหมด/ })).toBeVisible();
   await expect(
     page.getByRole('contentinfo').getByRole('button', { name: /สลับโหมด/ }),
-  ).toBeEnabled();
+  ).toBeVisible();
   await expect(header.getByRole('link', { name: 'เข้าสู่ระบบ' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

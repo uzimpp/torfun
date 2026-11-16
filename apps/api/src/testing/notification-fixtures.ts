@@ -46,6 +46,16 @@ export function notificationTor(overrides: Partial<Procurement> = {}): Procureme
       techStack: ['TypeScript', 'React'],
       targetPlatforms: ['web_app'],
       requiredQualifications: ['ตรวจสอบเอกสารจริง'],
+      qualifications: [
+        {
+          kind: 'past_work',
+          text: 'ต้องมีผลงานมูลค่าไม่น้อยกว่า 100 บาท',
+          source: 'ข้อ 4',
+          manualReviewReason: null,
+          workType: null,
+          minValueThb: 100,
+        },
+      ],
     },
     discoveredAt: '2026-10-26T00:00:00.000Z',
     updatedAt: new Date().toISOString(),
