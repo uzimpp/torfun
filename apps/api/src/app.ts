@@ -1,3 +1,4 @@
+import type { Writable } from 'node:stream';
 import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -101,12 +102,19 @@ export interface RepositoryOverrides {
  * `config/env.ts` would otherwise make impossible. `repositories` is the same
  * idea applied to storage — see `RepositoryOverrides`.
  */
-export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOverrides = {}) {
+export async function buildApp(
+  env: Env = loadEnv(),
+  repositories: RepositoryOverrides = {},
+  /** Tests pass a stream to read the log back (audit-trail assertions). */
+  options: { logStream?: Writable } = {},
+) {
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
       redact: LOG_REDACTION,
-      transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+      ...(options.logStream
+        ? { stream: options.logStream }
+        : { transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined }),
     },
   }).withTypeProvider<ZodTypeProvider>();
 

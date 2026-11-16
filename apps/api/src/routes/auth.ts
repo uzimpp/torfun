@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { ACCESS_COOKIE, fullName, REFRESH_COOKIE } from '@torfun/types';
 import { AppError, BadRequestError, UnauthorizedError } from '../core/errors';
+import { audit } from '../core/audit';
 import { ACCESS_TTL_SECONDS, REFRESH_COOKIE_PATH } from '../plugins/jwt';
 import { REFRESH_TTL_SECONDS, type AuthResult } from '../services/auth.service';
 import type { User } from '@torfun/types';
@@ -119,11 +120,13 @@ export async function authRoutes(app: FastifyInstance) {
       const profile = await fetchGoogleProfile(oauthToken.access_token);
       session = await app.authService.loginWithGoogle(profile);
     } catch (error) {
+      audit(request.log, 'auth.google.failure', { ip: request.ip });
       if (error instanceof AppError) throw error;
       app.log.error({ err: error }, 'auth: google sign-in failed');
       throw new AppError('Google authentication failed', 500);
     }
 
+    audit(request.log, 'auth.google.success', { ip: request.ip, userId: session.user.id });
     setAuthCookies(reply, session, secureCookies);
     return reply.redirect(`${WEB_APP_URL}/dashboard`);
   });
@@ -141,6 +144,11 @@ export async function authRoutes(app: FastifyInstance) {
       lastName: parsed.data.last_name,
     });
 
+    audit(request.log, 'auth.register', {
+      ip: request.ip,
+      userId: session.user.id,
+      username: session.user.username,
+    });
     setAuthCookies(reply, session, secureCookies);
     return reply.code(201).send({
       message: 'Registration successful',
@@ -154,8 +162,25 @@ export async function authRoutes(app: FastifyInstance) {
       throw new BadRequestError('Invalid login data');
     }
 
-    const session = await app.authService.login(parsed.data.username, parsed.data.password);
+    let session: AuthResult;
+    try {
+      session = await app.authService.login(parsed.data.username, parsed.data.password);
+    } catch (error) {
+      // Same record for "no such user" and "wrong password": the audit trail
+      // must not become the oracle the response deliberately is not.
+      audit(request.log, 'auth.login.failure', {
+        ip: request.ip,
+        username: parsed.data.username,
+        reason: error instanceof AppError ? error.message : 'error',
+      });
+      throw error;
+    }
 
+    audit(request.log, 'auth.login.success', {
+      ip: request.ip,
+      userId: session.user.id,
+      username: session.user.username,
+    });
     setAuthCookies(reply, session, secureCookies);
     return reply.send({ message: 'Login successful', user: await withCompany(session.user) });
   });
@@ -179,6 +204,10 @@ export async function authRoutes(app: FastifyInstance) {
       // A refresh that fails is a session that is over — revoked, expired, or
       // deactivated. Drop both cookies so the browser stops re-presenting them
       // on every navigation and the user is sent to the login page once.
+      audit(request.log, 'auth.refresh.failure', {
+        ip: request.ip,
+        reason: error instanceof AppError ? error.message : 'error',
+      });
       clearAuthCookies(reply);
       throw error;
     }
@@ -186,6 +215,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post('/logout', async (request, reply) => {
     await app.authService.logout(request.cookies[REFRESH_COOKIE]);
+    audit(request.log, 'auth.logout', { ip: request.ip });
     clearAuthCookies(reply);
     return reply.send({ message: 'Logout successful' });
   });

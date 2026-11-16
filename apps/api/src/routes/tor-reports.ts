@@ -12,6 +12,7 @@ import {
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
 import { requireAdmin } from '../hooks/require-admin';
+import { expensiveRouteLimit } from '../plugins/security';
 
 function actorResponse(actor: ReportActor) {
   return { id: actor.id, username: actor.username, full_name: actor.fullName, email: actor.email };
@@ -44,6 +45,7 @@ export const torReportRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/tors/:projectId/reports',
     {
+      config: { rateLimit: expensiveRouteLimit.reportSubmit },
       onRequest: requireAuth,
       schema: {
         params: z.object({ projectId: z.string().min(1).max(100) }),

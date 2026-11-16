@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { fullName, UserRole, type User } from '@torfun/types';
 import { requireAdmin } from '../hooks/require-admin';
+import { audit } from '../core/audit';
 
 /**
  * Site Administrator surface: the account list and the one write that manages
@@ -88,6 +89,13 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       const updated = await app.adminUsersService.update(request.user.user_id, request.params.id, {
         ...(request.body.role !== undefined ? { role: request.body.role } : {}),
         ...(request.body.is_active !== undefined ? { isActive: request.body.is_active } : {}),
+      });
+      audit(request.log, 'admin.user.updated', {
+        ip: request.ip,
+        userId: request.user.user_id,
+        targetUserId: updated.id,
+        role: updated.role,
+        isActive: updated.isActive,
       });
       return toAdminUserResponse(updated);
     },

@@ -128,7 +128,7 @@ describe('extractInvitationPdfs', () => {
     expect(invitation?.payload).toEqual(new Uint8Array([0x25, 0x50, 0x44, 0x46]));
   });
 
-  test('another project\'s invitation is not ours', () => {
+  test("another project's invitation is not ours", () => {
     const { invitation } = extractInvitations(['annoudoc_310000110000077_66099100000.pdf']);
 
     expect(invitation).toBeNull();
