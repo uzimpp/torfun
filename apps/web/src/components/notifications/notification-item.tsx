@@ -23,7 +23,13 @@ export function NotificationItem({
         />
         <div className="min-w-0 flex-1">
           <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            <span>{item.event === 'match_found' ? 'ตรงกับผลงานบริษัท' : 'สถานะเปลี่ยนแปลง'}</span>
+            <span>
+              {item.event === 'match_found'
+                ? 'คุณสมบัติตรงกับบริษัท'
+                : item.event === 'new_open'
+                  ? 'TOR เปิดรับข้อเสนอใหม่'
+                  : 'สถานะหรือกำหนดเวลาเปลี่ยนแปลง'}
+            </span>
             {!item.read_at && <span className="text-primary font-medium">ยังไม่อ่าน</span>}
             <time dateTime={item.created_at}>
               {new Intl.DateTimeFormat('th-TH', {
@@ -44,7 +50,11 @@ export function NotificationItem({
             <ArrowUpRight aria-hidden="true" className="mt-1 size-4 shrink-0" />
           </Link>
           <p className="text-muted-foreground mt-2 text-sm">
-            คะแนนเทคโนโลยีและแพลตฟอร์ม {Math.round(item.score * 100)}% · ค่าประมาณจากข้อมูลที่บันทึก
+            {item.scoring_version === 'qualification-clauses-v1' || item.score === null
+              ? 'คะแนนคุณสมบัติ'
+              : 'คะแนนเทคโนโลยีและแพลตฟอร์ม'}{' '}
+            {item.score === null ? 'ยังไม่มีผลคะแนน' : `${Math.round(item.score * 100)}%`} ·
+            ค่าประมาณจากข้อมูลที่บันทึก
           </p>
           {item.reasons.length > 0 && (
             <ul className="mt-3 space-y-1 text-sm">

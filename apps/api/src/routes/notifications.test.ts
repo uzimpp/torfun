@@ -3,6 +3,8 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { ACCESS_COOKIE, defaultNotificationPreferences, type User } from '@torfun/types';
 import { buildApp } from '../app';
+import { CompanyRepository } from '../repositories/company.repository';
+import { FavoriteRepository } from '../repositories/favorite.repository';
 import { UserRepository } from '../repositories/user.repository';
 import { ExperienceRepository } from '../repositories/experience.repository';
 import { ProcurementRepository } from '../repositories/procurement.repository';
@@ -78,6 +80,8 @@ const addExperience = async (companyId: string) =>
     targetPlatforms: ['web_app'],
     durationMonths: null,
     durationUnit: null,
+    workType: 'web',
+    contractValueThb: 1000,
   });
 const preferences = (channel: 'email' | 'line', inApp = true) => {
   const value = defaultNotificationPreferences();
@@ -170,8 +174,15 @@ beforeEach(async () => {
     lastName: 'Admin',
     role: 'admin',
   });
-  await users.setCompanyId(officer.id, new ObjectId().toString());
-  await users.setCompanyId(other.id, new ObjectId().toString());
+  const companies = new CompanyRepository(getDb);
+  await users.setCompanyId(
+    officer.id,
+    (await companies.create({ nameTh: 'บริษัท ทดสอบ จำกัด', tin: null })).id,
+  );
+  await users.setCompanyId(
+    other.id,
+    (await companies.create({ nameTh: 'บริษัท ตัวอย่าง จำกัด', tin: null })).id,
+  );
   officer = (await users.findById(officer.id))!;
   other = (await users.findById(other.id))!;
   await addExperience(officer.companyId!);
@@ -184,6 +195,8 @@ beforeEach(async () => {
     }),
     {
       users,
+      companies,
+      favorites: new FavoriteRepository(getDb),
       experiences,
       procurements: source,
       notificationSource: source,
@@ -238,10 +251,10 @@ describe('notifications over HTTP and Mongo', () => {
     expect(pushes).toHaveLength(0);
     const match = (await request(officer, 'GET', '/api/matching/69100000001')).json().match;
     expect(match.company_id).toBe(officer.companyId);
-    expect(match.reasons).toHaveLength(2);
+    expect(match.reasons).toEqual([expect.stringContaining('ตรงเงื่อนไข:')]);
     expect(
       (await request(other, 'GET', '/api/matching/69100000001')).json().match.overall_score,
-    ).toBe(0);
+    ).toBeNull();
   });
   test('read, unread, read-all and dismiss persist with ownership checks', async () => {
     await source.upsert(notificationTor());
@@ -653,4 +666,112 @@ describe('notifications over HTTP and Mongo', () => {
       ).statusCode,
     ).toBe(200);
   });
+  test('new-open preferences and filters persist and work without company data', async () => {
+    await users.setCompanyId(officer.id, null);
+    officer = (await users.findById(officer.id))!;
+    const prefs = defaultNotificationPreferences();
+    prefs.new_open.in_app = true;
+    prefs.filters.agencies = ['กรมทดสอบ'];
+    prefs.filters.min_budget = 500000;
+    prefs.filters.max_budget = 1000000;
+    prefs.filters.work_types = ['web_app'];
+    const saved = await request(officer, 'PUT', '/api/notifications/settings', prefs);
+    expect(saved.statusCode).toBe(200);
+    expect(
+      (await request(officer, 'GET', '/api/notifications/settings')).json().preferences,
+    ).toEqual(prefs);
+    expect(
+      (await request(other, 'GET', '/api/notifications/settings')).json().preferences.new_open
+        .in_app,
+    ).toBe(false);
+    const tor = notificationTor();
+    tor.analysis!.qualifications = undefined;
+    await source.upsert(tor);
+    await source.upsert(notificationTor({ projectId: 'excluded-agency', deptName: 'another' }));
+    await app.notificationWorkerService.run();
+    await app.notificationWorkerService.run();
+    const result = await inbox();
+    expect(result.total).toBe(1);
+    expect(result.items[0]).toMatchObject({ event: 'new_open', score: null });
+    expect((await request(officer, 'POST', '/api/notifications/read-all')).statusCode).toBe(200);
+    expect((await inbox()).unread_count).toBe(0);
+    expect(
+      (
+        await request(officer, 'PATCH', `/api/notifications/${result.items[0].id}`, {
+          action: 'dismiss',
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await inbox()).total).toBe(0);
+    prefs.new_open.email = true;
+    expect((await request(officer, 'PUT', '/api/notifications/settings', prefs)).statusCode).toBe(
+      409,
+    );
+  }, 30000);
+
+  test('a favorited unmatched TOR reports official deadline and status changes once', async () => {
+    const tor = notificationTor();
+    tor.analysis!.qualifications = undefined;
+    const favorites = new FavoriteRepository(async () => db);
+    await favorites.add({ userId: other.id, projectId: tor.projectId });
+    await source.upsert(tor);
+    await app.notificationWorkerService.run();
+    expect((await inbox(other)).total).toBe(0);
+    await source.amend(
+      tor.projectId,
+      { timeline: { ...tor.timeline, deadlineAt: '2031-01-01' } },
+      true,
+    );
+    await app.notificationWorkerService.run();
+    expect((await inbox(other)).items[0]).toMatchObject({
+      event: 'status_changed',
+      deadline_at: '2031-01-01',
+      score: null,
+    });
+    expect((await inbox()).total).toBe(0);
+    await app.notificationWorkerService.run();
+    expect((await inbox(other)).total).toBe(1);
+    await source.amend(tor.projectId, { timeline: { ...tor.timeline, status: 'cancelled' } }, true);
+    await app.notificationWorkerService.run();
+    expect((await inbox(other)).total).toBe(2);
+  }, 30000);
+
+  test('a known failed clause blocks a high-score match and changed filters suppress queued mail', async () => {
+    const tor = notificationTor();
+    const companies = new CompanyRepository(async () => db);
+    await companies.replaceQualifications(officer.companyId!, null, {
+      registeredCapitalThb: 100,
+      certificates: [],
+      personnel: [],
+    });
+    tor.analysis!.qualifications = [50, 50, 50, 150].map((minValueThb, i) => ({
+      kind: 'registered_capital' as const,
+      manualReviewReason: null,
+      minValueThb,
+      source: `4.${i}`,
+      text: `ทุน ${minValueThb}`,
+    }));
+    await source.upsert(tor);
+    await app.notificationWorkerService.run();
+    const match = (await request(officer, 'GET', `/api/matching/${tor.projectId}`)).json().match;
+    expect(match.overall_score).toBe(0.75);
+    expect(match.reasons).toContain('ไม่ตรงเงื่อนไข: ทุน 150');
+    expect((await inbox()).total).toBe(0);
+    await verifiedEmail();
+    const prefs = preferences('email');
+    await request(officer, 'PUT', '/api/notifications/settings', prefs);
+    emailFails = true;
+    await source.upsert(notificationTor({ projectId: 'pending-filter-change' }));
+    await app.notificationWorkerService.run();
+    prefs.filters.min_budget = 2000000;
+    await request(officer, 'PUT', '/api/notifications/settings', prefs);
+    await db
+      .collection('notification_deliveries')
+      .updateMany({}, { $set: { next_attempt_at: new Date(0) } });
+    emailFails = false;
+    const before = sent.length;
+    await app.notificationWorkerService.run();
+    expect(sent).toHaveLength(before);
+    expect((await db.collection('notification_deliveries').findOne({}))?.state).toBe('skipped');
+  }, 30000);
 });

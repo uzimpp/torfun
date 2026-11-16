@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 import { Mail, MessageCircle } from 'lucide-react';
-import type { NotificationPreferences, NotificationSettingsResponse } from '@torfun/types';
+import {
+  NotificationPreferencesSchema,
+  type NotificationPreferences,
+  type NotificationSettingsResponse,
+} from '@torfun/types';
 import {
   disconnectNotificationChannel,
   requestNotificationEmail,
@@ -20,6 +24,7 @@ export function NotificationPreferencesPanel({
   onSaved: (message: string) => void;
 }) {
   const [preferences, setPreferences] = useState<NotificationPreferences>(settings.preferences);
+  const [agencies, setAgencies] = useState(settings.preferences.filters.agencies.join(', '));
   const [email, setEmail] = useState(settings.email ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +42,8 @@ export function NotificationPreferencesPanel({
   };
   const events = [
     ['match_found', 'พบ TOR ที่ตรงกับบริษัท'],
-    ['status_changed', 'สถานะ TOR ที่เคยตรงกันเปลี่ยนแปลง'],
+    ['status_changed', 'สถานะหรือกำหนดเวลา TOR ที่ตรงกันหรือบันทึกไว้เปลี่ยนแปลง'],
+    ['new_open', 'TOR เปิดรับข้อเสนอใหม่ แม้ยังไม่มีข้อมูลบริษัท'],
   ] as const;
   return (
     <section aria-labelledby="preferences-heading" className="border-border border-t pt-8">
@@ -45,13 +51,28 @@ export function NotificationPreferencesPanel({
         เลือกการแจ้งเตือน
       </h2>
       <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-        แจ้งเมื่อคะแนนเทียบผลงานตั้งแต่ {Math.round(settings.match_threshold * 100)}% ขึ้นไป
-        เลือกแต่ละช่องทางแยกกันได้
+        แจ้งเมื่อคะแนนคุณสมบัติตั้งแต่ {Math.round(settings.match_threshold * 100)}% ขึ้นไป
+        ไม่มีเงื่อนไขที่ตรวจแล้วไม่ผ่าน เลือกแต่ละช่องทางแยกกันได้ การแจ้ง TOR
+        ใหม่เป็นตัวเลือกแยกต่างหาก
       </p>
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void run(() => saveNotificationPreferences(preferences), 'บันทึกการแจ้งเตือนแล้ว');
+          const parsed = NotificationPreferencesSchema.safeParse({
+            ...preferences,
+            filters: {
+              ...preferences.filters,
+              agencies: agencies
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean),
+            },
+          });
+          if (!parsed.success) {
+            setError('ตรวจสอบตัวกรอง: งบประมาณสูงสุดต้องไม่น้อยกว่าขั้นต่ำ');
+            return;
+          }
+          void run(() => saveNotificationPreferences(parsed.data), 'บันทึกการแจ้งเตือนแล้ว');
         }}
       >
         <div className="mt-5 space-y-5">
@@ -89,6 +110,97 @@ export function NotificationPreferencesPanel({
             </fieldset>
           ))}
         </div>
+        <fieldset disabled={busy} className="mt-6 space-y-4 border-t pt-5">
+          <legend className="text-sm font-medium">ตัวกรองสำหรับทุกประเภทการแจ้งเตือน</legend>
+          <p className="text-muted-foreground text-sm">
+            เว้นว่างเพื่อรับทุกค่า ข้อมูลที่ยังไม่ทราบจะไม่ผ่านตัวกรองที่ตั้งไว้
+          </p>
+          <label className="block space-y-2 text-sm">
+            <span>หน่วยงาน (ชื่อเต็ม คั่นด้วยจุลภาค)</span>
+            <Input value={agencies} onChange={(e) => setAgencies(e.target.value)} />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(['min_budget', 'max_budget'] as const).map((field) => (
+              <label key={field} className="block space-y-2 text-sm">
+                <span>
+                  {field === 'min_budget' ? 'งบประมาณขั้นต่ำ (บาท)' : 'งบประมาณสูงสุด (บาท)'}
+                </span>
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={preferences.filters[field] ?? ''}
+                  onChange={(e) =>
+                    setPreferences((v) => ({
+                      ...v,
+                      filters: {
+                        ...v.filters,
+                        [field]: e.target.value === '' ? null : Number(e.target.value),
+                      },
+                    }))
+                  }
+                />
+              </label>
+            ))}
+          </div>
+          <fieldset>
+            <legend className="text-sm">ประเภทงาน (แพลตฟอร์มที่ TOR ระบุ)</legend>
+            <div className="flex flex-wrap gap-x-5">
+              {(['web_app', 'mobile', 'windows', 'macos', 'other'] as const).map((platform) => (
+                <label key={platform} className="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={preferences.filters.work_types.includes(platform)}
+                    onChange={(e) =>
+                      setPreferences((v) => ({
+                        ...v,
+                        filters: {
+                          ...v.filters,
+                          work_types: e.target.checked
+                            ? [...v.filters.work_types, platform]
+                            : v.filters.work_types.filter((p) => p !== platform),
+                        },
+                      }))
+                    }
+                  />
+                  {
+                    {
+                      web_app: 'เว็บ',
+                      mobile: 'มือถือ',
+                      windows: 'Windows',
+                      macos: 'macOS',
+                      other: 'อื่น ๆ',
+                    }[platform]
+                  }
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label className="block space-y-2 text-sm">
+            <span>คะแนนคุณสมบัติขั้นต่ำ (%)</span>
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={
+                preferences.filters.min_qualification_score === null
+                  ? ''
+                  : Math.round(preferences.filters.min_qualification_score * 100)
+              }
+              onChange={(e) =>
+                setPreferences((v) => ({
+                  ...v,
+                  filters: {
+                    ...v.filters,
+                    min_qualification_score:
+                      e.target.value === '' ? null : Number(e.target.value) / 100,
+                  },
+                }))
+              }
+            />
+          </label>
+        </fieldset>
         <Button className="mt-4" disabled={busy} type="submit">
           {busy ? 'กำลังบันทึก…' : 'บันทึกการแจ้งเตือน'}
         </Button>

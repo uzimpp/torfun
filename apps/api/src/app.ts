@@ -35,6 +35,7 @@ import { ExperienceRepository, type ExperienceStore } from './repositories/exper
 import { FavoriteRepository, type FavoriteStore } from './repositories/favorite.repository';
 import { AuthService } from './services/auth.service';
 import { AdminUsersService } from './services/admin-users.service';
+import { CompanyQualificationsService } from './services/company-qualifications.service';
 import { CompanyService } from './services/company.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
@@ -175,6 +176,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     notificationSource,
     emailSender,
     { webUrl: env.WEB_APP_URL, lineAvailable: lineSender !== null, lineOaId: env.LINE_OA_ID },
+    undefined,
+    companyRepository,
   );
   const lineNotificationService = new LineNotificationService(
     contacts,
@@ -197,6 +200,8 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
       await notifications.ensureIndexes?.();
       await contacts.ensureIndexes?.();
     },
+    companyRepository,
+    favoriteRepository,
   );
   app.decorate('notificationService', notificationService);
   app.decorate('lineNotificationService', lineNotificationService);
@@ -208,6 +213,12 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     new AuthService(userRepository, refreshTokenRepository, (payload) => app.jwt.sign(payload)),
   );
   app.decorate('adminUsersService', new AdminUsersService(userRepository));
+  const companyQualificationsService = new CompanyQualificationsService(
+    companyRepository,
+    experienceRepository,
+    userRepository,
+  );
+  app.decorate('companyQualificationsService', companyQualificationsService);
   app.decorate('companyService', new CompanyService(companyRepository, userRepository));
   app.decorate(
     'clientService',
@@ -244,7 +255,12 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   );
   app.decorate('schedulerService', schedulerService);
   app.addHook('onClose', async () => schedulerService.stop());
-  const torService = new TorService(procurementRepository);
+  const torService = new TorService(
+    procurementRepository,
+    undefined,
+    undefined,
+    companyQualificationsService,
+  );
   app.decorate('torService', torService);
   app.decorate(
     'torReportService',

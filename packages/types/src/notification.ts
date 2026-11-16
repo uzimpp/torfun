@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { ProcurementStatus } from './egp';
+import { ProcurementStatus, TargetPlatform } from './egp';
 
 export const MATCH_NOTIFICATION_THRESHOLD = 0.7;
-export const NotificationEvent = z.enum(['match_found', 'status_changed']);
+export const NotificationEvent = z.enum(['match_found', 'status_changed', 'new_open']);
 export type NotificationEvent = z.infer<typeof NotificationEvent>;
 export const NotificationChannel = z.enum(['email', 'line']);
 export type NotificationChannel = z.infer<typeof NotificationChannel>;
@@ -10,10 +10,26 @@ export type NotificationChannel = z.infer<typeof NotificationChannel>;
 const ChannelsSchema = z
   .object({ in_app: z.boolean(), email: z.boolean(), line: z.boolean() })
   .strict();
+export const NotificationFiltersSchema = z
+  .object({
+    agencies: z.array(z.string().trim().min(1).max(300)).max(20).default([]),
+    min_budget: z.number().finite().nonnegative().nullable().default(null),
+    max_budget: z.number().finite().nonnegative().nullable().default(null),
+    work_types: z.array(TargetPlatform).max(5).default([]),
+    min_qualification_score: z.number().min(0).max(1).nullable().default(null),
+  })
+  .strict()
+  .refine((v) => v.min_budget === null || v.max_budget === null || v.min_budget <= v.max_budget, {
+    message: 'Budget maximum must be at least the minimum',
+    path: ['max_budget'],
+  });
+
 export const NotificationPreferencesSchema = z
   .object({
     match_found: ChannelsSchema,
     status_changed: ChannelsSchema,
+    new_open: ChannelsSchema.default({ in_app: false, email: false, line: false }),
+    filters: NotificationFiltersSchema.default({}),
   })
   .strict();
 export type NotificationPreferences = z.infer<typeof NotificationPreferencesSchema>;
@@ -21,6 +37,14 @@ export type NotificationPreferences = z.infer<typeof NotificationPreferencesSche
 export interface NotificationSettings {
   matchFound: { inApp: boolean; email: boolean; line: boolean };
   statusChanged: { inApp: boolean; email: boolean; line: boolean };
+  newOpen: { inApp: boolean; email: boolean; line: boolean };
+  filters: {
+    agencies: string[];
+    minBudget: number | null;
+    maxBudget: number | null;
+    workTypes: z.infer<typeof TargetPlatform>[];
+    minQualificationScore: number | null;
+  };
 }
 export function preferencesToDomain(value: NotificationPreferences): NotificationSettings {
   const channel = (v: NotificationPreferences['match_found']) => ({
@@ -28,7 +52,19 @@ export function preferencesToDomain(value: NotificationPreferences): Notificatio
     email: v.email,
     line: v.line,
   });
-  return { matchFound: channel(value.match_found), statusChanged: channel(value.status_changed) };
+  const parsed = NotificationPreferencesSchema.parse(value);
+  return {
+    matchFound: channel(parsed.match_found),
+    statusChanged: channel(parsed.status_changed),
+    newOpen: channel(parsed.new_open),
+    filters: {
+      agencies: parsed.filters.agencies,
+      minBudget: parsed.filters.min_budget,
+      maxBudget: parsed.filters.max_budget,
+      workTypes: parsed.filters.work_types,
+      minQualificationScore: parsed.filters.min_qualification_score,
+    },
+  };
 }
 export function preferencesToResponse(value: NotificationSettings): NotificationPreferences {
   const channel = (v: NotificationSettings['matchFound']) => ({
@@ -36,12 +72,25 @@ export function preferencesToResponse(value: NotificationSettings): Notification
     email: v.email,
     line: v.line,
   });
-  return { match_found: channel(value.matchFound), status_changed: channel(value.statusChanged) };
+  return {
+    match_found: channel(value.matchFound),
+    status_changed: channel(value.statusChanged),
+    new_open: channel(value.newOpen),
+    filters: {
+      agencies: value.filters.agencies,
+      min_budget: value.filters.minBudget,
+      max_budget: value.filters.maxBudget,
+      work_types: value.filters.workTypes,
+      min_qualification_score: value.filters.minQualificationScore,
+    },
+  };
 }
 export function defaultNotificationPreferences(): NotificationPreferences {
   return {
     match_found: { in_app: true, email: false, line: false },
     status_changed: { in_app: true, email: false, line: false },
+    new_open: { in_app: false, email: false, line: false },
+    filters: NotificationFiltersSchema.parse({}),
   };
 }
 
@@ -52,7 +101,8 @@ export interface Notification {
   projectId: string;
   projectName: string;
   event: NotificationEvent;
-  score: number;
+  score: number | null;
+  scoringVersion?: string;
   reasons: string[];
   previousStatus: z.infer<typeof ProcurementStatus> | null;
   status: z.infer<typeof ProcurementStatus>;
@@ -68,7 +118,8 @@ export const NotificationResponseSchema = z.object({
   project_id: z.string(),
   project_name: z.string(),
   event: NotificationEvent,
-  score: z.number().min(0).max(1),
+  score: z.number().min(0).max(1).nullable(),
+  scoring_version: z.string().optional(),
   reasons: z.array(z.string()),
   previous_status: ProcurementStatus.nullable(),
   status: ProcurementStatus,
@@ -138,7 +189,7 @@ export const NotificationMatchResponseSchema = z.object({
     .object({
       company_id: z.string(),
       project_id: z.string(),
-      overall_score: z.number(),
+      overall_score: z.number().nullable(),
       reasons: z.array(z.string()),
       unmatched: z.array(z.string()),
       scoring_version: z.string(),
@@ -171,6 +222,8 @@ export interface NotificationDelivery {
 export interface NotificationObservation {
   id: string;
   matchedAt: string | null;
+  openedAt?: string | null;
+  deadlineAt?: string | null;
   status: z.infer<typeof ProcurementStatus>;
   revision: number;
   sourceUpdatedAt: string;

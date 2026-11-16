@@ -1,4 +1,10 @@
-import { procurementDay } from '@torfun/types';
+import {
+  procurementDay,
+  thailandDay,
+  type CompanyQualificationsRecord,
+  type NotificationSettings,
+} from '@torfun/types';
+import { computeQualificationMatch } from '../qualification-match';
 import { isVisibleTo } from '../audience';
 import { createHash } from 'node:crypto';
 import type { Experience, MatchResult, Procurement } from '@torfun/types';
@@ -83,4 +89,68 @@ export function openForMatch(tor: Procurement, now: Date): boolean {
     ? Date.parse(`${deadline}T23:59:59.999+07:00`)
     : Date.parse(deadline);
   return !Number.isNaN(at) && at > now.getTime();
+}
+
+export type NotificationMatch = Omit<MatchResult, 'overallScore'> & {
+  overallScore: number | null;
+  disqualified: boolean;
+};
+
+/** Use exactly the same per-clause score as TOR detail and search. */
+export function computeNotificationMatch(
+  companyId: string,
+  tor: Procurement,
+  profile: CompanyQualificationsRecord | null,
+  experiences: Experience[],
+  now = new Date(),
+): NotificationMatch {
+  const clauses = tor.analysis?.qualifications ?? [];
+  const result =
+    profile && clauses.length
+      ? computeQualificationMatch(
+          tor.projectId,
+          clauses,
+          profile,
+          experiences,
+          thailandDay(now),
+          now,
+        )
+      : null;
+  const reasons = clauses.flatMap((clause, i) => {
+    const check = result?.checks[i];
+    return [
+      `${check?.status === 'met' ? 'ตรงเงื่อนไข' : check?.status === 'not_met' ? 'ไม่ตรงเงื่อนไข' : 'ต้องตรวจเพิ่ม'}: ${clause.text}`,
+    ];
+  });
+  return {
+    ...computeMatch(companyId, tor, experiences, now),
+    overallScore: result?.overallScore ?? null,
+    reasons: reasons.length ? reasons : ['ยังไม่มีคุณสมบัติแบบมีโครงสร้าง โปรดตรวจ TOR ต้นฉบับ'],
+    unmatched: clauses.filter((_, i) => result?.checks[i]?.status !== 'met').map((c) => c.text),
+    disqualified: result?.checks.some((c) => c.status === 'not_met') ?? false,
+    scoringVersion: 'qualification-clauses-v1',
+    inputVersion: createHash('sha256')
+      .update(JSON.stringify({ clauses, profile, experiences, today: thailandDay(now) }))
+      .digest('hex'),
+  };
+}
+
+export function passesNotificationFilters(
+  tor: Procurement,
+  score: number | null,
+  filters: NotificationSettings['filters'],
+): boolean {
+  return (
+    (!filters.agencies.length ||
+      filters.agencies.includes(tor.deptName) ||
+      (tor.deptSubName !== null && filters.agencies.includes(tor.deptSubName))) &&
+    (filters.minBudget === null ||
+      (tor.projectMoney !== null && tor.projectMoney >= filters.minBudget)) &&
+    (filters.maxBudget === null ||
+      (tor.projectMoney !== null && tor.projectMoney <= filters.maxBudget)) &&
+    (!filters.workTypes.length ||
+      filters.workTypes.some((p) => tor.analysis?.targetPlatforms.includes(p))) &&
+    (filters.minQualificationScore === null ||
+      (score !== null && score >= filters.minQualificationScore))
+  );
 }

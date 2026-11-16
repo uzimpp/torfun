@@ -17,7 +17,8 @@ interface NotificationDocument {
   project_id: string;
   project_name: string;
   event: Notification['event'];
-  score: number;
+  score: number | null;
+  scoring_version?: string;
   reasons: string[];
   previous_status: ProcurementStatus | null;
   status: ProcurementStatus;
@@ -30,6 +31,8 @@ interface NotificationDocument {
 interface ObservationDocument {
   _id: string;
   matched_at: string | null;
+  opened_at?: string | null;
+  deadline_at?: string | null;
   status: ProcurementStatus;
   revision: number;
   source_updated_at: string;
@@ -59,6 +62,7 @@ function toDocument(n: Notification): NotificationDocument {
     project_name: n.projectName,
     event: n.event,
     score: n.score,
+    scoring_version: n.scoringVersion,
     reasons: n.reasons,
     previous_status: n.previousStatus,
     status: n.status,
@@ -78,6 +82,7 @@ function toDomain(n: NotificationDocument): Notification {
     projectName: n.project_name,
     event: n.event,
     score: n.score,
+    scoringVersion: n.scoring_version ?? 'technology-platform-v1',
     reasons: n.reasons,
     previousStatus: n.previous_status,
     status: n.status,
@@ -158,6 +163,8 @@ export class NotificationRepository implements NotificationStore {
           ? {
               id: row._id,
               matchedAt: row.matched_at,
+              openedAt: row.opened_at,
+              deadlineAt: row.deadline_at,
               status: row.status,
               revision: row.revision,
               sourceUpdatedAt: row.source_updated_at,
@@ -171,6 +178,8 @@ export class NotificationRepository implements NotificationStore {
           {
             $set: {
               matched_at: observation.matchedAt,
+              opened_at: observation.openedAt ?? null,
+              deadline_at: observation.deadlineAt ?? null,
               status: observation.status,
               revision: observation.revision,
               source_updated_at: observation.sourceUpdatedAt,

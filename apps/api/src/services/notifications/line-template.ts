@@ -92,8 +92,8 @@ export function renderNotificationLine(message: NotificationMessage): LineFlexMe
         backgroundColor: '#f0eefb',
         spacing: 'sm',
         contents: [
-          text('คะแนนเทียบเทคโนโลยีและแพลตฟอร์ม', { size: 'xs' }),
-          text(`${message.scorePercent}% · ค่าประมาณ`, {
+          text(message.scoreLabel, { size: 'xs' }),
+          text(`${message.scoreText} · ค่าประมาณ`, {
             size: 'xxl',
             weight: 'bold',
             color: '#3729b7',
@@ -107,7 +107,7 @@ export function renderNotificationLine(message: NotificationMessage): LineFlexMe
       text(message.deadlineLabel, { color: '#242333' }),
       ...(message.reasons.length
         ? [
-            text('สิ่งที่ตรงกับผลงานบริษัท', { weight: 'bold', color: '#242333' }),
+            text('ผลเทียบคุณสมบัติและสิ่งที่ต้องตรวจเพิ่ม', { weight: 'bold', color: '#242333' }),
             ...message.reasons.slice(0, 3).map((reason) => text(`• ${limitText(reason, 240)}`)),
             ...(message.reasons.length > 3
               ? [text('ดูเหตุผลเพิ่มเติมใน Torfun', { size: 'xs' })]

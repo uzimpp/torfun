@@ -2,6 +2,7 @@ import {
   SOFTWARE_REASON_MAX_CHARS,
   SoftwareJudgementSchema,
   TorAnalysisSchema,
+  TorQualificationSchema,
   type SoftwareJudgement,
   type TorAnalysis,
 } from '@torfun/types';
@@ -68,6 +69,7 @@ export type ReadMode = 'pdf' | 'text' | 'first_pages';
  */
 const AnswerAnalysis = TorAnalysisSchema.omit({ reason: true, promptVersion: true }).extend({
   ...SoftwareJudgementSchema.shape,
+  qualifications: z.array(TorQualificationSchema),
   // The length is asked for in the prompt and enforced below by cutting, not by
   // refusing: a reason a few characters over is no cause to lose the whole read.
   reason: z.string(),
@@ -208,11 +210,12 @@ export async function classifyTorDocument(
   let stored: TorAnalysis | null = null;
   let judgement: SoftwareJudgement | null = null;
   if (analysis) {
-    const { isSoftware, confidence, ...fields } = analysis;
+    const { isSoftware, confidence, qualifications, ...fields } = analysis;
     const reason = fields.reason.slice(0, SOFTWARE_REASON_MAX_CHARS);
     judgement = { isSoftware, confidence, reason };
     stored = {
       ...fields,
+      ...(input.readMode === 'pdf' ? { qualifications } : {}),
       reason,
       deadlineAt: convertDateToISO(fields.deadlineAt),
       promptVersion: TOR_PROMPT_VERSION,
