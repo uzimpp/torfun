@@ -16,9 +16,12 @@ describe('Google sign-in: which account a Google identity may reach', () => {
   function setup() {
     const users = new InMemoryUserStore();
     const linked: Array<[string, string]> = [];
-    users.linkGoogleId = async (id: string, sub: string) => {
-      linked.push([id, sub]);
-    };
+    // The in-memory store's linkGoogleId is a no-op; record what would be linked.
+    Object.assign(users, {
+      linkGoogleId: async (id: string, sub: string) => {
+        linked.push([id, sub]);
+      },
+    });
     const service = new AuthService(users, new InMemoryRefreshTokenStore(), () => 'token');
     const victim = users.seed({ username: 'victim', email: 'victim@example.com' });
     return { service, victim, linked };
