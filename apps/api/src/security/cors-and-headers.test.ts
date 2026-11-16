@@ -109,6 +109,7 @@ describe('API security headers', () => {
     expect(Object.keys(res.json())).toEqual(['message']);
     const unknown = await app.inject({ method: 'GET', url: '/api/does-not-exist' });
     expect(unknown.statusCode).toBe(404);
-    expect(unknown.body).not.toMatch(/at .*\.(ts|js):\d+/);
+    // Same bare shape, and the requested path is not echoed back.
+    expect(unknown.json()).toEqual({ message: 'Not found' });
   });
 });
