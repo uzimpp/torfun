@@ -60,11 +60,6 @@ const PatchBody = z
 export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', requireAdmin);
 
-  app.get('/admin/test', async (request) => ({
-    message: `Welcome Admin ${request.user.username}`,
-    role: request.user.role,
-  }));
-
   app.get(
     '/admin/users',
     {

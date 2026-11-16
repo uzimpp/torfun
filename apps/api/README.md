@@ -41,7 +41,6 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/auth/google`                                     | public | Starts the Google sign-in redirect                  |
 | GET    | `/auth/google/callback`                            | public | Finishes it, then redirects into the web app        |
 | GET    | `/dashboard`                                       | user   | Placeholder greeting                                |
-| GET    | `/admin/test`                                      | admin  | Placeholder greeting                                |
 | GET    | `/admin/users`                                     | admin  | Lists accounts                                      |
 | PATCH  | `/admin/users/:id`                                 | admin  | Updates an account's role or active status          |
 | GET    | `/ingestion/summary`                               | admin  | Counts by state and outcome, plus agencies          |

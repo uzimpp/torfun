@@ -18,7 +18,12 @@ export const EnvSchema = z.object({
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:3000')
-    .transform((value) => value.split(',').map((origin) => origin.trim())),
+    .transform((value) => value.split(',').map((origin) => origin.trim()))
+    // ASVS V3.4.2: a wildcard with credentials is an open door, so refuse it at
+    // startup rather than trusting whoever edits the deployment config.
+    .refine((origins) => origins.every((origin) => origin !== '*' && !origin.includes('*')), {
+      message: 'CORS_ORIGINS must list explicit origins; wildcards are not allowed',
+    }),
 
   // Where the browser is sent after a successful OAuth callback.
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),
