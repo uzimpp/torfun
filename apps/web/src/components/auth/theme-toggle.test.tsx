@@ -25,3 +25,17 @@ test('restored dark theme offers the light theme action', () => {
   expect(document.documentElement).not.toHaveClass('dark');
   expect(document.cookie).toContain('torfun-theme=light');
 });
+
+test('keeps multiple theme controls in sync', () => {
+  render(
+    <>
+      <ThemeToggle initialTheme="light" />
+      <ThemeToggle initialTheme="light" />
+    </>,
+  );
+  const toggles = screen.getAllByRole('button', { name: 'สลับโหมดกลางคืน' });
+
+  fireEvent.click(toggles[0]!);
+
+  expect(screen.getAllByRole('button', { name: 'สลับโหมดกลางวัน' })).toHaveLength(2);
+});

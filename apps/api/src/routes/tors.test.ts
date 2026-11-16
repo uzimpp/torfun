@@ -66,6 +66,20 @@ describe('TOR detail routes', () => {
     expect(response.statusCode).toBe(401);
   });
 
+  test('returns only fiscal years present in the procurement index', async () => {
+    await procurements.upsert(procurement({ projectId: 'future', budgetYear: 2570 }));
+    await procurements.upsert(procurement({ projectId: 'past', budgetYear: 2560 }));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors/years',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ years: number[] }>()).toEqual({ years: [2570, 2569, 2560] });
+  });
+
   test('returns an existing procurement to an authenticated officer', async () => {
     const response = await app.inject({
       method: 'GET',
@@ -97,15 +111,74 @@ describe('TOR detail routes', () => {
     });
   });
 
+  test.each(['announced', 'deadline', 'budgetDesc', 'budgetAsc'])(
+    'accepts the %s result order',
+    async (order) => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/tors?order=${order}`,
+        cookies: session(),
+      });
+
+      expect(response.statusCode).toBe(200);
+    },
+  );
+
+  test('matches any of multiple procurement stages', async () => {
+    await procurements.upsert(
+      procurement({
+        projectId: 'project-2',
+        timeline: { ...EMPTY_TIMELINE, status: 'drafting' },
+      }),
+    );
+    await procurements.upsert(
+      procurement({
+        projectId: 'project-3',
+        timeline: { ...EMPTY_TIMELINE, status: 'contracted' },
+      }),
+    );
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors?status=open&status=drafting',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      items: [{ projectId: 'project-1' }, { projectId: 'project-2' }],
+      total: 2,
+    });
+  });
+
+  test('matches procurements from any selected budget year', async () => {
+    await procurements.upsert(procurement({ projectId: 'previous-year', budgetYear: 2568 }));
+    await procurements.upsert(procurement({ projectId: 'older-year', budgetYear: 2560 }));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors?budgetYear=2569,2568',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: Procurement[]; total: number }>()).toMatchObject({
+      items: [{ projectId: 'project-1' }, { projectId: 'previous-year' }],
+      total: 2,
+    });
+  });
+
   test.each([
     '/api/tors?minBudget=20&maxBudget=10',
     '/api/tors?publishedFrom=2026-02-30',
     '/api/tors?deadlineFrom=2026-10-02&deadlineTo=2026-10-01',
     '/api/tors?targetPlatforms=television',
+    '/api/tors?status=invalid',
     '/api/tors?minDaysLeft=-1',
     '/api/tors?minDaysLeft=3.5',
     '/api/tors?minDaysLeft=366',
     '/api/tors?minDaysLeft=3&deadlineFrom=2026-10-01',
+    '/api/tors?order=unsupported',
   ])('rejects an invalid officer filter query: %s', async (url) => {
     const response = await app.inject({ method: 'GET', url, cookies: session() });
 

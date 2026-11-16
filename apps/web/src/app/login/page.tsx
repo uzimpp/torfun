@@ -63,7 +63,6 @@ export default function LoginPage() {
     // bar to a returning officer would claim otherwise.
     <FlowShell
       title="ยินดีต้อนรับสู่ Torfun"
-      description="กรอกข้อมูลของคุณเพื่อเข้าสู่ระบบ"
       footer={
         <>
           ยังไม่มีบัญชีผู้ใช้?{' '}
@@ -104,10 +103,6 @@ export default function LoginPage() {
       <OrDivider />
 
       <GoogleButton intent="signin" />
-
-      <p className="text-muted-foreground mt-3 text-center text-xs leading-relaxed">
-        ใช้ Google ครั้งแรกจะสร้างบัญชีให้อัตโนมัติ
-      </p>
     </FlowShell>
   );
 }

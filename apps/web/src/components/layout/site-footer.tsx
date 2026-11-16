@@ -14,9 +14,8 @@ import { landingSections } from './nav-config';
  * the header announces the brand as a link on the same screen, so a screen
  * reader gains nothing from meeting the word a second time here.
  *
- * Above it, only what a footer is for: the links, the notice, the light/dark
- * control, and the attribution. There is no second paragraph restating what the
- * product is.
+ * Above it, only what a footer is for: the links, the notice, and attribution.
+ * There is no second paragraph restating what the product is.
  *
  * The notice is the part that is not optional. Everything here is a shortcut to
  * the original announcement, and the summary an officer reads is not the
@@ -46,7 +45,7 @@ export function SiteFooter({
       />
 
       <div className="relative mx-auto max-w-7xl px-4 pt-12 pb-8 sm:px-6 lg:px-10 lg:pt-14">
-        <div className="grid gap-8 sm:grid-cols-3 lg:gap-12">
+        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 lg:gap-12">
           <FooterColumn title="หน้าแรก">
             {landingSections.map(({ href, label }) => (
               <li key={href}>
@@ -77,12 +76,13 @@ export function SiteFooter({
               </>
             )}
           </FooterColumn>
-
           <div>
-            <h2 className="text-xs font-medium tracking-wider uppercase">การแสดงผล</h2>
-            <div className="mt-3">
-              <ThemeToggle initialTheme={initialTheme} withLabel onDarkSurface />
-            </div>
+            <ThemeToggle
+              initialTheme={initialTheme}
+              withLabel
+              onDarkSurface
+              className="self-start"
+            />
           </div>
         </div>
 
@@ -101,7 +101,7 @@ export function SiteFooter({
           </span>
         </p>
 
-        <div className="mt-5 flex flex-col gap-2 text-xs opacity-75 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-5 flex flex-col gap-3 text-xs opacity-75 sm:flex-row sm:items-center sm:justify-between">
           <p>
             <span data-numeric>&copy; {year}</span> Torfun · งานซอฟต์แวร์ · e-bidding ·
             หน่วยงานภาครัฐ

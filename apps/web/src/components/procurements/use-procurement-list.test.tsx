@@ -37,7 +37,7 @@ describe('useProcurementList', () => {
     expect(fetchProjects).toHaveBeenCalledWith(
       expect.objectContaining({
         outcome: 'needs_review',
-        status: 'open',
+        status: ['open'],
         offset: PROCUREMENT_PAGE_SIZE,
       }),
     );

@@ -4,12 +4,23 @@ import {
   ProcurementListQuerySchema,
   ProcurementListResponseSchema,
   ProcurementSchema,
+  ProcurementYearsResponseSchema,
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
 import { audienceOf } from '../services/audience';
 
 export const torRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', requireAuth);
+
+  app.get(
+    '/tors/years',
+    {
+      schema: {
+        response: { 200: ProcurementYearsResponseSchema },
+      },
+    },
+    async () => ({ years: await app.torService.years() }),
+  );
 
   app.get(
     '/tors',

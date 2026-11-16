@@ -80,15 +80,15 @@ test('the signup route hands people to the one registration page', () => {
   expect(redirect).toHaveBeenCalledWith('/register');
 });
 
-test('both credential pages offer the same Google route, worded for what it does', () => {
+test('both credential pages offer Google sign-in and login omits the removed hint', () => {
   render(<RegisterPage />);
   expect(screen.getByRole('button', { name: 'สมัครด้วยบัญชี Google' })).toBeInTheDocument();
   cleanup();
 
   render(<LoginPage />);
   expect(screen.getByRole('button', { name: 'เข้าสู่ระบบด้วย Google' })).toBeInTheDocument();
-  // Signing in with Google creates the account on first use, so the page says so.
-  expect(screen.getByText('ใช้ Google ครั้งแรกจะสร้างบัญชีให้อัตโนมัติ')).toBeInTheDocument();
+  expect(screen.queryByText('ใช้ Google ครั้งแรกจะสร้างบัญชีให้อัตโนมัติ')).not.toBeInTheDocument();
+  expect(screen.queryByText('กรอกข้อมูลของคุณเพื่อเข้าสู่ระบบ')).not.toBeInTheDocument();
 });
 
 test('signing in is not presented as a step of registration', () => {
