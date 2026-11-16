@@ -2,7 +2,17 @@ import { buildApp } from './app';
 import { loadEnv } from './config/env';
 
 const env = loadEnv();
-const app = await buildApp();
+const app = await buildApp(env);
+
+// Idempotent, and only ever needed against the real database — `buildApp()`
+// itself must stay connection-free so a test can build an app with no Mongo
+// reachable. A failure here (Mongo briefly unreachable at boot) is logged,
+// not fatal: retrieval still works without the index, just slower.
+try {
+  await app.ingestionService.ensureIndexes();
+} catch (err) {
+  app.log.error({ err }, 'failed to ensure procurement indexes');
+}
 
 try {
   await app.listen({ port: env.PORT, host: env.HOST });
@@ -11,9 +21,18 @@ try {
   process.exit(1);
 }
 
+// Only the real server ticks; `buildApp()` never starts the timer. It reads the
+// stored Schedule, which is off until an administrator turns it on, so on a
+// fresh database this is one cheap read a minute and nothing else.
+app.schedulerService.start();
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, async () => {
     await app.close();
     process.exit(0);
   });
 }
+
+// Request-based Cloud Run must be driven by the authenticated worker endpoint,
+// not by a timer after the response has returned. Local development can poll.
+if (env.NODE_ENV === 'development') app.notificationWorkerService.start(env.NOTIFICATION_POLL_MS);
