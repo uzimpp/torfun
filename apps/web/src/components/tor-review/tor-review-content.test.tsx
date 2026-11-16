@@ -13,6 +13,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ back: vi.fn() }) }));
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchTor: vi.fn(),
+  fetchTorMatch: vi.fn(),
 }));
 
 const api = await import('@/lib/api');
@@ -48,7 +49,10 @@ const officialDeadline = {
   timeline: { ...EMPTY_TIMELINE, status: 'open', deadlineAt: '2026-10-20T09:30:00.000Z' },
 } as Procurement;
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocked.fetchTorMatch.mockResolvedValue({ match: null });
+});
 
 describe('TorReviewContent', () => {
   test('shows announcement date in its own section beneath budget, beside the deadline', async () => {
@@ -74,6 +78,52 @@ describe('TorReviewContent', () => {
 
     expect(await screen.findByText('จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน')).toBeInTheDocument();
     expect(screen.queryByText(/ระดับความมั่นใจ/)).not.toBeInTheDocument();
+  });
+
+  test('shows qualification results and consistent notification evidence', async () => {
+    mocked.fetchTorMatch.mockResolvedValueOnce({
+      match: {
+        company_id: 'company',
+        project_id: tor.projectId,
+        overall_score: 0,
+        reasons: ['ไม่ตรงเงื่อนไข: ต้องมี ISO 9001'],
+        unmatched: [],
+        scoring_version: 'qualification-clauses-v1',
+        input_version: 'fixture',
+        computed_at: new Date(0).toISOString(),
+      },
+    });
+    mocked.fetchTor.mockResolvedValue({
+      ...tor,
+      analysis: {
+        ...tor.analysis!,
+        qualifications: [
+          {
+            kind: 'company_certificate',
+            standard: 'ISO 9001',
+            issuer: null,
+            source: 'ข้อ 4.1 หน้า 6',
+            text: 'ต้องมีใบรับรอง ISO 9001',
+          },
+        ],
+      },
+      matchResult: {
+        companyId: 'company',
+        projectId: tor.projectId,
+        overallScore: 0,
+        computedAt: new Date(0),
+        checks: [{ status: 'not_met', evidence: ['ใบรับรองที่ตรงเงื่อนไขหมดอายุแล้ว'] }],
+      },
+    });
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('คะแนนคุณสมบัติโดยประมาณ 0%')).toBeInTheDocument();
+    expect(screen.getByText('อ้างอิง TOR · ข้อ 4.1 หน้า 6')).toBeInTheDocument();
+    expect(screen.getByText('ไม่ตรงเงื่อนไข')).toBeInTheDocument();
+    expect(screen.getByText('ใบรับรองที่ตรงเงื่อนไขหมดอายุแล้ว')).toBeInTheDocument();
+    expect(await screen.findByText('คะแนนเทียบคุณสมบัติจาก TOR')).toBeInTheDocument();
+    expect(screen.getByText('0%')).toBeInTheDocument();
+    expect(screen.getByText('ไม่ตรงเงื่อนไข: ต้องมี ISO 9001')).toBeInTheDocument();
   });
 
   test('shows an official bid deadline with no note that the model read it', async () => {

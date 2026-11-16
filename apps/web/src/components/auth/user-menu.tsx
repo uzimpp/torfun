@@ -45,7 +45,7 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
         render={
           <Button
             variant="ghost"
-            className="bg-card h-auto min-h-12 gap-3 rounded-xl border px-2 py-2 hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/40 sm:px-3"
+            className="bg-card hover:bg-muted/70 focus-visible:ring-ring/40 size-11 min-h-11 gap-0 rounded-xl border p-1.5 focus-visible:ring-2 sm:h-auto sm:min-h-12 sm:w-auto sm:gap-3 sm:px-3 sm:py-2"
             aria-label={`บัญชี ${user.username} · ${role}`}
           />
         }
@@ -57,7 +57,7 @@ export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'
           <span className="block max-w-32 truncate text-sm font-medium">{user.username}</span>
           <span className="text-muted-foreground block text-xs">{role}</span>
         </span>
-        <ChevronDown aria-hidden="true" className="size-3" />
+        <ChevronDown aria-hidden="true" className="hidden size-3 sm:block" />
       </DropdownMenuTrigger>
 
       {/* One inset for everything inside: `p-2` on the popup, `px-3` on every

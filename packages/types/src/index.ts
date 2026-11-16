@@ -1,6 +1,7 @@
 export * from './user';
 export * from './session';
 export * from './matching';
+export * from './qualification';
 export * from './company';
 export * from './egp';
 export * from './procurement-dates';
@@ -8,3 +9,4 @@ export * from './schedule';
 export * from './ingestion-ops';
 export * from './favorite';
 export * from './tor-report';
+export * from './notification';

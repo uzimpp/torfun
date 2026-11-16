@@ -2,6 +2,7 @@ import { ACCESS_COOKIE } from '@torfun/types';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
+import { safeAuthReturnPath } from './auth-return';
 import { internal_api_url } from './config';
 
 /** Where an officer without a Company is sent. Exported so the page it names
@@ -26,6 +27,7 @@ export type CurrentUser = {
    */
   company_name: string | null;
   role: 'admin' | 'business_development_officer';
+  has_local_password: boolean;
 };
 
 /** Reads the session, or null when there isn't one. Never throws. */
@@ -62,9 +64,12 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
  * the branch renders for anyone, which is how the admin console ended up
  * publicly reachable.
  */
-export async function requireUser(): Promise<CurrentUser> {
+export async function requireUser(returnTo?: string): Promise<CurrentUser> {
   const user = await getCurrentUser();
-  if (!user) redirect('/login');
+  if (!user) {
+    const next = safeAuthReturnPath(returnTo);
+    redirect(next ? `/login?${new URLSearchParams({ next })}` : '/login');
+  }
   return user;
 }
 

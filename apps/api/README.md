@@ -29,63 +29,63 @@ skip unless `MONGODB_TEST_URI` (or `MONGODB_URI`) is set; for the local image us
 
 Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 
-| Method | Path                                               | Access | Does                                                 |
-| ------ | -------------------------------------------------- | ------ | ---------------------------------------------------- |
-| GET    | `/health`                                          | public | Liveness; touches nothing external                  |
-| GET    | `/health/dependencies`                             | admin  | Live calls to Atlas, Vertex and the open data       |
-| POST   | `/auth/register`                                   | public | Creates a Business Development Officer              |
-| POST   | `/auth/login`                                      | public | Signs in; both credential routes are throttled      |
-| POST   | `/auth/refresh`                                    | cookie | Exchanges the refresh cookie                        |
-| POST   | `/auth/logout`                                     | public | Clears both cookies                                 |
-| GET    | `/auth/me`                                         | user   | The current account                                 |
-| GET    | `/auth/google`                                     | public | Starts the Google sign-in redirect                  |
-| GET    | `/auth/google/callback`                            | public | Finishes it, then redirects into the web app        |
-| GET    | `/dashboard`                                       | user   | Placeholder greeting                                |
-| GET    | `/admin/test`                                      | admin  | Placeholder greeting                                |
-| GET    | `/admin/users`                                     | admin  | Lists accounts                                      |
-| PATCH  | `/admin/users/:id`                                 | admin  | Updates an account's role or active status          |
-| GET    | `/ingestion/summary`                               | admin  | Counts by state and outcome, plus agencies          |
-| GET    | `/ingestion/projects`                              | admin  | Filter and paginate procurements                   |
-| GET    | `/ingestion/projects/:projectId`                   | admin  | One procurement by its 11-digit id                  |
-| GET    | `/ingestion/failures`                              | admin  | The failure log                                     |
-| GET    | `/ingestion/ops`                                   | admin  | Current ingestion operation status                 |
-| POST   | `/ingestion/run`                                   | admin  | Starts a run; `202`, or `409` if one is live        |
-| POST   | `/ingestion/run/stop`                              | admin  | Requests the active run to stop                     |
-| GET    | `/ingestion/recent?limit=`                         | admin  | The most recently ingested procurements             |
-| GET    | `/ingestion/schedule`                              | admin  | Reads the automatic run schedule                    |
-| PUT    | `/ingestion/schedule`                              | admin  | Updates the automatic run schedule                  |
-| POST   | `/ingestion/procurements/:projectId/approve`        | admin  | Approves a held procurement                         |
-| POST   | `/ingestion/procurements/:projectId/non-software`  | admin  | Marks a procurement as non-software                 |
-| POST   | `/ingestion/procurements/:projectId/read-anyway`   | admin  | Queues a held procurement for retrieval             |
-| DELETE | `/ingestion/procurements/:projectId?allowReimport=`| admin  | Deletes a procurement; controls whether it can return |
-| GET    | `/ingestion/tombstones`                            | admin  | Lists deleted-project tombstones                    |
-| DELETE | `/ingestion/tombstones/:projectId`                 | admin  | Removes a tombstone                                 |
-| POST   | `/ingestion/tombstones/:projectId/restore`         | admin  | Restores a tombstone and queues retrieval           |
-| GET    | `/tors/years`                                      | user   | Available budget years                              |
-| GET    | `/tors`                                            | user   | Search, filter and paginate procurements           |
-| GET    | `/tors/:projectId`                                 | user   | One procurement by its project id                  |
-| GET    | `/tors/:projectId/source`                          | user   | Download the original TOR PDF                       |
-| POST   | `/tors/:projectId/reports`                         | user   | Report a TOR for admin review                       |
-| GET    | `/admin/tor-reports`                               | admin  | Shared report queue, newest first                  |
-| PATCH  | `/admin/tor-reports/:reportId`                     | admin  | Dismiss a report or remove its TOR from publication |
-| GET    | `/companies/search?q=`                             | user   | Typeahead over Thai company names                  |
-| POST   | `/companies`                                       | user   | Creates a Company and joins the caller to it       |
-| GET    | `/companies/me`                                    | user   | The caller's Company; `404` when they have none    |
-| PATCH  | `/companies/me`                                    | user   | Corrects the caller's own Company                  |
-| POST   | `/companies/:id/join`                              | user   | Repoints the caller at an existing Company         |
-| GET    | `/clients`                                         | user   | The caller's own Clients                           |
-| GET    | `/clients/suggestions?kind=&q=`                    | user   | `{ suggestions }`, government names from agencies  |
-| POST   | `/clients`                                         | user   | Records a Client; `409` before a Company exists     |
-| PATCH  | `/clients/:id`                                     | user   | Corrects one                                       |
-| DELETE | `/clients/:id`                                     | user   | Removes one; `409` if work is recorded on it       |
-| GET    | `/experiences`                                     | user   | The caller's own recorded work                     |
-| POST   | `/experiences`                                     | user   | Records work; only client and name are required    |
-| PATCH  | `/experiences/:id`                                 | user   | Corrects one                                       |
-| DELETE | `/experiences/:id`                                 | user   | Removes one                                       |
-| GET    | `/favorites`                                       | user   | The caller's favorited TORs, with each procurement |
-| GET    | `/favorites/:projectId`                            | user   | `{ favorited }` for one project                    |
-| POST   | `/favorites`                                       | user   | Favorites a project; `404` if the caller cannot see it |
-| DELETE | `/favorites/:projectId`                            | user   | Unfavorites one; `404` if it was not favorited     |
+| Method | Path                                                | Access | Does                                                   |
+| ------ | --------------------------------------------------- | ------ | ------------------------------------------------------ |
+| GET    | `/health`                                           | public | Liveness; touches nothing external                     |
+| GET    | `/health/dependencies`                              | admin  | Live calls to Atlas, Vertex and the open data          |
+| POST   | `/auth/register`                                    | public | Creates a Business Development Officer                 |
+| POST   | `/auth/login`                                       | public | Signs in; both credential routes are throttled         |
+| POST   | `/auth/refresh`                                     | cookie | Exchanges the refresh cookie                           |
+| POST   | `/auth/logout`                                      | public | Clears both cookies                                    |
+| GET    | `/auth/me`                                          | user   | The current account                                    |
+| GET    | `/auth/google`                                      | public | Starts the Google sign-in redirect                     |
+| GET    | `/auth/google/callback`                             | public | Finishes it, then redirects into the web app           |
+| GET    | `/dashboard`                                        | user   | Placeholder greeting                                   |
+| GET    | `/admin/test`                                       | admin  | Placeholder greeting                                   |
+| GET    | `/admin/users`                                      | admin  | Lists accounts                                         |
+| PATCH  | `/admin/users/:id`                                  | admin  | Updates an account's role or active status             |
+| GET    | `/ingestion/summary`                                | admin  | Counts by state and outcome, plus agencies             |
+| GET    | `/ingestion/projects`                               | admin  | Filter and paginate procurements                       |
+| GET    | `/ingestion/projects/:projectId`                    | admin  | One procurement by its 11-digit id                     |
+| GET    | `/ingestion/failures`                               | admin  | The failure log                                        |
+| GET    | `/ingestion/ops`                                    | admin  | Current ingestion operation status                     |
+| POST   | `/ingestion/run`                                    | admin  | Starts a run; `202`, or `409` if one is live           |
+| POST   | `/ingestion/run/stop`                               | admin  | Requests the active run to stop                        |
+| GET    | `/ingestion/recent?limit=`                          | admin  | The most recently ingested procurements                |
+| GET    | `/ingestion/schedule`                               | admin  | Reads the automatic run schedule                       |
+| PUT    | `/ingestion/schedule`                               | admin  | Updates the automatic run schedule                     |
+| POST   | `/ingestion/procurements/:projectId/approve`        | admin  | Approves a held procurement                            |
+| POST   | `/ingestion/procurements/:projectId/non-software`   | admin  | Marks a procurement as non-software                    |
+| POST   | `/ingestion/procurements/:projectId/read-anyway`    | admin  | Queues a held procurement for retrieval                |
+| DELETE | `/ingestion/procurements/:projectId?allowReimport=` | admin  | Deletes a procurement; controls whether it can return  |
+| GET    | `/ingestion/tombstones`                             | admin  | Lists deleted-project tombstones                       |
+| DELETE | `/ingestion/tombstones/:projectId`                  | admin  | Removes a tombstone                                    |
+| POST   | `/ingestion/tombstones/:projectId/restore`          | admin  | Restores a tombstone and queues retrieval              |
+| GET    | `/tors/years`                                       | user   | Available budget years                                 |
+| GET    | `/tors`                                             | user   | Search, filter and paginate procurements               |
+| GET    | `/tors/:projectId`                                  | user   | One procurement by its project id                      |
+| GET    | `/tors/:projectId/source`                           | user   | Download the original TOR PDF                          |
+| POST   | `/tors/:projectId/reports`                          | user   | Report a TOR for admin review                          |
+| GET    | `/admin/tor-reports`                                | admin  | Shared report queue, newest first                      |
+| PATCH  | `/admin/tor-reports/:reportId`                      | admin  | Dismiss a report or remove its TOR from publication    |
+| GET    | `/companies/search?q=`                              | user   | Typeahead over Thai company names                      |
+| POST   | `/companies`                                        | user   | Creates a Company and joins the caller to it           |
+| GET    | `/companies/me`                                     | user   | The caller's Company; `404` when they have none        |
+| PATCH  | `/companies/me`                                     | user   | Corrects the caller's own Company                      |
+| POST   | `/companies/:id/join`                               | user   | Repoints the caller at an existing Company             |
+| GET    | `/clients`                                          | user   | The caller's own Clients                               |
+| GET    | `/clients/suggestions?kind=&q=`                     | user   | `{ suggestions }`, government names from agencies      |
+| POST   | `/clients`                                          | user   | Records a Client; `409` before a Company exists        |
+| PATCH  | `/clients/:id`                                      | user   | Corrects one                                           |
+| DELETE | `/clients/:id`                                      | user   | Removes one; `409` if work is recorded on it           |
+| GET    | `/experiences`                                      | user   | The caller's own recorded work                         |
+| POST   | `/experiences`                                      | user   | Records work; only client and name are required        |
+| PATCH  | `/experiences/:id`                                  | user   | Corrects one                                           |
+| DELETE | `/experiences/:id`                                  | user   | Removes one                                            |
+| GET    | `/favorites`                                        | user   | The caller's favorited TORs, with each procurement     |
+| GET    | `/favorites/:projectId`                             | user   | `{ favorited }` for one project                        |
+| POST   | `/favorites`                                        | user   | Favorites a project; `404` if the caller cannot see it |
+| DELETE | `/favorites/:projectId`                             | user   | Unfavorites one; `404` if it was not favorited         |
 
 Request and response shapes are zod schemas on each route, most of them imported
 from `@torfun/types`.
@@ -146,3 +146,48 @@ publication metadata means published.
 
 `/health` is the container probe. `/health/dependencies` makes real, billed calls
 upstream, so it is something an administrator asks, never something polled.
+
+## Notifications
+
+BD officers use `/settings` for account details, a setup checklist and notification
+preferences; `/notifications` remains the inbox. Admins inspect delivery failures at
+`/admin/notifications`.
+
+- `match_found` uses the same structured qualification score as TOR detail and
+  search. It requires at least 70% and no clause marked `not_met`; unknown clauses
+  stay unknown and appear in the reasons. A score is never a bid-eligibility guarantee.
+- `status_changed` covers status and bid-deadline changes on a previously matching
+  **or favorited** TOR, independent of its current score. The first observation is
+  a baseline, not an invented historical change.
+- `new_open` is a separate opt-in for published, open software e-bidding TORs. It
+  works without a company or experience record. When a first match is also due,
+  one match alert takes precedence over a duplicate new-open alert.
+- Every event supports independent in-app/email/LINE choices and saved filters:
+  exact agency names, inclusive budget bounds, work platform(s) from TOR analysis,
+  and a minimum qualification score. Missing evidence fails an enabled filter.
+  Queued deliveries recheck current preferences, filters and company evidence.
+
+Email and LINE default off and require verified/linked destinations. New-open
+notifications default off; enable them explicitly in settings. Existing preference
+records read with compatible defaults; `docs/migrations/notification-policy.js`
+provides an optional idempotent metadata migration. Old technology-based alerts
+retain their scoring-version label rather than being relabeled as qualifications.
+
+Existing TORs without structured qualifications remain unscored. Their summaries
+and source PDFs remain available. There is no synthetic backfill or extra upstream
+sweep: scores appear when a legitimate ingestion/retrieval reads a full TOR again
+under the existing gate and re-read policy. New-open alerts remain available for
+published legacy TORs without structured qualifications.
+
+Optional SMTP and LINE Messaging API variables are listed in `.env.example`.
+Set `WEB_APP_URL` to the public web origin for message links. LINE's webhook is
+`POST /api/notifications/line/webhook`; users add the OA and send `เชื่อมต่อ` to
+begin account linking. Messages use branded HTML email (with plain text) and
+LINE Flex cards with TOR and preference links.
+
+Mongo must support transactions. Source indexes are ensured at startup; worker
+passes ensure notification/contact indexes. In production, a trusted scheduler
+must call `POST /api/internal/notifications/run` every minute with the
+`X-Notification-Worker-Token` header matching `NOTIFICATION_WORKER_TOKEN`.
+Development polls locally via `NOTIFICATION_POLL_MS`. Delivery retries are bounded
+to five attempts within 24 hours; provider acceptance does not confirm receipt.
