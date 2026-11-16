@@ -1,6 +1,12 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { ACCESS_COOKIE, fullName, REFRESH_COOKIE } from '@torfun/types';
+import {
+  ACCESS_COOKIE,
+  ChangePasswordSchema,
+  fullName,
+  REFRESH_COOKIE,
+  UpdateProfileSchema,
+} from '@torfun/types';
 import { AppError, BadRequestError, UnauthorizedError } from '../core/errors';
 import { audit } from '../core/audit';
 import { ACCESS_TTL_SECONDS, REFRESH_COOKIE_PATH } from '../plugins/jwt';
@@ -29,11 +35,6 @@ const registerSchema = z
     message: 'Passwords do not match',
     path: ['confirm_password'],
   });
-
-const changePasswordSchema = z.object({
-  current_password: z.string().min(1).max(128),
-  new_password: z.string().min(8).max(128),
-});
 
 const loginSchema = z.object({
   username: z.string(),
@@ -225,33 +226,44 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ message: 'Logout successful' });
   });
 
-  /**
-   * Password change (ASVS V6.2.2, V6.2.3): needs the current password, screens
-   * the new one, and ends every session before issuing a fresh one.
-   */
-  app.post(
-    '/password',
-    { onRequest: [requireAuth], ...credentialLimits },
+  app.get('/me', { onRequest: [requireAuth] }, async (request) => {
+    const { user, hasLocalPassword } = await app.authService.getAccount(request.user.user_id);
+    return { ...(await withCompany(user)), has_local_password: hasLocalPassword };
+  });
+
+  app.patch('/me', { onRequest: [requireAuth] }, async (request, reply) => {
+    const parsed = UpdateProfileSchema.safeParse(request.body);
+    if (!parsed.success) throw new BadRequestError('Invalid profile data');
+
+    await app.authService.updateProfile(request.user.user_id, {
+      firstName: parsed.data.first_name,
+      lastName: parsed.data.last_name,
+    });
+    return reply.code(204).send();
+  });
+
+  app.patch(
+    '/me/password',
+    {
+      onRequest: [requireAuth],
+      config: { rateLimit: authIpRateLimit },
+      preHandler: [
+        createCredentialThrottle(app, (request) => `password-change:${request.user.user_id}`),
+      ],
+    },
     async (request, reply) => {
-      const parsed = changePasswordSchema.safeParse(request.body);
-      if (!parsed.success) throw new BadRequestError('Invalid password change data');
+      const parsed = ChangePasswordSchema.safeParse(request.body);
+      if (!parsed.success) throw new BadRequestError('Invalid password data');
 
       const session = await app.authService.changePassword(
         request.user.user_id,
         parsed.data.current_password,
         parsed.data.new_password,
       );
-      audit(request.log, 'auth.password.changed', {
-        ip: request.ip,
-        userId: session.user.id,
-      });
+      audit(request.log, 'auth.password.changed', { ip: request.ip, userId: session.user.id });
+      // Every older session was just ended, this one included; hand back a new one.
       setAuthCookies(reply, session, secureCookies);
-      return reply.send({ message: 'Password changed' });
+      return reply.code(204).send();
     },
   );
-
-  app.get('/me', { onRequest: [requireAuth] }, async (request) => {
-    const user = await app.authService.getById(request.user.user_id);
-    return withCompany(user);
-  });
 }

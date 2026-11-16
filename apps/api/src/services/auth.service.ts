@@ -215,34 +215,6 @@ export class AuthService {
     return this.refreshTokens.revokeAllForUser(userId);
   }
 
-  /**
-   * Changes a password and ends every session, this one included (ASVS V6.2.2,
-   * V7.4.3). The caller gets a fresh session so the person who just changed it
-   * is not signed out of the tab they used.
-   */
-  async changePassword(
-    userId: string,
-    currentPassword: string,
-    newPassword: string,
-  ): Promise<AuthResult> {
-    const user = await this.getById(userId);
-    const credentials = await this.users.findCredentials(user.username);
-    if (!credentials?.passwordHash) {
-      throw new ForbiddenError('This account has no password. Sign in with Google.');
-    }
-    if (!(await bcrypt.compare(currentPassword, credentials.passwordHash))) {
-      throw new UnauthorizedError('Current password is incorrect');
-    }
-    if (newPassword === currentPassword) {
-      throw new BadRequestError('Choose a password different from the current one.');
-    }
-    await this.assertPasswordAllowed(newPassword, user.username);
-
-    await this.users.setPasswordHash(userId, await bcrypt.hash(newPassword, BCRYPT_ROUNDS));
-    await this.refreshTokens.revokeAllForUser(userId);
-    return this.issue(user);
-  }
-
   async register(input: RegisterInput): Promise<AuthResult> {
     await this.assertPasswordAllowed(input.password, input.username);
 
@@ -262,7 +234,7 @@ export class AuthService {
   }
 
   async login(username: string, password: string): Promise<AuthResult> {
-    const credentials = await this.users.findCredentials(username);
+    const credentials = await this.users.findCredentials({ username });
 
     // One message for "no such user" and "wrong password" alike, so the
     // endpoint can't be used to enumerate valid usernames.
@@ -307,9 +279,51 @@ export class AuthService {
     return this.issue(created);
   }
 
-  async getById(id: string): Promise<User> {
-    const user = await this.users.findById(id);
-    if (!user) throw new NotFoundError('User not found');
-    return user;
+  private async activeCredentials(id: string) {
+    const credentials = await this.users.findCredentials({ id });
+    if (!credentials) throw new NotFoundError('User not found');
+    if (!credentials.user.isActive) throw new ForbiddenError('Account is deactivated');
+    return credentials;
+  }
+
+  async getAccount(id: string) {
+    const { user, passwordHash } = await this.activeCredentials(id);
+    return { user, hasLocalPassword: Boolean(passwordHash) };
+  }
+
+  async updateProfile(id: string, profile: Pick<User, 'firstName' | 'lastName'>) {
+    if (!(await this.users.updateProfile(id, profile))) {
+      throw new ForbiddenError('Account is unavailable');
+    }
+  }
+
+  /**
+   * Changes a password (ASVS V6.2.2, V6.2.3): the current one is required, the
+   * new one is screened like a sign-up password (common, context words,
+   * known breaches) and must differ from the old one. Every session of the
+   * account then ends, this one included (V7.4.3), and the caller gets a fresh
+   * session so the tab they used stays signed in.
+   */
+  async changePassword(
+    id: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<AuthResult> {
+    const { user, passwordHash } = await this.activeCredentials(id);
+    if (!passwordHash) throw new ForbiddenError('This account has no Torfun password');
+    if (!(await bcrypt.compare(currentPassword, passwordHash))) {
+      throw new BadRequestError('Current password is incorrect');
+    }
+    if (newPassword === currentPassword) {
+      throw new BadRequestError('Choose a password different from the current one.');
+    }
+    await this.assertPasswordAllowed(newPassword, user.username);
+
+    const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    if (!(await this.users.replacePassword(id, passwordHash, newHash))) {
+      throw new ConflictError('Account changed during this request. Please try again.');
+    }
+    await this.refreshTokens.revokeAllForUser(id);
+    return this.issue(user);
   }
 }

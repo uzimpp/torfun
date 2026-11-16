@@ -23,6 +23,9 @@ const PUBLIC = new Set([
   'POST /api/auth/login',
   'POST /api/auth/refresh',
   'POST /api/auth/logout',
+  // Authenticated by LINE's HMAC signature over the raw body, not by a session;
+  // see the signature test below.
+  'POST /api/notifications/line/webhook',
 ]);
 
 const ADMIN_PREFIXES = ['/api/admin/', '/api/ingestion/', '/api/health/dependencies'];
@@ -142,5 +145,36 @@ describe('access control over every route', () => {
       cookies: { [ACCESS_COOKIE]: token },
     });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('public routes that carry their own authentication', () => {
+  test('the LINE webhook refuses an unsigned or wrongly signed request', async () => {
+    const app = await buildApp(
+      testEnv({
+        LOG_LEVEL: 'fatal',
+        LINE_CHANNEL_SECRET: 'line-test-channel-secret',
+      }),
+      // A stand-in sender so LINE counts as configured; the signature check runs
+      // before anything would be sent, so it is never called.
+      { lineSender: {} as never },
+    );
+    try {
+      const body = JSON.stringify({ destination: 'x', events: [] });
+      const send = (signature?: string) =>
+        app.inject({
+          method: 'POST',
+          url: '/api/notifications/line/webhook',
+          headers: {
+            'content-type': 'application/json',
+            ...(signature ? { 'x-line-signature': signature } : {}),
+          },
+          payload: body,
+        });
+      expect((await send()).statusCode).toBe(401);
+      expect((await send('bm90LWEtcmVhbC1zaWduYXR1cmU=')).statusCode).toBe(401);
+    } finally {
+      await app.close();
+    }
   });
 });

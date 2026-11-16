@@ -14,11 +14,7 @@ import {
   Search,
   WifiOff,
 } from 'lucide-react';
-import {
-  ProcurementOrderSchema,
-  type Procurement,
-  type ProcurementOrder,
-} from '@torfun/types';
+import { ProcurementOrderSchema, type TorListItem, type ProcurementOrder } from '@torfun/types';
 
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -81,6 +77,7 @@ export function SearchResults({
             value={filters.order}
             onChange={(event) => onOrderChange(ProcurementOrderSchema.parse(event.target.value))}
           >
+            <option value="match">คุณสมบัติตรงกับบริษัท</option>
             <option value="announced">ประกาศล่าสุด</option>
             <option value="deadline">ใกล้ปิดรับข้อเสนอมากสุด</option>
             <option value="budgetDesc">งบประมาณจากมากไปน้อย</option>
@@ -125,11 +122,7 @@ export function SearchResults({
       {toolbar}
       <ul className="mt-5 space-y-4">
         {items.map((item) => (
-          <ResultRow
-            key={item.projectId}
-            item={item}
-            detailHref={detailHref(item.projectId)}
-          />
+          <ResultRow key={item.projectId} item={item} detailHref={detailHref(item.projectId)} />
         ))}
       </ul>
 
@@ -236,13 +229,7 @@ function SearchPagination({
 /** Selector for the last-rendered row — what "scroll to bottom" jumps to, not the page's actual end. */
 export const RESULT_ROW_SELECTOR = '[data-result-row]';
 
-function ResultRow({
-  item,
-  detailHref,
-}: {
-  item: Procurement;
-  detailHref: string;
-}) {
+function ResultRow({ item, detailHref }: { item: TorListItem; detailHref: string }) {
   return (
     <li
       data-result-row
@@ -259,6 +246,11 @@ function ResultRow({
             e-bidding
           </span>
           <ProcurementStatusBadge status={item.timeline.status} showStatusLabel />
+          {item.matchScore != null && (
+            <span className="text-primary text-xs font-medium">
+              คะแนนคุณสมบัติโดยประมาณ {Math.round(item.matchScore * 100)}%
+            </span>
+          )}
         </div>
 
         <div className="grid gap-5 md:grid-cols-[minmax(0,4fr)_minmax(9rem,1fr)] md:items-start md:gap-4">

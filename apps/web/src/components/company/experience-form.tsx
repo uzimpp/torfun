@@ -73,6 +73,8 @@ export function ExperienceForm({
   const [suggested, setSuggested] = useState<{ kind: ClientKind; names: string[] } | null>(null);
 
   const [projectName, setProjectName] = useState(initial?.project_name ?? '');
+  const [workType, setWorkType] = useState(initial?.work_type ?? '');
+  const [contractValue, setContractValue] = useState(String(initial?.contract_value_thb ?? ''));
   const [description, setDescription] = useState(initial?.description ?? '');
   const [techStack, setTechStack] = useState((initial?.tech_stack ?? []).join(', '));
   const [platforms, setPlatforms] = useState<TargetPlatform[]>(initial?.target_platforms ?? []);
@@ -151,6 +153,8 @@ export function ExperienceForm({
     const saved = await onSubmit({
       client_id: targetClientId,
       project_name: projectName.trim(),
+      work_type: workType.trim() || null,
+      contract_value_thb: contractValue === '' ? null : Number(contractValue),
       description: description.trim() === '' ? null : description.trim(),
       tech_stack: techStack
         .split(',')
@@ -245,6 +249,29 @@ export function ExperienceForm({
             />
           </div>
 
+          <div className={FLOW_FIELD_GROUP}>
+            <Label htmlFor={`${ids}-work-type`}>ประเภทผลงาน (ไม่บังคับ)</Label>
+            <Input
+              id={`${ids}-work-type`}
+              value={workType}
+              maxLength={200}
+              onChange={(event) => setWorkType(event.target.value)}
+              className={FLOW_FIELD}
+            />
+          </div>
+          <div className={FLOW_FIELD_GROUP}>
+            <Label htmlFor={`${ids}-contract-value`}>มูลค่าสัญญาเป็นบาท (ไม่บังคับ)</Label>
+            <Input
+              id={`${ids}-contract-value`}
+              type="number"
+              min={0}
+              max={Number.MAX_SAFE_INTEGER}
+              step="0.01"
+              value={contractValue}
+              onChange={(event) => setContractValue(event.target.value)}
+              className={FLOW_FIELD}
+            />
+          </div>
           <div className={FLOW_FIELD_GROUP}>
             <Label htmlFor={`${ids}-description`}>รายละเอียด (ไม่บังคับ)</Label>
             <Textarea

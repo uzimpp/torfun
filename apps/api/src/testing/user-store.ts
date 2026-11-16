@@ -54,11 +54,27 @@ export class InMemoryUserStore implements UserStore {
   }
 
   async findCredentials(
-    username: string,
+    lookup: Parameters<UserStore['findCredentials']>[0],
   ): Promise<{ user: User; passwordHash: string | null } | null> {
-    const user = await this.findByUsername(username);
+    const user =
+      'id' in lookup ? await this.findById(lookup.id) : await this.findByUsername(lookup.username);
     if (!user) return null;
     return { user, passwordHash: this.passwordHashes.get(user.id) ?? null };
+  }
+
+  async updateProfile(id: string, profile: Pick<User, 'firstName' | 'lastName'>) {
+    const user = this.users.get(id);
+    if (!user?.isActive) return false;
+    this.users.set(id, { ...user, ...profile, updatedAt: new Date() });
+    return true;
+  }
+
+  async replacePassword(id: string, currentHash: string, newHash: string) {
+    const user = this.users.get(id);
+    if (!user?.isActive || this.passwordHashes.get(id) !== currentHash) return false;
+    this.passwordHashes.set(id, newHash);
+    this.users.set(id, { ...user, updatedAt: new Date() });
+    return true;
   }
 
   async create(input: NewUser): Promise<User> {
@@ -97,9 +113,5 @@ export class InMemoryUserStore implements UserStore {
   async setActive(id: string, isActive: boolean): Promise<void> {
     const user = this.users.get(id);
     if (user) this.users.set(id, { ...user, isActive, updatedAt: new Date() });
-  }
-
-  async setPasswordHash(id: string, passwordHash: string): Promise<void> {
-    this.passwordHashes.set(id, passwordHash);
   }
 }

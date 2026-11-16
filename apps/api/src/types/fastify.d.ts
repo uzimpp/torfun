@@ -5,6 +5,7 @@ import type { MongoContext } from '../core/mongo';
 import type { AuthService } from '../services/auth.service';
 import type { AdminUsersService } from '../services/admin-users.service';
 import type { ClientService } from '../services/client.service';
+import type { CompanyQualificationsService } from '../services/company-qualifications.service';
 import type { CompanyService } from '../services/company.service';
 import type { ExperienceService } from '../services/experience.service';
 import type { DiagnosticsService } from '../services/diagnostics.service';
@@ -15,6 +16,9 @@ import type { SchedulerService } from '../services/scheduler.service';
 import type { TorService } from '../services/tor.service';
 import type { FavoriteService } from '../services/favorite.service';
 import type { TorReportService } from '../services/tor-report.service';
+import type { NotificationService } from '../services/notification.service';
+import type { NotificationWorkerService } from '../services/notification-worker.service';
+import type { LineNotificationService } from '../services/line-notification.service';
 import type { UserRole } from '@torfun/types';
 
 /** The JWT payload. snake_case is the on-the-wire claim shape. */
@@ -42,6 +46,7 @@ declare module 'fastify' {
     authService: AuthService;
     adminUsersService: AdminUsersService;
     companyService: CompanyService;
+    companyQualificationsService: CompanyQualificationsService;
     clientService: ClientService;
     experienceService: ExperienceService;
     ingestionService: IngestionService;
@@ -51,6 +56,9 @@ declare module 'fastify' {
     torService: TorService;
     favoriteService: FavoriteService;
     torReportService: TorReportService;
+    notificationService: NotificationService;
+    notificationWorkerService: NotificationWorkerService;
+    lineNotificationService: LineNotificationService;
     diagnosticsService: DiagnosticsService;
   }
 }

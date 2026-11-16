@@ -165,16 +165,16 @@ describe('session management', () => {
   describe('password change', () => {
     const change = (s: { access: string }, body: Record<string, unknown>) =>
       app.inject({
-        method: 'POST',
-        url: '/api/auth/password',
+        method: 'PATCH',
+        url: '/api/auth/me/password',
         cookies: { [ACCESS_COOKIE]: s.access },
         payload: body,
       });
 
     test('needs a session', async () => {
       const res = await app.inject({
-        method: 'POST',
-        url: '/api/auth/password',
+        method: 'PATCH',
+        url: '/api/auth/me/password',
         payload: { current_password: PASSWORD, new_password: OTHER_PASSWORD },
       });
       expect(res.statusCode).toBe(401);
@@ -189,7 +189,7 @@ describe('session management', () => {
             new_password: OTHER_PASSWORD,
           })
         ).statusCode,
-      ).toBe(401);
+      ).toBe(400);
       expect(
         (await change(s, { current_password: PASSWORD, new_password: 'password1' })).statusCode,
       ).toBe(400);
@@ -211,7 +211,7 @@ describe('session management', () => {
 
       const NEW = OTHER_PASSWORD;
       const res = await change(s, { current_password: PASSWORD, new_password: NEW });
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode).toBe(204);
       const fresh = cookiesOf(res);
 
       expect((await me(s.access)).statusCode).toBe(401);
