@@ -1,4 +1,5 @@
 import { assertPasswordAcceptable } from './password-policy';
+import { noBreachCheck, type BreachChecker } from './breached-passwords';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
@@ -90,7 +91,18 @@ export class AuthService {
     private readonly users: UserStore,
     private readonly refreshTokens: RefreshTokenStore,
     private readonly signToken: SignToken,
+    private readonly breaches: BreachChecker = noBreachCheck,
   ) {}
+
+  /** Local rules first (cheap, no network), then the known-breach lookup. */
+  private async assertPasswordAllowed(password: string, username: string): Promise<void> {
+    assertPasswordAcceptable(password, username);
+    if ((await this.breaches.breachCount(password)) > 0) {
+      throw new BadRequestError(
+        'That password has appeared in a data breach. Choose a different one.',
+      );
+    }
+  }
 
   /**
    * Mints a fresh pair. Passing an existing `familyId` continues a rotation
@@ -224,7 +236,7 @@ export class AuthService {
     if (newPassword === currentPassword) {
       throw new BadRequestError('Choose a password different from the current one.');
     }
-    assertPasswordAcceptable(newPassword, user.username);
+    await this.assertPasswordAllowed(newPassword, user.username);
 
     await this.users.setPasswordHash(userId, await bcrypt.hash(newPassword, BCRYPT_ROUNDS));
     await this.refreshTokens.revokeAllForUser(userId);
@@ -232,7 +244,7 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<AuthResult> {
-    assertPasswordAcceptable(input.password, input.username);
+    await this.assertPasswordAllowed(input.password, input.username);
 
     if (await this.users.findByUsername(input.username)) {
       throw new ConflictError('Username already exists');

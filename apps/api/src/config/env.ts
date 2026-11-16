@@ -25,6 +25,13 @@ export const EnvSchema = z.object({
       message: 'CORS_ORIGINS must list explicit origins; wildcards are not allowed',
     }),
 
+  // Check new passwords against the Have I Been Pwned range API (k-anonymity: only a 5-char
+  // hash prefix leaves the server). Fails open if the service is unreachable.
+  BREACHED_PASSWORD_CHECK: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+
   // Where the browser is sent after a successful OAuth callback.
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),
 

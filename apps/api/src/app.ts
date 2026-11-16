@@ -37,6 +37,7 @@ import { ClientRepository, type ClientStore } from './repositories/client.reposi
 import { ExperienceRepository, type ExperienceStore } from './repositories/experience.repository';
 import { FavoriteRepository, type FavoriteStore } from './repositories/favorite.repository';
 import { AuthService } from './services/auth.service';
+import { noBreachCheck, PwnedPasswordsChecker } from './services/breached-passwords';
 import { AdminUsersService } from './services/admin-users.service';
 import { CompanyService } from './services/company.service';
 import { ClientService } from './services/client.service';
@@ -153,8 +154,16 @@ export async function buildApp(
   const favoriteRepository = repositories.favorites ?? new FavoriteRepository(app.mongo.getDb);
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
-  const authService = new AuthService(userRepository, refreshTokenRepository, (payload) =>
-    app.jwt.sign(payload),
+  const authService = new AuthService(
+    userRepository,
+    refreshTokenRepository,
+    (payload) => app.jwt.sign(payload),
+    env.BREACHED_PASSWORD_CHECK
+      ? new PwnedPasswordsChecker({
+          onUnavailable: (reason) =>
+            app.log.warn({ reason }, 'breached-password lookup unavailable; accepting password'),
+        })
+      : noBreachCheck,
   );
   app.decorate('authService', authService);
   app.decorate('adminUsersService', new AdminUsersService(userRepository, authService));

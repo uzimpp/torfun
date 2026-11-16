@@ -10,6 +10,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
@@ -41,6 +42,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
@@ -62,6 +64,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
