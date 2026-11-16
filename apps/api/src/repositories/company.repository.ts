@@ -1,5 +1,6 @@
 import { ObjectId, type Collection, type Db } from 'mongodb';
 import type { Company } from '@torfun/types';
+import { escapeRegex } from '../core/regex';
 
 /**
  * Data access for the vendor's own record.
@@ -46,9 +47,6 @@ function toDomain(document: CompanyDocument): Company {
 }
 
 /** Escapes a user's keystrokes so a typeahead cannot smuggle in a pattern. */
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * The slice of this repository the service layer needs, so a route test can
