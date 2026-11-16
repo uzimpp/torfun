@@ -19,7 +19,7 @@ No High or Medium-risk issue was found that is not already a known, documented d
 | 10055 CSP: script-src `unsafe-inline` | Medium | every page | **Known gap, accepted.** A nonce CSP would force fully dynamic rendering (see `apps/web/src/lib/csp.ts`). Pinned by `apps/web/src/lib/security-headers.test.ts`; listed in SECURITY.md. React text rendering carries the XSS defence. |
 | 10055 CSP: style-src `unsafe-inline` | Medium | every page | Same decision: Tailwind and Next inject styles inline. Style injection cannot run script. |
 | 10094 Base64 Disclosure | Informational | minified bundles | False positive (base64-looking strings in JS/CSS), pre-triaged. |
-| 10049 Storable / Non-storable content | Informational | static chunks, pages | Expected caching behaviour; API responses with private data send `Cache-Control: private, no-store`. |
+| 10049 Storable / Non-storable content | Informational | static chunks, pages | Expected for static chunks. Separately, API responses now default to `Cache-Control: no-store` (PR #194, ASVS V14.3.2); before that only company-qualification and match responses set it. |
 | 90005 Sec-Fetch-* header missing | Informational | all | ZAP's spider does not send Fetch Metadata request headers; not an application issue. |
 
 ## What passed (selected, relevant to the threat model)
