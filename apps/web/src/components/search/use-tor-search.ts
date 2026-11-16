@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { Procurement } from '@torfun/types';
+import type { TorListItem } from '@torfun/types';
 import { ApiError, fetchProjects } from '@/lib/api';
 import { toProjectFilters, type SearchFilterValues } from './search-filter-values';
 
@@ -17,7 +17,7 @@ export const RESULT_LIMIT = 20;
 export type SearchBlock = 'signed_out' | 'no_access' | 'unreachable' | 'failed';
 
 export interface TorSearchResult {
-  items: Procurement[];
+  items: TorListItem[];
   total: number;
   loading: boolean;
   block: SearchBlock | null;
@@ -26,7 +26,7 @@ export interface TorSearchResult {
 }
 
 interface Page {
-  items: Procurement[];
+  items: TorListItem[];
   total: number;
   block: SearchBlock | null;
   detail: string | null;

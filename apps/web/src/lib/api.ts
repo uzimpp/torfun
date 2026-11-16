@@ -1,6 +1,8 @@
 import type {
   ChangePassword,
   ClientKind,
+  CompanyQualificationsPayload,
+  CompanyQualificationsRecord,
   DurationUnit,
   IngestionFailure,
   IngestionSummary,
@@ -9,6 +11,8 @@ import type {
   ProcurementListResponse,
   ProcurementYearsResponse,
   TargetPlatform,
+  TorDetail,
+  TorListOrder,
   UpdateProfile,
   UserRole,
   CreateTorReport,
@@ -17,6 +21,7 @@ import type {
   TorReportFilter,
   ReviewTorReport,
 } from '@torfun/types';
+import { fromCompanyQualificationsPayload, toCompanyQualificationsPayload } from '@torfun/types';
 
 /**
  * Thin client for the torfun API.
@@ -31,7 +36,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 export type IngestionSummaryResponse = IngestionSummary & { agencies: string[] };
 
 export type ProjectListResponse = ProcurementListResponse;
-export type ProjectFilters = ProcurementFilters;
+export type ProjectFilters = ProcurementFilters & { order?: TorListOrder };
 
 export class ApiError extends Error {
   constructor(
@@ -181,8 +186,8 @@ export function fetchFiscalYears(): Promise<ProcurementYearsResponse> {
   return request<ProcurementYearsResponse>('/api/tors/years');
 }
 
-export function fetchTor(projectId: string): Promise<Procurement> {
-  return request<Procurement>(`/api/tors/${encodeURIComponent(projectId)}`);
+export function fetchTor(projectId: string): Promise<TorDetail> {
+  return request<TorDetail>(`/api/tors/${encodeURIComponent(projectId)}`);
 }
 
 export function submitTorReport(
@@ -264,6 +269,23 @@ export function changePassword(password: ChangePassword): Promise<void> {
   });
 }
 
+export async function fetchCompanyQualifications(): Promise<CompanyQualificationsRecord | null> {
+  const payload = await request<CompanyQualificationsPayload | null>(
+    '/api/companies/me/qualifications',
+  );
+  return payload ? fromCompanyQualificationsPayload(payload) : null;
+}
+
+export async function saveCompanyQualifications(
+  input: CompanyQualificationsRecord,
+): Promise<CompanyQualificationsRecord> {
+  const payload = await request<CompanyQualificationsPayload>('/api/companies/me/qualifications', {
+    method: 'POST',
+    body: JSON.stringify(toCompanyQualificationsPayload(input)),
+  });
+  return fromCompanyQualificationsPayload(payload);
+}
+
 export interface CompanyResponse {
   id: string;
   name_th: string;
@@ -282,6 +304,8 @@ export interface ClientResponse {
  * can show two years as two years without doing arithmetic of its own.
  */
 export interface ExperienceResponse {
+  work_type?: string | null;
+  contract_value_thb?: number | null;
   id: string;
   client_id: string;
   project_name: string;
@@ -304,6 +328,8 @@ export interface ClientInput {
 }
 
 export interface ExperienceInput {
+  work_type?: string | null;
+  contract_value_thb?: number | null;
   client_id: string;
   project_name: string;
   description?: string | null;
@@ -474,4 +500,72 @@ export function updateAdminUser(id: string, patch: AdminUserPatch): Promise<Admi
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
+}
+
+// Notification contracts are shared with Fastify; the wire format stays snake_case.
+export function fetchNotifications(filter: 'all' | 'unread' = 'all', offset = 0) {
+  return request<import('@torfun/types').NotificationListResponse>(
+    `/api/notifications?filter=${filter}&limit=20&offset=${offset}`,
+  );
+}
+export function fetchNotificationSettings() {
+  return request<import('@torfun/types').NotificationSettingsResponse>(
+    '/api/notifications/settings',
+  );
+}
+export function saveNotificationPreferences(
+  preferences: import('@torfun/types').NotificationPreferences,
+) {
+  return request<import('@torfun/types').NotificationSettingsResponse>(
+    '/api/notifications/settings',
+    { method: 'PUT', body: JSON.stringify(preferences) },
+  );
+}
+export function updateNotification(id: string, action: 'read' | 'dismiss') {
+  return request<{ ok: true }>(`/api/notifications/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action }),
+  });
+}
+export function readAllNotifications() {
+  return request<{ ok: true }>('/api/notifications/read-all', { method: 'POST' });
+}
+export function requestNotificationEmail(email: string) {
+  return request<{ ok: true }>('/api/notifications/email', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+export function verifyNotificationEmail(token: string) {
+  return request<import('@torfun/types').NotificationSettingsResponse>(
+    '/api/notifications/email/verify',
+    { method: 'POST', body: JSON.stringify({ token }) },
+  );
+}
+export function disconnectNotificationChannel(channel: 'email' | 'line') {
+  return request<import('@torfun/types').NotificationSettingsResponse>(
+    `/api/notifications/${channel}`,
+    { method: 'DELETE' },
+  );
+}
+export function linkNotificationLine(linkToken: string) {
+  return request<{ url: string }>('/api/notifications/line/link', {
+    method: 'POST',
+    body: JSON.stringify({ link_token: linkToken }),
+  });
+}
+export function fetchTorMatch(projectId: string) {
+  return request<import('@torfun/types').NotificationMatchResponse>(
+    `/api/matching/${encodeURIComponent(projectId)}`,
+  );
+}
+export type NotificationFailure = import('@torfun/types').NotificationDeliveryFailureResponse;
+export function fetchNotificationFailures() {
+  return request<NotificationFailure[]>('/api/admin/notifications/deliveries');
+}
+export function retryNotificationDelivery(id: string) {
+  return request<{ ok: true }>(
+    `/api/admin/notifications/deliveries/${encodeURIComponent(id)}/retry`,
+    { method: 'POST' },
+  );
 }

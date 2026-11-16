@@ -22,6 +22,8 @@ interface ExperienceDocument {
   company_id: string;
   client_id: string;
   project_name: string;
+  work_type?: string | null;
+  contract_value_thb?: number | null;
   description: string | null;
   tech_stack: string[];
   target_platforms: TargetPlatform[];
@@ -36,6 +38,8 @@ export interface NewExperience {
   companyId: string;
   clientId: string;
   projectName: string;
+  workType?: string | null;
+  contractValueThb?: number | null;
   description: string | null;
   techStack: string[];
   targetPlatforms: TargetPlatform[];
@@ -51,6 +55,8 @@ function toDomain(document: ExperienceDocument): Experience {
     companyId: document.company_id,
     clientId: document.client_id,
     projectName: document.project_name,
+    workType: document.work_type ?? null,
+    contractValueThb: document.contract_value_thb ?? null,
     description: document.description ?? null,
     techStack: document.tech_stack ?? [],
     targetPlatforms: document.target_platforms ?? [],
@@ -110,6 +116,8 @@ export class ExperienceRepository implements ExperienceStore {
       company_id: input.companyId,
       client_id: input.clientId,
       project_name: input.projectName,
+      work_type: input.workType ?? null,
+      contract_value_thb: input.contractValueThb ?? null,
       description: input.description,
       tech_stack: input.techStack,
       target_platforms: input.targetPlatforms,
@@ -129,6 +137,8 @@ export class ExperienceRepository implements ExperienceStore {
     const fields: Partial<ExperienceDocument> = { updated_at: new Date() };
     if (patch.clientId !== undefined) fields.client_id = patch.clientId;
     if (patch.projectName !== undefined) fields.project_name = patch.projectName;
+    if (patch.workType !== undefined) fields.work_type = patch.workType;
+    if (patch.contractValueThb !== undefined) fields.contract_value_thb = patch.contractValueThb;
     if (patch.description !== undefined) fields.description = patch.description;
     if (patch.techStack !== undefined) fields.tech_stack = patch.techStack;
     if (patch.targetPlatforms !== undefined) fields.target_platforms = patch.targetPlatforms;

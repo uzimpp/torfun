@@ -24,6 +24,15 @@ describe('INVITATION_SCHEMA', () => {
 });
 
 describe('ANSWER_SCHEMA', () => {
+  test('requires the model to state which qualifications need manual review', () => {
+    const item = ANSWER_SCHEMA.properties?.analysis?.properties?.qualifications?.items;
+    expect(item?.required).toContain('manualReviewReason');
+    expect(item?.properties?.manualReviewReason).toMatchObject({
+      type: Type.STRING,
+      nullable: true,
+    });
+  });
+
   test('does not ask for the stage of the tender', () => {
     expect(ANSWER_SCHEMA.properties).not.toHaveProperty('procurementStatus');
     expect(ANSWER_SCHEMA.required).not.toContain('procurementStatus');

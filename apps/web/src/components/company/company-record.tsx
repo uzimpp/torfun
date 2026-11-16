@@ -10,6 +10,7 @@ import { FLOW_ACTION } from '@/components/onboarding/controls';
 import type { ExperienceResponse } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { AddExperienceButton } from './add-experience-button';
+import { CompanyQualificationsPanel } from './company-qualifications-panel';
 import { CompanyBlock } from './company-block';
 import { ExperienceForm } from './experience-form';
 import { ExperienceList } from './experience-list';
@@ -74,6 +75,10 @@ export function CompanyRecord({
             onJoin={data.joinExistingCompany}
             onEdit={data.editOwnCompany}
           />
+
+          {data.company && !onboarding && (
+            <CompanyQualificationsPanel key={data.company.id} companyId={data.company.id} />
+          )}
 
           <ExperienceList
             clients={data.clients}

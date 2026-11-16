@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { TorQualificationSchema } from './qualification';
+import { QualificationMatchResultSchema } from './matching';
 
 /**
  * Domain types for the e-GP ingestion pipeline (Thai government procurement).
@@ -382,6 +384,8 @@ export const TorAnalysisSchema = z.object({
   techStack: z.array(z.string()),
   targetPlatforms: z.array(TargetPlatform),
   requiredQualifications: z.array(z.string()),
+  /** Absent on older analyses or when the full PDF could not be read. */
+  qualifications: z.array(TorQualificationSchema).optional(),
   /**
    * The model's one-line reason for its software judgement, with the passage it
    * quoted, so an administrator reading a held record sees what decided it.
@@ -488,6 +492,16 @@ export const ProcurementSchema = z.object({
 });
 export type Procurement = z.infer<typeof ProcurementSchema>;
 
+export const TorDetailSchema = ProcurementSchema.extend({
+  matchResult: QualificationMatchResultSchema.nullable().optional(),
+});
+export type TorDetail = z.infer<typeof TorDetailSchema>;
+
+export const TorListItemSchema = ProcurementSchema.extend({
+  matchScore: z.number().min(0).max(1).nullable().optional(),
+});
+export type TorListItem = z.infer<typeof TorListItemSchema>;
+
 /** The deadline an officer is shown, and which kind it is. */
 export interface CurrentDeadline {
   at: string;
@@ -542,7 +556,14 @@ const QueryList = <T extends z.ZodTypeAny>(item: T) =>
       : value;
   }, z.array(item).min(1).max(20));
 
-export const ProcurementOrderSchema = z.enum(['announced', 'deadline', 'budgetDesc', 'budgetAsc']);
+export const ProcurementOrderSchema = z.enum([
+  'announced',
+  'deadline',
+  'budgetDesc',
+  'budgetAsc',
+  'match',
+  'daysLeft',
+]);
 export type ProcurementOrder = z.infer<typeof ProcurementOrderSchema>;
 
 export const ProcurementListQuerySchema = z
@@ -595,6 +616,9 @@ export const ProcurementListQuerySchema = z
     }
   });
 
+export const TorListQuerySchema = ProcurementListQuerySchema;
+export type TorListOrder = NonNullable<z.infer<typeof TorListQuerySchema>['order']>;
+
 export type ProcurementListQuery = z.infer<typeof ProcurementListQuerySchema>;
 export type ProcurementFilters = Omit<ProcurementListQuery, 'limit' | 'offset'> & {
   limit?: number;
@@ -602,7 +626,7 @@ export type ProcurementFilters = Omit<ProcurementListQuery, 'limit' | 'offset'> 
 };
 
 export const ProcurementListResponseSchema = z.object({
-  items: z.array(ProcurementSchema),
+  items: z.array(TorListItemSchema),
   total: z.number().int().nonnegative(),
   limit: z.number().int().positive(),
   offset: z.number().int().nonnegative(),
