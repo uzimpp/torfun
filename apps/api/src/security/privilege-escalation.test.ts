@@ -4,6 +4,7 @@ import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryRefreshTokenStore } from '../testing/refresh-token-store';
 import { InMemoryUserStore } from '../testing/user-store';
+import { GOOD_PASSWORD } from '../testing/passwords';
 
 /** ASVS V8.2.1, V15.3.3 (mass assignment) / threat T-06: admin is granted, never claimed. */
 describe('privilege escalation attempts', () => {
@@ -22,7 +23,7 @@ describe('privilege escalation attempts', () => {
   });
 
   test('registering with role=admin in the body still creates an officer', async () => {
-    const password = 'plum-lantern-torque-58';
+    const password = GOOD_PASSWORD;
     const res = await app.inject({
       method: 'POST',
       url: '/api/auth/register',

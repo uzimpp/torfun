@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { PwnedPasswordsChecker } from './breached-passwords';
 import { AuthService } from './auth.service';
 import { BadRequestError } from '../core/errors';
+import { GOOD_PASSWORD, LEAKED_PASSWORD } from '../testing/passwords';
 
 const sha1 = (p: string) => createHash('sha1').update(p).digest('hex').toUpperCase();
 
@@ -24,26 +25,24 @@ function fakeHibp(breached: string[]) {
 
 describe('breached password check (k-anonymity)', () => {
   test('a breached password is reported with its count', async () => {
-    const { fetchImpl } = fakeHibp(['Tr0ub4dor&3-leaked']);
+    const { fetchImpl } = fakeHibp([LEAKED_PASSWORD]);
     const checker = new PwnedPasswordsChecker({ fetchImpl });
-    expect(await checker.breachCount('Tr0ub4dor&3-leaked')).toBe(42);
+    expect(await checker.breachCount(LEAKED_PASSWORD)).toBe(42);
   });
 
   test('an unseen password is accepted', async () => {
     const { fetchImpl } = fakeHibp(['something-else-entirely']);
-    expect(
-      await new PwnedPasswordsChecker({ fetchImpl }).breachCount('plum-lantern-torque-58'),
-    ).toBe(0);
+    expect(await new PwnedPasswordsChecker({ fetchImpl }).breachCount(GOOD_PASSWORD)).toBe(0);
   });
 
   test('only a 5-character hash prefix leaves the server', async () => {
     const { fetchImpl, requested } = fakeHibp([]);
-    await new PwnedPasswordsChecker({ fetchImpl }).breachCount('plum-lantern-torque-58');
+    await new PwnedPasswordsChecker({ fetchImpl }).breachCount(GOOD_PASSWORD);
     expect(requested).toHaveLength(1);
     const sent = requested[0]!;
     expect(sent.split('/').pop()).toHaveLength(5);
     expect(sent).not.toContain('plum');
-    expect(sent).not.toContain(sha1('plum-lantern-torque-58').slice(5));
+    expect(sent).not.toContain(sha1(GOOD_PASSWORD).slice(5));
   });
 
   test('fails open when the service errors, times out or is unreachable, and says so', async () => {
@@ -72,7 +71,7 @@ describe('breached password check (k-anonymity)', () => {
     await expect(
       service.register({
         username: 'somchai',
-        password: 'plum-lantern-torque-58',
+        password: GOOD_PASSWORD,
         firstName: 'S',
         lastName: 'P',
       }),

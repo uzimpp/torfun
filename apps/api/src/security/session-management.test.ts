@@ -5,6 +5,7 @@ import { SESSION_ABSOLUTE_SECONDS } from '../services/auth.service';
 import { testEnv } from '../testing/env';
 import { InMemoryRefreshTokenStore } from '../testing/refresh-token-store';
 import { InMemoryUserStore } from '../testing/user-store';
+import { GOOD_PASSWORD, OTHER_PASSWORD, WRONG_PASSWORD } from '../testing/passwords';
 
 /**
  * Advanced feature: JWT expiry and session management (issue #170).
@@ -28,7 +29,7 @@ describe('session management', () => {
     await app.close();
   });
 
-  const PASSWORD = 'plum-lantern-torque-58';
+  const PASSWORD = GOOD_PASSWORD;
   const cookiesOf = (res: { cookies: Array<{ name: string; value: string }> }) =>
     Object.fromEntries(res.cookies.map((c) => [c.name, c.value]));
 
@@ -174,7 +175,7 @@ describe('session management', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/api/auth/password',
-        payload: { current_password: PASSWORD, new_password: 'another-long-secret-91' },
+        payload: { current_password: PASSWORD, new_password: OTHER_PASSWORD },
       });
       expect(res.statusCode).toBe(401);
     });
@@ -184,8 +185,8 @@ describe('session management', () => {
       expect(
         (
           await change(s, {
-            current_password: 'not-my-password-1',
-            new_password: 'another-long-secret-91',
+            current_password: WRONG_PASSWORD,
+            new_password: OTHER_PASSWORD,
           })
         ).statusCode,
       ).toBe(401);
@@ -208,7 +209,7 @@ describe('session management', () => {
       });
       const otherDevice = cookiesOf(login);
 
-      const NEW = 'another-long-secret-91';
+      const NEW = OTHER_PASSWORD;
       const res = await change(s, { current_password: PASSWORD, new_password: NEW });
       expect(res.statusCode).toBe(200);
       const fresh = cookiesOf(res);

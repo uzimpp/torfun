@@ -5,6 +5,7 @@ import { buildApp } from '../app';
 import { testEnv } from '../testing/env';
 import { InMemoryRefreshTokenStore } from '../testing/refresh-token-store';
 import { InMemoryUserStore } from '../testing/user-store';
+import { GOOD_PASSWORD, WRONG_PASSWORD } from '../testing/passwords';
 
 /**
  * ASVS V16.3.1, V16.3.2, V16.4.1 / threat T-16: auth and admin events leave a
@@ -37,7 +38,7 @@ describe('audit trail', () => {
     await app.close();
   });
 
-  const PASSWORD = 'correct-horse-staple-91';
+  const PASSWORD = GOOD_PASSWORD;
 
   test('register, failed login, successful login and logout are all recorded', async () => {
     const reg = await app.inject({
@@ -56,7 +57,7 @@ describe('audit trail', () => {
     const bad = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
-      payload: { username: 'audit-user', password: 'wrong-password-123' },
+      payload: { username: 'audit-user', password: WRONG_PASSWORD },
     });
     expect(bad.statusCode).toBe(401);
 
@@ -94,7 +95,7 @@ describe('audit trail', () => {
       await app.inject({
         method: 'POST',
         url: '/api/auth/login',
-        payload: { username: 'lockout-target', password: 'wrong-password-123' },
+        payload: { username: 'lockout-target', password: WRONG_PASSWORD },
       });
     }
     expect(events()).toContain('auth.throttled');
@@ -122,7 +123,7 @@ describe('audit trail', () => {
 
   test('no password, token or cookie value appears anywhere in the log', () => {
     expect(raw).not.toContain(PASSWORD);
-    expect(raw).not.toContain('wrong-password-123');
+    expect(raw).not.toContain(WRONG_PASSWORD);
     expect(raw).not.toMatch(/torfun_(access|refresh)=|eyJ[A-Za-z0-9_-]{10,}\./);
   });
 });
