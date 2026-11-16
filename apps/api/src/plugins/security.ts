@@ -20,6 +20,13 @@ export async function registerSecurityPlugins(app: FastifyInstance, env: Env) {
     },
   });
 
+  // ASVS V14.3.2: API responses carry account and company data, so no browser
+  // or shared cache may keep them unless a route deliberately says otherwise.
+  app.addHook('onSend', async (_request, reply, payload) => {
+    if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
+    return payload;
+  });
+
   await app.register(cors, {
     origin: env.CORS_ORIGINS,
     credentials: true,

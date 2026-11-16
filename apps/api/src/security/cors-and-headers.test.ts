@@ -98,10 +98,11 @@ describe('API security headers', () => {
     expect(headers['server']).toBeUndefined();
   });
 
-  test('API responses are not cacheable by shared caches when authenticated data is returned', async () => {
-    const { headers } = await app.inject({ method: 'GET', url: '/api/auth/me' });
-    // 401 body here; the point is that no `public` caching directive is sent.
-    expect(headers['cache-control'] ?? '').not.toMatch(/public/);
+  test('API responses are not cached by default (ASVS V14.3.2)', async () => {
+    for (const url of ['/api/auth/me', '/api/health', '/api/does-not-exist']) {
+      const { headers } = await app.inject({ method: 'GET', url });
+      expect(headers['cache-control']).toBe('no-store');
+    }
   });
 
   test('errors are a bare {message}: no stack trace or internals', async () => {
@@ -110,6 +111,6 @@ describe('API security headers', () => {
     const unknown = await app.inject({ method: 'GET', url: '/api/does-not-exist' });
     expect(unknown.statusCode).toBe(404);
     // Same bare shape, and the requested path is not echoed back.
-    expect(unknown.json()).toEqual({ message: 'Not found' });
+    expect(unknown.json<{ message: string }>()).toEqual({ message: 'Not found' });
   });
 });
