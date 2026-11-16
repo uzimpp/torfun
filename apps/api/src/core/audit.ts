@@ -16,6 +16,7 @@ export type AuditEvent =
   | 'auth.login.success'
   | 'auth.login.failure'
   | 'auth.throttled'
+  | 'auth.password.changed'
   | 'auth.logout'
   | 'auth.refresh.failure'
   | 'auth.google.success'

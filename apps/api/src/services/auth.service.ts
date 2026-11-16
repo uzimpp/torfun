@@ -1,7 +1,13 @@
 import { assertPasswordAcceptable } from './password-policy';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../core/errors';
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  UnauthorizedError,
+} from '../core/errors';
 import type { User, UserRole } from '@torfun/types';
 import type { RefreshTokenStore } from '../repositories/refresh-token.repository';
 import type { UserStore } from '../repositories/user.repository';
@@ -19,6 +25,8 @@ export interface TokenPayload {
   user_id: string;
   username: string;
   role: UserRole;
+  /** Session id (refresh family). Lets a revoked session kill its access token at once. */
+  sid?: string;
 }
 
 export type SignToken = (payload: TokenPayload) => Promise<string> | string;
@@ -57,7 +65,14 @@ const BCRYPT_ROUNDS = 12;
  * lasts. Lives here rather than in `plugins/jwt.ts` so this file keeps its
  * distance from Fastify; the route layer imports it for the cookie's Max-Age.
  */
-export const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60;
+export const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * Absolute session limit (ASVS V7.3.2). Rotation slides the idle window above
+ * forward on every refresh, so without this a stolen-then-kept-alive session
+ * would never end. Thirty days after sign-in the user signs in again.
+ */
+export const SESSION_ABSOLUTE_SECONDS = 30 * 24 * 60 * 60;
 
 /** Bytes of entropy in a refresh token. */
 const REFRESH_TOKEN_BYTES = 32;
@@ -82,7 +97,11 @@ export class AuthService {
    * chain; omitting it starts a new one, which is what a sign-in does — so
    * each device gets its own chain and logging out of one leaves the others.
    */
-  private async issue(user: User, familyId: string = randomUUID()): Promise<AuthResult> {
+  private async issue(
+    user: User,
+    familyId: string = randomUUID(),
+    familyStartedAt: Date = new Date(),
+  ): Promise<AuthResult> {
     // Guarded here rather than at each call site so that no future sign-in
     // path can forget it: a deactivated account gets credentials from nowhere.
     if (!user.isActive) throw new ForbiddenError('Account is deactivated');
@@ -91,6 +110,7 @@ export class AuthService {
       user_id: user.id,
       username: user.username,
       role: user.role,
+      sid: familyId,
     });
 
     // Only the digest is persisted; this is the one moment the secret exists.
@@ -99,7 +119,13 @@ export class AuthService {
       userId: user.id,
       tokenHash: hashToken(refreshToken),
       familyId,
-      expiresAt: new Date(Date.now() + REFRESH_TTL_SECONDS * 1000),
+      familyStartedAt,
+      expiresAt: new Date(
+        Math.min(
+          Date.now() + REFRESH_TTL_SECONDS * 1000,
+          familyStartedAt.getTime() + SESSION_ABSOLUTE_SECONDS * 1000,
+        ),
+      ),
     });
 
     return { user, accessToken, refreshToken };
@@ -125,7 +151,11 @@ export class AuthService {
       throw new UnauthorizedError('Session revoked');
     }
 
-    if (stored.expiresAt.getTime() <= Date.now()) {
+    if (
+      stored.expiresAt.getTime() <= Date.now() ||
+      stored.familyStartedAt.getTime() + SESSION_ABSOLUTE_SECONDS * 1000 <= Date.now()
+    ) {
+      await this.refreshTokens.revokeFamily(stored.familyId);
       throw new UnauthorizedError('Session expired');
     }
 
@@ -143,7 +173,7 @@ export class AuthService {
     }
 
     await this.refreshTokens.revoke(stored.id);
-    return this.issue(user, stored.familyId);
+    return this.issue(user, stored.familyId, stored.familyStartedAt);
   }
 
   /**
@@ -156,6 +186,49 @@ export class AuthService {
 
     const stored = await this.refreshTokens.findByHash(hashToken(presented));
     if (stored) await this.refreshTokens.revokeFamily(stored.familyId);
+  }
+
+  /**
+   * Whether the session an access token names is still alive. A token without
+   * a `sid` (signed before sessions were tracked) is accepted until it expires
+   * on its own, at most one access-token lifetime.
+   */
+  async isSessionActive(sid: string | undefined): Promise<boolean> {
+    if (sid === undefined) return true;
+    return this.refreshTokens.isFamilyActive(sid);
+  }
+
+  /** Ends every session of one account. */
+  revokeAllSessions(userId: string): Promise<void> {
+    return this.refreshTokens.revokeAllForUser(userId);
+  }
+
+  /**
+   * Changes a password and ends every session, this one included (ASVS V6.2.2,
+   * V7.4.3). The caller gets a fresh session so the person who just changed it
+   * is not signed out of the tab they used.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<AuthResult> {
+    const user = await this.getById(userId);
+    const credentials = await this.users.findCredentials(user.username);
+    if (!credentials?.passwordHash) {
+      throw new ForbiddenError('This account has no password. Sign in with Google.');
+    }
+    if (!(await bcrypt.compare(currentPassword, credentials.passwordHash))) {
+      throw new UnauthorizedError('Current password is incorrect');
+    }
+    if (newPassword === currentPassword) {
+      throw new BadRequestError('Choose a password different from the current one.');
+    }
+    assertPasswordAcceptable(newPassword, user.username);
+
+    await this.users.setPasswordHash(userId, await bcrypt.hash(newPassword, BCRYPT_ROUNDS));
+    await this.refreshTokens.revokeAllForUser(userId);
+    return this.issue(user);
   }
 
   async register(input: RegisterInput): Promise<AuthResult> {

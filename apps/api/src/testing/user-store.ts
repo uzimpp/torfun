@@ -98,4 +98,8 @@ export class InMemoryUserStore implements UserStore {
     const user = this.users.get(id);
     if (user) this.users.set(id, { ...user, isActive, updatedAt: new Date() });
   }
+
+  async setPasswordHash(id: string, passwordHash: string): Promise<void> {
+    this.passwordHashes.set(id, passwordHash);
+  }
 }

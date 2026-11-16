@@ -30,6 +30,11 @@ const registerSchema = z
     path: ['confirm_password'],
   });
 
+const changePasswordSchema = z.object({
+  current_password: z.string().min(1).max(128),
+  new_password: z.string().min(8).max(128),
+});
+
 const loginSchema = z.object({
   username: z.string(),
   password: z.string(),
@@ -219,6 +224,31 @@ export async function authRoutes(app: FastifyInstance) {
     clearAuthCookies(reply);
     return reply.send({ message: 'Logout successful' });
   });
+
+  /**
+   * Password change (ASVS V6.2.2, V6.2.3): needs the current password, screens
+   * the new one, and ends every session before issuing a fresh one.
+   */
+  app.post(
+    '/password',
+    { onRequest: [requireAuth], ...credentialLimits },
+    async (request, reply) => {
+      const parsed = changePasswordSchema.safeParse(request.body);
+      if (!parsed.success) throw new BadRequestError('Invalid password change data');
+
+      const session = await app.authService.changePassword(
+        request.user.user_id,
+        parsed.data.current_password,
+        parsed.data.new_password,
+      );
+      audit(request.log, 'auth.password.changed', {
+        ip: request.ip,
+        userId: session.user.id,
+      });
+      setAuthCookies(reply, session, secureCookies);
+      return reply.send({ message: 'Password changed' });
+    },
+  );
 
   app.get('/me', { onRequest: [requireAuth] }, async (request) => {
     const user = await app.authService.getById(request.user.user_id);

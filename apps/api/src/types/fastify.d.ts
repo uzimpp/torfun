@@ -22,6 +22,8 @@ interface TokenClaims {
   user_id: string;
   username: string;
   role: UserRole;
+  /** Session id: the refresh-token family this access token belongs to. */
+  sid?: string;
 }
 
 declare module '@fastify/jwt' {

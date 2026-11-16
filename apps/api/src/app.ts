@@ -153,11 +153,11 @@ export async function buildApp(
   const favoriteRepository = repositories.favorites ?? new FavoriteRepository(app.mongo.getDb);
   const agencyNames = repositories.agencyNames ?? procurementRepository;
 
-  app.decorate(
-    'authService',
-    new AuthService(userRepository, refreshTokenRepository, (payload) => app.jwt.sign(payload)),
+  const authService = new AuthService(userRepository, refreshTokenRepository, (payload) =>
+    app.jwt.sign(payload),
   );
-  app.decorate('adminUsersService', new AdminUsersService(userRepository));
+  app.decorate('authService', authService);
+  app.decorate('adminUsersService', new AdminUsersService(userRepository, authService));
   app.decorate('companyService', new CompanyService(companyRepository, userRepository));
   app.decorate(
     'clientService',

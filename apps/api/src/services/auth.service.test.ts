@@ -24,6 +24,7 @@ class FakeRefreshTokens {
       id: String(this.rows.length + 1),
       userId: input.userId,
       familyId: input.familyId,
+      familyStartedAt: input.familyStartedAt,
       expiresAt: input.expiresAt,
       tokenHash: input.tokenHash,
     });
@@ -42,6 +43,14 @@ class FakeRefreshTokens {
     for (const row of this.rows) {
       if (row.familyId === familyId && !row.revokedAt) row.revokedAt = new Date();
     }
+  }
+
+  async isFamilyActive(familyId: string): Promise<boolean> {
+    return this.rows.some((row) => row.familyId === familyId && !row.revokedAt);
+  }
+
+  async revokeAllForUser(userId: string): Promise<void> {
+    for (const row of this.rows) if (row.userId === userId) row.revokedAt ??= new Date();
   }
 }
 

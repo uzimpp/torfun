@@ -87,6 +87,7 @@ export interface UserStore {
   countActiveAdmins(): Promise<number>;
   setRole(id: string, role: UserRole): Promise<void>;
   setActive(id: string, isActive: boolean): Promise<void>;
+  setPasswordHash(id: string, passwordHash: string): Promise<void>;
 }
 
 export class UserRepository implements UserStore {
@@ -207,6 +208,16 @@ export class UserRepository implements UserStore {
     ).updateOne(
       { _id: new ObjectId(id) },
       { $set: { is_active: isActive, updated_at: new Date() } },
+    );
+  }
+
+  async setPasswordHash(id: string, passwordHash: string): Promise<void> {
+    if (!ObjectId.isValid(id)) return;
+    await (
+      await this.collection()
+    ).updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { password_hash: passwordHash, updated_at: new Date() } },
     );
   }
 }
