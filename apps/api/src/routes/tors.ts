@@ -1,6 +1,9 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  ContractYearQuerySchema,
+  ProjectContractsResponseSchema,
+  ProjectContractSubmissionsResponseSchema,
   TorListQuerySchema,
   ProcurementListResponseSchema,
   TorDetailSchema,
@@ -62,6 +65,46 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
         audienceOf(request.user.role),
         request.user.user_id,
       );
+    },
+  );
+
+  app.get(
+    '/tors/:projectId/contracts',
+    {
+      schema: {
+        params: z.object({ projectId: z.string().min(1) }),
+        querystring: ContractYearQuerySchema,
+        response: { 200: ProjectContractsResponseSchema },
+      },
+    },
+    async (request) => {
+      await app.torService.get(request.params.projectId, audienceOf(request.user.role));
+      return {
+        items: await app.contractsService.listContracts(
+          request.params.projectId,
+          request.query.contract_year,
+        ),
+      };
+    },
+  );
+
+  app.get(
+    '/tors/:projectId/contract-submissions',
+    {
+      schema: {
+        params: z.object({ projectId: z.string().min(1) }),
+        querystring: ContractYearQuerySchema,
+        response: { 200: ProjectContractSubmissionsResponseSchema },
+      },
+    },
+    async (request) => {
+      await app.torService.get(request.params.projectId, audienceOf(request.user.role));
+      return {
+        items: await app.contractsService.listSubmissions(
+          request.params.projectId,
+          request.query.contract_year,
+        ),
+      };
     },
   );
 

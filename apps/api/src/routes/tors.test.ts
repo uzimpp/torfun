@@ -5,6 +5,8 @@ import {
   toCompanyQualificationsPayload,
   fromCompanyQualificationsPayload,
   type CompanyQualificationsRecord,
+  type Contract,
+  type ContractSubmission,
   type Procurement,
   type TorAnalysis,
   type User,
@@ -15,6 +17,73 @@ import { InMemoryCompanyStore } from '../testing/company-store';
 import { InMemoryExperienceStore } from '../testing/experience-store';
 import { InMemoryUserStore } from '../testing/user-store';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
+import type { ContractStore } from '../repositories/contract.repository';
+import type { ContractSubmissionStore } from '../repositories/contract-submission.repository';
+
+const contractRows: Contract[] = [
+  {
+    projectId: 'project-1',
+    contractYear: 2568,
+    contractNo: 'CN-2568',
+    winnerName: 'Winner 2568',
+    winnerTin: null,
+    priceAgree: 100_000,
+    contractDate: null,
+    contractFinishDate: null,
+    status: null,
+  },
+  {
+    projectId: 'project-1',
+    contractYear: 2569,
+    contractNo: 'CN-2569',
+    winnerName: 'Winner 2569',
+    winnerTin: null,
+    priceAgree: 200_000,
+    contractDate: null,
+    contractFinishDate: null,
+    status: null,
+  },
+];
+
+const submissionRows: ContractSubmission[] = [
+  {
+    projectId: 'project-1',
+    contractYear: 2568,
+    merchantName: 'Bidder 2568',
+    seqNo: 1,
+    seqNoDesc: null,
+    submitPrice: 90_000,
+  },
+  {
+    projectId: 'project-1',
+    contractYear: 2569,
+    merchantName: 'Bidder 2569',
+    seqNo: 1,
+    seqNoDesc: null,
+    submitPrice: 180_000,
+  },
+];
+
+const contractStore: ContractStore = {
+  listByProject: async (projectId, year) =>
+    contractRows.filter(
+      (row) => row.projectId === projectId && (year === undefined || row.contractYear === year),
+    ),
+  listByYear: async (year) => contractRows.filter((row) => row.contractYear === year),
+  replaceProjectSnapshot: async () => {},
+  stageYearSnapshot: async () => {},
+  discardStagedYearSnapshot: async () => {},
+};
+
+const submissionStore: ContractSubmissionStore = {
+  listByProject: async (projectId, year) =>
+    submissionRows.filter(
+      (row) => row.projectId === projectId && (year === undefined || row.contractYear === year),
+    ),
+  replaceProjectSnapshot: async () => {},
+  stageProjectSnapshot: async () => {},
+  discardStagedProjectSnapshot: async () => {},
+};
 
 function procurement(overrides: Partial<Procurement> = {}): Procurement {
   return {
@@ -62,6 +131,8 @@ describe('TOR detail routes', () => {
       users,
       companies,
       experiences: new InMemoryExperienceStore(),
+      contracts: contractStore,
+      contractSubmissions: submissionStore,
     });
   });
 
@@ -230,6 +301,40 @@ describe('TOR detail routes', () => {
   test('rejects an anonymous caller from the procurement index', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/tors' });
     expect(response.statusCode).toBe(401);
+  });
+
+  test('returns project contracts, optionally filtered by fiscal year', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors/project-1/contracts?contract_year=2569',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: Contract[] }>()).toEqual({ items: contractRows.slice(1) });
+  });
+
+  test('returns project submissions, optionally filtered by fiscal year', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors/project-1/contract-submissions?contract_year=2568',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: ContractSubmission[] }>()).toEqual({
+      items: submissionRows.slice(0, 1),
+    });
+  });
+
+  test('does not expose contract data for a procurement hidden from the caller', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors/not-visible/contracts',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(404);
   });
 
   test('returns only fiscal years present in the procurement index', async () => {

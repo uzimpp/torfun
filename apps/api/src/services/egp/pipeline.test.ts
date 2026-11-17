@@ -132,6 +132,102 @@ const run = (repository: InMemoryProcurementStore, overrides: Partial<IngestionD
   runIngestion(repository, { logger }, deps(overrides));
 
 describe('runIngestion', () => {
+  test('runs the annual contract sync after analyses settle', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement());
+    const stages: string[] = [];
+
+    await runIngestion(
+      repository,
+      { logger },
+      deps({
+        discoverProjects: async () => ({
+          records: [],
+          notEBidding: 0,
+          tombstoned: 0,
+          truncated: 0,
+          drafts: [],
+          failures: [],
+          rateLimited: false,
+          unreachable: false,
+          complete: true,
+          cursor: {},
+          ranAt: '2026-09-09T00:00:00.000Z',
+        }),
+        classifyDocument: async () => {
+          stages.push('analysis');
+          return {
+            isTor: true,
+            torKind: 'final',
+            whatThisIs: 'ขอบเขตของงาน',
+            analysis,
+            judgement,
+            readMode: 'pdf',
+          };
+        },
+        syncAnnualContracts: async (shouldContinue) => {
+          expect(shouldContinue()).toBe(true);
+          stages.push('contracts');
+        },
+      }),
+    );
+
+    expect(stages).toEqual(['analysis', 'contracts']);
+  });
+
+  test('skips the annual contract sync for an only-project run', async () => {
+    const repository = new InMemoryProcurementStore();
+    await repository.upsert(procurement());
+    let synced = false;
+
+    await runIngestion(
+      repository,
+      { logger, onlyProject: '66059313551' },
+      deps({
+        syncAnnualContracts: async () => {
+          synced = true;
+        },
+      }),
+    );
+
+    expect(synced).toBe(false);
+  });
+
+  test('treats a fatal annual contract sync error as a fatal run error', async () => {
+    const repository = new InMemoryProcurementStore();
+    const failure = new Error('contract sync unavailable');
+
+    await runIngestion(
+      repository,
+      { logger },
+      deps({
+        discoverProjects: async () => ({
+          records: [],
+          notEBidding: 0,
+          tombstoned: 0,
+          truncated: 0,
+          drafts: [],
+          failures: [],
+          rateLimited: false,
+          unreachable: false,
+          complete: true,
+          cursor: {},
+          ranAt: '2026-09-09T00:00:00.000Z',
+        }),
+        syncAnnualContracts: async () => {
+          throw failure;
+        },
+      }),
+    );
+
+    // Run completes without throwing despite contract sync failure
+    const failures = await repository.listFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.stage).toBe('analysis');
+    expect(failures[0]?.kind).toBe('fault');
+    expect(failures[0]?.error).toContain('contract sync unavailable');
+  });
+
   test('a classified TOR is stored with its analysis', async () => {
     const repository = new InMemoryProcurementStore();
     const result = await run(repository);

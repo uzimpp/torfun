@@ -25,6 +25,12 @@ export interface QuotaReading {
   remainingDay: number | null;
 }
 
+export interface OpenDataRetryOptions {
+  maxRetries?: number;
+  retryBackoffMs?: readonly number[];
+  quotaBudget?: OpenDataQuotaBudget;
+}
+
 function quotaFrom(headers: Headers): QuotaReading {
   const read = (name: string): number | null => {
     const value = Number(headers.get(name));
@@ -58,6 +64,39 @@ export class OpenDataForbiddenError extends Error {
   constructor(url: string) {
     super(`HTTP 403 from ${redactUrl(url)} — blocked or key refused, not a spent allowance`);
     this.name = 'OpenDataForbiddenError';
+  }
+}
+
+export class OpenDataQuotaExhaustedError extends Error {
+  constructor() {
+    super('GovSpending daily request quota is exhausted');
+    this.name = 'OpenDataQuotaExhaustedError';
+  }
+}
+
+export const OPEN_DATA_DAILY_REQUEST_LIMIT = 1000;
+
+export class OpenDataQuotaBudget {
+  private remaining: number;
+
+  constructor(initialRemaining = OPEN_DATA_DAILY_REQUEST_LIMIT) {
+    if (!Number.isSafeInteger(initialRemaining) || initialRemaining < 0) {
+      throw new RangeError('Open-data quota must be a non-negative integer');
+    }
+    this.remaining = initialRemaining;
+  }
+
+  get remainingDay(): number {
+    return this.remaining;
+  }
+
+  reserveAttempt(): void {
+    if (this.remaining === 0) throw new OpenDataQuotaExhaustedError();
+    this.remaining -= 1;
+  }
+
+  observe(quota: QuotaReading): void {
+    if (quota.remainingDay !== null) this.remaining = Math.min(this.remaining, quota.remainingDay);
   }
 }
 
@@ -137,15 +176,19 @@ async function fetchWithRetry(
     onForbidden?: (url: string) => Error;
     /** Retries after the first attempt; the site default applies where unset. */
     maxRetries?: number;
+    retryBackoffMs?: readonly number[];
+    stopOnQuotaExhaustion?: boolean;
+    quotaBudget?: OpenDataQuotaBudget;
   } = {},
 ): Promise<Response> {
-  const { signal, onForbidden } = options;
+  const { signal, onForbidden, retryBackoffMs, stopOnQuotaExhaustion, quotaBudget } = options;
   const maxRetries = options.maxRetries ?? POLITENESS.maxRetries;
   let lastError = 'unknown failure';
   let answered = false;
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     if (signal?.aborted) throw new UpstreamError(`Request cancelled: ${redactUrl(url)}`);
+    quotaBudget?.reserveAttempt();
 
     try {
       const timeout = AbortSignal.timeout(timeoutMs);
@@ -154,11 +197,16 @@ async function fetchWithRetry(
         signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       });
 
+      const quota = quotaFrom(response.headers);
+      quotaBudget?.observe(quota);
       if (response.status === 403 && onForbidden) throw onForbidden(url);
       if (response.status === 429 || response.status === 403) {
-        throw new RateLimitedError(url, response.status, quotaFrom(response.headers));
+        throw new RateLimitedError(url, response.status, quota);
       }
       if (response.status >= 500) {
+        if (stopOnQuotaExhaustion && quota.remainingDay === 0) {
+          throw new OpenDataQuotaExhaustedError();
+        }
         answered = true;
         lastError = `HTTP ${response.status}`;
       } else if (!response.ok) {
@@ -170,6 +218,7 @@ async function fetchWithRetry(
       if (
         error instanceof RateLimitedError ||
         error instanceof OpenDataForbiddenError ||
+        error instanceof OpenDataQuotaExhaustedError ||
         error instanceof UpstreamError
       ) {
         throw error;
@@ -180,7 +229,7 @@ async function fetchWithRetry(
     }
 
     if (attempt < maxRetries) {
-      await sleep(POLITENESS.retryBackoffMs[attempt] ?? 5000);
+      await sleep(retryBackoffMs?.[attempt] ?? POLITENESS.retryBackoffMs[attempt] ?? 5000);
     }
   }
 
@@ -206,14 +255,17 @@ export async function openDataGet<T>(
   endpoint: string,
   params: Record<string, string | number>,
   apiKey: string,
-): Promise<{ rows: T[]; total: number; quota: QuotaReading }> {
+  retry: OpenDataRetryOptions = {},
+): Promise<{ rows: T[]; total: number | null; quota: QuotaReading }> {
   const url = buildUrl(endpoint, { ...params, 'api-key': apiKey });
   const response = await fetchWithRetry(url, {}, POLITENESS.openDataTimeoutMs, {
     onForbidden: (forbiddenUrl) => new OpenDataForbiddenError(forbiddenUrl),
-    // One request, not three: the key's allowance is 1,000 a day and a failed
-    // request may well be counted. A failed unit is logged and the next sweep
-    // asks again.
-    maxRetries: 0,
+    // The default stays one request because a failed open-data request may count
+    // against the daily allowance. Callers with an explicit retry policy opt in.
+    maxRetries: retry.maxRetries ?? 0,
+    retryBackoffMs: retry.retryBackoffMs,
+    stopOnQuotaExhaustion: true,
+    quotaBudget: retry.quotaBudget ?? new OpenDataQuotaBudget(),
   });
 
   let body: OpenDataEnvelope<T>;
@@ -229,7 +281,15 @@ export async function openDataGet<T>(
     throw new UpstreamError(`API returned success=false: ${body.message ?? '(no message)'}`);
   }
 
-  return { rows: body.data ?? [], total: body.total ?? 0, quota: quotaFrom(response.headers) };
+  if (body.data !== undefined && !Array.isArray(body.data)) {
+    throw new UpstreamError(`Invalid data array from ${endpoint}`);
+  }
+
+  const total =
+    typeof body.total === 'number' && Number.isSafeInteger(body.total) && body.total >= 0
+      ? body.total
+      : null;
+  return { rows: body.data ?? [], total, quota: quotaFrom(response.headers) };
 }
 
 /** GET against the e-GP procurement app, which needs a browser-shaped UA. */

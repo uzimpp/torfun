@@ -64,6 +64,8 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/tors/years`                                       | user   | Available budget years                                 |
 | GET    | `/tors`                                             | user   | Search, filter and paginate procurements               |
 | GET    | `/tors/:projectId`                                  | user   | One procurement by its project id                      |
+| GET    | `/tors/:projectId/contracts`                        | user   | Awarded contracts; optional `contract_year`            |
+| GET    | `/tors/:projectId/contract-submissions`             | user   | Bid submissions; optional `contract_year`              |
 | GET    | `/tors/:projectId/source`                           | user   | Download the original TOR PDF                          |
 | POST   | `/tors/:projectId/reports`                          | user   | Report a TOR for admin review                          |
 | GET    | `/admin/tor-reports`                                | admin  | Shared report queue, newest first                      |
@@ -141,6 +143,14 @@ a replica set is required (Atlas already provides one). A failed write rolls bac
 the decision, and competing reviewers cannot overwrite each other. Index setup
 is idempotent and runs lazily. Legacy pending reports need no backfill. Missing
 publication metadata means published.
+
+## Contract snapshots
+
+Each ingestion run syncs GovSpending contract snapshots for fiscal years
+2566–2570, then fetches bid submissions for projects with awarded contracts.
+Pagination and retries share one per-run quota budget. A 24-hour cooldown is
+stored in MongoDB after a refusal or exhausted quota, so later runs and restarted
+API instances do not call either GovSpending endpoint until it expires.
 
 ## Health checks
 

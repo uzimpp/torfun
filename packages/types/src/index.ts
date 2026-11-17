@@ -10,3 +10,4 @@ export * from './ingestion-ops';
 export * from './favorite';
 export * from './tor-report';
 export * from './notification';
+export * from './contracts';

@@ -72,6 +72,8 @@ export interface IngestionDeps {
   readInvitation: (archive: Uint8Array, projectId: string) => Promise<InvitationResult>;
   /** The project's procurement detail, read by Discovery, and its timeline, read by Retrieval. */
   announcements: AnnouncementClient;
+  /** Sync completed contracts and their project-level submissions after a full run. */
+  syncAnnualContracts?: (shouldContinue: () => boolean) => Promise<void>;
   sleep: (ms: number) => Promise<void>;
   /**
    * Longest one record's turn at the site may take before it is treated as a
@@ -83,6 +85,7 @@ export interface IngestionDeps {
 export function createIngestionDeps(
   env: Env,
   onUsage?: (usage: ModelUsage) => void,
+  syncAnnualContracts?: IngestionDeps['syncAnnualContracts'],
 ): IngestionDeps {
   const callModel = createModelCall(env, onUsage);
   const oversizeReaders = createOversizeReaders();
@@ -99,6 +102,7 @@ export function createIngestionDeps(
         projectId,
       ),
     announcements: createAnnouncementClient(),
+    ...(syncAnnualContracts ? { syncAnnualContracts } : {}),
     sleep,
     recordDeadlineMs: RECORD_DEADLINE_MS,
   };
@@ -561,6 +565,26 @@ export async function runIngestion(
   // Archives already fetched are analysed and stored, whatever stopped the Run.
   await analyses.settled();
   live.report();
+
+  if (!options.onlyProject && thrown.length === 0 && control.mayGoOn()) {
+    try {
+      await deps.syncAnnualContracts?.(() => control.mayGoOn());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      logger.warn(
+        { err: error, message },
+        'annual contract sync failed; core ingestion complete, contract data may be stale',
+      );
+      ledger.note(
+        { projectId: 'contract-sync', projectName: 'contract-sync' },
+        'analysis',
+        message,
+        'fault',
+      );
+    }
+  }
+
   if (thrown.length > 0) throw thrown[0];
 
   const ending = runEnding(control.status, swept?.result ?? null);

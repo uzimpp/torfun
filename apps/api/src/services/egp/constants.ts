@@ -14,6 +14,7 @@
 export const OPEN_DATA_BASE = 'https://opend.data.go.th/govspending/service';
 export const DEPT_URL = `${OPEN_DATA_BASE}/egp-dept`;
 export const CONTRACT_URL = `${OPEN_DATA_BASE}/egp-contract`;
+export const CONTRACT_SUBMIT_URL = `${OPEN_DATA_BASE}/egp-contract-submit`;
 
 /**
  * e-GP procurement app, used purely as a keyed lookup by project id.
