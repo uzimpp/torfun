@@ -107,7 +107,35 @@ export class InMemoryUserStore implements UserStore {
 
   async setCompanyId(id: string, companyId: string | null): Promise<void> {
     const user = this.users.get(id);
-    if (user) this.users.set(id, { ...user, companyId, updatedAt: new Date() });
+    if (user) this.users.set(id, { ...user, companyId, joinRequest: null, updatedAt: new Date() });
+  }
+
+  async setJoinRequest(id: string, companyId: string | null): Promise<void> {
+    const user = this.users.get(id);
+    if (!user) return;
+    const joinRequest = companyId ? { companyId, requestedAt: new Date() } : null;
+    this.users.set(id, { ...user, joinRequest });
+  }
+
+  async acceptJoinRequest(id: string, companyId: string): Promise<boolean> {
+    const user = this.users.get(id);
+    if (!user?.isActive || user.joinRequest?.companyId !== companyId) return false;
+    await this.setCompanyId(id, companyId);
+    return true;
+  }
+
+  /** Oldest first: seeding order stands in for `created_at`. */
+  async listByCompany(companyId: string): Promise<User[]> {
+    return [...this.users.values()].filter((user) => user.companyId === companyId && user.isActive);
+  }
+
+  async listJoinRequests(companyId: string): Promise<User[]> {
+    return [...this.users.values()]
+      .filter((user) => user.joinRequest?.companyId === companyId && user.isActive)
+      .sort(
+        (a, b) =>
+          (a.joinRequest?.requestedAt.getTime() ?? 0) - (b.joinRequest?.requestedAt.getTime() ?? 0),
+      );
   }
 
   /** Newest first, the way the Mongo-backed repository sorts by `created_at`. */

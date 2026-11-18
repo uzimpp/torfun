@@ -62,6 +62,8 @@ export class InMemoryCompanyStore implements CompanyStore {
       id: new ObjectId().toString(),
       nameTh: input.nameTh,
       tin: input.tin,
+      managerIds: input.managerIds ?? [],
+      autoApproveDomain: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -77,6 +79,22 @@ export class InMemoryCompanyStore implements CompanyStore {
       ...existing,
       ...(patch.nameTh !== undefined ? { nameTh: patch.nameTh } : {}),
       ...(patch.tin !== undefined ? { tin: patch.tin } : {}),
+      ...(patch.autoApproveDomain !== undefined
+        ? { autoApproveDomain: patch.autoApproveDomain }
+        : {}),
+      updatedAt: new Date(),
+    };
+    this.companies.set(id, updated);
+    return updated;
+  }
+
+  async setManager(id: string, userId: string, isManager: boolean): Promise<Company | null> {
+    const existing = this.companies.get(id);
+    if (!existing) return null;
+    const others = existing.managerIds.filter((managerId) => managerId !== userId);
+    const updated: Company = {
+      ...existing,
+      managerIds: isManager ? [...others, userId] : others,
       updatedAt: new Date(),
     };
     this.companies.set(id, updated);

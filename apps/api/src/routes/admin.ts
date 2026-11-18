@@ -100,4 +100,33 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       return toAdminUserResponse(updated);
     },
   );
+
+  /**
+   * Makes a member a Company Manager, for a Company whose managers have all
+   * gone. Only someone already in the Company qualifies: an administrator can
+   * repair a Company, not put a stranger into it.
+   */
+  app.post(
+    '/admin/companies/:id/managers',
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        body: z.object({ user_id: z.string() }),
+        response: { 204: z.null(), 404: z.object({ message: z.string() }) },
+      },
+    },
+    async (request, reply) => {
+      const company = await app.companyMembershipService.assignManager(
+        request.params.id,
+        request.body.user_id,
+      );
+      audit(request.log, 'admin.company.manager.assigned', {
+        ip: request.ip,
+        userId: request.user.user_id,
+        targetUserId: request.body.user_id,
+        companyId: company.id,
+      });
+      return reply.code(204).send(null);
+    },
+  );
 };

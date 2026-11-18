@@ -2,7 +2,12 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import type { ClientResponse, CompanyResponse, ExperienceResponse } from '@/lib/api';
+import type {
+  ClientResponse,
+  CompanyResponse,
+  ExperienceResponse,
+  MyCompanyResponse,
+} from '@/lib/api';
 import { CompanyExperiences } from './company-experiences';
 
 /**
@@ -21,6 +26,8 @@ vi.mock('@/lib/api', async () => {
     createCompany: vi.fn(),
     updateMyCompany: vi.fn(),
     joinCompany: vi.fn(),
+    fetchMyJoinRequest: vi.fn(),
+    withdrawJoinRequest: vi.fn(),
     searchCompanies: vi.fn(),
     createClient: vi.fn(),
     updateClient: vi.fn(),
@@ -55,13 +62,19 @@ function experience(over: Partial<ExperienceResponse> = {}): ExperienceResponse 
   };
 }
 
+/** The caller's own company; whoever made it manages it unless a test says otherwise. */
+function mine(company: CompanyResponse, over: Partial<MyCompanyResponse> = {}): MyCompanyResponse {
+  return { is_manager: true, auto_approve_domain: null, ...company, ...over };
+}
+
 /** Puts the page in a known state: a company or none, plus these records. */
 function givenPage(options: {
-  company?: CompanyResponse | null;
+  company?: CompanyResponse | MyCompanyResponse | null;
   clients?: ClientResponse[];
   experiences?: ExperienceResponse[];
 }) {
-  mocked.fetchMyCompany.mockResolvedValue(options.company ?? null);
+  mocked.fetchMyCompany.mockResolvedValue(options.company ? mine(options.company) : null);
+  mocked.fetchMyJoinRequest.mockResolvedValue(null);
   mocked.fetchClients.mockResolvedValue({ clients: options.clients ?? [] });
   mocked.fetchExperiences.mockResolvedValue({ experiences: options.experiences ?? [] });
 }
@@ -73,8 +86,8 @@ function givenPage(options: {
  */
 function whenCompanyCreated(company: CompanyResponse) {
   mocked.createCompany.mockImplementation(async () => {
-    mocked.fetchMyCompany.mockResolvedValue(company);
-    return company;
+    mocked.fetchMyCompany.mockResolvedValue(mine(company));
+    return mine(company);
   });
 }
 
@@ -423,16 +436,19 @@ describe('recording a piece of work', () => {
 });
 
 describe('finding a company a colleague already made', () => {
-  test('joins the match rather than starting a second record', async () => {
+  test('joins the match at once when the company admits the officer automatically', async () => {
     const user = userEvent.setup();
     givenPage({ company: null });
     mocked.searchCompanies.mockResolvedValue({
       companies: [{ id: 'co9', name_th: TRUE_CORP, tin: '1234567890123' }],
     });
     mocked.joinCompany.mockImplementation(async () => {
-      const joined = { id: 'co9', name_th: TRUE_CORP, tin: '1234567890123' };
+      const joined = mine(
+        { id: 'co9', name_th: TRUE_CORP, tin: '1234567890123' },
+        { is_manager: false },
+      );
       mocked.fetchMyCompany.mockResolvedValue(joined);
-      return joined;
+      return { outcome: 'joined', company: joined };
     });
 
     render(<CompanyExperiences />);
@@ -446,6 +462,42 @@ describe('finding a company a colleague already made', () => {
     await waitFor(() => expect(mocked.joinCompany).toHaveBeenCalledWith('co9'));
     // Joining is what makes work recordable, so the gate opens.
     await waitFor(() => expect(addButton()).toHaveAttribute('aria-disabled', 'false'));
+  });
+
+  test('a request a manager has to approve leaves the officer waiting, and can be withdrawn', async () => {
+    const user = userEvent.setup();
+    givenPage({ company: null });
+    const found = { id: 'co9', name_th: TRUE_CORP, tin: null };
+    mocked.searchCompanies.mockResolvedValue({ companies: [found] });
+    mocked.joinCompany.mockImplementation(async () => {
+      mocked.fetchMyJoinRequest.mockResolvedValue({
+        company: found,
+        requested_at: '2026-11-18T08:00:00.000Z',
+      });
+      return { outcome: 'pending', company: found };
+    });
+    mocked.withdrawJoinRequest.mockImplementation(async () => {
+      mocked.fetchMyJoinRequest.mockResolvedValue(null);
+    });
+
+    render(<CompanyExperiences />);
+    await settled();
+
+    await user.click(screen.getByRole('button', { name: /ค้นหาบริษัทที่มีอยู่แล้ว/ }));
+    await user.type(await screen.findByPlaceholderText('พิมพ์ชื่อบริษัทเป็นภาษาไทย'), 'ทรู');
+    await user.click(await screen.findByText(TRUE_CORP));
+
+    const notice = (await screen.findByText(/รอผู้ดูแลบริษัทอนุมัติ/)).closest('[role="status"]');
+    expect(notice).toHaveTextContent('รอผู้ดูแลบริษัทอนุมัติ');
+    expect(notice).toHaveTextContent(TRUE_CORP);
+    // Nothing can be recorded against a company the officer is not in yet.
+    expect(addButton()).toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'ยกเลิกคำขอ' }));
+    await waitFor(() => expect(mocked.withdrawJoinRequest).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByText(/รอผู้ดูแลบริษัทอนุมัติ/)).not.toBeInTheDocument(),
+    );
   });
 
   test('offers to create the company when nothing matches', async () => {
@@ -464,5 +516,20 @@ describe('finding a company a colleague already made', () => {
     await user.click(await screen.findByText(`สร้างบริษัทใหม่ “${TRUE_CORP}”`));
 
     await waitFor(() => expect(nameField()).toHaveValue(TRUE_CORP));
+  });
+});
+
+describe('a member who does not manage the company', () => {
+  test('reads the name and TIN but cannot save changes to them', async () => {
+    givenPage({
+      company: mine({ id: 'co1', name_th: TRUE_CORP, tin: null }, { is_manager: false }),
+    });
+
+    render(<CompanyExperiences />);
+    await settled();
+
+    expect(nameField()).toHaveAttribute('readonly');
+    expect(screen.queryByRole('button', { name: 'บันทึกการแก้ไข' })).not.toBeInTheDocument();
+    expect(screen.getByText(/ผู้ดูแลบริษัทเป็นผู้แก้ไข/)).toBeInTheDocument();
   });
 });

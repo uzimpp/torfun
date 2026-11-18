@@ -36,6 +36,9 @@ interface CompanyDocument {
   name_th: string;
   /** Optional and carries no uniqueness constraint — see ADR-0008. */
   tin: string | null;
+  /** Absent on Companies created before managers existed; see the 2026-11 migration. */
+  manager_ids?: string[];
+  auto_approve_domain?: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -43,11 +46,14 @@ interface CompanyDocument {
 export interface NewCompany {
   nameTh: string;
   tin: string | null;
+  /** The creator, so a new Company is never without someone to approve joins. */
+  managerIds?: string[];
 }
 
 export interface CompanyPatch {
   nameTh?: string;
   tin?: string | null;
+  autoApproveDomain?: string | null;
 }
 
 function toDomain(document: CompanyDocument): Company {
@@ -55,6 +61,8 @@ function toDomain(document: CompanyDocument): Company {
     id: document._id.toString(),
     nameTh: document.name_th,
     tin: document.tin ?? null,
+    managerIds: document.manager_ids ?? [],
+    autoApproveDomain: document.auto_approve_domain ?? null,
     createdAt: document.created_at,
     updatedAt: document.updated_at,
   };
@@ -99,6 +107,8 @@ export interface CompanyStore {
   search(query: string, limit: number): Promise<Company[]>;
   create(input: NewCompany): Promise<Company>;
   update(id: string, patch: CompanyPatch): Promise<Company | null>;
+  /** Adds or drops one manager id; a no-op if it is already so. */
+  setManager(id: string, userId: string, isManager: boolean): Promise<Company | null>;
 }
 
 export class CompanyRepository implements CompanyStore {
@@ -173,6 +183,8 @@ export class CompanyRepository implements CompanyStore {
     const document = {
       name_th: input.nameTh,
       tin: input.tin,
+      manager_ids: input.managerIds ?? [],
+      auto_approve_domain: null,
       created_at: now,
       updated_at: now,
     };
@@ -187,10 +199,26 @@ export class CompanyRepository implements CompanyStore {
     const fields: Partial<CompanyDocument> = { updated_at: new Date() };
     if (patch.nameTh !== undefined) fields.name_th = patch.nameTh;
     if (patch.tin !== undefined) fields.tin = patch.tin;
+    if (patch.autoApproveDomain !== undefined) fields.auto_approve_domain = patch.autoApproveDomain;
 
     const document = await (
       await this.collection()
     ).findOneAndUpdate({ _id: new ObjectId(id) }, { $set: fields }, { returnDocument: 'after' });
+    return document ? toDomain(document) : null;
+  }
+
+  async setManager(id: string, userId: string, isManager: boolean): Promise<Company | null> {
+    if (!ObjectId.isValid(id)) return null;
+    const change = isManager
+      ? { $addToSet: { manager_ids: userId } }
+      : { $pull: { manager_ids: userId } };
+    const document = await (
+      await this.collection()
+    ).findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { ...change, $set: { updated_at: new Date() } },
+      { returnDocument: 'after' },
+    );
     return document ? toDomain(document) : null;
   }
 }
