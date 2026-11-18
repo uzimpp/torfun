@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError, downloadTor } from '@/lib/api';
+import { saveBlob, torFilename } from '@/lib/tor-file';
 import type { FavoritedTor } from './use-favorited-data';
 
 function formatThb(amount: number): string {
@@ -37,13 +38,7 @@ export function FavoritedCard({
     setDownloading(true);
     setDownloadError(null);
     try {
-      const blob = await downloadTor(tor.projectId);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `tor-${tor.projectId}.pdf`;
-      link.click();
-      URL.revokeObjectURL(url);
+      saveBlob(await downloadTor(tor.projectId), torFilename(tor.projectId));
     } catch (caught) {
       setDownloadError(caught instanceof ApiError ? caught.message : 'ดาวน์โหลด TOR ไม่สำเร็จ');
     } finally {
