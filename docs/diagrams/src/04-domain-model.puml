@@ -56,6 +56,7 @@ class User <<users>> {
   username
   role : admin | business_development_officer
   companyId, isActive
+  joinRequest {companyId, requestedAt}
   email, google_id, password_hash
 }
 class RefreshToken <<refresh_tokens>> {
@@ -65,6 +66,8 @@ class RefreshToken <<refresh_tokens>> {
 class Company <<companies>> {
   nameTh (Thai only)
   tin (13 digits, optional)
+  managerIds[] (Company Managers)
+  autoApproveDomain (null = off)
 }
 class Client <<clients>> {
   name
@@ -98,6 +101,8 @@ Procurement *-- "0..1" TorAnalysis
 Procurement ..> Tombstone : replaced by\non a drop
 Procurement "1" -- "*" IngestionFailure
 Company "1" -- "*" User : employs
+Company "1" -- "*" User : managed by\n(at least one while it has members)
+User "*" ..> "0..1" Company : join request
 Company "1" -- "*" Client
 Company "1" -- "*" Experience
 Client "1" -- "*" Experience : for

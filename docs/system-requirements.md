@@ -55,7 +55,7 @@ package, and it depends on e-GP, Vertex AI, Google OAuth and MongoDB Atlas.
 
 | Class | Role value | Sees | Does |
 | ----- | ---------- | ---- | ---- |
-| BD Officer | `business_development_officer` | Procurements whose TOR was read and approved for display | Searches, reads, favourites, reports TORs, keeps the Company record |
+| BD Officer | `business_development_officer` | Procurements whose TOR was read and approved for display | Searches, reads, favourites, reports TORs, keeps the Company record. A Company Manager among them also approves who joins (FR-VEN-09) |
 | Site Administrator | `admin` | The full queue, including held and failed records | Runs ingestion, moderates, manages accounts. Never holds a Company |
 
 Self-registration always creates a BD Officer. Admin is never self-claimed: an
@@ -112,14 +112,17 @@ Priority: M must, S should, C could. Status: I implemented, P partial, PL planne
 
 | ID | Requirement | Pri | Status |
 | -- | ----------- | --- | ------ |
-| FR-VEN-01 | An officer shall be able to search existing Companies by Thai name (typeahead) and join one, or create a new one. | M | I |
+| FR-VEN-01 | An officer shall be able to search existing Companies by Thai name (typeahead) and request to join one, or create a new one. Search shall return only the id, Thai name and TIN. | M | I |
 | FR-VEN-02 | A Company name shall be Thai-only (contain Thai script, no Latin letters); a TIN, if given, shall be exactly 13 digits. | M | I |
-| FR-VEN-03 | An officer shall be able to correct their own Company. | S | I |
+| FR-VEN-03 | A Company Manager shall be able to correct their own Company's name and TIN; other members shall read them. | S | I |
 | FR-VEN-04 | An officer shall be able to record, edit and delete Clients (government or private) of their Company; deletion shall be refused while Experience is recorded against the Client. | M | I |
 | FR-VEN-05 | Client name suggestions shall be offered from agency names already seen. | C | I |
 | FR-VEN-06 | An officer shall be able to record, edit and delete Experience: Client and project name required; description, tech stack, target platforms and duration optional. | M | I |
 | FR-VEN-07 | Experience shall use the same vocabulary a TOR is analysed into (tech stack, target platform) so that the two are comparable. | M | I |
 | FR-VEN-08 | Clients and Experience shall be scoped to the officer's Company; one officer shall not read or alter another Company's record. | M | I |
+| FR-VEN-09 | Joining a Company shall need a Company Manager's approval. The creator is the first manager; managers may promote and remove members; a Company with members shall keep at least one manager. A pending request shall grant no access (SRS FR-04a, pentest P-1). | M | I |
+| FR-VEN-10 | A Company Manager may turn on automatic approval for one email domain. It shall admit only a Google-verified email at exactly that domain, only a domain the manager's own email is at, and never a public mail provider. | S | I |
+| FR-VEN-11 | Every membership decision (request, approval, rejection, withdrawal, manager change, removal, auto-approve change) shall be written to the audit log. | M | I |
 
 ### 3.3 Discovering procurements (DISC)
 
@@ -293,7 +296,7 @@ None.
 | NFR-SEC-02 | Passwords shall be stored only as hashes, and the hash shall leave persistence through one method (`findCredentials`). |
 | NFR-SEC-03 | HTTP security headers (helmet, CSP `default-src 'self'`, `frame-ancestors 'none'`), an explicit CORS allowlist, and a global rate limit of 100 requests/minute/IP shall be applied. |
 | NFR-SEC-04 | `JWT_SECRET` shall be ≥ 32 characters; configuration shall be validated at start-up and the process shall refuse to start on invalid configuration. |
-| NFR-SEC-05 | Role checks (`requireAuth`, `requireAdmin`) shall be enforced once per route scope; all `/api/ingestion/*` and `/api/admin/*` routes shall be admin-only. |
+| NFR-SEC-05 | Role checks (`requireAuth`, `requireAdmin`) shall be enforced once per route scope; all `/api/ingestion/*` and `/api/admin/*` routes shall be admin-only. Company Manager checks are made in `CompanyMembershipService`, from the stored account and Company, never from the request. |
 | NFR-SEC-06 | The CI pipeline shall run dependency audit, secret scan (gitleaks), CodeQL, Trivy image scan and an OWASP ZAP baseline against the running stack. |
 | NFR-SEC-07 | No long-lived cloud credentials shall exist: development uses short-lived impersonated tokens; production uses the runtime service account and Secret Manager. |
 | NFR-SEC-08 | Untrusted document content shall be isolated from model instructions (FR-ING-13). |
