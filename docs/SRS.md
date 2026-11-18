@@ -146,6 +146,12 @@ crawling errors, manage system configuration and monitor platform health.
 > (the two roles of FR-02). "Guest" is the absence of a session. Self-registration
 > always creates a BD Officer; `admin` is never self-claimed. An existing administrator can grant or
 > revoke it (`PATCH /api/admin/users/:id`), and the first one is set in the database.
+>
+> **Company Manager** (ผู้ดูแลบริษัท) is not a third role. It is a standing inside one
+> company: the officer who created it, and anyone a manager promotes. A Company Manager
+> approves join requests, sets automatic approval by email domain, and edits the company's
+> name and TIN (FR-04a). A Site Administrator holds no company, but can appoint a manager
+> from a company's existing members if all its managers have gone.
 
 ### 2.3 Assumptions and Dependencies
 
@@ -219,7 +225,8 @@ Status reflects whether the story can be completed end to end in the built syste
 | FR-01 | The system SHALL restrict the Dashboard, My TOR, and all personalized features to Authenticated Users; Guests attempting to access a protected feature SHALL be redirected to login. | Done | Server components call `requireUser()` / `requireAdmin()` and redirect. |
 | FR-02 | The system SHALL support two roles — Business Development Officer and Site Administrator — with role-based access control enforced on every protected route and API endpoint. | Done | `requireAuth` / `requireAdmin` hooks per route scope. |
 | FR-03 | The authentication mechanism SHALL support both username/password and Google OAuth. | Done | |
-| FR-04 | The authentication mechanism SHALL also provide a mechanism to add themselves to any company and be able to create one if it does not exist. | Done | Company typeahead, join and create (`/companies`). |
+| FR-04 | The system SHALL let an Authenticated User find an existing company and request to join it, or create one if it does not exist. [Changed D-13: was "…add themselves to any company…"] | Done | Company typeahead, join request and create (`/companies`). |
+| FR-04a | Joining a company SHALL require approval by one of that company's Company Managers. The creator of a company SHALL be its first Company Manager, and a company with members SHALL always keep at least one. A Company Manager MAY enable automatic approval for one email domain, which SHALL admit only users whose verified email is at exactly that domain; the domain SHALL be the manager's own and SHALL NOT be a public mail provider. A pending request SHALL grant no access to company data. [Added D-13] | Done | `company-membership.service.ts`, `/companies/me/join-requests`, `/companies/me/auto-approve`; members panel on `/company`. Tests: `src/security/company-join-approval.test.ts`. |
 | FR-05 | The system SHALL provide a Sign Out function that invalidates the current session. | Done | Clears cookies and revokes the refresh-token family. |
 | FR-06 | Site Administrators SHALL be able to create, suspend, and remove Authenticated User accounts. | Partial | [Open D-07] List, activate/deactivate (suspend) and grant/revoke the admin role exist (not on their own account; the last active admin is protected). Create-by-admin and remove do not. |
 | FR-07 | Site Administrators SHALL be able to edit their own profile and credentials. | Unverified | No profile or password-change route found on `develop`. A `feature/account-settings` branch exists. |
@@ -314,7 +321,7 @@ Status reflects whether the story can be completed end to end in the built syste
 
 | ID | Requirement | Status | Note |
 | -- | ----------- | ------ | ---- |
-| NFR-03 | The system SHALL verify user role and session validity before serving TOR documents, procurement records, or Company Profile data. | Done | `requireAuth` on `/tors/*` and company routes; officers see only shown records. |
+| NFR-03 | The system SHALL verify user role and session validity before serving TOR documents, procurement records, or Company Profile data. | Done | `requireAuth` on `/tors/*` and company routes; officers see only shown records. Company data needs approved membership (FR-04a). |
 | NFR-04 | Session tokens SHALL be stored in Secure, HTTP-only cookies. | Done | Access token 15 minutes, refresh token 30 days, rotating. |
 | NFR-05 | The system SHALL NOT store credentials in plaintext, regardless of the finalized authentication mechanism. | Done | Password hash only; refresh tokens stored hashed. |
 | NFR-06 | Role-based access control SHALL be enforced at the API layer, not only the UI layer, to prevent privilege escalation via direct calls. | Done | Hooks per route scope; all `/api/ingestion/*` and `/api/admin/*` are admin-only. |
@@ -371,6 +378,7 @@ needed. The original wording column keeps what the SRS said before.
 | D-10 | FR-28 and FR-29 overlapped | Applied: FR-29 now adds only location and the price rule | FR-29 repeated the whole FR-28 list | Editing leftover. |
 | D-11 | Appendix B had terms from another project | Applied: Appendix B | Quota ("songs"), Standard Audio Controls, UUID ("shared songs") | Copy-paste from a template. Added TOR, e-GP, Procurement, Archive, Run/Gate. |
 | D-12 | Authentication is decided | Applied: §1.3 | "The authentication mechanism is TBD" | FR-03 already fixes username/password and Google OAuth. |
+| D-13 | Joining a company needs a Company Manager's approval | Applied: FR-04 reworded, FR-04a added, §2.2 note, Appendix B (18 November 2026) | "…a mechanism to add themselves to any company…" | The penetration test (finding P-1, issue #200) showed that self-service joining let any registered user read another company's capital, certificates, past contracts and clients. Supersedes ADR-0008 ("membership is claimed, not granted"). |
 | D-05 | One shared Company Profile, admin-edited, vs. a Company per vendor made of Clients and Experience, edited by officers | Open: FR-21, FR-22, section 1.3 and "Per-user profiles" unchanged | n/a | The code follows ADR-0007 and -0009. It conflicts with the "single shared profile" scope and with the out-of-scope item. If several vendors share one deployment, rewrite FR-21/22 and drop the exclusion. If not, the code has to change. Also decides how FR-23 (matching) is keyed. |
 | D-07 | Admins create, suspend and remove accounts | Open: FR-06 unchanged | n/a | Built: list, activate/deactivate and grant/revoke admin; users self-register. Decide whether admin-created and removable accounts are wanted. |
 | D-08 | Admins manage the Source Registry | Open: FR-40 unchanged | n/a | Built: a fixed list in code ("membership is a product decision, not configuration"). Either build an admin UI or reword FR-40 to "changed by a reviewed code change". |
@@ -407,7 +415,7 @@ specified in [system-requirements.md](system-requirements.md).
 
 | SRS area | FR | Implemented in |
 | -------- | -- | -------------- |
-| Identity and access | FR-01–07 | `routes/auth.ts`, `routes/admin.ts`, `hooks/*`, `plugins/{jwt,google-oauth}.ts`, web `lib/auth.ts` |
+| Identity and access | FR-01–07, FR-04a | `routes/auth.ts`, `routes/admin.ts`, `routes/companies.ts`, `services/company-membership.service.ts`, `hooks/*`, `plugins/{jwt,google-oauth}.ts`, web `lib/auth.ts` |
 | Ingestion | FR-08–13 | `services/egp/*`, `ingestion.service.ts`, `scheduler.service.ts` |
 | Extraction and AI | FR-14–20 | `services/vertex/*`, `services/egp/{decision,document-roles,analysis-task}.ts` |
 | Company and matching | FR-21–25 | `routes/{companies,clients,experiences}.ts`; matching: none |
@@ -444,6 +452,8 @@ terms and avoid the aliases it lists.
 | TOR | Terms of Reference — the PDF stating what an agency wants built |
 | Procurement | One government procurement project, keyed by an 11-digit `projectId` |
 | Archive | The ZIP an announcement publishes, containing the TOR beside unrelated documents |
+| Company Manager | ผู้ดูแลบริษัท. A member who approves who joins a company and edits its name and TIN. Per company, not a system role |
+| Join request | A user's request to join a company. Grants nothing until a Company Manager approves it, or automatic approval admits the user's verified email domain |
 | Run / Gate | One execution of the ingestion pipeline / the single choke point through which it reaches e-GP |
 | Latency | The delay between a user action and the system's response |
 | OAuth 2.0 | Open Authorization — a standard protocol letting users sign in through a provider without sharing passwords |
