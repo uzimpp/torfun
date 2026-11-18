@@ -3,6 +3,7 @@ import {
   createCompany,
   deleteClient,
   deleteExperience,
+  downloadTor,
   fetchClients,
   fetchFiscalYears,
   fetchProjects,
@@ -92,4 +93,47 @@ test('fiscal year choices are loaded from the procurement index', async () => {
     expect.stringContaining('/api/tors/years'),
     expect.objectContaining({ credentials: 'include' }),
   );
+});
+
+/**
+ * The TOR source is agency-supplied bytes. Whatever `Content-Type` the response
+ * claims, the web app decides the type itself, from the content (ASVS V3.2.1).
+ */
+describe('downloading the original TOR', () => {
+  const respond = (body: string, type: string) =>
+    fetchMock.mockResolvedValueOnce(
+      new Response(body, { status: 200, headers: { 'Content-Type': type } }),
+    );
+
+  test('a real PDF is returned typed application/pdf, even when mislabelled', async () => {
+    respond('%PDF-1.7 body', 'application/octet-stream');
+
+    const blob = await downloadTor('project-123');
+
+    expect(blob.type).toBe('application/pdf');
+    // jsdom's Blob has no text(); the byte count shows the body survived intact.
+    expect(blob.size).toBe('%PDF-1.7 body'.length);
+    expect(fetchMock.mock.calls[0]![0]).toContain('/api/tors/project-123/source');
+  });
+
+  test.each([
+    ['HTML served as a PDF', '<!doctype html><script>alert(1)</script>', 'application/pdf'],
+    ['an SVG', '<svg onload="alert(1)"/>', 'image/svg+xml'],
+    ['an empty body', '', 'application/pdf'],
+  ])('refuses %s', async (_label, body, type) => {
+    respond(body, type);
+
+    await expect(downloadTor('project-123')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 502,
+    });
+  });
+
+  test('the project id is encoded into the path', async () => {
+    respond('%PDF-1.7', 'application/pdf');
+
+    await downloadTor('a/b?c');
+
+    expect(fetchMock.mock.calls[0]![0]).toContain('/api/tors/a%2Fb%3Fc/source');
+  });
 });

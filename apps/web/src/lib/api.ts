@@ -22,6 +22,7 @@ import type {
   ReviewTorReport,
 } from '@torfun/types';
 import { fromCompanyQualificationsPayload, toCompanyQualificationsPayload } from '@torfun/types';
+import { PDF_MIME, isPdf } from './tor-file';
 
 /**
  * Thin client for the torfun API.
@@ -218,10 +219,17 @@ export function reviewTorReport(
   });
 }
 
+/**
+ * The original TOR PDF. The body is agency-supplied and untrusted, so it is
+ * accepted only if it really is a PDF, and the returned Blob is typed
+ * `application/pdf` by us rather than by whatever header the response carried.
+ */
 export async function downloadTor(projectId: string): Promise<Blob> {
   const response = await apiFetch(`/api/tors/${encodeURIComponent(projectId)}/source`);
   if (!response.ok) throw await failure(response);
-  return response.blob();
+  const bytes = await response.arrayBuffer();
+  if (!isPdf(bytes)) throw new ApiError('เอกสารที่ได้รับไม่ใช่ไฟล์ PDF', 502);
+  return new Blob([bytes], { type: PDF_MIME });
 }
 
 export function fetchFailures(): Promise<{ items: IngestionFailure[] }> {

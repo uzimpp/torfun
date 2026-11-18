@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { Download, Eye, LoaderCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ApiError, downloadTor } from '@/lib/api';
+import { torFilename, triggerDownload } from '@/lib/tor-file';
 import {
   Dialog,
   DialogClose,
@@ -60,10 +61,7 @@ export function TorDownloadButton({
   function handleDownload() {
     if (!previewUrl) return;
 
-    const link = document.createElement('a');
-    link.href = previewUrl;
-    link.download = `tor-${projectId}.pdf`;
-    link.click();
+    triggerDownload(previewUrl, torFilename(projectId));
   }
 
   return (
