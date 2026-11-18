@@ -84,6 +84,15 @@ export const CompanySchema = z.object({
   nameTh: ThaiCompanyName,
   /** Optional, and carries no uniqueness constraint — see ADR-0008. */
   tin: Tin.nullable(),
+  /**
+   * Company Managers' user ids (see `company-membership.ts`). Stored ids, not a
+   * verdict: someone counts as a manager only while their account also points
+   * at this Company, so an id left behind by someone who moved on grants
+   * nothing.
+   */
+  managerIds: z.array(z.string()).default([]),
+  /** Approve join requests from verified addresses at this domain; null: a manager decides each. */
+  autoApproveDomain: z.string().nullable().default(null),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });

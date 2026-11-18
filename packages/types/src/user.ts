@@ -18,6 +18,15 @@ export const UserSchema = z.object({
    * now (ADR-0007), so a user document no longer carries a second copy of it.
    */
   companyId: z.string().nullable(),
+  /**
+   * A request to join a Company that no manager has answered yet. Grants
+   * nothing: every company-scoped read keys on `companyId`, which an approval
+   * sets. One at a time; asking again replaces it.
+   */
+  joinRequest: z
+    .object({ companyId: z.string(), requestedAt: z.coerce.date() })
+    .nullable()
+    .optional(),
   role: UserRole,
   /** Absent on password-only accounts; Google sign-in always supplies one. */
   email: z.string().email().optional(),
