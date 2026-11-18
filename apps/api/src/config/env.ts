@@ -4,6 +4,18 @@ export const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(8080),
   HOST: z.string().default('0.0.0.0'),
+  /**
+   * Proxies in front of the API whose X-Forwarded-For entry is believed. 0 (the
+   * default) ignores the header, which is right when clients connect directly.
+   * Cloud Run sits behind exactly one Google front end, so it deploys with 1:
+   * with 0 every request there shares the proxy's address, and the per-IP
+   * limits (100 req/min, 30 sign-ins per 15 min) become one bucket for all
+   * users that a single attacker can empty. Never set it above the real hop
+   * count, or a client can choose its own address and slip every per-IP limit,
+   * and only where clients cannot reach the container except through that proxy
+   * (Cloud Run ingress), since a hop count cannot check who the peer is.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   // Mongo Atlas

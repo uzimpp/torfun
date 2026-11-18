@@ -62,6 +62,19 @@ export interface AuthResult {
 const BCRYPT_ROUNDS = 12;
 
 /**
+ * A hash of a random secret at the same cost as a real one, compared against
+ * when a sign-in names no password account. Without it an unknown username was
+ * answered in about 1 ms and a real one in about 250 ms (bcrypt), so response
+ * time told an attacker which usernames exist (pentest A3b, ASVS V6.3.8).
+ * Built once, on the first miss, so startup does not pay for it.
+ */
+let decoyHash: Promise<string> | null = null;
+function decoy(): Promise<string> {
+  decoyHash ??= bcrypt.hash(randomBytes(32).toString('hex'), BCRYPT_ROUNDS);
+  return decoyHash;
+}
+
+/**
  * How long a refresh token stays usable, and so how long "stay signed in"
  * lasts. Lives here rather than in `plugins/jwt.ts` so this file keeps its
  * distance from Fastify; the route layer imports it for the cookie's Max-Age.
@@ -239,6 +252,8 @@ export class AuthService {
     // One message for "no such user" and "wrong password" alike, so the
     // endpoint can't be used to enumerate valid usernames.
     if (!credentials?.passwordHash) {
+      // Spend the same bcrypt work as a real check, so timing is no oracle.
+      await bcrypt.compare(password, await decoy());
       throw new UnauthorizedError('Invalid username or password');
     }
 

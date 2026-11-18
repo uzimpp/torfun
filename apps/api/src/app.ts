@@ -129,6 +129,10 @@ export async function buildApp(
   options: { logStream?: Writable } = {},
 ) {
   const app = Fastify({
+    // A function, not the number: Fastify 5.12 treats a bare hop count as
+    // "trust nothing", since it cannot know the peer is really a proxy. Here
+    // the deployment vouches for that; see TRUST_PROXY_HOPS in config/env.ts.
+    trustProxy: (_address: string, hop: number) => hop < env.TRUST_PROXY_HOPS,
     logger: {
       level: env.LOG_LEVEL,
       redact: LOG_REDACTION,

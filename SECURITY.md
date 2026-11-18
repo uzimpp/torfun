@@ -19,11 +19,12 @@ All values live in code; this table is what to change together if one moves.
 
 | Control                | Value                                                                                                                                            | Where                                                           |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| Password storage       | bcrypt, 12 rounds; never trimmed or truncated                                                                                                    | `services/auth.service.ts`                                      |
+| Password storage       | bcrypt, 12 rounds; never trimmed or truncated; an unknown username is checked against a decoy hash so timing does not reveal accounts            | `services/auth.service.ts`                                      |
 | Password policy        | 8-128 chars, no composition rules; common list, product words, username, known-breach lookup                                                     | `services/password-policy.ts`, `services/breached-passwords.ts` |
 | Breach lookup          | HIBP range API, k-anonymity (5-char SHA-1 prefix only), 2 s timeout, **fails open** with a warning log                                           | `BREACHED_PASSWORD_CHECK`                                       |
 | Login throttle         | 30 attempts / 15 min per IP; 10 / 15 min per account name (case-insensitive); 429 + `Retry-After`                                                | `plugins/security.ts`, `hooks/throttle-credentials.ts`          |
 | Global API limit       | 100 requests / min per IP                                                                                                                        | `plugins/security.ts`                                           |
+| Client IP              | socket address; behind Cloud Run the front end's `X-Forwarded-For` entry (`TRUST_PROXY_HOPS=1`), never entries a client forged before it         | `config/env.ts`, `app.ts`                                       |
 | Expensive routes       | ingestion Run 5 / 15 min; upstream read 30 / 15 min; source download 60 / min; TOR report 10 / 15 min                                            | `expensiveRouteLimit`                                           |
 | Access token           | JWT HS256, 15 min, carries `sid` (session id)                                                                                                    | `plugins/jwt.ts`                                                |
 | Refresh token          | 256-bit random, stored as SHA-256, rotated on every use, 7-day idle window                                                                       | `services/auth.service.ts`                                      |
@@ -49,6 +50,8 @@ All values live in code; this table is what to change together if one moves.
 - Web CSP: `script-src` still allows `'unsafe-inline'` (a nonce CSP would force fully dynamic rendering) and
   `object-src blob:` is open for the in-browser TOR PDF viewer. React text rendering and no `dangerouslySetInnerHTML`
   carry the XSS defense; the gap is pinned by `apps/web/src/lib/security-headers.test.ts` (#193).
+- Company membership is self-service: any signed-in officer who knows a company's name can join it and read its
+  qualification evidence (pentest P-1, `docs/security/pentest/REPORT.md`). Open pending a product decision.
 - File-size, archive-entry and SSRF guards for ingestion are not yet implemented (#155, #151).
 
 ## Verification
@@ -69,7 +72,12 @@ bun audit                                 # dependency advisories
 | `src/security/rate-limits.test.ts`          | expensive routes answer 429 with `Retry-After` past their budget                                                                                                                                                       |
 | `src/security/session-management.test.ts`   | 15 min access token; logout, reuse, disable and password change end sessions at once; absolute limit; password-change rules                                                                                            |
 | `apps/web/src/lib/security-headers.test.ts` | web headers (CSP, HSTS, nosniff, frame deny, referrer, COOP, permissions) read from the real `next.config.ts`; no wildcard sources; the `unsafe-inline` gap is pinned                                                  |
+| `src/security/user-enumeration.test.ts`     | an unknown username costs the same bcrypt work as a real one (pentest P-2)                                                                                                                                             |
+| `src/security/client-ip.test.ts`            | the client IP ignores `X-Forwarded-For` by default and trusts only the configured proxy hop (pentest P-3)                                                                                                              |
 | `src/services/breached-passwords.test.ts`   | only a 5-character hash prefix leaves the server; fails open when the service is down                                                                                                                                  |
+
+Penetration test: `docs/security/pentest/REPORT.md` (38 black-box attacks against the running API, script and
+results alongside).
 
 CI (`.github/workflows/security.yml`): `bun audit` (PRs fail on new high advisories), gitleaks over history,
 CodeQL (SAST), Trivy image scan and OWASP ZAP baseline (DAST) on pull requests to `main`.
