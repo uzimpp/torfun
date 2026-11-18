@@ -66,6 +66,7 @@ error handler maps them to `{ message }`. MongoDB connects lazily, so
 `buildApp()` works with no database.
 
 The services are `AuthService`, `AdminUsersService`, `CompanyService`,
+`CompanyMembershipService` (join requests, Company Managers, automatic approval),
 `ClientService`, `ExperienceService`, `TorService`, `FavoriteService`,
 `TorReportService`, `IngestionService`, `ProcurementAdminService`,
 `ScheduleService`, `SchedulerService` and `DiagnosticsService`.
@@ -128,7 +129,7 @@ missing variable. A new variable goes in `env.ts`, `.env.example` and
 
 | Concern | Approach |
 | ------- | -------- |
-| Authorisation | `requireAuth` and `requireAdmin` once per route scope. `audienceOf(role)` returns `officer` or `admin`, and any other role gets the narrower view |
+| Authorisation | `requireAuth` and `requireAdmin` once per route scope. `audienceOf(role)` returns `officer` or `admin`, and any other role gets the narrower view. Company data is reachable only through the account's approved `company_id`; a Company Manager (per Company, not a role) approves who joins |
 | Visibility | `isVisibleTo` and `presentTo` in `services/audience.ts`. Officers see `tor_analysed` records that were not removed from publication, with admin-only fields blanked |
 | Naming | snake_case on the wire, in JWT claims and in Mongo documents; camelCase in domain objects; conversion only in repositories |
 | Validation | A zod schema on every route, imported from `@torfun/types` |

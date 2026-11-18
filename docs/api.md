@@ -27,7 +27,7 @@ Diagram sources are in [`diagrams/`](diagrams/README.md).
 | 401 | `UnauthorizedError` | No, expired or revoked session |
 | 403 | `ForbiddenError` | Signed in but not allowed, or a deactivated account |
 | 404 | `NotFoundError` | Missing, or not visible to this role. An officer asking for a held record gets 404, not 403 |
-| 409 | `ConflictError` | A Run is already live, a client still has recorded work, or the last active admin |
+| 409 | `ConflictError` | A Run is already live, a client still has recorded work, the last active admin, or a Company's last Company Manager |
 | 429 | `TooManyRequestsError` | Rate limit |
 | 500 | | A bug. The body is always `"Internal server error"` and the detail goes to the log |
 
@@ -74,6 +74,7 @@ Access: P public, U signed-in user, A admin.
 | GET | `/auth/google/callback` | P | Finishes sign-in, sets cookies, redirects to `WEB_APP_URL` | `302` |
 | GET | `/admin/users` | A | All accounts | `200 { users }` |
 | PATCH | `/admin/users/:id` | A | Body `{ role?, is_active? }`, at least one. Grants or revokes `admin`, activates or deactivates | `200`; `403` own account; `404`; `409` last active admin |
+| POST | `/admin/companies/:id/managers` | A | Body `{ user_id }`. Makes an existing member a Company Manager, for a Company whose managers are gone. Never adds a stranger | `204`; `404` not a member |
 
 ### TORs
 
@@ -114,13 +115,28 @@ A range whose maximum is below its minimum returns `400`.
 Clients and Experience belong to the caller's Company. Another Company's records
 behave as if they do not exist.
 
+Membership is granted, not claimed (FR-04a, pentest finding P-1). Joining is a
+request that a **Company Manager** (M below: a member who manages the caller's
+Company) approves. Whoever creates a Company manages it. A pending request
+grants nothing: every company-scoped route keys on the account's `company_id`,
+which only an approval or creating a Company sets.
+
 | Method | Path | Acc. | Does | Responses |
 | ------ | ---- | ---- | ---- | --------- |
-| GET | `/companies/search?q=` | U | Typeahead over Thai company names | `200 { companies }` |
-| POST | `/companies` | U | Create a Company and join it | `201` |
-| GET | `/companies/me` | U | The caller's Company | `200`; `404` if none |
-| PATCH | `/companies/me` | U | Correct it | `200`; `404` |
-| POST | `/companies/:id/join` | U | Point the caller at an existing Company | `200`; `404` |
+| GET | `/companies/search?q=` | U | Typeahead over Thai company names. Returns `id`, `name_th` and `tin` only | `200 { companies }` |
+| POST | `/companies` | U | Create a Company, join it and become its manager | `201` with `is_manager: true`; `409` if the caller is the last manager of a Company that still has other members |
+| GET | `/companies/me` | U | The caller's Company, with `is_manager` and `auto_approve_domain` | `200`; `404` if none |
+| PATCH | `/companies/me` | M | Correct the name or TIN | `200`; `403` not a manager; `404` |
+| POST | `/companies/:id/join` | U | Ask to join. Joins at once only if the caller's verified email is at the Company's auto-approve domain | `200 { outcome: "joined", company }`; `202 { outcome: "pending", company }`; `404`; `409` last manager leaving |
+| GET | `/companies/join-request` | U | The caller's own pending request | `200 { company, requested_at }`; `404` if none |
+| DELETE | `/companies/join-request` | U | Withdraw it | `204` |
+| GET | `/companies/me/members` | U | Members of the caller's Company, with `is_manager` | `200 { members }`; `404` |
+| GET | `/companies/me/join-requests` | M | Requests waiting on the caller's Company, with each applicant's verified email | `200 { requests }`; `403` |
+| POST | `/companies/me/join-requests/:userId/approve` | M | Approve. Conditional on the request still being on file | `204`; `403`; `404` no such request |
+| POST | `/companies/me/join-requests/:userId/reject` | M | Reject | `204`; `403`; `404` |
+| PUT | `/companies/me/auto-approve` | M | `{ domain }` or `{ domain: null }`. The domain must be the manager's own email domain and not a public mail provider | `200`; `400` public provider or not a domain; `403` not the manager's domain |
+| PUT | `/companies/me/members/:userId/manager` | M | `{ is_manager }`: promote or step down a member | `204`; `403`; `404`; `409` last manager |
+| DELETE | `/companies/me/members/:userId` | M | Remove a member. Their recorded work stays with the Company | `204`; `403`; `404`; `409` last manager |
 | GET | `/clients` | U | The caller's Clients | `200 { clients }` |
 | GET | `/clients/suggestions?kind=&q=` | U | Government names drawn from agencies already seen | `200 { suggestions }` |
 | POST | `/clients` | U | Record a Client | `201`; `409` before a Company exists |

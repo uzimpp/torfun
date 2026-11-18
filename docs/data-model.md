@@ -28,9 +28,9 @@ Related: [architecture.md](architecture.md), [ingestion-flow.md](ingestion-flow.
 | `ingestion_failures` | The failure log shown to administrators | `projectId`, `stage`, `kind` |
 | `ingestion_runs` | Finished Runs: start, end, counts | run id |
 | `ingestion_meta` | Singleton documents: the Feed Cursor (`_id: 'feed_cursor'`, a contiguous range of fully read days per agency and type), the run lease (who may run, the live view, work in flight) and the schedule (the automatic-run setting and the last run start) | fixed `_id` |
-| `users` | Accounts: `role`, `password_hash` (only through `findCredentials`), `google_id`, `company_id` | `company_id` to `companies` |
+| `users` | Accounts: `role`, `password_hash` (only through `findCredentials`), `google_id`, `email` (Google sign-in only), `company_id`, and `join_request { company_id, requested_at }` while a request waits for a Company Manager | `company_id` and `join_request.company_id` to `companies` |
 | `refresh_tokens` | Hashed refresh tokens with family, expiry and revocation | `user_id`, `family_id`, `token_hash` |
-| `companies` | The vendor: Thai name, optional TIN, index on `name_th` | |
+| `companies` | The vendor: Thai name, optional TIN, `manager_ids` (Company Managers' user ids) and `auto_approve_domain` (null when off). Index on `name_th` | `manager_ids` to `users` |
 | `clients` | Organisations a Company delivered for (`government` or `private`) | `company_id` |
 | `experiences` | Work a Company delivered | `company_id`, `client_id` |
 | `favorites` | A user's shortlisted procurements | `user_id`, `project_id` |
@@ -70,7 +70,8 @@ otherwise e-GP's bid deadline, otherwise the deadline the model read (flagged
 | `HoldReason` | `ai_low_confidence`, `ai_not_software_low`, `partial_read` |
 | `TombstoneReason` | `ai_not_software`, `admin_non_software`, `admin_deleted` |
 | `TargetPlatform` | `macos`, `windows`, `mobile`, `web_app`, `other` |
-| `UserRole` | `admin`, `business_development_officer` |
+| `UserRole` | `admin`, `business_development_officer`. Company Manager is not a role here: it is per Company, in `companies.manager_ids` |
+| `JoinOutcome` | `joined`, `pending` |
 | `ClientKind` | `government`, `private` |
 | `TorReportReason` | `unreasonable_requirements`, `incorrect_information`, `outdated`, `invalid_document`, `other` |
 | `TorReportStatus` | `pending`, `dismissed`, `removed` |
@@ -105,3 +106,4 @@ writers look the state up instead of choosing it. The transitions are in
 | Status history | The last 50 changes per record |
 | Refresh tokens | Until expiry or revocation. Reuse revokes the family |
 | Personal data | Username, name, optional email, password hash and Google id. The PDPA review is open (system-requirements OI-05) |
+| Join requests | Until approved, rejected, withdrawn, or replaced by a request to another Company. A Company Manager sees the applicant's name, username and verified email |
