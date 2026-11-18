@@ -21,7 +21,17 @@ export type AuditEvent =
   | 'auth.refresh.failure'
   | 'auth.google.success'
   | 'auth.google.failure'
-  | 'admin.user.updated';
+  | 'admin.user.updated'
+  | 'admin.company.manager.assigned'
+  | 'company.created'
+  | 'company.join.requested'
+  | 'company.join.auto_approved'
+  | 'company.join.approved'
+  | 'company.join.rejected'
+  | 'company.join.withdrawn'
+  | 'company.manager.changed'
+  | 'company.member.removed'
+  | 'company.settings.changed';
 
 export interface AuditFields {
   ip?: string;

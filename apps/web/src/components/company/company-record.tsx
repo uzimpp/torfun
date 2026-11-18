@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { AddExperienceButton } from './add-experience-button';
 import { CompanyQualificationsPanel } from './company-qualifications-panel';
 import { CompanyBlock } from './company-block';
+import { CompanyMembersPanel } from './company-members-panel';
 import { ExperienceForm } from './experience-form';
 import { ExperienceList } from './experience-list';
 import type { CompanyData } from './use-company-data';
@@ -70,11 +71,21 @@ export function CompanyRecord({
         <>
           <CompanyBlock
             company={data.company}
+            pendingRequest={data.pendingRequest}
             saving={data.saving}
             onCreate={data.createOwnCompany}
             onJoin={data.joinExistingCompany}
             onEdit={data.editOwnCompany}
+            onWithdraw={data.withdrawRequest}
           />
+
+          {data.company && !onboarding && (
+            <CompanyMembersPanel
+              key={`members-${data.company.id}`}
+              company={data.company}
+              onCompanyChanged={data.reload}
+            />
+          )}
 
           {data.company && !onboarding && (
             <CompanyQualificationsPanel key={data.company.id} companyId={data.company.id} />
