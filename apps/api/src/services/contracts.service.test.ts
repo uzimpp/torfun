@@ -12,11 +12,16 @@ import {
 } from './egp/client';
 import type { OpenDataQuotaBudget, QuotaReading } from './egp/client';
 import { testEnv } from '../testing/env';
+import { contractSyncYears } from './egp/dates';
+import type { EGPContractSubmitRecord } from './egp/contract-client';
 import {
   ContractsService,
-  CONTRACT_SYNC_YEARS,
+  parseSubmitPrice,
   type ContractSyncClient,
 } from './contracts.service';
+
+/** The harness clock is 2026-11-16, which is fiscal year 2570. */
+const CONTRACT_SYNC_YEARS = contractSyncYears(new Date('2026-11-16T10:00:00.000Z'));
 
 const logger = { warn: () => {} } as unknown as FastifyBaseLogger;
 
@@ -40,6 +45,7 @@ function harness(
     contractPublishError?: Error;
     submissionPublishError?: Error;
     cooldownState?: { until: string | null };
+    logger?: FastifyBaseLogger;
   } = {},
 ) {
   const active = new Map<number, string>();
@@ -157,7 +163,7 @@ function harness(
       syncs,
       enrichment,
       testEnv(),
-      logger,
+      options.logger ?? logger,
       cooldown,
       {
         client,
@@ -198,14 +204,9 @@ describe('ContractsService annual sync', () => {
         await beforePage?.(0);
         return [
           {
-            bidder: [
-              {
-                merchant_name: 'Bidder',
-                seq_no: 1,
-                seq_no_desc: 'Item 1',
-                submit_price: 90_000,
-              },
-            ],
+            seq_no: 1,
+            seq_no_desc: 'Item 1',
+            bidder: [{ merchant_name: 'Bidder', submit_price: '90000.00' }],
           },
         ];
       },
@@ -277,14 +278,9 @@ describe('ContractsService annual sync', () => {
         await beforePage?.(0);
         return [
           {
-            bidder: [
-              {
-                merchant_name: 'Bidder',
-                seq_no: 1,
-                seq_no_desc: 'Item 1',
-                submit_price: 90_000,
-              },
-            ],
+            seq_no: 1,
+            seq_no_desc: 'Item 1',
+            bidder: [{ merchant_name: 'Bidder', submit_price: '90000.00' }],
           },
         ];
       },
@@ -502,5 +498,158 @@ describe('ContractsService annual sync', () => {
     // project-1's submission enrichment was attempted.
     expect(enrichmentCalls).toEqual(['project-1:2566']);
     expect(cs.until).toBeTruthy();
+  });
+});
+
+describe('parseSubmitPrice', () => {
+  test('reads the numeric string the API sends', () => {
+    expect(parseSubmitPrice('3000000.00')).toBe(3_000_000);
+    expect(parseSubmitPrice(' 2995000 ')).toBe(2_995_000);
+    expect(parseSubmitPrice(1250.5)).toBe(1250.5);
+  });
+
+  test('is null, never 0, for anything it cannot read', () => {
+    for (const value of ['', '  ', 'abc', '-5', '1,000', '1e3', NaN, Infinity, -1, null, undefined, {}]) {
+      expect(parseSubmitPrice(value)).toBeNull();
+    }
+  });
+});
+
+describe('ContractsService submission mapping', () => {
+  test('keeps the line item on every bid and never invents a price', async () => {
+    const fixture: ContractSyncClient = {
+      getAllContracts: async (year, _env, beforePage) => {
+        await beforePage?.(0);
+        return year === 2566 ? [contractRow] : [];
+      },
+      getAllContractSubmissions: async (_projectId, _year, _env, beforePage) => {
+        await beforePage?.(0);
+        // Fixture in the shape the real API returns: the line item is on the record.
+        return [
+          {
+            seq_no: 1,
+            seq_no_desc: 'Item A',
+            bidder: [
+              { merchant_name: 'Bidder X', submit_price: '100.50' },
+              { merchant_name: 'Bidder Y', submit_price: '' },
+            ],
+          },
+          {
+            seq_no: 2,
+            seq_no_desc: 'Item B',
+            bidder: [{ merchant_name: 'Bidder X', submit_price: 'not a number' }],
+          },
+        ];
+      },
+    };
+    const state = harness(fixture);
+
+    await state.service.syncAnnual();
+
+    expect(state.submissionSnapshots.get('project-1:2566')).toEqual([
+      { projectId: 'project-1', contractYear: 2566, merchantName: 'Bidder X', seqNo: 1, seqNoDesc: 'Item A', submitPrice: 100.5 },
+      { projectId: 'project-1', contractYear: 2566, merchantName: 'Bidder Y', seqNo: 1, seqNoDesc: 'Item A', submitPrice: null },
+      { projectId: 'project-1', contractYear: 2566, merchantName: 'Bidder X', seqNo: 2, seqNoDesc: 'Item B', submitPrice: null },
+    ]);
+  });
+});
+
+describe('ContractsService submission mapping: unreadable values', () => {
+  function clientReturning(rows: EGPContractSubmitRecord[]): ContractSyncClient {
+    return {
+      getAllContracts: async (year, _env, beforePage) => {
+        await beforePage?.(0);
+        return year === 2566 ? [contractRow] : [];
+      },
+      getAllContractSubmissions: async (_projectId, _year, _env, beforePage) => {
+        await beforePage?.(0);
+        return rows;
+      },
+    };
+  }
+
+  test.each([
+    ['0', 0],
+    ['negative', -1],
+    ['fractional', 1.5],
+    ['a string', '2'],
+    ['null', null],
+    ['missing', undefined],
+  ])('a line item number that is %s is stored as null, not repaired', async (_label, seqNo) => {
+    const state = harness(
+      clientReturning([
+        {
+          seq_no: seqNo as unknown as number,
+          seq_no_desc: 'Item',
+          bidder: [{ merchant_name: 'Bidder', submit_price: '10.00' }],
+        },
+      ]),
+    );
+
+    await state.service.syncAnnual();
+
+    const [bid] = state.submissionSnapshots.get('project-1:2566') ?? [];
+    expect(bid?.seqNo).toBeNull();
+    expect(bid?.seqNoDesc).toBe('Item');
+    expect(bid?.submitPrice).toBe(10);
+  });
+
+  test('warns with a count, and never the value, when a sent price cannot be read', async () => {
+    const warnings: unknown[][] = [];
+    const warnLogger = { warn: (...args: unknown[]) => warnings.push(args) } as unknown as FastifyBaseLogger;
+    const state = harness(
+      clientReturning([
+        {
+          seq_no: 1,
+          seq_no_desc: 'Item',
+          bidder: [
+            { merchant_name: 'A', submit_price: '1,234.00' },
+            { merchant_name: 'B', submit_price: 'secret-looking-text' },
+            { merchant_name: 'C', submit_price: '' },
+            { merchant_name: 'D', submit_price: null },
+            { merchant_name: 'E', submit_price: '99.00' },
+          ],
+        },
+      ]),
+      { logger: warnLogger },
+    );
+
+    await state.service.syncAnnual();
+
+    const unreadable = warnings.filter(([fields]) => (fields as { unreadablePrices?: number }).unreadablePrices);
+    expect(unreadable).toHaveLength(1);
+    expect(unreadable[0]![0]).toEqual({ projectId: 'project-1', contractYear: 2566, unreadablePrices: 2 });
+    expect(JSON.stringify(warnings)).not.toContain('1,234');
+    expect(JSON.stringify(warnings)).not.toContain('secret-looking-text');
+    expect(state.submissionSnapshots.get('project-1:2566')?.map((bid) => bid.submitPrice)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      99,
+    ]);
+  });
+
+  test('stays quiet when every price is readable or simply absent', async () => {
+    const warnings: unknown[][] = [];
+    const warnLogger = { warn: (...args: unknown[]) => warnings.push(args) } as unknown as FastifyBaseLogger;
+    const state = harness(
+      clientReturning([
+        {
+          seq_no: 1,
+          seq_no_desc: 'Item',
+          bidder: [
+            { merchant_name: 'A', submit_price: '5.00' },
+            { merchant_name: 'B', submit_price: null },
+            { merchant_name: 'C', submit_price: ' ' },
+          ],
+        },
+      ]),
+      { logger: warnLogger },
+    );
+
+    await state.service.syncAnnual();
+
+    expect(warnings.filter(([fields]) => (fields as { unreadablePrices?: number }).unreadablePrices)).toEqual([]);
   });
 });

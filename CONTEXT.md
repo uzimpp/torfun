@@ -99,8 +99,11 @@ _Avoid_: status, verdict, decision
 
 **Winner**:
 The supplier that was awarded a Procurement, with the contract that records it
-and the price the work actually sold for. Absent where no award exists — which
-is the only reliable signal that a Procurement is still open to a bid.
+and the agreed contract price. That price is not the winner's submitted bid
+(they differ: the agreed price is often lower), and a joint venture lists the
+consortium and its members as separate contract lines. Read from signed
+contracts only (ADR-0022), so absence means no signed contract was found, not
+that the Procurement is open.
 _Avoid_: contractor, vendor, supplier, awardee
 
 ### What the system infers

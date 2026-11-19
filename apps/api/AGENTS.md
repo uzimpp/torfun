@@ -102,7 +102,9 @@ Retrieval reads in the record's own gate turn (ADR-0020). Until then the year is
 null, never guessed. Each agency-day is saved as soon as it is read, and its new
 projects join Retrieval's queue at once. Every Run reads the new days; the cursor
 covers exactly the days read in full, even when the sweep is cut short. The open-data
-client is kept for a future winner lookup and is not used for discovery. Never
+client is not used for discovery; it reads signed contracts and bid submissions
+(ADR-0022). Every open-data response echoes the caller's `api-key` in a `request`
+field: strip it at the client and never log or store a raw response. Never
 call the process5 search endpoints: they sit behind Cloudflare Turnstile
 (ADR-0018).
 

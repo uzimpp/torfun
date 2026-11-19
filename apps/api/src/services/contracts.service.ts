@@ -22,8 +22,7 @@ import {
   type EGPContractSubmitRecord,
 } from './egp/contract-client';
 import { POLITENESS } from './egp/constants';
-
-export const CONTRACT_SYNC_YEARS = [2566, 2567, 2568, 2569, 2570] as const;
+import { contractSyncYears } from './egp/dates';
 
 const TASK_LEASE_MS = 10 * 60_000;
 const RETRY_DELAY_MS = 15 * 60_000;
@@ -98,25 +97,57 @@ function contractRecords(rows: EGPContractRecord[], year: number): Contract[] {
   });
 }
 
+/**
+ * A submitted price from the API: a numeric string ("3000000.00") or a number.
+ * Anything else — empty, negative, not a number — is null, never 0 and never a
+ * guess (ADR-0022).
+ */
+export function parseSubmitPrice(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!/^\d+(\.\d+)?$/.test(text)) return null;
+  const price = Number(text);
+  return Number.isFinite(price) ? price : null;
+}
+
+function lineItemNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function submissionRecords(
   rows: EGPContractSubmitRecord[],
   projectId: string,
   year: number,
-): ContractSubmission[] {
-  return rows.flatMap((row) => {
+): { records: ContractSubmission[]; unreadablePrices: number } {
+  let unreadablePrices = 0;
+  const records = rows.flatMap((row) => {
     if (!Array.isArray(row.bidder)) {
       throw new Error('GovSpending returned a malformed contract submission record');
     }
 
-    return row.bidder.map((bidder) => ({
-      projectId,
-      contractYear: year,
-      merchantName: bidder.merchant_name ?? null,
-      seqNo: bidder.seq_no ?? null,
-      seqNoDesc: bidder.seq_no_desc ?? null,
-      submitPrice: bidder.submit_price ?? null,
-    }));
+    // seq_no and seq_no_desc describe the line item, so every bidder on it shares them.
+    const seqNo = lineItemNumber(row.seq_no);
+    const seqNoDesc = row.seq_no_desc ?? null;
+    return row.bidder.map((bidder) => {
+      const submitPrice = parseSubmitPrice(bidder.submit_price);
+      // A price the API did send but we cannot read is counted; an absent one is not a fault.
+      if (submitPrice === null && !isBlank(bidder.submit_price)) unreadablePrices += 1;
+      return {
+        projectId,
+        contractYear: year,
+        merchantName: bidder.merchant_name ?? null,
+        seqNo,
+        seqNoDesc,
+        submitPrice,
+      };
+    });
   });
+  return { records, unreadablePrices };
+}
+
+function isBlank(value: unknown): boolean {
+  return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
 }
 
 export class ContractsService {
@@ -163,7 +194,7 @@ export class ContractsService {
       quota: new OpenDataQuotaBudget(),
     };
 
-    for (const year of CONTRACT_SYNC_YEARS) {
+    for (const year of contractSyncYears(this.now())) {
       if (!shouldContinue()) return;
       if (await this.isCoolingDown()) return;
 
@@ -338,7 +369,14 @@ export class ContractsService {
         requestBudget.quota,
       );
       await this.persistCooldownIfExhausted(requestBudget);
-      const records = submissionRecords(rows, projectId, year);
+      const { records, unreadablePrices } = submissionRecords(rows, projectId, year);
+      if (unreadablePrices > 0) {
+        // The count only: the unreadable values themselves are not logged.
+        this.logger.warn(
+          { projectId, contractYear: year, unreadablePrices },
+          'contract submissions: some submit_price values could not be read and were stored empty',
+        );
+      }
       if (!shouldContinue()) throw new ContractSyncStoppedError('Contract enrichment was stopped');
 
       await this.submissions.stageProjectSnapshot(projectId, year, generation, records);

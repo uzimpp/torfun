@@ -158,14 +158,9 @@ describe('getAllContractSubmissions', () => {
       if (offset === 0) {
         return mockPage(
           Array.from({ length: 1000 }, (_, index) => ({
-            bidder: [
-              {
-                merchant_name: `Merchant ${index}`,
-                seq_no: 1,
-                seq_no_desc: 'Item 1',
-                submit_price: 1000,
-              },
-            ],
+            seq_no: 1,
+            seq_no_desc: 'Item 1',
+            bidder: [{ merchant_name: `Merchant ${index}`, submit_price: '1000.00' }],
           })),
           1001,
         );
@@ -174,14 +169,9 @@ describe('getAllContractSubmissions', () => {
       return mockPage(
         [
           {
-            bidder: [
-              {
-                merchant_name: 'Last Merchant',
-                seq_no: 1,
-                seq_no_desc: 'Item 1',
-                submit_price: 2000,
-              },
-            ],
+            seq_no: 1,
+            seq_no_desc: 'Item 1',
+            bidder: [{ merchant_name: 'Last Merchant', submit_price: '2000.00' }],
           },
         ],
         1001,
@@ -199,5 +189,27 @@ describe('getAllContractSubmissions', () => {
     expect(calls[0]!.searchParams.get('offset')).toBe('0');
 
     expect(calls[1]!.searchParams.get('offset')).toBe('1000');
+  });
+});
+
+describe('open-data response handling', () => {
+  test('the api-key the API echoes in `request` never reaches the returned records', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          total: 1,
+          // The real API repeats the caller's parameters, key included, in every body.
+          request: { 'api-key': env.EGP_API_KEY, year: 2569, project_id: 'project-123' },
+          data: [{ seq_no: 1, seq_no_desc: 'Item 1', bidder: [] }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch;
+
+    const records = await getAllContractSubmissions('project-123', 2569, env);
+
+    expect(records).toHaveLength(1);
+    expect(JSON.stringify(records)).not.toContain(env.EGP_API_KEY);
+    expect(JSON.stringify(records)).not.toContain('api-key');
   });
 });

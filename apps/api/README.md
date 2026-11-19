@@ -146,8 +146,11 @@ publication metadata means published.
 
 ## Contract snapshots
 
-Each ingestion run syncs GovSpending contract snapshots for fiscal years
-2566–2570, then fetches bid submissions for projects with awarded contracts.
+Each ingestion run syncs GovSpending contract snapshots for the current fiscal
+year and the four before it (2566–2570 as of November 2026), then fetches bid
+submissions for projects with awarded contracts. Each stored bid keeps its
+line item, and its price is parsed from the API's numeric string (an unreadable
+one is stored empty and counted in a warning).
 Pagination and retries share one per-run quota budget. A 24-hour cooldown is
 stored in MongoDB after a refusal or exhausted quota, so later runs and restarted
 API instances do not call either GovSpending endpoint until it expires.

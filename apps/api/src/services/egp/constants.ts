@@ -7,9 +7,10 @@
  */
 
 /**
- * Open-data API. Not a Discovery source any more (ADR-0018): it holds only
- * projects that already have a signed contract. Kept for the winner lookup to
- * come and the diagnostics check. The `/service/<name>` form is the working one.
+ * Open-data API. Not a Discovery source (ADR-0018): it holds only projects that
+ * already have a signed contract. Read for past awards, bidders and prices
+ * (ADR-0022) and by the diagnostics check. The `/service/<name>` form is the
+ * working one. Responses echo the caller's api-key in `request`: never log one.
  */
 export const OPEN_DATA_BASE = 'https://opend.data.go.th/govspending/service';
 export const DEPT_URL = `${OPEN_DATA_BASE}/egp-dept`;

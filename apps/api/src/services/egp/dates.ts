@@ -97,3 +97,19 @@ export function convertTimelineDate(value: string | null | undefined): string | 
   if (Number.isNaN(instant)) return null;
   return `${new Date(instant + BANGKOK_OFFSET_MS).toISOString().slice(0, 10)}${MIDNIGHT_UTC}`;
 }
+
+/**
+ * The Thai government fiscal year an instant falls in, named by the Buddhist-era
+ * year in which it ends: it runs 1 October to 30 September, so 2026-10-01
+ * Bangkok time is the first day of FY2570. The day is read in Bangkok time, not UTC.
+ */
+export function currentFiscalYear(now: Date): number {
+  const bangkok = new Date(now.getTime() + BANGKOK_OFFSET_MS);
+  return bangkok.getUTCFullYear() + BUDDHIST_ERA_OFFSET + (bangkok.getUTCMonth() >= 9 ? 1 : 0);
+}
+
+/** The contract fiscal years to read: the current one and the four before it, oldest first. */
+export function contractSyncYears(now: Date): number[] {
+  const current = currentFiscalYear(now);
+  return Array.from({ length: 5 }, (_, index) => current - 4 + index);
+}

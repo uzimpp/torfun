@@ -20,6 +20,8 @@ export interface EGPContractRecord {
   dept_sub_name?: string;
   project_money?: number;
   price_build?: number;
+  /** The API's own aggregate of the agreed prices; used as published (ADR-0022). */
+  sum_price_agree?: number;
   purchase_method_name?: string;
   year?: number;
   contract: {
@@ -33,12 +35,17 @@ export interface EGPContractRecord {
   }[];
 }
 
+/**
+ * One line item of a project and the bidders on it (Phase 0, ADR-0022). `seq_no`
+ * and `seq_no_desc` are on the record, not on each bidder, and `submit_price`
+ * arrives as a numeric string such as "3000000.00".
+ */
 export interface EGPContractSubmitRecord {
+  seq_no?: number | null;
+  seq_no_desc?: string | null;
   bidder: {
-    merchant_name?: string;
-    seq_no: number;
-    seq_no_desc?: string;
-    submit_price: number;
+    merchant_name?: string | null;
+    submit_price?: string | number | null;
   }[];
 }
 

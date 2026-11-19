@@ -19,6 +19,12 @@ export function redactUrl(url: string): string {
   return url.replace(/([?&](?:api[-_]?key|apikey|token|key|secret)=)[^&\s]*/gi, '$1[redacted]');
 }
 
+/** `redactUrl`, plus the key itself wherever it appears, in a URL or not. */
+export function redactSecret(text: string, secret: string): string {
+  const withoutUrlKeys = redactUrl(text);
+  return secret ? withoutUrlKeys.split(secret).join('[redacted]') : withoutUrlKeys;
+}
+
 /** The day's allowance as an open-data response reports it; null where it did not say. */
 export interface QuotaReading {
   limitDay: number | null;
@@ -256,6 +262,27 @@ export async function openDataGet<T>(
   params: Record<string, string | number>,
   apiKey: string,
   retry: OpenDataRetryOptions = {},
+): Promise<{ rows: T[]; total: number | null; quota: QuotaReading }> {
+  try {
+    return await requestOpenData<T>(endpoint, params, apiKey, retry);
+  } catch (error) {
+    // Every message here is copied into Mongo, the logs and the admin page. Some of
+    // it is not ours (the API's own `message`, a transport error's text), so the key
+    // is removed from whatever any failure says, whichever way it got in. The error
+    // is changed in place so its class, which callers branch on, is kept.
+    if (error instanceof Error) {
+      error.message = redactSecret(error.message, apiKey);
+      if (error.stack) error.stack = redactSecret(error.stack, apiKey);
+    }
+    throw error;
+  }
+}
+
+async function requestOpenData<T>(
+  endpoint: string,
+  params: Record<string, string | number>,
+  apiKey: string,
+  retry: OpenDataRetryOptions,
 ): Promise<{ rows: T[]; total: number | null; quota: QuotaReading }> {
   const url = buildUrl(endpoint, { ...params, 'api-key': apiKey });
   const response = await fetchWithRetry(url, {}, POLITENESS.openDataTimeoutMs, {

@@ -6,6 +6,7 @@ import {
   OpenDataQuotaExhaustedError,
   openDataGet,
   RateLimitedError,
+  redactSecret,
   SiteUnavailableError,
   UnreachableError,
   UpstreamError,
@@ -89,6 +90,60 @@ describe('what an error says about the request that caused it', () => {
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect((error as Error).message).not.toContain(SECRET);
+  });
+
+  test('the API\'s own failure message cannot carry the key out, and the error keeps its class', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ success: false, message: `invalid key ${SECRET} for project` }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch;
+
+    const error = await openDataGet('https://opend.test/egp-dept', {}, SECRET).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(UpstreamError);
+    expect((error as Error).message).toContain('invalid key');
+    expect((error as Error).message).not.toContain(SECRET);
+    expect((error as Error).stack ?? '').not.toContain(SECRET);
+  });
+
+  test('a transport error that repeats the key, in a URL or not, is redacted', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error(
+        `connect failed https://opend.test/egp-dept?api-key=${SECRET} {"api-key":"${SECRET}"}`,
+      );
+    }) as unknown as typeof fetch;
+
+    const error = await openDataGet('https://opend.test/egp-dept', {}, SECRET).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(UnreachableError);
+    expect((error as Error).message).toContain('connect failed');
+    expect((error as Error).message).not.toContain(SECRET);
+    expect((error as Error).stack ?? '').not.toContain(SECRET);
+  });
+
+  test('a response body that is not JSON never puts its text in the error', async () => {
+    globalThis.fetch = (async () =>
+      new Response(`<html>key ${SECRET}</html>`, { status: 200 })) as unknown as typeof fetch;
+
+    const error = await openDataGet('https://opend.test/egp-dept', {}, SECRET).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(UpstreamError);
+    expect((error as Error).message).not.toContain(SECRET);
+  });
+});
+
+describe('redactSecret', () => {
+  test('removes the key everywhere, and tolerates an empty key', () => {
+    expect(redactSecret('a K b K', 'K')).toBe('a [redacted] b [redacted]');
+    expect(redactSecret('x?api-key=abc&y=1', 'zzz')).toBe('x?api-key=[redacted]&y=1');
+    expect(redactSecret('plain', '')).toBe('plain');
   });
 });
 

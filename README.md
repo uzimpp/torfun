@@ -15,8 +15,8 @@ Next.js web app, sharing one package of zod schemas.
 - **Docker** — for the local MongoDB Atlas container
 - **A Google Cloud project** with Vertex AI enabled, plus `gcloud` for local credentials
 - **An e-GP open-data API key** — register at <https://opend.data.go.th/register_api/>.
-  Discovery no longer reads open data; the key is still required by the config and
-  the dependency health check, and is kept for a future winner lookup.
+  Discovery does not read open data. The key is used to read signed contracts and
+  bid submissions (ADR-0022; 1000 calls/day) and by the dependency health check.
 - **A Google OAuth 2.0 web client** — for user sign-in
 
 ## Running it locally
