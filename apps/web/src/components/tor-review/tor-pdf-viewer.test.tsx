@@ -7,12 +7,14 @@ vi.mock('react-pdf', () => ({
   Document: ({
     children,
     onLoadSuccess,
+    externalLinkTarget,
   }: {
     children: ReactNode;
     onLoadSuccess: (document: { numPages: number }) => void;
+    externalLinkTarget?: string;
   }) => {
     useEffect(() => onLoadSuccess({ numPages: 25 }), [onLoadSuccess]);
-    return <div>{children}</div>;
+    return <div data-external-link-target={externalLinkTarget}>{children}</div>;
   },
   Page: ({ pageNumber }: { pageNumber: number }) => <div data-testid="pdf-page">{pageNumber}</div>,
   pdfjs: { GlobalWorkerOptions: { workerSrc: '' } },
@@ -148,4 +150,13 @@ test('updates the current page when scrolling through the document', async () =>
   act(() => pages.dispatchEvent(new Event('scroll', { bubbles: true })));
 
   expect(screen.getByText('2 / 25')).toBeInTheDocument();
+});
+
+test('opens links inside an agency PDF in a new tab, never over the signed-in app', () => {
+  const { container } = render(<TorPdfViewer data={new ArrayBuffer(0)} />);
+
+  expect(container.querySelector('[data-external-link-target]')).toHaveAttribute(
+    'data-external-link-target',
+    '_blank',
+  );
 });

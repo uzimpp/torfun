@@ -50,12 +50,23 @@ describe('contentSecurityPolicy', () => {
     const policy = contentSecurityPolicy('http://localhost:8080');
 
     expect(directive(policy, 'default-src')).toBe("default-src 'self'");
-    expect(directive(policy, 'frame-src')).toBe("frame-src 'self' blob:");
-    expect(directive(policy, 'object-src')).toBe('object-src blob:');
     expect(directive(policy, 'frame-ancestors')).toBe("frame-ancestors 'none'");
-    expect(directive(policy, 'base-uri')).toBe("base-uri 'self'");
     expect(directive(policy, 'form-action')).toBe("form-action 'self'");
     expect(directive(policy, 'upgrade-insecure-requests')).toBe('upgrade-insecure-requests');
+  });
+
+  /**
+   * ASVS V3.4.3 minimum (`object-src 'none'`, `base-uri 'none'`) and V3.2.1: no
+   * document can be embedded or rebased. The PDF preview is canvas-drawn by
+   * pdf.js, so it needs neither a frame nor an object — and a blob: source here
+   * would let a crafted blob render as a document in this origin.
+   */
+  it('forbids embedded documents, plugins and a <base> element', () => {
+    const policy = contentSecurityPolicy('http://localhost:8080');
+
+    expect(directive(policy, 'object-src')).toBe("object-src 'none'");
+    expect(directive(policy, 'frame-src')).toBe("frame-src 'none'");
+    expect(directive(policy, 'base-uri')).toBe("base-uri 'none'");
   });
 
   /** One line, no stray whitespace — this goes out as a header value. */

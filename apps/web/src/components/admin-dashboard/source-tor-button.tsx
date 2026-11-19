@@ -5,6 +5,7 @@ import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { downloadTor } from '@/lib/api';
 import { messageFor } from '@/lib/api-errors';
+import { saveBlob, torFilename } from '@/lib/tor-file';
 
 /**
  * The original TOR PDF, fetched with the session (the API is another origin, so
@@ -18,12 +19,7 @@ export function SourceTorButton({ projectId }: { projectId: string }) {
     setPending(true);
     setError(null);
     try {
-      const url = URL.createObjectURL(await downloadTor(projectId));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `tor-${projectId}.pdf`;
-      link.click();
-      URL.revokeObjectURL(url);
+      saveBlob(await downloadTor(projectId), torFilename(projectId));
     } catch (caught) {
       setError(messageFor(caught, 'ดาวน์โหลด TOR ต้นฉบับไม่สำเร็จ'));
     } finally {
