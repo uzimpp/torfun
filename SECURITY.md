@@ -20,7 +20,7 @@ All values live in code; this table is what to change together if one moves.
 | Control                | Value                                                                                                                                                                     | Where                                                           |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | Password storage       | bcrypt, 12 rounds; never trimmed or truncated; an unknown username is checked against a decoy hash so timing does not reveal accounts                                     | `services/auth.service.ts`                                      |
-| Password policy        | 8-128 chars, no composition rules; common list, product words, username, known-breach lookup                                                                              | `services/password-policy.ts`, `services/breached-passwords.ts` |
+| Password policy        | 8 chars to 72 UTF-8 bytes (bcrypt's input limit), no composition rules; common list (3,547), product words, username, known-breach lookup                                 | `services/password-policy.ts`, `services/breached-passwords.ts` |
 | Breach lookup          | HIBP range API, k-anonymity (5-char SHA-1 prefix only), 2 s timeout, **fails open** with a warning log                                                                    | `BREACHED_PASSWORD_CHECK`                                       |
 | Login throttle         | 30 attempts / 15 min per IP; 10 / 15 min per account name (case-insensitive); 429 + `Retry-After`                                                                         | `plugins/security.ts`, `hooks/throttle-credentials.ts`          |
 | Global API limit       | 100 requests / min per IP                                                                                                                                                 | `plugins/security.ts`                                           |
@@ -49,12 +49,14 @@ All values live in code; this table is what to change together if one moves.
 - Session lookup is one indexed query per authenticated request. Apply
   `docs/migrations/2026-11-refresh-token-session-indexes.js` before deploying.
 - Web CSP: `script-src` still allows `'unsafe-inline'` (a nonce CSP would force fully dynamic rendering) and
-  `object-src blob:` is open for the in-browser TOR PDF viewer. React text rendering and no `dangerouslySetInnerHTML`
-  carry the XSS defense; the gap is pinned by `apps/web/src/lib/security-headers.test.ts` (#193).
+  `object-src blob:` is open for the in-browser TOR PDF viewer. React text rendering carries the XSS defense. The one
+  `dangerouslySetInnerHTML` (`apps/web/src/components/ui/chart.tsx`, the shadcn chart component) writes a `<style>`
+  block from chart colour config fixed in code, never from user or API data. The gap is pinned by
+  `apps/web/src/lib/security-headers.test.ts` (#193).
 - Anyone can still create a Company named like a real one and manage it. A real employee who joins that look-alike by
   mistake shares only their own data with it; verifying Companies against the DBD register is future work.
-- Automatic approval trusts the email Google sign-in supplies, which requires `email_verified` (#197). Merge #197
-  before this change. Run `docs/migrations/2026-11-company-managers.js` before deploying, or existing Companies have
+- Automatic approval trusts the email Google sign-in supplies, which requires `email_verified` (#197). #197 is merged
+  into this branch; merge #197 first. Run `docs/migrations/2026-11-company-managers.js` before deploying, or existing Companies have
   no manager to approve requests.
 - File-size, archive-entry and SSRF guards for ingestion are not yet implemented (#155, #151).
 
