@@ -146,6 +146,9 @@ test('a Company Manager sees who is asking to join and can approve them', async 
   render(<CompanyPage />);
 
   expect(await screen.findByText(/bob@true\.co\.th/)).toBeInTheDocument();
+  // The verified email is labelled as such, apart from the free-text username.
+  expect(screen.getByText(/อีเมลที่ยืนยันแล้ว \(Google\)/)).toBeInTheDocument();
+  expect(screen.getByText('ชื่อผู้ใช้: bob')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'อนุมัติ bob' }));
   await waitFor(() => expect(mocked.answerJoinRequest).toHaveBeenCalledWith('u2', 'approve'));
 });
