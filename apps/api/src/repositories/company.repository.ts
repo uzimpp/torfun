@@ -111,6 +111,12 @@ export interface CompanyStore {
   update(id: string, patch: CompanyPatch): Promise<Company | null>;
   /** Adds or drops one manager id; a no-op if it is already so. */
   setManager(id: string, userId: string, isManager: boolean): Promise<Company | null>;
+  /**
+   * Drops one manager id and says whether it did. With `keepOne`, only while
+   * another id remains, decided in the same write: two managers stepping down
+   * at once cannot both succeed and leave the Company with none.
+   */
+  removeManager(id: string, userId: string, options: { keepOne: boolean }): Promise<boolean>;
 }
 
 export class CompanyRepository implements CompanyStore {
@@ -222,5 +228,25 @@ export class CompanyRepository implements CompanyStore {
       { returnDocument: 'after' },
     );
     return document ? toDomain(document) : null;
+  }
+
+  async removeManager(
+    id: string,
+    userId: string,
+    { keepOne }: { keepOne: boolean },
+  ): Promise<boolean> {
+    if (!ObjectId.isValid(id)) return false;
+    const result = await (
+      await this.collection()
+    ).updateOne(
+      {
+        _id: new ObjectId(id),
+        manager_ids: userId,
+        // A second element exists: someone else is still a manager after the pull.
+        ...(keepOne ? { 'manager_ids.1': { $exists: true } } : {}),
+      },
+      { $pull: { manager_ids: userId }, $set: { updated_at: new Date() } },
+    );
+    return result.modifiedCount === 1;
   }
 }

@@ -238,7 +238,10 @@ export async function buildApp(
       : noBreachCheck,
   );
   app.decorate('authService', authService);
-  app.decorate('adminUsersService', new AdminUsersService(userRepository, authService));
+  app.decorate(
+    'adminUsersService',
+    new AdminUsersService(userRepository, authService, companyRepository),
+  );
   const companyQualificationsService = new CompanyQualificationsService(
     companyRepository,
     experienceRepository,

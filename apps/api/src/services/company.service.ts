@@ -52,11 +52,17 @@ export class CompanyService {
   /** Creates a Company, joins the caller to it and makes them its manager. */
   async createAndJoin(userId: string, input: CompanyInput): Promise<Company> {
     const user = await this.refuseAdmin(userId);
-    // A manager may not walk away from colleagues who still need one.
-    await this.membership.assertCanLeave(user);
-    const company = await this.companies.create({ ...input, managerIds: [userId] });
-    await this.users.setCompanyId(userId, company.id);
-    return company;
+    // A manager may not walk away from colleagues who still need one, and
+    // keeps no say over the Company they leave.
+    const restore = await this.membership.stepDownToLeave(user);
+    try {
+      const company = await this.companies.create({ ...input, managerIds: [userId] });
+      await this.users.setCompanyId(userId, company.id);
+      return company;
+    } catch (error) {
+      await restore();
+      throw error;
+    }
   }
 
   /** The caller's own Company. A caller with none has nothing to show. */

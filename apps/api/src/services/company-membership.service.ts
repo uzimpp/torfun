@@ -23,7 +23,11 @@ import type { UserStore } from '../repositories/user.repository';
  *   keys on `companyId`, which only an approval (or creating a Company) sets.
  * - A Company keeps at least one manager while it has members, so nobody is
  *   left with requests no one can answer. If that happens anyway (a Company
- *   from before managers existed), a Site Administrator assigns one.
+ *   from before managers existed), a Site Administrator assigns one. Stepping
+ *   down is a conditional write in the store, so two managers doing it at
+ *   once cannot both succeed.
+ * - Whoever leaves a Company, by any route, leaves its `managerIds` too, so
+ *   rejoining later never brings the old rights back.
  *
  * Free of Fastify types, like every service.
  */
@@ -66,8 +70,11 @@ export class CompanyMembershipService {
 
     await this.assertCanLeave(user);
 
+    // `email` is set only by a Google sign-in that passed `email_verified`, so
+    // an unverified or typed address never reaches this comparison.
     const domain = emailDomainOf(user.email);
     if (company.autoApproveDomain !== null && domain === company.autoApproveDomain) {
+      await this.stepDownToLeave(user);
       await this.users.setCompanyId(user.id, company.id);
       return { outcome: 'joined', company };
     }
@@ -107,10 +114,11 @@ export class CompanyMembershipService {
   ): Promise<{ company: Company; applicant: User }> {
     const { company } = await this.manager(managerId);
     const applicant = await this.applicant(company, applicantId);
-    await this.assertCanLeave(applicant);
+    const restore = await this.stepDownToLeave(applicant);
     // Conditional on the request still being on file, so a request withdrawn
     // or replaced a moment ago cannot be approved into the wrong Company.
     if (!(await this.users.acceptJoinRequest(applicant.id, company.id))) {
+      await restore();
       throw new NotFoundError('No such join request');
     }
     return { company, applicant };
@@ -151,8 +159,9 @@ export class CompanyMembershipService {
   ): Promise<{ company: Company; member: User }> {
     const { company } = await this.manager(managerId);
     const member = await this.member(company, memberId);
-    if (!isManager) await this.assertNotLastManager(company, member);
-    const updated = await this.companies.setManager(company.id, member.id, isManager);
+    if (isManager) await this.companies.setManager(company.id, member.id, true);
+    else await this.demote(company.id, member.id);
+    const updated = await this.companies.findById(company.id);
     if (!updated) throw new NotFoundError('No company for this account');
     return { company: updated, member };
   }
@@ -164,9 +173,8 @@ export class CompanyMembershipService {
   ): Promise<{ company: Company; member: User }> {
     const { company } = await this.manager(managerId);
     const member = await this.member(company, memberId);
-    await this.assertNotLastManager(company, member);
+    await this.demote(company.id, member.id);
     await this.users.setCompanyId(member.id, null);
-    await this.companies.setManager(company.id, member.id, false);
     return { company, member };
   }
 
@@ -186,7 +194,8 @@ export class CompanyMembershipService {
   /**
    * Refuses a move that would strand the caller's current Company: its last
    * manager may not leave while others remain, or their requests could never
-   * be answered. Also used when a manager creates a second Company.
+   * be answered. An early answer for filing a request; the move itself is
+   * guarded again, atomically, by `stepDownToLeave`.
    */
   async assertCanLeave(user: User): Promise<void> {
     if (!user.companyId) return;
@@ -201,12 +210,42 @@ export class CompanyMembershipService {
     }
   }
 
-  private async assertNotLastManager(company: Company, member: User): Promise<void> {
-    if (!isManagerOf(member, company)) return;
-    const managers = (await this.users.listByCompany(company.id)).filter((user) =>
-      isManagerOf(user, company),
+  /**
+   * Takes `user` off the managers of the Company they are about to leave, just
+   * before the move (creating a Company, an approved or automatic join). The
+   * pull is conditional on another manager remaining; when this is the last
+   * one, they may go only if nobody is left behind. Returns an undo for a move
+   * that then fails.
+   */
+  async stepDownToLeave(user: User): Promise<() => Promise<void>> {
+    const nothing = async () => {};
+    if (!user.companyId) return nothing;
+    const current = await this.companies.findById(user.companyId);
+    if (!current?.managerIds.includes(user.id)) return nothing;
+
+    const restore = async () => {
+      await this.companies.setManager(current.id, user.id, true);
+    };
+    if (await this.companies.removeManager(current.id, user.id, { keepOne: true })) return restore;
+
+    const others = (await this.users.listByCompany(current.id)).filter(
+      (member) => member.id !== user.id,
     );
-    if (managers.length <= 1) {
+    if (others.length > 0) {
+      throw new ConflictError('Make another member a manager before you leave this company');
+    }
+    await this.companies.removeManager(current.id, user.id, { keepOne: false });
+    return restore;
+  }
+
+  /**
+   * Steps a member down, refusing if they are the last manager. Decided by the
+   * store's conditional write, not by a count read beforehand, so concurrent
+   * demotions leave at least one manager.
+   */
+  private async demote(companyId: string, userId: string): Promise<void> {
+    if (await this.companies.removeManager(companyId, userId, { keepOne: true })) return;
+    if ((await this.companies.findById(companyId))?.managerIds.includes(userId)) {
       throw new ConflictError('A company needs at least one manager');
     }
   }
