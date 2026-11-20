@@ -14,6 +14,7 @@ import type { NewUser, UserStore } from '../repositories/user.repository';
 export class InMemoryUserStore implements UserStore {
   private readonly users = new Map<string, User>();
   private readonly passwordHashes = new Map<string, string>();
+  private readonly googleIds = new Map<string, string>();
 
   /**
    * Seeds an account directly, the way a previous session would have left one.
@@ -45,8 +46,16 @@ export class InMemoryUserStore implements UserStore {
     return [...this.users.values()].find((user) => user.username === username) ?? null;
   }
 
-  async findByGoogleId(): Promise<User | null> {
+  async findByGoogleId(googleId: string): Promise<User | null> {
+    for (const [id, linked] of this.googleIds) {
+      if (linked === googleId) return this.users.get(id) ?? null;
+    }
     return null;
+  }
+
+  /** Test hook: the Google subject an account is linked to, if any. */
+  googleIdOf(id: string): string | undefined {
+    return this.googleIds.get(id);
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -86,10 +95,15 @@ export class InMemoryUserStore implements UserStore {
       ...(input.email ? { email: input.email } : {}),
     });
     if (input.passwordHash) this.passwordHashes.set(user.id, input.passwordHash);
+    if (input.googleId) this.googleIds.set(user.id, input.googleId);
     return user;
   }
 
-  async linkGoogleId(): Promise<void> {}
+  async linkGoogleId(id: string, googleId: string): Promise<boolean> {
+    if (!this.users.has(id) || this.googleIds.has(id)) return false;
+    this.googleIds.set(id, googleId);
+    return true;
+  }
 
   async setCompanyId(id: string, companyId: string | null): Promise<void> {
     const user = this.users.get(id);

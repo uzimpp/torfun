@@ -87,7 +87,12 @@ describe('AuthService session rotation', () => {
   let signed: TokenPayload[];
   let service: AuthService;
 
-  const signIn = () => service.loginWithGoogle({ sub: 'google-1', email: 'somchai@example.com' });
+  const signIn = () =>
+    service.loginWithGoogle({
+      sub: 'google-1',
+      email: 'somchai@example.com',
+      email_verified: true,
+    });
 
   beforeEach(() => {
     user = makeUser();
