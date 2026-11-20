@@ -60,7 +60,8 @@ function toDomain(document: RefreshTokenDocument): StoredRefreshToken {
 export interface RefreshTokenStore {
   create(input: NewRefreshToken): Promise<void>;
   findByHash(tokenHash: string): Promise<StoredRefreshToken | null>;
-  revoke(id: string): Promise<void>;
+  /** Revokes one token if it is still live; true only for the call that revoked it. */
+  revoke(id: string): Promise<boolean>;
   revokeFamily(familyId: string): Promise<void>;
   /** True while the chain still has a live (unrevoked, unexpired) token: the session exists. */
   isFamilyActive(familyId: string): Promise<boolean>;
@@ -94,13 +95,14 @@ export class RefreshTokenRepository implements RefreshTokenStore {
   }
 
   /** Retires one token once it has been exchanged for its successor. */
-  async revoke(id: string): Promise<void> {
-    await (
+  async revoke(id: string): Promise<boolean> {
+    const result = await (
       await this.collection()
     ).updateOne(
       { _id: new ObjectId(id), revoked_at: { $exists: false } },
       { $set: { revoked_at: new Date() } },
     );
+    return result.modifiedCount === 1;
   }
 
   /** Retires a whole chain: used by logout, and when a reuse is detected. */
