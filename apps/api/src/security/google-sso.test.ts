@@ -16,15 +16,18 @@ describe('Google sign-in: which account a Google identity may reach', () => {
   function setup() {
     const users = new InMemoryUserStore();
     const linked: Array<[string, string]> = [];
-    // The in-memory store's linkGoogleId is a no-op; record what would be linked.
+    // Record every link the service makes, then let the store apply it.
+    const link = users.linkGoogleId.bind(users);
     Object.assign(users, {
       linkGoogleId: async (id: string, sub: string) => {
-        linked.push([id, sub]);
+        const changed = await link(id, sub);
+        if (changed) linked.push([id, sub]);
+        return changed;
       },
     });
     const service = new AuthService(users, new InMemoryRefreshTokenStore(), () => 'token');
     const victim = users.seed({ username: 'victim', email: 'victim@example.com' });
-    return { service, victim, linked };
+    return { service, users, victim, linked };
   }
 
   test('an unverified Google email is refused and never linked to an existing account', async () => {
@@ -56,6 +59,40 @@ describe('Google sign-in: which account a Google identity may reach', () => {
     });
     expect(session.user.id).toBe(victim.id);
     expect(linked).toEqual([[victim.id, 'real-sub']]);
+  });
+
+  test('an account with no Google identity yet is linked by a verified email', async () => {
+    const { service, users, victim } = setup();
+    await service.loginWithGoogle({
+      sub: 'first-sub',
+      email: 'victim@example.com',
+      email_verified: true,
+    });
+    expect(users.googleIdOf(victim.id)).toBe('first-sub');
+
+    // The same Google identity signs straight back in by its subject id.
+    const again = await service.loginWithGoogle({
+      sub: 'first-sub',
+      email: 'victim@example.com',
+      email_verified: true,
+    });
+    expect(again.user.id).toBe(victim.id);
+  });
+
+  test('an account already linked to another Google identity is not taken over by email', async () => {
+    const { service, users, victim, linked } = setup();
+    await users.linkGoogleId(victim.id, 'original-sub');
+
+    // The address now belongs to a different Google account (say, re-issued).
+    await expect(
+      service.loginWithGoogle({
+        sub: 'new-owner-sub',
+        email: 'victim@example.com',
+        email_verified: true,
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedError);
+    expect(users.googleIdOf(victim.id)).toBe('original-sub');
+    expect(linked).toEqual([[victim.id, 'original-sub']]);
   });
 
   test('a new Google user is created as a BD officer, never an admin', async () => {
