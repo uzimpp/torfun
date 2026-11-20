@@ -100,4 +100,20 @@ export class InMemoryCompanyStore implements CompanyStore {
     this.companies.set(id, updated);
     return updated;
   }
+
+  async removeManager(
+    id: string,
+    userId: string,
+    { keepOne }: { keepOne: boolean },
+  ): Promise<boolean> {
+    const existing = this.companies.get(id);
+    if (!existing?.managerIds.includes(userId)) return false;
+    if (keepOne && existing.managerIds.length < 2) return false;
+    this.companies.set(id, {
+      ...existing,
+      managerIds: existing.managerIds.filter((managerId) => managerId !== userId),
+      updatedAt: new Date(),
+    });
+    return true;
+  }
 }
