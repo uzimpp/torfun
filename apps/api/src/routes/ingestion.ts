@@ -10,6 +10,7 @@ import {
 } from '@torfun/types';
 import { requireAdmin } from '../hooks/require-admin';
 import { audienceOf } from '../services/audience';
+import { expensiveRouteLimit } from '../plugins/security';
 
 /**
  * Admin-facing API over the e-GP ingestion pipeline.
@@ -95,6 +96,7 @@ export const ingestionRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/ingestion/run',
     {
+      config: { rateLimit: expensiveRouteLimit.ingestionRun },
       schema: {
         body: z.object({}).default({}),
         response: {

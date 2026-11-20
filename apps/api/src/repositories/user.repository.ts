@@ -27,6 +27,8 @@ interface UserDocument {
    * Replaces the free-text `company_name`; see the 2026-09-10 migration.
    */
   company_id?: string | null;
+  /** A request to join a Company, waiting for one of its managers. */
+  join_request?: { company_id: string; requested_at: Date } | null;
   role: UserRole;
   is_active?: boolean;
   google_id?: string;
@@ -59,6 +61,12 @@ function toDomain(document: UserDocument): User {
     firstName: document.first_name ?? '',
     lastName: document.last_name ?? '',
     companyId: document.company_id ?? null,
+    joinRequest: document.join_request
+      ? {
+          companyId: document.join_request.company_id,
+          requestedAt: document.join_request.requested_at,
+        }
+      : null,
     role: document.role,
     email: document.email,
     isActive: document.is_active ?? true,
@@ -85,8 +93,24 @@ export interface UserStore {
   updateProfile(id: string, profile: Pick<User, 'firstName' | 'lastName'>): Promise<boolean>;
   replacePassword(id: string, currentHash: string, newHash: string): Promise<boolean>;
   create(input: NewUser): Promise<User>;
-  linkGoogleId(id: string, googleId: string): Promise<void>;
+  /**
+   * Links a Google subject to an account that has none yet. False when the
+   * account already has a Google identity (or is gone), and nothing changes.
+   */
+  linkGoogleId(id: string, googleId: string): Promise<boolean>;
+  /** Repoints an account; any pending join request ends with it. */
   setCompanyId(id: string, companyId: string | null): Promise<void>;
+  setJoinRequest(id: string, companyId: string | null): Promise<void>;
+  /**
+   * Moves an active account into the Company it asked to join, only if that
+   * request is still the one on file. False when it was withdrawn, replaced or
+   * the account was deactivated in the meantime.
+   */
+  acceptJoinRequest(id: string, companyId: string): Promise<boolean>;
+  /** Active accounts in a Company, oldest first. */
+  listByCompany(companyId: string): Promise<User[]>;
+  /** Active accounts waiting to join a Company, oldest request first. */
+  listJoinRequests(companyId: string): Promise<User[]>;
   /** Every account, newest first — the account-management screen's one read. */
   list(): Promise<User[]>;
   /** How many `admin` accounts are still active, for the last-admin guard. */
@@ -181,13 +205,16 @@ export class UserRepository implements UserStore {
     return toDomain({ ...document, _id: result.insertedId } as UserDocument);
   }
 
-  async linkGoogleId(id: string, googleId: string): Promise<void> {
-    await (
+  async linkGoogleId(id: string, googleId: string): Promise<boolean> {
+    // Conditional in the filter, so an account linked to one Google identity is
+    // never repointed at another, even by two sign-ins racing.
+    const result = await (
       await this.collection()
     ).updateOne(
-      { _id: new ObjectId(id) },
+      { _id: new ObjectId(id), google_id: { $exists: false } },
       { $set: { google_id: googleId, updated_at: new Date() } },
     );
+    return result.modifiedCount === 1;
   }
 
   /**
@@ -202,8 +229,48 @@ export class UserRepository implements UserStore {
       await this.collection()
     ).updateOne(
       { _id: new ObjectId(id) },
-      { $set: { company_id: companyId, updated_at: new Date() } },
+      { $set: { company_id: companyId, updated_at: new Date() }, $unset: { join_request: '' } },
     );
+  }
+
+  async setJoinRequest(id: string, companyId: string | null): Promise<void> {
+    if (!ObjectId.isValid(id)) return;
+    const change = companyId
+      ? { $set: { join_request: { company_id: companyId, requested_at: new Date() } } }
+      : { $unset: { join_request: '' as const } };
+    await (await this.collection()).updateOne({ _id: new ObjectId(id) }, change);
+  }
+
+  async acceptJoinRequest(id: string, companyId: string): Promise<boolean> {
+    if (!ObjectId.isValid(id)) return false;
+    const result = await (
+      await this.collection()
+    ).updateOne(
+      { _id: new ObjectId(id), is_active: { $ne: false }, 'join_request.company_id': companyId },
+      { $set: { company_id: companyId, updated_at: new Date() }, $unset: { join_request: '' } },
+    );
+    return result.matchedCount === 1;
+  }
+
+  async listByCompany(companyId: string): Promise<User[]> {
+    const documents = await (
+      await this.collection()
+    )
+      .find({ company_id: companyId, is_active: { $ne: false } })
+      // `_id` breaks ties between accounts created in the same millisecond.
+      .sort({ created_at: 1, _id: 1 })
+      .toArray();
+    return documents.map(toDomain);
+  }
+
+  async listJoinRequests(companyId: string): Promise<User[]> {
+    const documents = await (
+      await this.collection()
+    )
+      .find({ 'join_request.company_id': companyId, is_active: { $ne: false } })
+      .sort({ 'join_request.requested_at': 1 })
+      .toArray();
+    return documents.map(toDomain);
   }
 
   async list(): Promise<User[]> {

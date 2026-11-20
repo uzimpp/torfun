@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { FLOW_ACTION, FLOW_FIELD, FLOW_FIELD_GROUP } from '@/components/onboarding/controls';
 import { Label } from '@/components/ui/label';
-import type { CompanyInput, CompanyResponse } from '@/lib/api';
+import type { CompanyInput, MyCompanyResponse, PendingJoinRequest } from '@/lib/api';
 import { CompanyTypeahead } from './company-typeahead';
 
 /**
@@ -17,20 +17,26 @@ import { CompanyTypeahead } from './company-typeahead';
  *
  * An officer with no Company searches first, because joining the record a
  * colleague already made is the common case; creating one is what happens when
- * nothing matches.
+ * nothing matches. Joining is a request a Company Manager (ผู้ดูแลบริษัท)
+ * approves, so until then the block says who the officer is waiting on. Only a
+ * manager edits the name and TIN; everyone else reads them.
  */
 export function CompanyBlock({
   company,
+  pendingRequest,
   saving,
   onCreate,
   onJoin,
   onEdit,
+  onWithdraw,
 }: {
-  company: CompanyResponse | null;
+  company: MyCompanyResponse | null;
+  pendingRequest: PendingJoinRequest | null;
   saving: boolean;
   onCreate: (input: CompanyInput) => Promise<boolean>;
-  onJoin: (id: string) => Promise<boolean>;
+  onJoin: (id: string) => Promise<'joined' | 'pending' | null>;
   onEdit: (input: Partial<CompanyInput>) => Promise<boolean>;
+  onWithdraw: () => Promise<boolean>;
 }) {
   const nameId = useId();
   const tinId = useId();
@@ -68,6 +74,8 @@ export function CompanyBlock({
   }
 
   const showTypeahead = company === null || switching;
+  /** A member who is not a manager reads the record; the API refuses their edits anyway. */
+  const readOnly = company !== null && !company.is_manager;
 
   return (
     <Card>
@@ -81,16 +89,37 @@ export function CompanyBlock({
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
+        {pendingRequest ? (
+          <div
+            role="status"
+            className="bg-muted/50 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm"
+          >
+            <p>
+              ส่งคำขอเข้าร่วม <span className="font-medium">{pendingRequest.company.name_th}</span>{' '}
+              แล้ว รอผู้ดูแลบริษัทอนุมัติ
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={saving}
+              onClick={() => void onWithdraw()}
+            >
+              ยกเลิกคำขอ
+            </Button>
+          </div>
+        ) : null}
+
         {showTypeahead ? (
           <CompanyTypeahead
             disabled={saving}
             onJoin={async (found) => {
-              const joined = await onJoin(found.id);
-              if (joined) {
+              const outcome = await onJoin(found.id);
+              if (outcome === 'joined') {
                 setNameTh(found.name_th);
                 setTin(found.tin ?? '');
-                setSwitching(false);
               }
+              if (outcome !== null) setSwitching(false);
             }}
             onCreateNew={(name) => {
               setNameTh(name);
@@ -105,6 +134,7 @@ export function CompanyBlock({
             <Input
               id={nameId}
               className={FLOW_FIELD}
+              readOnly={readOnly}
               value={nameTh}
               maxLength={200}
               aria-invalid={nameError !== null}
@@ -133,6 +163,7 @@ export function CompanyBlock({
             <Input
               id={tinId}
               className={FLOW_FIELD}
+              readOnly={readOnly}
               value={tin}
               inputMode="numeric"
               maxLength={13}
@@ -151,10 +182,18 @@ export function CompanyBlock({
             ) : null}
           </div>
 
+          {readOnly ? (
+            <p className="text-muted-foreground text-xs">
+              ผู้ดูแลบริษัทเป็นผู้แก้ไขชื่อและเลขประจำตัวผู้เสียภาษี
+            </p>
+          ) : null}
+
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" disabled={saving} className={FLOW_ACTION}>
-              {company ? 'บันทึกการแก้ไข' : 'บันทึกบริษัท'}
-            </Button>
+            {readOnly ? null : (
+              <Button type="submit" disabled={saving} className={FLOW_ACTION}>
+                {company ? 'บันทึกการแก้ไข' : 'บันทึกบริษัท'}
+              </Button>
+            )}
             {company ? (
               <Button
                 type="button"

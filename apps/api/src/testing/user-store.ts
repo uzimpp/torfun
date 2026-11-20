@@ -14,6 +14,7 @@ import type { NewUser, UserStore } from '../repositories/user.repository';
 export class InMemoryUserStore implements UserStore {
   private readonly users = new Map<string, User>();
   private readonly passwordHashes = new Map<string, string>();
+  private readonly googleIds = new Map<string, string>();
 
   /**
    * Seeds an account directly, the way a previous session would have left one.
@@ -45,8 +46,16 @@ export class InMemoryUserStore implements UserStore {
     return [...this.users.values()].find((user) => user.username === username) ?? null;
   }
 
-  async findByGoogleId(): Promise<User | null> {
+  async findByGoogleId(googleId: string): Promise<User | null> {
+    for (const [id, linked] of this.googleIds) {
+      if (linked === googleId) return this.users.get(id) ?? null;
+    }
     return null;
+  }
+
+  /** Test hook: the Google subject an account is linked to, if any. */
+  googleIdOf(id: string): string | undefined {
+    return this.googleIds.get(id);
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -86,14 +95,47 @@ export class InMemoryUserStore implements UserStore {
       ...(input.email ? { email: input.email } : {}),
     });
     if (input.passwordHash) this.passwordHashes.set(user.id, input.passwordHash);
+    if (input.googleId) this.googleIds.set(user.id, input.googleId);
     return user;
   }
 
-  async linkGoogleId(): Promise<void> {}
+  async linkGoogleId(id: string, googleId: string): Promise<boolean> {
+    if (!this.users.has(id) || this.googleIds.has(id)) return false;
+    this.googleIds.set(id, googleId);
+    return true;
+  }
 
   async setCompanyId(id: string, companyId: string | null): Promise<void> {
     const user = this.users.get(id);
-    if (user) this.users.set(id, { ...user, companyId, updatedAt: new Date() });
+    if (user) this.users.set(id, { ...user, companyId, joinRequest: null, updatedAt: new Date() });
+  }
+
+  async setJoinRequest(id: string, companyId: string | null): Promise<void> {
+    const user = this.users.get(id);
+    if (!user) return;
+    const joinRequest = companyId ? { companyId, requestedAt: new Date() } : null;
+    this.users.set(id, { ...user, joinRequest });
+  }
+
+  async acceptJoinRequest(id: string, companyId: string): Promise<boolean> {
+    const user = this.users.get(id);
+    if (!user?.isActive || user.joinRequest?.companyId !== companyId) return false;
+    await this.setCompanyId(id, companyId);
+    return true;
+  }
+
+  /** Oldest first: seeding order stands in for `created_at`. */
+  async listByCompany(companyId: string): Promise<User[]> {
+    return [...this.users.values()].filter((user) => user.companyId === companyId && user.isActive);
+  }
+
+  async listJoinRequests(companyId: string): Promise<User[]> {
+    return [...this.users.values()]
+      .filter((user) => user.joinRequest?.companyId === companyId && user.isActive)
+      .sort(
+        (a, b) =>
+          (a.joinRequest?.requestedAt.getTime() ?? 0) - (b.joinRequest?.requestedAt.getTime() ?? 0),
+      );
   }
 
   /** Newest first, the way the Mongo-backed repository sorts by `created_at`. */

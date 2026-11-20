@@ -286,10 +286,46 @@ export async function saveCompanyQualifications(
   return fromCompanyQualificationsPayload(payload);
 }
 
+/** What anyone signed in may see of a Company: enough to pick it. */
 export interface CompanyResponse {
   id: string;
   name_th: string;
   tin: string | null;
+}
+
+/** The caller's own Company, with their standing in it. */
+export interface MyCompanyResponse extends CompanyResponse {
+  /** A Company Manager answers join requests and edits the record. */
+  is_manager: boolean;
+  /** Join requests from verified addresses here are approved automatically. */
+  auto_approve_domain: string | null;
+}
+
+/** `joined`: in at once. `pending`: a Company Manager has to approve it. */
+export type JoinCompanyResponse =
+  | { outcome: 'joined'; company: MyCompanyResponse }
+  | { outcome: 'pending'; company: CompanyResponse };
+
+export interface PendingJoinRequest {
+  company: CompanyResponse;
+  requested_at: string;
+}
+
+export interface CompanyMemberResponse {
+  id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  is_manager: boolean;
+}
+
+export interface JoinRequestResponse {
+  user_id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  requested_at: string;
 }
 
 export interface ClientResponse {
@@ -344,9 +380,9 @@ export function searchCompanies(q: string): Promise<{ companies: CompanyResponse
 }
 
 /** The caller's own company, or `null` when they have not joined one yet. */
-export async function fetchMyCompany(): Promise<CompanyResponse | null> {
+export async function fetchMyCompany(): Promise<MyCompanyResponse | null> {
   try {
-    return await request<CompanyResponse>('/api/companies/me');
+    return await request<MyCompanyResponse>('/api/companies/me');
   } catch (error) {
     // 404 is the documented answer for "no company", not a failure to report.
     if (error instanceof ApiError && error.status === 404) return null;
@@ -354,18 +390,73 @@ export async function fetchMyCompany(): Promise<CompanyResponse | null> {
   }
 }
 
-/** Creates a company and joins the caller to it in one step. */
-export function createCompany(input: CompanyInput): Promise<CompanyResponse> {
+/** Creates a company, joins the caller to it and makes them its manager. */
+export function createCompany(input: CompanyInput): Promise<MyCompanyResponse> {
   return request('/api/companies', { method: 'POST', body: JSON.stringify(input) });
 }
 
-export function updateMyCompany(input: Partial<CompanyInput>): Promise<CompanyResponse> {
+/** Managers only. */
+export function updateMyCompany(input: Partial<CompanyInput>): Promise<MyCompanyResponse> {
   return request('/api/companies/me', { method: 'PATCH', body: JSON.stringify(input) });
 }
 
-/** Repoints the caller at an existing company — membership is claimed, not granted. */
-export function joinCompany(id: string): Promise<CompanyResponse> {
+/**
+ * Asks to join an existing company. A Company Manager approves it, unless the
+ * company admits the caller's verified email domain automatically.
+ */
+export function joinCompany(id: string): Promise<JoinCompanyResponse> {
   return request(`/api/companies/${encodeURIComponent(id)}/join`, { method: 'POST' });
+}
+
+/** The caller's own unanswered join request, or `null` when there is none. */
+export async function fetchMyJoinRequest(): Promise<PendingJoinRequest | null> {
+  try {
+    return await request<PendingJoinRequest>('/api/companies/join-request');
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export function withdrawJoinRequest(): Promise<void> {
+  return requestNoContent('/api/companies/join-request', { method: 'DELETE' });
+}
+
+export function fetchCompanyMembers(): Promise<{ members: CompanyMemberResponse[] }> {
+  return request('/api/companies/me/members');
+}
+
+/** Managers only. */
+export function fetchJoinRequests(): Promise<{ requests: JoinRequestResponse[] }> {
+  return request('/api/companies/me/join-requests');
+}
+
+export function answerJoinRequest(userId: string, answer: 'approve' | 'reject'): Promise<void> {
+  return requestNoContent(
+    `/api/companies/me/join-requests/${encodeURIComponent(userId)}/${answer}`,
+    { method: 'POST' },
+  );
+}
+
+/** `null` turns automatic approval off. */
+export function setAutoApproveDomain(domain: string | null): Promise<MyCompanyResponse> {
+  return request('/api/companies/me/auto-approve', {
+    method: 'PUT',
+    body: JSON.stringify({ domain }),
+  });
+}
+
+export function setCompanyManager(userId: string, isManager: boolean): Promise<void> {
+  return requestNoContent(`/api/companies/me/members/${encodeURIComponent(userId)}/manager`, {
+    method: 'PUT',
+    body: JSON.stringify({ is_manager: isManager }),
+  });
+}
+
+export function removeCompanyMember(userId: string): Promise<void> {
+  return requestNoContent(`/api/companies/me/members/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
 }
 
 export function fetchClients(): Promise<{ clients: ClientResponse[] }> {

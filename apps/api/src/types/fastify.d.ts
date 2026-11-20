@@ -7,6 +7,7 @@ import type { AdminUsersService } from '../services/admin-users.service';
 import type { ClientService } from '../services/client.service';
 import type { CompanyQualificationsService } from '../services/company-qualifications.service';
 import type { CompanyService } from '../services/company.service';
+import type { CompanyMembershipService } from '../services/company-membership.service';
 import type { ExperienceService } from '../services/experience.service';
 import type { DiagnosticsService } from '../services/diagnostics.service';
 import type { IngestionService } from '../services/ingestion.service';
@@ -26,6 +27,8 @@ interface TokenClaims {
   user_id: string;
   username: string;
   role: UserRole;
+  /** Session id: the refresh-token family this access token belongs to. */
+  sid?: string;
 }
 
 declare module '@fastify/jwt' {
@@ -44,6 +47,7 @@ declare module 'fastify' {
     authService: AuthService;
     adminUsersService: AdminUsersService;
     companyService: CompanyService;
+    companyMembershipService: CompanyMembershipService;
     companyQualificationsService: CompanyQualificationsService;
     clientService: ClientService;
     experienceService: ExperienceService;
