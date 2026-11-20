@@ -24,11 +24,17 @@ jobs:
         with:
           bun-version: '1.3.11'
       # OWASP A06 (vulnerable & outdated components). bun audit reads only the lockfile.
-      # The weekly run audits everything; a PR fails only on advisories it introduces.
+      # The weekly run audits everything at high and above. A PR fails on any
+      # critical advisory, even one already on the base branch, so a known critical
+      # keeps every PR red until it is fixed (#204, R-14); for high it fails only
+      # on advisories the PR introduces.
+      - name: Test the PR advisory gate
+        if: github.event_name == 'pull_request'
+        run: bun test ./.github/scripts/new-advisories.test.ts
       - name: bun audit
         if: github.event_name != 'pull_request'
         run: bun audit --audit-level=high
-      - name: bun audit (new in this PR)
+      - name: bun audit (any critical, or new high in this PR)
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -36,7 +42,7 @@ jobs:
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
           (cd "$RUNNER_TEMP/base" && bun audit --json > "$RUNNER_TEMP/base.json") || true
           bun audit --json > "$RUNNER_TEMP/head.json" || true
-          bun .github/scripts/new-advisories.ts "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" high
+          bun .github/scripts/new-advisories.ts "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" high critical
 
   secret-scan:
     runs-on: ubuntu-latest
