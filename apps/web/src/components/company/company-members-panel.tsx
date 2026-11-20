@@ -68,9 +68,21 @@ export function CompanyMembersPanel({
                       <p className="font-medium">
                         {request.first_name} {request.last_name}
                       </p>
+                      {/* The username is free text anyone can set (even to an
+                          address); only the email was verified by Google, so it
+                          is labelled and shown apart from the username. */}
                       <p className="text-muted-foreground truncate text-xs">
-                        {request.username}
-                        {request.email ? ` · ${request.email}` : ' · ไม่มีอีเมลที่ยืนยันแล้ว'}
+                        ชื่อผู้ใช้: {request.username}
+                      </p>
+                      <p className="truncate text-xs">
+                        {request.email ? (
+                          <>
+                            อีเมลที่ยืนยันแล้ว (Google):{' '}
+                            <span className="font-medium">{request.email}</span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">ไม่มีอีเมลที่ยืนยันแล้ว</span>
+                        )}
                       </p>
                     </div>
                     <div className="flex gap-2">
