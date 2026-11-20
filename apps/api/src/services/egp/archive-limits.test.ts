@@ -5,6 +5,7 @@ import {
   downloadArchive,
   extractInvitationPdfs,
   extractTorPdfs,
+  inflateChosen,
   withinBudget,
 } from './tor-package';
 
@@ -23,6 +24,160 @@ function forgeDeclaredSize(zip: Uint8Array, declared: number): Uint8Array {
   }
   return out;
 }
+
+/**
+ * Writes a zip by hand, which `zipSync` cannot: one stored local record and any
+ * number of central-directory entries pointing at it, each with its own name
+ * and declared uncompressed size. Repeated names and overlapping entries are
+ * both things a hostile archive can carry.
+ */
+function rawStoredZip(
+  data: Uint8Array,
+  central: Array<{ name: string; originalSize?: number }>,
+): Uint8Array {
+  const enc = new TextEncoder();
+  const localName = enc.encode(central[0]?.name ?? 'x');
+  const parts: Uint8Array[] = [];
+  const header = (length: number, fill: (view: DataView) => void, tail: Uint8Array) => {
+    const bytes = new Uint8Array(length + tail.length);
+    fill(new DataView(bytes.buffer));
+    bytes.set(tail, length);
+    parts.push(bytes);
+    return bytes.length;
+  };
+
+  let offset = header(
+    30,
+    (v) => {
+      v.setUint32(0, 0x04034b50, true);
+      v.setUint16(4, 20, true);
+      v.setUint32(18, data.length, true);
+      v.setUint32(22, data.length, true);
+      v.setUint16(26, localName.length, true);
+    },
+    localName,
+  );
+  parts.push(data);
+  offset += data.length;
+
+  let directorySize = 0;
+  for (const entry of central) {
+    const name = enc.encode(entry.name);
+    directorySize += header(
+      46,
+      (v) => {
+        v.setUint32(0, 0x02014b50, true);
+        v.setUint16(4, 20, true);
+        v.setUint16(6, 20, true);
+        v.setUint32(20, data.length, true);
+        v.setUint32(24, entry.originalSize ?? data.length, true);
+        v.setUint16(28, name.length, true);
+        v.setUint32(42, 0, true); // every entry shares the one local record
+      },
+      name,
+    );
+  }
+  header(
+    22,
+    (v) => {
+      v.setUint32(0, 0x06054b50, true);
+      v.setUint16(8, Math.min(central.length, 0xffff), true);
+      v.setUint16(10, Math.min(central.length, 0xffff), true);
+      v.setUint32(12, directorySize, true);
+      v.setUint32(16, offset, true);
+    },
+    new Uint8Array(0),
+  );
+
+  const out = new Uint8Array(parts.reduce((n, part) => n + part.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
+
+const MiB = 1024 * 1024;
+const noisy = (length: number) => new Uint8Array(length).map((_, i) => (i * 7919) % 251);
+
+describe('duplicate and overlapping members', () => {
+  test('the hand-written zip helper produces an archive that extracts normally', () => {
+    const pdf = noisy(4096);
+    const result = extractTorPdfs(rawStoredZip(pdf, [{ name: 'Attach_TOR_1.pdf' }]));
+    expect(result.members).toEqual(['Attach_TOR_1.pdf']);
+    expect(result.torFiles[0]?.payload).toEqual(pdf);
+  });
+
+  test('an archive that repeats a member name is refused', () => {
+    const archive = rawStoredZip(
+      noisy(4096),
+      Array.from({ length: 50 }, () => ({ name: 'Attach_TOR_1.pdf' })),
+    );
+    expect(() => extractTorPdfs(archive)).toThrow(ArchiveRejectedError);
+    expect(() => extractTorPdfs(archive)).toThrow(/Attach_TOR_1\.pdf more than once/);
+    expect(() =>
+      extractInvitationPdfs(
+        rawStoredZip(
+          noisy(4096),
+          Array.from({ length: 50 }, () => ({ name: 'annoudoc_67019000001.pdf' })),
+        ),
+        '67019000001',
+      ),
+    ).toThrow(ArchiveRejectedError);
+  });
+
+  test('tens of thousands of entries under one chosen name are refused without inflating', () => {
+    const archive = rawStoredZip(
+      noisy(64 * 1024),
+      Array.from({ length: 30_000 }, () => ({ name: 'Attach_TOR_1.pdf', originalSize: 90 * MiB })),
+    );
+    const started = performance.now();
+    expect(() => extractTorPdfs(archive)).toThrow(ArchiveRejectedError);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  test('overlapping entries under different names are each charged to the budget', () => {
+    // Four names over the same 1 MiB record, each declaring 90 MiB: three fit
+    // the 300 MiB budget, the fourth does not.
+    const archive = rawStoredZip(
+      noisy(MiB),
+      [1, 2, 3, 4].map((n) => ({ name: `Attach_TOR_${n}.pdf`, originalSize: 90 * MiB })),
+    );
+    const result = extractTorPdfs(archive);
+    expect(result.torFiles.map((pdf) => pdf.member)).toEqual([
+      'Attach_TOR_1.pdf',
+      'Attach_TOR_2.pdf',
+      'Attach_TOR_3.pdf',
+    ]);
+    expect(result.oversizeSkipped[0]).toContain('Attach_TOR_4.pdf (would exceed');
+  });
+
+  test('the inflate pass charges each entry it inflates and refuses past the budget', () => {
+    // Called without the listing pass's budget, as if the two passes disagreed.
+    const names = [1, 2, 3, 4].map((n) => `Attach_TOR_${n}.pdf`);
+    const archive = rawStoredZip(
+      noisy(MiB),
+      names.map((name) => ({ name, originalSize: 90 * MiB })),
+    );
+    const chosen = new Map(names.map((name) => [name, 'canonical' as const]));
+    expect(() => inflateChosen(archive, chosen, (tag) => tag)).toThrow(/inflate budget/);
+    expect(inflateChosen(archive, new Map([...chosen].slice(0, 3)), (tag) => tag)).toHaveLength(3);
+  });
+
+  test('a stored member is charged at its compressed size when that is larger', () => {
+    const stored = { size: 120 * MiB, originalSize: 1 };
+    const sizes = new Map([
+      ['a.pdf', stored],
+      ['b.pdf', stored],
+      ['c.pdf', stored],
+    ]);
+    const skipped: string[] = [];
+    const kept = withinBudget(new Map([...sizes.keys()].map((k) => [k, k])), sizes, skipped);
+    expect([...kept.keys()]).toEqual(['a.pdf', 'b.pdf']);
+    expect(skipped[0]).toContain('c.pdf (would exceed');
+  });
+});
 
 describe('zip bombs and forged headers', () => {
   test('a highly compressed member is listed and reported, never inflated', () => {

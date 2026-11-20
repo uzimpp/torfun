@@ -143,18 +143,42 @@ function basename(member: string): string {
 }
 
 /**
+ * Bytes one member costs against the archive's inflate budget. fflate allocates
+ * a deflated member's output from its declared `originalSize` but walks all
+ * `size` bytes of its input, and copies a stored member at its compressed
+ * `size`, so the larger of the two bounds both the memory and the work.
+ */
+function inflateCost({ size, originalSize }: MemberSize): number {
+  return Math.max(size, originalSize);
+}
+
+/**
  * Every member name in the archive with its declared sizes, listed without
  * inflating any of them. An archive with more entries than any real one is
  * refused outright rather than walked.
+ *
+ * Every central-directory entry counts towards the limit, and a name that
+ * appears twice refuses the archive: fflate inflates each matching entry, so
+ * one chosen name repeated thousands of times would otherwise be charged to
+ * the budget once and inflated thousands of times. Entries that share one
+ * local header under different names are not refused (fflate's filter does
+ * not expose the header offset), but each is a separate name that is charged
+ * to the budget in full, here and again in `inflateChosen`, so overlapping
+ * them buys an attacker nothing beyond what the budget allows.
  */
 function listMemberSizes(archive: Uint8Array): Map<string, MemberSize> {
   const members = new Map<string, MemberSize>();
+  let entries = 0;
   unzipSync(archive, {
     filter: (file) => {
-      if (members.size >= ARCHIVE_LIMITS.maxEntries) {
+      entries += 1;
+      if (entries > ARCHIVE_LIMITS.maxEntries) {
         throw new ArchiveRejectedError(
           `archive has more than ${ARCHIVE_LIMITS.maxEntries} entries`,
         );
+      }
+      if (members.has(file.name)) {
+        throw new ArchiveRejectedError(`archive lists member ${file.name} more than once`);
       }
       members.set(file.name, { size: file.size, originalSize: file.originalSize });
       return false;
@@ -177,16 +201,17 @@ export function withinBudget<T>(
   let total = 0;
   for (const [member, tag] of chosen) {
     const size = sizes.get(member) ?? { size: 0, originalSize: 0 };
+    const cost = inflateCost(size);
     const reason =
       memberRejection(size) ??
-      (total + size.originalSize > ARCHIVE_LIMITS.maxTotalInflatedBytes
+      (total + cost > ARCHIVE_LIMITS.maxTotalInflatedBytes
         ? `would exceed the ${ARCHIVE_LIMITS.maxTotalInflatedBytes}-byte archive budget`
         : null);
     if (reason) {
       oversizeSkipped.push(`${member} (${reason})`);
       continue;
     }
-    total += size.originalSize;
+    total += cost;
     kept.set(member, tag);
   }
   return kept;
@@ -195,16 +220,35 @@ export function withinBudget<T>(
 /**
  * Inflate only the chosen members, which must already have passed the path guard;
  * output names are flattened to the basename, which that guard makes safe.
+ *
+ * Exported for tests only.
  */
-function inflateChosen<T>(
+export function inflateChosen<T>(
   archive: Uint8Array,
   chosen: Map<string, T>,
   namePattern: (tag: T) => ExtractedPdf['namePattern'],
 ): Array<[ExtractedPdf, T]> {
   if (chosen.size === 0) return [];
-  // Checked again at inflate time, from the header fflate is about to trust.
+  // Checked again at inflate time, from the header fflate is about to trust,
+  // and charged per entry actually inflated: the budget holds even if this pass
+  // and the listing ever disagree about what the archive contains.
+  const inflated = new Set<string>();
+  let spent = 0;
   const entries = unzipSync(archive, {
-    filter: (file) => chosen.has(file.name) && memberRejection(file) === null,
+    filter: (file) => {
+      if (!chosen.has(file.name) || memberRejection(file) !== null) return false;
+      if (inflated.has(file.name)) {
+        throw new ArchiveRejectedError(`archive lists member ${file.name} more than once`);
+      }
+      spent += inflateCost(file);
+      if (spent > ARCHIVE_LIMITS.maxTotalInflatedBytes) {
+        throw new ArchiveRejectedError(
+          `archive exceeds the ${ARCHIVE_LIMITS.maxTotalInflatedBytes}-byte inflate budget`,
+        );
+      }
+      inflated.add(file.name);
+      return true;
+    },
   });
   const out: Array<[ExtractedPdf, T]> = [];
   for (const [member, tag] of chosen) {
