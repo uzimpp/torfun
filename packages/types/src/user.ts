@@ -42,12 +42,24 @@ export const UpdateProfileSchema = z.strictObject({
 });
 export type UpdateProfile = z.infer<typeof UpdateProfileSchema>;
 
+/** bcrypt reads only the first 72 bytes of its input (ASVS V6.2.8). */
+export const PASSWORD_MAX_BYTES = 72;
+
+/**
+ * A password the user is choosing: at sign-up and at password change. Bounded
+ * in UTF-8 bytes, not characters, so a longer password is refused instead of
+ * being silently cut short by bcrypt.
+ */
+export const NewPasswordSchema = z
+  .string()
+  .min(8)
+  .refine((password) => new TextEncoder().encode(password).length <= PASSWORD_MAX_BYTES, {
+    message: `Password must be at most ${PASSWORD_MAX_BYTES} bytes`,
+  });
+
 export const ChangePasswordSchema = z.strictObject({
   current_password: z.string().min(1).max(128),
-  new_password: z
-    .string()
-    .min(8)
-    .refine((password) => new TextEncoder().encode(password).length <= 72),
+  new_password: NewPasswordSchema,
 });
 export type ChangePassword = z.infer<typeof ChangePasswordSchema>;
 

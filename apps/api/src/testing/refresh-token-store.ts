@@ -24,12 +24,16 @@ export class InMemoryRefreshTokenStore implements RefreshTokenStore {
   }
 
   async findByHash(tokenHash: string): Promise<StoredRefreshToken | null> {
-    return this.rows.find((row) => row.tokenHash === tokenHash) ?? null;
+    // A copy, as a database read would be: a later revoke must not change it.
+    const row = this.rows.find((candidate) => candidate.tokenHash === tokenHash);
+    return row ? { ...row } : null;
   }
 
-  async revoke(id: string): Promise<void> {
+  async revoke(id: string): Promise<boolean> {
     const row = this.rows.find((candidate) => candidate.id === id);
-    if (row && !row.revokedAt) row.revokedAt = new Date();
+    if (!row || row.revokedAt) return false;
+    row.revokedAt = new Date();
+    return true;
   }
 
   async revokeFamily(familyId: string): Promise<void> {

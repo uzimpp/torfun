@@ -197,8 +197,17 @@ export class AuthService {
       throw new ForbiddenError('Account is deactivated');
     }
 
-    await this.refreshTokens.revoke(stored.id);
-    return this.issue(user, stored.familyId, stored.familyStartedAt);
+    // The successor is stored before the presented token is retired, and the
+    // retirement is conditional: only one caller can flip a token to revoked.
+    // A caller that loses that race holds a token someone else already
+    // exchanged, which is reuse. Retiring the family then also catches the
+    // winner's successor, because it was stored before the winner's revoke.
+    const session = await this.issue(user, stored.familyId, stored.familyStartedAt);
+    if (!(await this.refreshTokens.revoke(stored.id))) {
+      await this.refreshTokens.revokeFamily(stored.familyId);
+      throw new UnauthorizedError('Session revoked');
+    }
+    return session;
   }
 
   /**
