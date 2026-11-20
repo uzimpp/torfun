@@ -1,4 +1,5 @@
 import { POLITENESS } from './constants';
+import { assertAllowedUpstream, MAX_REDIRECTS, OutboundBlockedError } from './outbound-guard';
 
 /**
  * HTTP helpers for the two upstream systems.
@@ -106,6 +107,25 @@ export function politeTorDelayMs(): number {
   return min + Math.random() * (max - min);
 }
 
+/**
+ * `fetch` with the outbound policy applied (see `outbound-guard.ts`): the URL
+ * must be an allowlisted HTTPS upstream, and redirects are followed by hand so
+ * that every hop is checked against the same allowlist before it is requested.
+ * A refused hop is never retried.
+ */
+async function guardedFetch(url: string, init: RequestInit): Promise<Response> {
+  let current = assertAllowedUpstream(url).toString();
+  for (let hop = 0; ; hop += 1) {
+    const response = await fetch(current, { ...init, redirect: 'manual' });
+    const location = response.headers.get('location');
+    if (response.status < 300 || response.status >= 400 || !location) return response;
+    await response.body?.cancel();
+    if (hop >= MAX_REDIRECTS)
+      throw new OutboundBlockedError(`more than ${MAX_REDIRECTS} redirects`);
+    current = assertAllowedUpstream(new URL(location, current).toString()).toString();
+  }
+}
+
 function buildUrl(base: string, params: Record<string, string | number>): string {
   const url = new URL(base);
   for (const [key, value] of Object.entries(params)) {
@@ -149,7 +169,7 @@ async function fetchWithRetry(
 
     try {
       const timeout = AbortSignal.timeout(timeoutMs);
-      const response = await fetch(url, {
+      const response = await guardedFetch(url, {
         ...init,
         signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       });
@@ -170,7 +190,8 @@ async function fetchWithRetry(
       if (
         error instanceof RateLimitedError ||
         error instanceof OpenDataForbiddenError ||
-        error instanceof UpstreamError
+        error instanceof UpstreamError ||
+        error instanceof OutboundBlockedError
       ) {
         throw error;
       }

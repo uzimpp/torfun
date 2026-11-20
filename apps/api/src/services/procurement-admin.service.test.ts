@@ -367,7 +367,7 @@ describe('restoring a tombstone, end to end through a real Run', () => {
         return null;
       },
       downloadArchive: async () => new Uint8Array(),
-      extractTorPdfs: () => ({ torFiles: [], members: [], unsafeSkipped: [] }),
+      extractTorPdfs: () => ({ torFiles: [], members: [], unsafeSkipped: [], oversizeSkipped: [] }),
       classifyDocument: async () => {
         throw new Error('no document is read in this test');
       },
@@ -571,6 +571,7 @@ describe('reading an out-of-scope project anyway, end to end through real Runs',
         ],
         members: ['Attach_TOR_1.pdf'],
         unsafeSkipped: [],
+        oversizeSkipped: [],
       }),
       classifyDocument: async () => ({
         isTor: true,
