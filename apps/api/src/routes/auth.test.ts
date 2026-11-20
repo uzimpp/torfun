@@ -316,6 +316,7 @@ describe('account settings', () => {
   test('allows profile edits for Google-only users and rejects password changes', async () => {
     const { user } = await app.authService.loginWithGoogle({
       sub: 'google-settings',
+      email_verified: true,
       email: 'settings@example.com',
     });
     expect((await read(user)).json()).toMatchObject({ has_local_password: false });
