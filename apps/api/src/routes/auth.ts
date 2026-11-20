@@ -4,6 +4,7 @@ import {
   ACCESS_COOKIE,
   ChangePasswordSchema,
   fullName,
+  NewPasswordSchema,
   REFRESH_COOKIE,
   UpdateProfileSchema,
 } from '@torfun/types';
@@ -25,7 +26,7 @@ import { createCredentialThrottle } from '../hooks/throttle-credentials';
 const registerSchema = z
   .object({
     username: z.string().min(3).max(50),
-    password: z.string().min(8).max(128),
+    password: NewPasswordSchema,
     confirm_password: z.string(),
     first_name: z.string().min(1).max(100),
     last_name: z.string().min(1).max(100),
