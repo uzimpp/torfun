@@ -4,8 +4,10 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { loadEnv, type Env } from './config/env';
 import { registerErrorHandler } from './core/errors';
+import { LOG_REDACTION } from './core/log-redaction';
 import { registerMongo } from './core/mongo';
 import { registerSecurityPlugins } from './plugins/security';
+import { registerOriginGuard } from './plugins/origin-guard';
 import { registerJwt } from './plugins/jwt';
 import { registerGoogleOAuth } from './plugins/google-oauth';
 import {
@@ -122,6 +124,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
+      redact: LOG_REDACTION,
       transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
     },
   }).withTypeProvider<ZodTypeProvider>();
@@ -131,6 +134,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   registerErrorHandler(app);
 
   await registerSecurityPlugins(app, env);
+  registerOriginGuard(app, env);
   await app.register(fastifyCookie);
   await registerJwt(app, env);
   await registerGoogleOAuth(app, env);
