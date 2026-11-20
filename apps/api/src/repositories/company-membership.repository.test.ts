@@ -87,6 +87,34 @@ describeMongo('company membership storage', () => {
     expect((await companies.findById(company.id))?.managerIds).toEqual([]);
   });
 
+  test('a conditional step-down never removes the last manager, even when two race', async () => {
+    const company = await companies.create({
+      nameTh: 'บริษัท สยามซอฟต์ จำกัด',
+      tin: null,
+      managerIds: ['u1', 'u2'],
+    });
+    const results = await Promise.all([
+      companies.removeManager(company.id, 'u1', { keepOne: true }),
+      companies.removeManager(company.id, 'u2', { keepOne: true }),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect((await companies.findById(company.id))?.managerIds).toHaveLength(1);
+
+    // Not a manager: nothing to remove. Unconditionally: the last one goes too.
+    expect(await companies.removeManager(company.id, 'u3', { keepOne: false })).toBe(false);
+    const [last] = (await companies.findById(company.id))!.managerIds;
+    expect(await companies.removeManager(company.id, last!, { keepOne: false })).toBe(true);
+    expect((await companies.findById(company.id))?.managerIds).toEqual([]);
+  });
+
+  test('a Google identity is linked once and never replaced', async () => {
+    const account = await officer('linked');
+    expect(await users.linkGoogleId(account.id, 'first-sub')).toBe(true);
+    expect(await users.linkGoogleId(account.id, 'second-sub')).toBe(false);
+    expect((await users.findByGoogleId('first-sub'))?.id).toBe(account.id);
+    expect(await users.findByGoogleId('second-sub')).toBeNull();
+  });
+
   test('the auto-approve domain is stored and cleared', async () => {
     const company = await companies.create({ nameTh: 'บริษัท สยามซอฟต์ จำกัด', tin: null });
     await companies.update(company.id, { autoApproveDomain: 'siamsoft.co.th' });
