@@ -97,6 +97,7 @@ describe('SearchResults cards', () => {
         .getAllByRole('option')
         .map((option) => option.textContent),
     ).toEqual([
+      'คุณสมบัติตรงกับบริษัท',
       'ประกาศล่าสุด',
       'ใกล้ปิดรับข้อเสนอมากสุด',
       'งบประมาณจากมากไปน้อย',

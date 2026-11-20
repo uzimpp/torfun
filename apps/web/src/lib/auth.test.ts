@@ -33,7 +33,7 @@ vi.mock('./config', () => ({
   internal_api_url: 'http://server.test:8080',
 }));
 
-const { COMPANY_PATH, getCurrentUser, requireCompany } = await import('./auth');
+const { COMPANY_PATH, getCurrentUser, requireCompany, requireUser } = await import('./auth');
 
 type MeResponse = {
   role: 'admin' | 'business_development_officer';
@@ -143,4 +143,13 @@ describe('getCurrentUser', () => {
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://server.test:8080/api/auth/me');
   });
+});
+
+test('notification links retain their destination through sign-in, without external redirects', async () => {
+  cookieStore.get.mockReturnValue(undefined);
+  const path = '/notifications/link-line?link_token=platform-token';
+  expect(await destinationOf(() => requireUser(path))).toBe(
+    `/login?${new URLSearchParams({ next: path })}`,
+  );
+  expect(await destinationOf(() => requireUser('https://attacker.test/'))).toBe('/login');
 });

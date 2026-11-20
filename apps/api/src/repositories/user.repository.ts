@@ -45,6 +45,8 @@ export interface NewUser {
   email?: string;
 }
 
+type CredentialLookup = { id: string } | { username: string };
+
 /**
  * Accounts created before first/last name existed have neither field. They read
  * back as empty strings rather than crashing the schema — see the backfill in
@@ -77,7 +79,11 @@ export interface UserStore {
   findByUsername(username: string): Promise<User | null>;
   findByGoogleId(googleId: string): Promise<User | null>;
   findByEmail(email: string): Promise<User | null>;
-  findCredentials(username: string): Promise<{ user: User; passwordHash: string | null } | null>;
+  findCredentials(
+    lookup: CredentialLookup,
+  ): Promise<{ user: User; passwordHash: string | null } | null>;
+  updateProfile(id: string, profile: Pick<User, 'firstName' | 'lastName'>): Promise<boolean>;
+  replacePassword(id: string, currentHash: string, newHash: string): Promise<boolean>;
   create(input: NewUser): Promise<User>;
   linkGoogleId(id: string, googleId: string): Promise<void>;
   setCompanyId(id: string, companyId: string | null): Promise<void>;
@@ -124,11 +130,35 @@ export class UserRepository implements UserStore {
    * `passwordHash` is null for accounts created through Google sign-in.
    */
   async findCredentials(
-    username: string,
+    lookup: CredentialLookup,
   ): Promise<{ user: User; passwordHash: string | null } | null> {
-    const document = await (await this.collection()).findOne({ username });
+    if ('id' in lookup && !ObjectId.isValid(lookup.id)) return null;
+    const filter = 'id' in lookup ? { _id: new ObjectId(lookup.id) } : lookup;
+    const document = await (await this.collection()).findOne(filter);
     if (!document) return null;
     return { user: toDomain(document), passwordHash: document.password_hash ?? null };
+  }
+
+  async updateProfile(id: string, { firstName, lastName }: Pick<User, 'firstName' | 'lastName'>) {
+    if (!ObjectId.isValid(id)) return false;
+    const result = await (
+      await this.collection()
+    ).updateOne(
+      { _id: new ObjectId(id), is_active: { $ne: false } },
+      { $set: { first_name: firstName, last_name: lastName, updated_at: new Date() } },
+    );
+    return result.matchedCount === 1;
+  }
+
+  async replacePassword(id: string, currentHash: string, newHash: string) {
+    if (!ObjectId.isValid(id)) return false;
+    const result = await (
+      await this.collection()
+    ).updateOne(
+      { _id: new ObjectId(id), is_active: { $ne: false }, password_hash: currentHash },
+      { $set: { password_hash: newHash, updated_at: new Date() } },
+    );
+    return result.matchedCount === 1;
   }
 
   async create(input: NewUser): Promise<User> {

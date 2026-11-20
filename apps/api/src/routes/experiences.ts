@@ -1,6 +1,13 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { displayDuration, DurationUnit, TargetPlatform, type Experience } from '@torfun/types';
+import {
+  displayDuration,
+  DurationUnit,
+  TargetPlatform,
+  MoneyThbSchema,
+  WorkTypeSchema,
+  type Experience,
+} from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
 import type { DurationInput } from '../services/experience.service';
 
@@ -21,6 +28,8 @@ const ExperienceResponse = z.object({
   id: z.string(),
   client_id: z.string(),
   project_name: z.string(),
+  work_type: WorkTypeSchema.nullable(),
+  contract_value_thb: MoneyThbSchema.nullable(),
   description: z.string().nullable(),
   tech_stack: z.array(z.string()),
   target_platforms: z.array(TargetPlatform),
@@ -35,6 +44,8 @@ function toExperienceResponse(experience: Experience) {
     id: experience.id,
     client_id: experience.clientId,
     project_name: experience.projectName,
+    work_type: experience.workType ?? null,
+    contract_value_thb: experience.contractValueThb ?? null,
     description: experience.description,
     tech_stack: experience.techStack,
     target_platforms: experience.targetPlatforms,
@@ -80,6 +91,8 @@ const CreateBody = z
   .object({
     client_id: z.string().min(1),
     project_name: z.string().trim().min(1).max(300),
+    work_type: WorkTypeSchema.nullish(),
+    contract_value_thb: MoneyThbSchema.nullish(),
     description: z.string().max(2000).nullable().optional(),
     tech_stack: z.array(z.string().trim().min(1)).optional(),
     target_platforms: z.array(TargetPlatform).optional(),
@@ -91,6 +104,8 @@ const PatchBody = z
   .object({
     client_id: z.string().min(1).optional(),
     project_name: z.string().trim().min(1).max(300).optional(),
+    work_type: WorkTypeSchema.nullish(),
+    contract_value_thb: MoneyThbSchema.nullish(),
     description: z.string().max(2000).nullable().optional(),
     tech_stack: z.array(z.string().trim().min(1)).optional(),
     target_platforms: z.array(TargetPlatform).optional(),
@@ -129,6 +144,8 @@ export const experienceRoutes: FastifyPluginAsyncZod = async (app) => {
       const experience = await app.experienceService.create(request.user.user_id, {
         clientId: body.client_id,
         projectName: body.project_name,
+        workType: body.work_type ?? null,
+        contractValueThb: body.contract_value_thb ?? null,
         description: body.description ?? null,
         techStack: body.tech_stack ?? [],
         targetPlatforms: body.target_platforms ?? [],
@@ -160,6 +177,8 @@ export const experienceRoutes: FastifyPluginAsyncZod = async (app) => {
         {
           ...(body.client_id !== undefined ? { clientId: body.client_id } : {}),
           ...(body.project_name !== undefined ? { projectName: body.project_name } : {}),
+          workType: body.work_type,
+          contractValueThb: body.contract_value_thb,
           ...(body.description !== undefined ? { description: body.description } : {}),
           ...(body.tech_stack !== undefined ? { techStack: body.tech_stack } : {}),
           ...(body.target_platforms !== undefined
