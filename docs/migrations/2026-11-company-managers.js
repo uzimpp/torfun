@@ -12,9 +12,36 @@
 //
 // Run it once before deploying the API that enforces approval, or nobody can approve joins
 // for existing Companies until an administrator assigns managers.
+//
+// It also drops manager ids whose account no longer belongs to that Company (left, moved,
+// removed, made an administrator, or deleted). Earlier builds of this branch left them
+// behind, and such an id made its owner a manager again on rejoining (#204, R-04). This
+// runs first, so a Company left with no real manager is then given one like any other.
+// Safe to re-run: a clean list is left as it is.
 
 const companies = db.getCollection('companies');
 const users = db.getCollection('users');
+
+let stale = 0;
+companies.find({ 'manager_ids.0': { $exists: true } }).forEach((company) => {
+  const members = new Set(
+    users
+      .find(
+        {
+          _id: { $in: company.manager_ids.filter(ObjectId.isValid).map((id) => new ObjectId(id)) },
+        },
+        { _id: 1, company_id: 1 },
+      )
+      .toArray()
+      .filter((user) => user.company_id === company._id.toString())
+      .map((user) => user._id.toString()),
+  );
+  const gone = company.manager_ids.filter((id) => !members.has(id));
+  if (gone.length === 0) return;
+  companies.updateOne({ _id: company._id }, { $pull: { manager_ids: { $in: gone } } });
+  stale += gone.length;
+});
+print(`stale company manager ids removed: ${stale}`);
 
 let assigned = 0;
 companies
