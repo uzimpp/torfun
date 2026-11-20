@@ -100,6 +100,38 @@ describe('session management', () => {
     expect((await me(fresh[ACCESS_COOKIE]!)).statusCode).toBe(401);
   });
 
+  test('two concurrent refreshes with one token: exactly one succeeds and the session ends', async () => {
+    const s = await signUp();
+    const familyId = app.jwt.decode<{ sid: string }>(s.access)!.sid;
+    // Hold both reads until both requests have looked the token up, so they
+    // race on retiring it exactly as two requests in flight would.
+    const findByHash = tokens.findByHash.bind(tokens);
+    let arrived = 0;
+    let release!: () => void;
+    const bothArrived = new Promise<void>((resolve) => (release = resolve));
+    tokens.findByHash = async (hash) => {
+      arrived += 1;
+      if (arrived === 2) release();
+      await bothArrived;
+      return findByHash(hash);
+    };
+
+    try {
+      const refresh = () =>
+        app.inject({
+          method: 'POST',
+          url: '/api/auth/refresh',
+          cookies: { [REFRESH_COOKIE]: s.refresh },
+        });
+      const statuses = (await Promise.all([refresh(), refresh()])).map((r) => r.statusCode);
+
+      expect(statuses.sort()).toEqual([200, 401]);
+      expect(await tokens.isFamilyActive(familyId)).toBe(false);
+    } finally {
+      tokens.findByHash = findByHash;
+    }
+  });
+
   test('disabling an account ends its live session at once', async () => {
     const s = await signUp();
     const admin = users.seed({ username: `root-${n}`, role: 'admin' });
