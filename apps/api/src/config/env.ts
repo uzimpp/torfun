@@ -18,7 +18,19 @@ export const EnvSchema = z.object({
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:3000')
-    .transform((value) => value.split(',').map((origin) => origin.trim())),
+    .transform((value) => value.split(',').map((origin) => origin.trim()))
+    // ASVS V3.4.2: a wildcard with credentials is an open door, so refuse it at
+    // startup rather than trusting whoever edits the deployment config.
+    .refine((origins) => origins.every((origin) => origin !== '*' && !origin.includes('*')), {
+      message: 'CORS_ORIGINS must list explicit origins; wildcards are not allowed',
+    }),
+
+  // Check new passwords against the Have I Been Pwned range API (k-anonymity: only a 5-char
+  // hash prefix leaves the server). Fails open if the service is unreachable.
+  BREACHED_PASSWORD_CHECK: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
 
   // Where the browser is sent after a successful OAuth callback.
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),

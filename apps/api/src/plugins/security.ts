@@ -20,6 +20,13 @@ export async function registerSecurityPlugins(app: FastifyInstance, env: Env) {
     },
   });
 
+  // ASVS V14.3.2: API responses carry account and company data, so no browser
+  // or shared cache may keep them unless a route deliberately says otherwise.
+  app.addHook('onSend', async (_request, reply, payload) => {
+    if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
+    return payload;
+  });
+
   await app.register(cors, {
     origin: env.CORS_ORIGINS,
     credentials: true,
@@ -44,4 +51,21 @@ export const authIpRateLimit: RateLimitOptions = {
   max: 30,
   timeWindow: '15 minutes',
   keyGenerator: (request) => `auth-ip:${request.ip}`,
+};
+
+/**
+ * Tighter per-route budgets for work that costs money or capacity (ASVS V2.4.1,
+ * V15.2.2; threat T-13). The global 100/min stops floods; these stop one caller
+ * from draining Vertex AI quota, the upstream e-GP gate or the PDF fetcher with
+ * a handful of well-formed requests.
+ */
+export const expensiveRouteLimit = {
+  /** Starting an ingestion Run: at most a few per quarter hour, whoever asks. */
+  ingestionRun: { max: 5, timeWindow: '15 minutes' } satisfies RateLimitOptions,
+  /** Admin actions that trigger a model or upstream read for one project. */
+  upstreamRead: { max: 30, timeWindow: '15 minutes' } satisfies RateLimitOptions,
+  /** Downloading a source PDF through the API. */
+  sourceDownload: { max: 60, timeWindow: '1 minute' } satisfies RateLimitOptions,
+  /** Submitting a report on a TOR: a human action, not a loop. */
+  reportSubmit: { max: 10, timeWindow: '15 minutes' } satisfies RateLimitOptions,
 };

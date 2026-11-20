@@ -14,6 +14,7 @@ import {
   type NotificationSettingsView,
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
+import { requireAdmin } from '../hooks/require-admin';
 import { UnauthorizedError } from '../core/errors';
 
 const Id = z.object({ id: z.string().regex(/^[a-f0-9]{64}$/) });
@@ -193,7 +194,12 @@ export const notificationRoutes: FastifyPluginAsyncZod = async (app) => {
   );
   app.get(
     '/admin/notifications/deliveries',
-    { schema: { response: { 200: z.array(NotificationDeliveryFailureResponseSchema) } } },
+    // The service re-checks the stored role; the route guard answers first, so an
+    // officer gets 403 before validation or any lookup runs (as every admin route does).
+    {
+      onRequest: requireAdmin,
+      schema: { response: { 200: z.array(NotificationDeliveryFailureResponseSchema) } },
+    },
     async (request) =>
       (await app.notificationService.failures(request.user.user_id)).map((failure) => ({
         id: failure.id,
@@ -206,7 +212,7 @@ export const notificationRoutes: FastifyPluginAsyncZod = async (app) => {
   );
   app.post(
     '/admin/notifications/deliveries/:id/retry',
-    { schema: { params: Id, response: { 200: Done } } },
+    { onRequest: requireAdmin, schema: { params: Id, response: { 200: Done } } },
     async (request) => {
       await app.notificationService.retry(request.user.user_id, request.params.id);
       return { ok: true as const };
