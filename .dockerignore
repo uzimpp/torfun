@@ -6,7 +6,9 @@
 **/playwright-report
 **/test-results
 .git
-.env
-.env.*
-!.env.example
+# Every .env at any depth, not only the root one (apps/api/.env holds real
+# secrets in local builds; #204 R-11). The examples carry no secrets.
+**/.env
+**/.env.*
+!**/.env.example
 *.md
