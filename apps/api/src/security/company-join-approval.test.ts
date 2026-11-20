@@ -2,6 +2,7 @@ import { Writable } from 'node:stream';
 import { beforeEach, afterEach, describe, expect, test } from 'bun:test';
 import { ACCESS_COOKIE, type User } from '@torfun/types';
 import { buildApp } from '../app';
+import { UnauthorizedError } from '../core/errors';
 import { testEnv } from '../testing/env';
 import { InMemoryClientStore } from '../testing/client-store';
 import { InMemoryCompanyStore } from '../testing/company-store';
@@ -35,7 +36,7 @@ describe('joining a company needs a manager', () => {
 
   const call = (
     user: User,
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     url: string,
     payload?: object,
   ) =>
@@ -142,6 +143,21 @@ describe('joining a company needs a manager', () => {
     expect((await call(bob, 'GET', '/companies/join-request')).statusCode).toBe(404);
   });
 
+  test('a username that looks like an email is shown apart from the verified email', async () => {
+    const impostor = users.seed({ username: 'ceo@acme.co.th' });
+    const colleague = users.seed({ username: 'somchai', email: 'somchai@acme.co.th' });
+    await call(impostor, 'POST', `/companies/${companyId}/join`);
+    await call(colleague, 'POST', `/companies/${companyId}/join`);
+
+    const requests = (await call(alice, 'GET', '/companies/me/join-requests')).json().requests;
+    expect(requests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ username: 'ceo@acme.co.th', email: null }),
+        expect.objectContaining({ username: 'somchai', email: 'somchai@acme.co.th' }),
+      ]),
+    );
+  });
+
   test('a rejected request leaves the applicant outside', async () => {
     const eve = users.seed({ username: 'eve' });
     await call(eve, 'POST', `/companies/${companyId}/join`);
@@ -234,6 +250,29 @@ describe('joining a company needs a manager', () => {
       expect((await companies.findById(companyId))?.autoApproveDomain).toBeNull();
     });
 
+    test('an unverified Google email never signs in, so it can never be auto-approved', async () => {
+      await call(alice, 'PUT', '/companies/me/auto-approve', { domain: 'acme.co.th' });
+
+      // Google says the address is unverified: no account is created or linked.
+      await expect(
+        app.authService.loginWithGoogle({
+          sub: 'unverified-sub',
+          email: 'intruder@acme.co.th',
+          email_verified: false,
+        }),
+      ).rejects.toBeInstanceOf(UnauthorizedError);
+      expect(await users.findByEmail('intruder@acme.co.th')).toBeNull();
+
+      // The same address, verified, is what automatic approval trusts.
+      const { user: verified } = await app.authService.loginWithGoogle({
+        sub: 'verified-sub',
+        email: 'somchai@acme.co.th',
+        email_verified: true,
+      });
+      expect((await call(verified, 'POST', `/companies/${companyId}/join`)).statusCode).toBe(200);
+      expect(await companyOf(verified)).toBe(companyId);
+    });
+
     test('turning it off sends the next request back to a manager', async () => {
       await call(alice, 'PUT', '/companies/me/auto-approve', { domain: 'acme.co.th' });
       await call(alice, 'PUT', '/companies/me/auto-approve', { domain: null });
@@ -283,10 +322,124 @@ describe('joining a company needs a manager', () => {
       expect(
         (await call(alice, 'POST', '/companies', { name_th: 'บริษัท ใหม่ จำกัด' })).statusCode,
       ).toBe(201);
-      // Alice's id stays in the list but no longer counts: she is not a member.
+      // Leaving took Alice off the managers too, so rejoining gives her nothing.
+      expect((await companies.findById(companyId))?.managerIds).toEqual([bob.id]);
       expect((await call(bob, 'GET', '/companies/me/members')).json().members).toEqual([
         expect.objectContaining({ id: bob.id, is_manager: true }),
       ]);
+    });
+
+    test('a manager who leaves and is later approved back in is not a manager again', async () => {
+      const bob = await withMember();
+      await call(alice, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: true });
+      const own = (
+        await call(alice, 'POST', '/companies', { name_th: 'บริษัท ใหม่ จำกัด' })
+      ).json();
+
+      expect((await call(alice, 'POST', `/companies/${companyId}/join`)).statusCode).toBe(202);
+      expect(
+        (await call(bob, 'POST', `/companies/me/join-requests/${alice.id}/approve`)).statusCode,
+      ).toBe(204);
+
+      expect(await companyOf(alice)).toBe(companyId);
+      expect((await companies.findById(companyId))?.managerIds).toEqual([bob.id]);
+      // She also left the Company she had made, and its managers with it.
+      expect((await companies.findById(own.id))?.managerIds).toEqual([]);
+      expect((await call(alice, 'GET', '/companies/me/join-requests')).statusCode).toBe(403);
+    });
+
+    test('an automatic join elsewhere takes the manager off the old Company', async () => {
+      const bob = await withMember();
+      await call(alice, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: true });
+      const carol = users.seed({ username: 'carol', email: 'carol@beta.co.th' });
+      const beta = (
+        await call(carol, 'POST', '/companies', { name_th: 'บริษัท เบต้า จำกัด' })
+      ).json();
+      await call(carol, 'PUT', '/companies/me/auto-approve', { domain: 'beta.co.th' });
+      users.seed({ ...(await users.findById(alice.id))!, email: 'alice@beta.co.th' });
+
+      expect((await call(alice, 'POST', `/companies/${beta.id}/join`)).statusCode).toBe(200);
+      expect((await companies.findById(companyId))?.managerIds).toEqual([bob.id]);
+    });
+
+    test('a removed manager is taken off the managers', async () => {
+      const bob = await withMember();
+      await call(alice, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: true });
+      expect((await call(alice, 'DELETE', `/companies/me/members/${bob.id}`)).statusCode).toBe(204);
+      expect((await companies.findById(companyId))?.managerIds).toEqual([alice.id]);
+    });
+
+    test('making a manager a Site Administrator takes them off the managers', async () => {
+      const bob = await withMember();
+      await call(alice, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: true });
+      const root = users.seed({ username: 'root', role: 'admin' });
+      expect(
+        (await call(root, 'PATCH', `/admin/users/${bob.id}`, { role: 'admin' })).statusCode,
+      ).toBe(200);
+      expect(await companyOf(bob)).toBeNull();
+      expect((await companies.findById(companyId))?.managerIds).toEqual([alice.id]);
+    });
+
+    /**
+     * Holds the first `count` Company reads until all of them have arrived, so
+     * concurrent requests all see the same managers before any of them writes:
+     * the window a check-then-act guard loses.
+     */
+    const holdCompanyReads = (count: number) => {
+      const read = companies.findById.bind(companies);
+      const waiting: (() => void)[] = [];
+      companies.findById = async (id: string) => {
+        if (waiting.length < count) {
+          await new Promise<void>((resolve) => {
+            waiting.push(resolve);
+            if (waiting.length === count) for (const release of waiting) release();
+          });
+        }
+        return read(id);
+      };
+      return () => {
+        companies.findById = read;
+      };
+    };
+
+    test('two managers stepping down at once leave one manager', async () => {
+      const bob = await withMember();
+      await call(alice, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: true });
+
+      const release = holdCompanyReads(2);
+      const statuses = (
+        await Promise.all([
+          call(alice, 'PUT', `/companies/me/members/${alice.id}/manager`, { is_manager: false }),
+          call(bob, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: false }),
+        ])
+      ).map((res) => res.statusCode);
+      release();
+
+      expect(statuses.sort()).toEqual([204, 409]);
+      expect((await companies.findById(companyId))?.managerIds).toHaveLength(1);
+    });
+
+    test('two managers leaving at once cannot strand the members left behind', async () => {
+      const bob = await withMember();
+      await call(alice, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: true });
+      const carol = users.seed({ username: 'carol' });
+      await call(carol, 'POST', `/companies/${companyId}/join`);
+      await call(alice, 'POST', `/companies/me/join-requests/${carol.id}/approve`);
+
+      const release = holdCompanyReads(2);
+      const statuses = (
+        await Promise.all([
+          call(alice, 'POST', '/companies', { name_th: 'บริษัท เอ จำกัด' }),
+          call(bob, 'POST', '/companies', { name_th: 'บริษัท บี จำกัด' }),
+        ])
+      ).map((res) => res.statusCode);
+      release();
+
+      expect(statuses.sort()).toEqual([201, 409]);
+      const managers = (await call(carol, 'GET', '/companies/me/members'))
+        .json()
+        .members.filter((member: { is_manager: boolean }) => member.is_manager);
+      expect(managers).toHaveLength(1);
     });
 
     test('a removed member loses the record at once', async () => {
