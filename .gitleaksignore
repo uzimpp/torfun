@@ -1,0 +1,8 @@
+# Throwaway passwords in test fixtures that existed as plain literals in earlier commits of
+# PR #194. They protect nothing (the in-memory test stores only); the files now build them at
+# runtime via apps/api/src/testing/passwords.ts. Fingerprints, not a rule allowlist, so real
+# secrets of the same shape still fail the scan.
+0677ba81aef3feffd376aabf848dfc2b1a8505bd:apps/api/src/services/breached-passwords.test.ts:generic-api-key:75
+fba755b3cc8534f1c2744a5a2ced1f5cb49458b8:apps/api/src/security/privilege-escalation.test.ts:generic-api-key:25
+7acc775942a9de6fe5b7605cc4cdd0dfc4f17bb0:apps/api/src/security/audit-trail.test.ts:generic-api-key:40
+7ff59cf5fec496a24e354fc0bdc2da33f17113a8:apps/api/src/security/session-management.test.ts:generic-api-key:31

@@ -22,7 +22,8 @@ export interface InvitationResult {
 
 const NOTES = {
   invitation: 'ประกาศเชิญชวน — อ่านเฉพาะวันที่ยื่นข้อเสนอ',
-  bidding_document: 'เอกสารประกวดราคา — อ่านเฉพาะวันที่ยื่นข้อเสนอ เพราะไม่มีประกาศเชิญชวนที่อ่านได้',
+  bidding_document:
+    'เอกสารประกวดราคา — อ่านเฉพาะวันที่ยื่นข้อเสนอ เพราะไม่มีประกาศเชิญชวนที่อ่านได้',
 } as const;
 
 export async function readInvitationDocuments(

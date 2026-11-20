@@ -24,24 +24,46 @@ class FakeRefreshTokens {
       id: String(this.rows.length + 1),
       userId: input.userId,
       familyId: input.familyId,
+      familyStartedAt: input.familyStartedAt,
       expiresAt: input.expiresAt,
       tokenHash: input.tokenHash,
     });
   }
 
+  /** Holds every read until this many callers are waiting, to force a race. */
+  barrier = 0;
+  private waiting: (() => void)[] = [];
+
   async findByHash(tokenHash: string): Promise<StoredRefreshToken | null> {
-    return this.rows.find((row) => row.tokenHash === tokenHash) ?? null;
+    if (this.barrier > 0) {
+      await new Promise<void>((resolve) => {
+        this.waiting.push(resolve);
+        if (this.waiting.length >= this.barrier) for (const release of this.waiting) release();
+      });
+    }
+    const row = this.rows.find((candidate) => candidate.tokenHash === tokenHash);
+    return row ? { ...row } : null;
   }
 
-  async revoke(id: string): Promise<void> {
+  async revoke(id: string): Promise<boolean> {
     const row = this.rows.find((candidate) => candidate.id === id);
-    if (row && !row.revokedAt) row.revokedAt = new Date();
+    if (!row || row.revokedAt) return false;
+    row.revokedAt = new Date();
+    return true;
   }
 
   async revokeFamily(familyId: string): Promise<void> {
     for (const row of this.rows) {
       if (row.familyId === familyId && !row.revokedAt) row.revokedAt = new Date();
     }
+  }
+
+  async isFamilyActive(familyId: string): Promise<boolean> {
+    return this.rows.some((row) => row.familyId === familyId && !row.revokedAt);
+  }
+
+  async revokeAllForUser(userId: string): Promise<void> {
+    for (const row of this.rows) if (row.userId === userId) row.revokedAt ??= new Date();
   }
 }
 
@@ -108,6 +130,25 @@ describe('AuthService session rotation', () => {
     await service.refresh(first.refreshToken);
 
     await expect(service.refresh(first.refreshToken)).rejects.toThrow('Session revoked');
+  });
+
+  test('two concurrent refreshes with one token: one wins, the other is reuse', async () => {
+    const first = await signIn();
+    tokens.barrier = 2;
+
+    const results = await Promise.allSettled([
+      service.refresh(first.refreshToken),
+      service.refresh(first.refreshToken),
+    ]);
+    tokens.barrier = 0;
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.filter((result) => result.status === 'rejected');
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toBe('Session revoked');
+    // The winner's successor is retired with the rest of the family.
+    expect(tokens.rows.every((row) => row.revokedAt)).toBe(true);
+    expect(await tokens.isFamilyActive(tokens.rows[0]!.familyId)).toBe(false);
   });
 
   test('reuse retires the whole family, including the live token', async () => {
