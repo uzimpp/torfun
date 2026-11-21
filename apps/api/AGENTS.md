@@ -151,6 +151,57 @@ What the model's verdict may do is decided in `services/egp/decision.ts`: only a
 confident, whole-document answer shows a record to officers or drops it (leaving a
 tombstone); everything else is held (`needs_review`) for an administrator.
 
+How the winner is chosen (#143) is read by a separate, best-effort model call
+after that decision, never inside the verdict (`services/egp/evaluation.ts`,
+`vertex/evaluation-reader.ts`, its own prompt version and a third response schema):
+the invitation announcement first, the bidding document in its place when there is
+no invitation, and the main TOR only if it was read whole and the first document
+stated no method, at most two calls. It runs only for a record the verdict keeps or
+holds, from the archive bytes already in memory, so it adds no site request. A
+failure is logged against the record and leaves the analysis and the outcome as
+the verdict made them; `analysis.evaluation` is then absent, which is not the same
+as present with no method (read, and the document said nothing). Nothing is
+repaired: weights stay in the unit written, a reading with any invalid criterion
+is dropped whole, and a total that does not add up is shown flagged, not corrected.
+Unvalidated until real documents are checked (none were available when this was
+built): that the invitation is where the method and weights are stated, the three
+method values, and the one level of nested criteria. Re-reading an analysed project
+needs a new Run (the archive is not stored), so older records have no evaluation.
+
+Who won and at what price (#142) is derived from the stored contract lines and bid
+submissions by `summariseAward` in `packages/types/src/award.ts`, a pure function
+that follows ADR-0022: the submitted bid and the agreed contract price stay two
+different numbers; a joint venture is a consortium line plus member lines, members
+are never winners, and anything that does not clearly resolve is left "unresolved";
+a winner's own bid is shown only for a single-item project and an exact name match;
+bidders are counted as distinct exact names, null when unknown; the API's
+`sum_price_agree`, `project_money` and `price_build` are kept on each contract line
+as published and never recomputed. The detail page shows it (`TorAwardSection`, from
+`/api/tors/:projectId/contracts` and `/contract-submissions`) for lines whose
+`projectId` equals the procurement's own **exactly**: no fuzzy, name or nearby-id
+match and no fallback to another project; with none, it shows an empty state. The
+open-data `project_id` matched the e-GP project id on name, agency, budget and
+reference price in five samples, but re-announced projects and cross-year contracts
+are untested (ADR-0022, rule 6, partially confirmed), so every figure stays labelled
+open data to verify. Which announcement round a contract belongs to is **not**
+decided: Discovery's latest-announcement rule (newer `announceDate` of the same
+type, invitation over draft) only chooses the feed snapshot a record is built from,
+and `invitationMoved` only marks the invitation PDF stale; neither relates to
+contracts. A contract line has no announcement id or round and its dates are
+unparsed Thai text, so dates must not be used to pick a contract. Every contract
+year under the exact id is shown, and a project re-announced under the same id can
+show an earlier round's award (untested, ADR-0022 rule 6).
+
+A TOR's planned budget against similar earlier procurements (#61, ADR-0023,
+`TorService.budgetComparison`, `compareBudget` in `packages/types`) uses only stored
+procurements. Three separate groups (same e-GP category, same agency, a shared
+technology); a comparable is exactly what an officer may see (`isVisibleTo`: outcome
+`tor_analysed`, not removed, so held and admin-only records never count, and the pool
+is the same whoever asks), has a `projectMoney`, and was announced strictly before the
+TOR. `count`, the statistics and the rank cover every eligible one; only ten are
+listed, nearest budget first; under 5 there is no summary. `projectMoney` is the
+planned budget, never a winning or contract price: keep it named and worded so.
+
 An administrator's overrides (approve a held record, mark non-software, delete with
 or without a tombstone, remove or restore a tombstone) live in
 `services/procurement-admin.service.ts`, not in `IngestionService`, and sit outside

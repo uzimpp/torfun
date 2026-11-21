@@ -1,6 +1,7 @@
 import type {
   Archive,
   ArchiveDocument,
+  Evaluation,
   Procurement,
   SoftwareJudgement,
   Timeline,
@@ -10,10 +11,11 @@ import type { DocumentClassification, ReadMode } from '../vertex/classify-docume
 import { officialDeadline } from './deadline';
 import { decideOutcome } from './decision';
 import { assignDocumentRoles, type ClassifiedDocument } from './document-roles';
+import type { EvaluationResult } from './evaluation';
 import type { InvitationResult } from './invitation';
 import { withDeadline, type Handoff, type RecordWork } from './record-work';
 import { buildTombstone } from './tombstone';
-import type { ExtractionResult } from './tor-package';
+import type { ExtractedPdf, ExtractionResult } from './tor-package';
 
 /**
  * Analysis: what happens to an Archive once Retrieval has it in hand. The model
@@ -26,7 +28,28 @@ export interface AnalysisDeps {
   extractTorPdfs: (archive: Uint8Array) => ExtractionResult;
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   readInvitation: (archive: Uint8Array, projectId: string) => Promise<InvitationResult>;
+  /**
+   * How the winner is chosen (#143), read after the verdict and never part of
+   * it. Optional: where it is not wired the step is skipped.
+   */
+  readEvaluation?: (
+    archive: Uint8Array,
+    projectId: string,
+    mainTor: ExtractedPdf | null,
+  ) => Promise<EvaluationResult>;
+  /** Time the evaluation reading may take in all; `EVALUATION_BUDGET_MS` where unset. */
+  evaluationBudgetMs?: number;
 }
+
+/**
+ * The evaluation reading has a time budget of its own, so a slow or failing model
+ * can cost a record nothing but that one field. It is also held clear of the
+ * record's deadline: with less than `MIN_USEFUL_BUDGET_MS` to spare before
+ * `DEADLINE_MARGIN_MS` of it, the reading is not started.
+ */
+export const EVALUATION_BUDGET_MS = 60_000;
+const DEADLINE_MARGIN_MS = 20_000;
+const MIN_USEFUL_BUDGET_MS = 10_000;
 
 interface AnalysedArchive {
   documents: ArchiveDocument[];
@@ -90,6 +113,77 @@ async function analyseArchive(
     torAmbiguous: ambiguous,
     anyUnreadable: candidates.some((candidate) => candidate.unreadable !== undefined),
   };
+}
+
+/** The main TOR's PDF, only when the verdict read it whole; a partial reading is never asked a second question. */
+function wholeMainTor(
+  extraction: ExtractionResult,
+  analysed: AnalysedArchive,
+): ExtractedPdf | null {
+  if (analysed.readMode !== 'pdf') return null;
+  const member = analysed.documents.find((document) => document.role === 'main_tor')?.member;
+  return member ? (extraction.torFiles.find((file) => file.member === member) ?? null) : null;
+}
+
+/**
+ * The evaluation reading, best effort: any failure is logged against the record
+ * and leaves the analysis as the verdict made it, so the outcome never depends on it.
+ */
+async function readEvaluationBestEffort(
+  read: NonNullable<AnalysisDeps['readEvaluation']>,
+  work: RecordWork,
+  archive: Uint8Array,
+  projectId: string,
+  mainTor: ExtractedPdf | null,
+  budgetMs: number,
+): Promise<Evaluation | null> {
+  // What is left of the record's own time, less a margin the reading must not touch.
+  const spare =
+    work.guard.deadlineAt === undefined
+      ? Number.POSITIVE_INFINITY
+      : work.guard.deadlineAt - Date.now() - DEADLINE_MARGIN_MS;
+  if (spare < MIN_USEFUL_BUDGET_MS) {
+    await work.note(
+      'analysis',
+      'Evaluation criteria were not read: too little time was left on the record to ask without risking its outcome.',
+    );
+    return null;
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const budget = Math.min(budgetMs, spare);
+    const timedOut = Symbol('evaluation budget spent');
+    const result = await Promise.race([
+      read(archive, projectId, mainTor),
+      new Promise<typeof timedOut>((resolve) => {
+        timer = setTimeout(() => resolve(timedOut), budget);
+      }),
+    ]);
+    if (result === timedOut) {
+      // The call itself cannot be cancelled and finishes unseen; its answer is dropped.
+      await work.note(
+        'analysis',
+        `Evaluation criteria were not read: the reading used its ${Math.round(budget / 1000)} s time budget and was left out so the record is not held up.`,
+      );
+      return null;
+    }
+    if (result.unreadable.length > 0) {
+      await work.note(
+        'analysis',
+        `Evaluation criteria could not be read from: ${result.unreadable.join('; ')}`,
+      );
+    }
+    return result.evaluation;
+  } catch (error) {
+    await work.note(
+      'analysis',
+      `Evaluation criteria reading failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -160,6 +254,22 @@ export function readRetrievedArchive(
           invitation.bidAt,
         ),
       };
+
+      // How the winner is chosen (#143): a separate reading, after the verdict
+      // is decided, added to the analysis only. Skipped where there is no
+      // analysis to add it to.
+      if (deps.readEvaluation && decision !== null && analysed.analysis !== null) {
+        const evaluation = await readEvaluationBestEffort(
+          deps.readEvaluation,
+          work,
+          archive,
+          record.projectId,
+          wholeMainTor(extraction, analysed),
+          deps.evaluationBudgetMs ?? EVALUATION_BUDGET_MS,
+        );
+        if (guard.expired) return;
+        if (evaluation) patch.analysis = { ...analysed.analysis, evaluation };
+      }
     }
 
     if (analysed.analysis !== null && analysed.judgement !== null && decision) {

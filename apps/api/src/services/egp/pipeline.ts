@@ -3,10 +3,11 @@ import type { IngestionFailure, Procurement, RunProgress } from '@torfun/types';
 import type { Env } from '../../config/env';
 import type { ProcurementStore } from '../../repositories/procurement.repository';
 import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
+import { readEvaluationPdf } from '../vertex/evaluation-reader';
 import { readInvitationPdf } from '../vertex/invitation-reader';
 import { createOversizeReaders } from '../vertex/oversize-readers';
 import { createModelCall, type ModelUsage } from '../vertex/vertex-ai';
-import { createAnalysisTasks } from './analysis-task';
+import { createAnalysisTasks, type AnalysisDeps } from './analysis-task';
 import type { AnnouncementClient } from './announcement-client';
 import { createAnnouncementClient } from './announcement-client';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
@@ -20,6 +21,7 @@ import {
   type SweepContext,
 } from './discovery';
 import { createDetailWorker, type DetailCandidate } from './detail-turn';
+import { readEvaluationDocuments } from './evaluation';
 import { readInvitationDocuments, type InvitationResult } from './invitation';
 import { createLiveView, DISCOVERY_SLOT, type LiveView } from './live-view';
 import { createRetrievalQueue } from './retrieval-queue';
@@ -70,6 +72,10 @@ export interface IngestionDeps {
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   /** Reads the bid date off the archive's invitation announcement, if it carries one. */
   readInvitation: (archive: Uint8Array, projectId: string) => Promise<InvitationResult>;
+  /** How the winner is chosen (#143): a best-effort reading after the verdict. Optional. */
+  readEvaluation?: AnalysisDeps['readEvaluation'];
+  /** Time the evaluation reading may take in all; the default where unset (tests shorten it). */
+  evaluationBudgetMs?: number;
   /** The project's procurement detail, read by Discovery, and its timeline, read by Retrieval. */
   announcements: AnnouncementClient;
   /** Sync completed contracts and their project-level submissions after a full run. */
@@ -100,6 +106,16 @@ export function createIngestionDeps(
         { extract: extractInvitationPdfs, read: (pdf) => readInvitationPdf(callModel, pdf) },
         archive,
         projectId,
+      ),
+    readEvaluation: (archive, projectId, mainTor) =>
+      readEvaluationDocuments(
+        {
+          extract: extractInvitationPdfs,
+          read: (pdf, document) => readEvaluationPdf(callModel, pdf, document),
+        },
+        archive,
+        projectId,
+        mainTor,
       ),
     announcements: createAnnouncementClient(),
     ...(syncAnnualContracts ? { syncAnnualContracts } : {}),
@@ -453,6 +469,17 @@ export async function runIngestion(
         modelCalls.run(() => modelTimer.time(() => deps.classifyDocument(pdf))),
       readInvitation: (archive, projectId) =>
         modelCalls.run(() => modelTimer.time(() => deps.readInvitation(archive, projectId))),
+      ...(deps.evaluationBudgetMs !== undefined
+        ? { evaluationBudgetMs: deps.evaluationBudgetMs }
+        : {}),
+      ...(deps.readEvaluation
+        ? {
+            readEvaluation: (archive, projectId, mainTor) =>
+              modelCalls.run(() =>
+                modelTimer.time(() => deps.readEvaluation!(archive, projectId, mainTor)),
+              ),
+          }
+        : {}),
     },
     queue,
   };

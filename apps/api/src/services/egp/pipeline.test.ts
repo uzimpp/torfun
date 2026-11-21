@@ -1,5 +1,11 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { currentDeadline, EMPTY_STAGES, EMPTY_TIMELINE, type Procurement } from '@torfun/types';
+import {
+  currentDeadline,
+  EMPTY_STAGES,
+  EMPTY_TIMELINE,
+  type Evaluation,
+  type Procurement,
+} from '@torfun/types';
 import {
   fakeAnnouncements,
   SAMPLE_DETAIL,
@@ -3403,5 +3409,228 @@ describe('a site that sends a web page in place of data', () => {
     expect(result.failures[0]?.error).toContain('แจ้งปิดระบบ e-GP ชั่วคราว');
     expect(await repository.get('q1')).toMatchObject({ outcome: 'queued', attempts: 0 });
     expect(await repository.get('q2')).toMatchObject({ outcome: 'queued', attempts: 0 });
+  });
+});
+
+describe('runIngestion: how the winner is chosen (#143)', () => {
+  const PROJECT = '66059313551';
+  const reading: Evaluation = {
+    method: 'price_performance',
+    quote: 'เกณฑ์ราคาประกอบเกณฑ์อื่น',
+    source: 'ข้อ 8',
+    document: 'invitation',
+    criteria: [{ name: 'ราคา', weight: 30, unit: 'percent' }],
+    promptVersion: 'test',
+  };
+
+  test("is stored on the analysis of a kept project, beside the verdict's own fields", async () => {
+    const repository = new InMemoryProcurementStore();
+    const readEvaluation = mock(async () => ({ evaluation: reading, unreadable: [] }));
+
+    const result = await run(repository, { readEvaluation });
+
+    const record = await repository.get(PROJECT);
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.analysis?.evaluation).toEqual(reading);
+    expect(record?.analysis).toMatchObject({ budgetThb: 4_500_000, techStack: ['React'] });
+    expect(result).toMatchObject({ torAnalysed: 1, held: 0, dropped: 0 });
+    expect(readEvaluation).toHaveBeenCalledTimes(1);
+    const [, projectId, mainTor] = readEvaluation.mock.calls[0] as unknown as [
+      Uint8Array,
+      string,
+      { member: string } | null,
+    ];
+    expect(projectId).toBe(PROJECT);
+    expect(mainTor?.member).toBe('Attach_TOR_1.pdf');
+  });
+
+  test('the main TOR is not offered when the verdict read only part of it', async () => {
+    const repository = new InMemoryProcurementStore();
+    const readEvaluation = mock(async () => ({ evaluation: reading, unreadable: [] }));
+
+    await run(repository, {
+      readEvaluation,
+      classifyDocument: async () => ({
+        isTor: true,
+        torKind: 'final' as const,
+        whatThisIs: 'ขอบเขตของงาน',
+        analysis,
+        judgement,
+        readMode: 'first_pages' as const,
+      }),
+    });
+
+    const record = await repository.get(PROJECT);
+    expect(record?.outcome).toBe('needs_review');
+    expect(record?.analysis?.evaluation).toEqual(reading);
+    expect((readEvaluation.mock.calls[0] as unknown as unknown[])[2]).toBeNull();
+  });
+
+  test('is not read for a project the model drops as not software', async () => {
+    const repository = new InMemoryProcurementStore();
+    const readEvaluation = mock(async () => ({ evaluation: reading, unreadable: [] }));
+
+    await run(repository, {
+      readEvaluation,
+      classifyDocument: async () => ({
+        isTor: true,
+        torKind: 'final' as const,
+        whatThisIs: 'ขอบเขตของงาน',
+        analysis,
+        judgement: { isSoftware: false, confidence: 'high' as const, reason: 'ก่อสร้าง' },
+        readMode: 'pdf' as const,
+      }),
+    });
+
+    expect(readEvaluation).not.toHaveBeenCalled();
+    expect(await repository.get(PROJECT)).toBeUndefined();
+  });
+
+  test('a reading that throws is logged and costs the project nothing else', async () => {
+    const repository = new InMemoryProcurementStore();
+
+    const result = await run(repository, {
+      readEvaluation: async () => {
+        throw new Error('vertex exploded');
+      },
+    });
+
+    const record = await repository.get(PROJECT);
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.analysis).not.toHaveProperty('evaluation');
+    expect(record?.analysis?.budgetThb).toBe(4_500_000);
+    expect(result).toMatchObject({ torAnalysed: 1, failed: 0 });
+    const failures = await repository.listFailures();
+    expect(failures.map((f: { error: string }) => f.error).join('\n')).toContain(
+      'Evaluation criteria reading failed: vertex exploded',
+    );
+  });
+
+  test('unreadable documents are surfaced in the failure log, with no evaluation stored', async () => {
+    const repository = new InMemoryProcurementStore();
+
+    await run(repository, {
+      readEvaluation: async () => ({
+        evaluation: null,
+        unreadable: ['annoudoc_1.pdf: 503 busy'],
+      }),
+    });
+
+    const record = await repository.get(PROJECT);
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.analysis).not.toHaveProperty('evaluation');
+    const failures = await repository.listFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ stage: 'analysis', kind: 'fault' });
+    expect(failures[0]?.error).toContain('annoudoc_1.pdf: 503 busy');
+  });
+
+  test('is skipped, with nothing logged, where it is not wired', async () => {
+    const repository = new InMemoryProcurementStore();
+
+    await run(repository);
+
+    const record = await repository.get(PROJECT);
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.analysis).not.toHaveProperty('evaluation');
+    expect(await repository.listFailures()).toHaveLength(0);
+  });
+});
+
+describe('runIngestion: the evaluation reading has a time budget of its own (#143)', () => {
+  const PROJECT = '66059313551';
+  const reading: Evaluation = {
+    method: 'lowest_price',
+    quote: null,
+    source: null,
+    document: 'invitation',
+    criteria: [],
+    promptVersion: 'test',
+  };
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  test('a reader that never answers is given up on, and the record is analysed as usual', async () => {
+    const repository = new InMemoryProcurementStore();
+    const started = Date.now();
+
+    const result = await run(repository, {
+      readEvaluation: () => new Promise(() => {}),
+      evaluationBudgetMs: 30,
+    });
+
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const record = await repository.get(PROJECT);
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.state).toBe('Completed');
+    expect(record?.analysis).not.toHaveProperty('evaluation');
+    expect(record?.analysis?.budgetThb).toBe(4_500_000);
+    expect(result).toMatchObject({ torAnalysed: 1, failed: 0 });
+    const failures = await repository.listFailures();
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ stage: 'analysis', kind: 'fault' });
+    expect(failures[0]?.error).toContain('time budget');
+  });
+
+  test('an answer that arrives after the budget is not applied, even later', async () => {
+    const repository = new InMemoryProcurementStore();
+
+    await run(repository, {
+      readEvaluation: async () => {
+        await sleep(120);
+        return { evaluation: reading, unreadable: [] };
+      },
+      evaluationBudgetMs: 20,
+    });
+    await sleep(250);
+
+    const record = await repository.get(PROJECT);
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.analysis).not.toHaveProperty('evaluation');
+  });
+
+  test('a reading that fails after the budget is not an unhandled rejection', async () => {
+    const repository = new InMemoryProcurementStore();
+
+    await run(repository, {
+      readEvaluation: async () => {
+        await sleep(80);
+        throw new Error('vertex fell over, late');
+      },
+      evaluationBudgetMs: 20,
+    });
+    await sleep(200);
+
+    expect((await repository.get(PROJECT))?.outcome).toBe('tor_analysed');
+  });
+
+  test('an answer inside the budget is stored', async () => {
+    const repository = new InMemoryProcurementStore();
+
+    await run(repository, {
+      readEvaluation: async () => {
+        await sleep(10);
+        return { evaluation: reading, unreadable: [] };
+      },
+      evaluationBudgetMs: 2_000,
+    });
+
+    expect((await repository.get(PROJECT))?.analysis?.evaluation).toEqual(reading);
+  });
+
+  test("is not started when too little of the record's own time is left", async () => {
+    const repository = new InMemoryProcurementStore();
+    const readEvaluation = mock(async () => ({ evaluation: reading, unreadable: [] }));
+
+    // The reading keeps clear of the last 20 s of the record's time, so a 2 s record has none to spare.
+    await run(repository, { readEvaluation, recordDeadlineMs: 2_000 });
+
+    expect(readEvaluation).not.toHaveBeenCalled();
+    const record = await repository.get(PROJECT);
+    expect(record?.outcome).toBe('tor_analysed');
+    expect(record?.analysis).not.toHaveProperty('evaluation');
+    const failures = await repository.listFailures();
+    expect(failures.map((f: { error: string }) => f.error).join('\n')).toContain(
+      'too little time was left',
+    );
   });
 });

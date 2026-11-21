@@ -8,6 +8,9 @@ import type { TorReviewData } from './use-tor-review-data';
 import { TorReviewBackButton } from './tor-review-back-button';
 import { MatchEvidence } from '@/components/notifications/match-evidence';
 import { TorDownloadButton } from './tor-download-button';
+import { TorAwardSection } from './tor-award-section';
+import { TorBudgetComparison } from './tor-budget-comparison';
+import { TorEvaluationCriteria } from './tor-evaluation-criteria';
 import { TorQualificationResults } from './tor-qualification-results';
 import { TorFavoriteButton } from './tor-favorite-button';
 import { TorReportButton } from './tor-report-button';
@@ -114,6 +117,21 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
       <section aria-labelledby="match-heading" className="mt-10">
         <SectionHeading id="match-heading" title="คุณสมบัติผู้เสนอราคาเทียบกับบริษัท" />
         <TorQualificationResults qualifications={tor.qualifications} result={tor.matchResult} />
+      </section>
+
+      <section aria-labelledby="evaluation-heading" className="mt-10">
+        <SectionHeading id="evaluation-heading" title="วิธีพิจารณาผู้ชนะและเกณฑ์น้ำหนัก" />
+        <TorEvaluationCriteria evaluation={tor.evaluation} />
+      </section>
+
+      <section aria-labelledby="budget-comparison-heading" className="mt-10">
+        <SectionHeading id="budget-comparison-heading" title="เทียบงบประมาณกับโครงการคล้ายกัน" />
+        <TorBudgetComparison projectId={tor.projectId} />
+      </section>
+
+      <section aria-labelledby="award-heading" className="mt-10">
+        <SectionHeading id="award-heading" title="ผู้ชนะและราคา (open data)" />
+        <TorAwardSection projectId={tor.projectId} />
       </section>
 
       {!tor.publicationRemoval && (

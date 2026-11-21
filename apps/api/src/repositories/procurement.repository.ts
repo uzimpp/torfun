@@ -8,6 +8,7 @@ import {
 } from 'mongodb';
 import type {
   ArchiveDocument,
+  BudgetCandidate,
   DailyDiscovered,
   DailyThroughput,
   HoldReason,
@@ -21,6 +22,7 @@ import type {
   ProcurementStatus,
   Stages,
   StatusChange,
+  EvaluationMethod,
   TargetPlatform,
   TorAnalysis,
   Tombstone,
@@ -330,6 +332,11 @@ export interface FindOptions {
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
   targetPlatforms?: TargetPlatform[];
+  /**
+   * At least one selected method must be the one read into analysis.evaluation
+   * (#143). A project with no reading never matches; this is not a guess at it.
+   */
+  evaluationMethod?: EvaluationMethod[];
   /** Keyword over existing names only; this is not an authoritative classification. */
   industry?: string;
   /**
@@ -370,6 +377,26 @@ export interface FindResult {
  * in a test without a database — and so the pipeline cannot quietly start
  * using a query it has no business issuing.
  */
+/**
+ * Which earlier procurements to compare a budget with (#61): one group's
+ * criteria, ANDed. At least one must be given, or every record would match.
+ */
+export interface ComparableQuery {
+  /**
+   * The outcome officers are shown. The service passes `OFFICER_VISIBLE_OUTCOME`
+   * (services/audience.ts), which this layer may not import; the removal flag is
+   * always excluded here. Together they are `isVisibleTo('officer', ...)`.
+   */
+  visibleOutcome: IngestionOutcome;
+  /** The procurement being compared, never its own comparable. */
+  excludeProjectId: string;
+  goodsId?: string;
+  typeId?: string;
+  deptName?: string;
+  /** At least one of these must equal an entry of `analysis.techStack`, ignoring case and outer spaces. */
+  techStack?: string[];
+}
+
 export interface ProcurementStore {
   get(projectId: string): Promise<Procurement | undefined>;
   years(): Promise<number[]>;
@@ -404,6 +431,12 @@ export interface ProcurementStore {
     detail?: string,
   ): Promise<Procurement | undefined>;
   find(options: FindOptions): Promise<FindResult>;
+  /**
+   * Every record matching `query` that an officer may see and that has a planned
+   * budget, as a small projection (no analysis, no admin-only field). Not limited:
+   * a count over it is a count of all of them.
+   */
+  listComparables(query: ComparableQuery): Promise<BudgetCandidate[]>;
   /**
    * Write fields onto a record without moving it to another Outcome. `updatedAt`
    * moves only when `touch` says something about the record changed, so a
@@ -1089,6 +1122,9 @@ export class ProcurementRepository
     if (options.targetPlatforms?.length) {
       filter['analysis.targetPlatforms'] = { $in: options.targetPlatforms };
     }
+    if (options.evaluationMethod?.length) {
+      filter['analysis.evaluation.method'] = { $in: options.evaluationMethod };
+    }
 
     addDateRange(clauses, '$announce_date', options.publishedFrom, options.publishedTo);
     addDateRange(clauses, '$deadline_at', options.deadlineFrom, options.deadlineTo, true);
@@ -1187,6 +1223,66 @@ export class ProcurementRepository
     ]);
 
     return { items: items.map(toDomain), total };
+  }
+
+  async listComparables(query: ComparableQuery): Promise<BudgetCandidate[]> {
+    const clauses: Record<string, unknown>[] = [];
+    if (query.goodsId !== undefined) clauses.push({ goods_id: query.goodsId });
+    if (query.typeId !== undefined) clauses.push({ type_id: query.typeId });
+    if (query.deptName !== undefined) clauses.push({ dept_name: query.deptName });
+    if (query.techStack !== undefined) {
+      const terms = query.techStack.map((term) => term.trim()).filter(Boolean);
+      // No usable term must match nothing, not everything.
+      clauses.push(
+        terms.length === 0
+          ? { _id: { $in: [] } }
+          : {
+              $or: terms.map((term) => ({
+                'analysis.techStack': {
+                  $elemMatch: { $regex: `^\\s*${escapeRegex(term)}\\s*$`, $options: 'i' },
+                },
+              })),
+            },
+      );
+    }
+    if (clauses.length === 0) throw new Error('listComparables needs at least one criterion');
+
+    const documents = await (
+      await this.records()
+    )
+      .find(
+        {
+          $and: [
+            {
+              outcome: query.visibleOutcome,
+              // Null also matches a record with no such field: never removed.
+              publication_removed_at: null,
+              project_money: { $type: 'number' },
+              _id: { $ne: query.excludeProjectId },
+            },
+            ...clauses,
+          ],
+        },
+        {
+          projection: {
+            project_name: 1,
+            dept_name: 1,
+            project_money: 1,
+            budget_year: 1,
+            announce_date: 1,
+          },
+        },
+      )
+      .toArray();
+
+    return documents.map((document) => ({
+      projectId: document._id,
+      projectName: document.project_name,
+      deptName: document.dept_name,
+      budget: document.project_money!,
+      budgetYear: document.budget_year ?? null,
+      announceDate: document.announce_date,
+    }));
   }
 
   async listFailures(): Promise<IngestionFailure[]> {

@@ -93,8 +93,17 @@ function contractRecords(rows: EGPContractRecord[], year: number): Contract[] {
       contractDate: contract.contract_date ?? null,
       contractFinishDate: contract.contract_finish_date ?? null,
       status: contract.status ?? null,
+      // Project-level figures, as the API publishes them: kept as given, never worked out here.
+      sumPriceAgree: numberOrNull(row.sum_price_agree),
+      projectMoney: numberOrNull(row.project_money),
+      priceBuild: numberOrNull(row.price_build),
     }));
   });
+}
+
+/** A figure the API sent as a number; anything else is null, never 0. */
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /**

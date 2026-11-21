@@ -1,4 +1,5 @@
 import {
+  EvaluationMethod,
   ProcurementOrderSchema,
   ProcurementStatus,
   type ProcurementFilters,
@@ -22,6 +23,8 @@ export interface SearchFilterValues {
   deadlineTo: string;
   techStack: string;
   targetPlatforms: TargetPlatform[];
+  /** Methods read from the documents (#143); a project with no reading never matches. */
+  evaluationMethod: EvaluationMethod[];
   industry: string;
 }
 
@@ -41,6 +44,7 @@ export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
   deadlineTo: '',
   techStack: '',
   targetPlatforms: [],
+  evaluationMethod: [],
   industry: '',
 };
 
@@ -69,6 +73,11 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
       : first(params.targetPlatforms).split(',')
   ).filter((value): value is TargetPlatform => PLATFORM_VALUES.includes(value as TargetPlatform));
 
+  // `entries` splits comma-joined values inside an array too, which the platform parsing above does not.
+  const methods = entries(params.evaluationMethod).filter(
+    (value): value is EvaluationMethod => EvaluationMethod.safeParse(value).success,
+  );
+
   return {
     order: ProcurementOrderSchema.safeParse(first(params.order)).data ?? 'announced',
     query: first(params.q).trim(),
@@ -85,6 +94,7 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
     deadlineTo: first(params.deadlineTo),
     techStack: first(params.techStack),
     targetPlatforms: [...new Set(platforms)],
+    evaluationMethod: [...new Set(methods)],
     industry: first(params.industry),
   };
 }
@@ -105,6 +115,7 @@ export function activeFilterCount(values: SearchFilterValues): number {
     values.minDaysLeft || values.deadlineFrom || values.deadlineTo,
     values.techStack,
     values.targetPlatforms.length > 0,
+    values.evaluationMethod.length > 0,
     values.industry,
   ].filter(Boolean).length;
 }
@@ -144,6 +155,7 @@ export function toProjectFilters(
     ...(values.minDaysLeft === '' && values.deadlineTo ? { deadlineTo: values.deadlineTo } : {}),
     ...(terms.length > 0 ? { techStack: terms } : {}),
     ...(values.targetPlatforms.length > 0 ? { targetPlatforms: values.targetPlatforms } : {}),
+    ...(values.evaluationMethod.length > 0 ? { evaluationMethod: values.evaluationMethod } : {}),
     ...(values.industry ? { industry: values.industry } : {}),
   };
 }
@@ -168,6 +180,9 @@ export function searchHref(values: SearchFilterValues, page = 1): string {
   if (values.targetPlatforms.length > 0) {
     params.set('targetPlatforms', values.targetPlatforms.join(','));
   }
+  if (values.evaluationMethod.length > 0) {
+    params.set('evaluationMethod', values.evaluationMethod.join(','));
+  }
   if (values.industry) params.set('industry', values.industry);
   if (page > 1) params.set('page', String(page));
   const query = params.toString();
@@ -189,6 +204,7 @@ export type SearchFilterCriterion =
   | 'deadline'
   | 'techStack'
   | 'targetPlatforms'
+  | 'evaluationMethod'
   | 'industry';
 
 /** Clears one visible criterion while preserving the search words and every other filter. */
@@ -200,6 +216,7 @@ export function withoutSearchFilter(
     case 'status':
     case 'budgetYear':
     case 'targetPlatforms':
+    case 'evaluationMethod':
       return { ...values, [criterion]: [] };
     case 'deptName':
     case 'outcome':

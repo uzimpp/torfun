@@ -1,5 +1,10 @@
 import {
+  BUDGET_COMPARISON_MIN_SAMPLE,
+  compareBudget,
   thailandDay,
+  type BudgetComparison,
+  type BudgetComparisonBasis,
+  type BudgetComparisonGroup,
   type Procurement,
   type TorAnalysis,
   type TorDetail,
@@ -10,7 +15,11 @@ import type { CompanyQualificationsService } from './company-qualifications.serv
 import { computeQualificationMatch, evaluateQualifications } from './qualification-match';
 import { resolveProcurementListOptions } from './procurement-list-options';
 import { NotFoundError } from '../core/errors';
-import type { FindOptions, ProcurementStore } from '../repositories/procurement.repository';
+import type {
+  ComparableQuery,
+  FindOptions,
+  ProcurementStore,
+} from '../repositories/procurement.repository';
 import { downloadArchive, extractTorPdfs } from './egp/tor-package';
 import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, presentTo, type Audience } from './audience';
 
@@ -107,6 +116,61 @@ export class TorService {
             )
           : null,
     };
+  }
+
+  /**
+   * The planned budget of a TOR against those of similar earlier procurements
+   * (#61), in three separate groups: the same e-GP category, the same agency, a
+   * shared technology. A comparable is another procurement an officer may see
+   * (`OFFICER_VISIBLE_OUTCOME`, not removed) with a planned budget that was
+   * announced strictly before this one. Who asks changes nothing: an administrator
+   * and an officer get the same comparables, and only a record the caller may
+   * open can be compared at all (`get`). An undated TOR has no "earlier", so it
+   * has no comparables.
+   */
+  async budgetComparison(projectId: string, audience: Audience): Promise<BudgetComparison> {
+    const tor = await this.get(projectId, audience);
+    if (tor.projectMoney === null) {
+      return { minSample: BUDGET_COMPARISON_MIN_SAMPLE, budget: null, groups: [] };
+    }
+
+    const announced = tor.announceDate === null ? Number.NaN : Date.parse(tor.announceDate);
+    const base = { visibleOutcome: OFFICER_VISIBLE_OUTCOME, excludeProjectId: projectId };
+    const terms = [...new Set((tor.analysis?.techStack ?? []).map((term) => term.trim()))].filter(
+      Boolean,
+    );
+    const plans: [BudgetComparisonBasis, string | null, ComparableQuery | null][] = [
+      [
+        'category',
+        tor.goodsId && tor.typeId ? `${tor.goodsId}/${tor.typeId}` : null,
+        tor.goodsId && tor.typeId ? { ...base, goodsId: tor.goodsId, typeId: tor.typeId } : null,
+      ],
+      [
+        'agency',
+        tor.deptName.trim() ? tor.deptName : null,
+        tor.deptName.trim() ? { ...base, deptName: tor.deptName } : null,
+      ],
+      [
+        'tech',
+        terms.length > 0 ? terms.join(', ') : null,
+        terms.length > 0 ? { ...base, techStack: terms } : null,
+      ],
+    ];
+
+    const groups = await Promise.all(
+      plans.map(async ([basis, criterion, query]): Promise<BudgetComparisonGroup> => {
+        if (!criterion || !query || Number.isNaN(announced)) {
+          return { basis, criterion: null, count: 0, summary: null, projects: [] };
+        }
+        const earlier = (await this.procurements.listComparables(query)).filter((candidate) => {
+          const at =
+            candidate.announceDate === null ? Number.NaN : Date.parse(candidate.announceDate);
+          return !Number.isNaN(at) && at < announced;
+        });
+        return { basis, criterion, ...compareBudget(tor.projectMoney!, earlier) };
+      }),
+    );
+    return { minSample: BUDGET_COMPARISON_MIN_SAMPLE, budget: tor.projectMoney, groups };
   }
 
   async source(projectId: string, audience: Audience): Promise<TorSource> {

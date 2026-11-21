@@ -1,8 +1,11 @@
 import type {
+  BudgetComparison,
   ChangePassword,
   ClientKind,
   CompanyQualificationsPayload,
   CompanyQualificationsRecord,
+  Contract,
+  ContractSubmission,
   DurationUnit,
   IngestionFailure,
   IngestionSummary,
@@ -188,6 +191,25 @@ export function fetchFiscalYears(): Promise<ProcurementYearsResponse> {
 
 export function fetchTor(projectId: string): Promise<TorDetail> {
   return request<TorDetail>(`/api/tors/${encodeURIComponent(projectId)}`);
+}
+
+/** A TOR's planned budget against similar earlier procurements TORfun has stored (#61). */
+export function fetchTorBudgetComparison(projectId: string): Promise<BudgetComparison> {
+  return request<BudgetComparison>(`/api/tors/${encodeURIComponent(projectId)}/budget-comparison`);
+}
+
+/** Contract lines the open-data API published for exactly this project id (ADR-0022). */
+export function fetchTorContracts(projectId: string): Promise<{ items: Contract[] }> {
+  return request<{ items: Contract[] }>(`/api/tors/${encodeURIComponent(projectId)}/contracts`);
+}
+
+/** Bid submissions the open-data API published for exactly this project id (ADR-0022). */
+export function fetchTorContractSubmissions(
+  projectId: string,
+): Promise<{ items: ContractSubmission[] }> {
+  return request<{ items: ContractSubmission[] }>(
+    `/api/tors/${encodeURIComponent(projectId)}/contract-submissions`,
+  );
 }
 
 export function submitTorReport(

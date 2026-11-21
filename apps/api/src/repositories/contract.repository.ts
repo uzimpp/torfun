@@ -32,6 +32,10 @@ interface ContractDocument {
   contract_date: string | null;
   contract_finish_date: string | null;
   status: string | null;
+  /** Project-level figures as published; absent on lines stored before they were kept. */
+  sum_price_agree?: number | null;
+  project_money?: number | null;
+  price_build?: number | null;
 }
 
 interface ContractProjectDocument {
@@ -62,6 +66,9 @@ function toDomain(projectId: string, contractYear: number, document: ContractDoc
     contractDate: document.contract_date,
     contractFinishDate: document.contract_finish_date,
     status: document.status,
+    sumPriceAgree: document.sum_price_agree ?? null,
+    projectMoney: document.project_money ?? null,
+    priceBuild: document.price_build ?? null,
   };
 }
 
@@ -74,6 +81,9 @@ function toDocument(record: Contract): ContractDocument {
     contract_date: record.contractDate,
     contract_finish_date: record.contractFinishDate,
     status: record.status,
+    sum_price_agree: record.sumPriceAgree ?? null,
+    project_money: record.projectMoney ?? null,
+    price_build: record.priceBuild ?? null,
   };
 }
 

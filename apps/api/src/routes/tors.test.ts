@@ -337,6 +337,118 @@ describe('TOR detail routes', () => {
     expect(response.statusCode).toBe(404);
   });
 
+  describe('budget comparison', () => {
+    const iso = (day: string) => `${day}T00:00:00.000Z`;
+
+    async function seedBudgets(count: number) {
+      await procurements.upsert(
+        procurement({
+          projectId: 'cmp-tor',
+          announceDate: iso('2026-06-01'),
+          projectMoney: 1_000_000,
+        }),
+      );
+      for (let index = 1; index <= count; index += 1) {
+        await procurements.upsert(
+          procurement({
+            projectId: `cmp-${index}`,
+            announceDate: iso('2026-01-01'),
+            projectMoney: 100_000 * index,
+          }),
+        );
+      }
+    }
+
+    test('rejects an anonymous caller', async () => {
+      const response = await app.inject({ url: '/api/tors/cmp-tor/budget-comparison' });
+      expect(response.statusCode).toBe(401);
+    });
+
+    test('returns the groups with the full count and at most ten listed projects', async () => {
+      await seedBudgets(12);
+
+      const response = await app.inject({
+        url: '/api/tors/cmp-tor/budget-comparison',
+        cookies: session(),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('private, no-store');
+      const body = response.json<{
+        minSample: number;
+        budget: number;
+        groups: {
+          basis: string;
+          count: number;
+          projects: unknown[];
+          summary: { rank: number } | null;
+        }[];
+      }>();
+      expect(body).toMatchObject({ minSample: 5, budget: 1_000_000 });
+      const agency = body.groups.find((group) => group.basis === 'agency')!;
+      // project-1 (the fixture every test starts with) is dated in Thai text, so it is not comparable.
+      expect(agency.count).toBe(12);
+      expect(agency.projects).toHaveLength(10);
+      expect(agency.summary).not.toBeNull();
+    });
+
+    test('is the same for an administrator and an officer', async () => {
+      await seedBudgets(6);
+      await procurements.upsert(
+        procurement({
+          projectId: 'cmp-held',
+          announceDate: iso('2026-01-01'),
+          outcome: 'needs_review',
+          holdReason: 'partial_read',
+        }),
+      );
+
+      const get = async (role: User['role']) =>
+        (
+          await app.inject({
+            url: '/api/tors/cmp-tor/budget-comparison',
+            cookies: session(role),
+          })
+        ).json();
+
+      expect(await get('admin')).toEqual(await get('business_development_officer'));
+    });
+
+    test('is 404 for a procurement the caller may not open, and for an unknown one', async () => {
+      await procurements.upsert(
+        procurement({ projectId: 'cmp-held', outcome: 'needs_review', holdReason: 'partial_read' }),
+      );
+
+      for (const projectId of ['cmp-held', 'missing']) {
+        const response = await app.inject({
+          url: `/api/tors/${projectId}/budget-comparison`,
+          cookies: session(),
+        });
+        expect(response.statusCode).toBe(404);
+      }
+      const admin = await app.inject({
+        url: '/api/tors/cmp-held/budget-comparison',
+        cookies: session('admin'),
+      });
+      expect(admin.statusCode).toBe(200);
+    });
+
+    test('says a TOR with no planned budget cannot be compared', async () => {
+      await procurements.upsert(procurement({ projectId: 'cmp-none', projectMoney: null }));
+
+      const response = await app.inject({
+        url: '/api/tors/cmp-none/budget-comparison',
+        cookies: session(),
+      });
+
+      expect(response.json<Record<string, unknown>>()).toEqual({
+        minSample: 5,
+        budget: null,
+        groups: [],
+      });
+    });
+  });
+
   test('returns only fiscal years present in the procurement index', async () => {
     await procurements.upsert(procurement({ projectId: 'future', budgetYear: 2570 }));
     await procurements.upsert(procurement({ projectId: 'past', budgetYear: 2560 }));
@@ -444,6 +556,7 @@ describe('TOR detail routes', () => {
     '/api/tors?publishedFrom=2026-02-30',
     '/api/tors?deadlineFrom=2026-10-02&deadlineTo=2026-10-01',
     '/api/tors?targetPlatforms=television',
+    '/api/tors?evaluationMethod=cheapest',
     '/api/tors?status=invalid',
     '/api/tors?minDaysLeft=-1',
     '/api/tors?minDaysLeft=3.5',
@@ -454,6 +567,18 @@ describe('TOR detail routes', () => {
     const response = await app.inject({ method: 'GET', url, cookies: session() });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  test('accepts the evaluation method filter, repeated or comma-separated', async () => {
+    for (const url of [
+      '/api/tors?evaluationMethod=lowest_price',
+      '/api/tors?evaluationMethod=lowest_price,price_performance',
+      '/api/tors?evaluationMethod=other&evaluationMethod=price_performance',
+    ]) {
+      const response = await app.inject({ method: 'GET', url, cookies: session() });
+
+      expect(response.statusCode).toBe(200);
+    }
   });
 
   test('returns an existing procurement to an administrator', async () => {

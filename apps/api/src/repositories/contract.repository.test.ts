@@ -50,6 +50,9 @@ describeMongo('ContractRepository', () => {
       contractDate: '2026-01-01',
       contractFinishDate: '2026-12-31',
       status: 'completed',
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
     };
 
     await repository.replaceProjectSnapshot('project-001', 2569, [contract]);
@@ -57,6 +60,52 @@ describeMongo('ContractRepository', () => {
     const result = await repository.listByProject('project-001');
 
     expect(result).toEqual([contract]);
+  });
+
+  test('keeps the project-level figures as published, and reads a line stored without them back as null', async () => {
+    const withFigures = {
+      projectId: 'project-001',
+      contractYear: 2569,
+      contractNo: 'CN-001',
+      winnerName: 'Example Company',
+      winnerTin: 'test-tin-001',
+      priceAgree: 2_830_000,
+      contractDate: null,
+      contractFinishDate: null,
+      status: null,
+      sumPriceAgree: 2_900_000,
+      projectMoney: 3_000_000,
+      priceBuild: 2_995_000,
+    };
+    await repository.replaceProjectSnapshot('project-001', 2569, [withFigures]);
+    expect(await repository.listByProject('project-001')).toEqual([withFigures]);
+
+    // A line written before these were kept has no such fields in the document.
+    const database = await getDb();
+    await database.collection('contracts').insertOne({
+      _id: 'legacy:2569' as never,
+      projectId: 'legacy',
+      contractYear: 2569,
+      contracts: [
+        {
+          contract_no: 'OLD-1',
+          winner_name: 'Old Co',
+          winner_tin: null,
+          price_agree: 10,
+          contract_date: null,
+          contract_finish_date: null,
+          status: null,
+        },
+      ],
+      updated_at: '2026-01-01T00:00:00.000Z',
+    });
+    const [legacy] = await repository.listByProject('legacy');
+    expect(legacy).toMatchObject({
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
+      priceAgree: 10,
+    });
   });
 
   test('replaces the previous snapshot for the same project and year', async () => {
@@ -70,6 +119,9 @@ describeMongo('ContractRepository', () => {
       contractDate: '2026-01-01',
       contractFinishDate: '2026-12-31',
       status: 'completed',
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
     };
 
     const secondContract = {
@@ -82,6 +134,9 @@ describeMongo('ContractRepository', () => {
       contractDate: '2026-02-01',
       contractFinishDate: '2026-12-31',
       status: 'completed',
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
     };
 
     await repository.replaceProjectSnapshot('project-001', 2569, [firstContract]);
@@ -103,6 +158,9 @@ describeMongo('ContractRepository', () => {
       contractDate: '2025-01-01',
       contractFinishDate: '2025-12-31',
       status: 'completed',
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
     };
 
     const contract2569 = {
@@ -115,6 +173,9 @@ describeMongo('ContractRepository', () => {
       contractDate: '2026-01-01',
       contractFinishDate: '2026-12-31',
       status: 'completed',
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
     };
 
     await repository.replaceProjectSnapshot('project-001', 2568, [contract2568]);
@@ -138,6 +199,9 @@ describeMongo('ContractRepository', () => {
       contractDate: '2025-01-01',
       contractFinishDate: '2025-12-31',
       status: 'completed',
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
     };
 
     const contract2569 = {
@@ -150,6 +214,9 @@ describeMongo('ContractRepository', () => {
       contractDate: '2026-01-01',
       contractFinishDate: '2026-12-31',
       status: 'completed',
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
     };
 
     await repository.replaceProjectSnapshot('project-001', 2568, [contract2568]);
@@ -172,6 +239,9 @@ describeMongo('ContractRepository', () => {
       contractDate: null,
       contractFinishDate: null,
       status: null,
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
     };
     const next = { ...previous, contractNo: 'new', winnerName: 'New winner' };
     await repository.replaceProjectSnapshot('project-snapshot', 2569, [previous]);

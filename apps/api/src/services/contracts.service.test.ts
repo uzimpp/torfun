@@ -653,3 +653,49 @@ describe('ContractsService submission mapping: unreadable values', () => {
     expect(warnings.filter(([fields]) => (fields as { unreadablePrices?: number }).unreadablePrices)).toEqual([]);
   });
 });
+
+describe('ContractsService contract records: project-level figures', () => {
+  test('keeps the budget, reference price and the API aggregate as published, null for anything else', async () => {
+    const client: ContractSyncClient = {
+      getAllContracts: async (year, _env, beforePage) => {
+        await beforePage?.(0);
+        return year === 2566
+          ? [
+              {
+                ...contractRow,
+                project_money: 3_000_000,
+                price_build: 2_995_000,
+                sum_price_agree: 2_900_000,
+              },
+              {
+                ...contractRow,
+                project_id: 'project-2',
+                // The API sent no aggregate, a string and a non-finite number: none is repaired.
+                project_money: '3000000' as unknown as number,
+                price_build: Number.NaN,
+              },
+            ]
+          : [];
+      },
+      getAllContractSubmissions: async () => [],
+    };
+    const state = harness(client);
+
+    await state.service.syncAnnual();
+
+    const generation = state.active.get(2566);
+    const records = state.staged.get(2566)?.get(generation!) ?? [];
+    const byProject = new Map(records.map((record) => [record.projectId, record]));
+    expect(byProject.get('project-1')).toMatchObject({
+      sumPriceAgree: 2_900_000,
+      projectMoney: 3_000_000,
+      priceBuild: 2_995_000,
+      priceAgree: 100_000,
+    });
+    expect(byProject.get('project-2')).toMatchObject({
+      sumPriceAgree: null,
+      projectMoney: null,
+      priceBuild: null,
+    });
+  });
+});

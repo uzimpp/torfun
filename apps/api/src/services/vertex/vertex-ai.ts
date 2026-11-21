@@ -173,6 +173,58 @@ export const INVITATION_SCHEMA: Schema = {
   required: ['bidDate'],
 };
 
+/** One weighted criterion as the model reads it; see `evaluation-reader.ts`. */
+const CRITERION_FIELDS: Record<string, Schema> = {
+  name: { type: Type.STRING },
+  weight: { type: Type.NUMBER, nullable: true },
+  unit: { type: Type.STRING, enum: ['percent', 'points'], nullable: true },
+};
+
+/**
+ * The shape the evaluation method and its weighted criteria are read into
+ * (#143). A third answer shape of its own: the verdict's and the invitation's
+ * are pinned by tests and must not change. Criteria nest two levels at most
+ * (a group and its parts), written out because the schema does not allow recursion.
+ */
+export const EVALUATION_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    method: {
+      type: Type.STRING,
+      enum: ['lowest_price', 'price_performance', 'other'],
+      nullable: true,
+    },
+    quote: { type: Type.STRING, nullable: true },
+    source: { type: Type.STRING, nullable: true },
+    criteria: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          ...CRITERION_FIELDS,
+          children: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: CRITERION_FIELDS,
+              required: ['name', 'weight', 'unit'],
+            },
+          },
+        },
+        required: ['name', 'weight', 'unit', 'children'],
+      },
+    },
+  },
+  required: ['method', 'quote', 'source', 'criteria'],
+};
+
+/** Which response schema each kind of question is held to. */
+const RESPONSE_SCHEMAS: Record<'tor' | 'invitation' | 'evaluation', Schema> = {
+  tor: ANSWER_SCHEMA,
+  invitation: INVITATION_SCHEMA,
+  evaluation: EVALUATION_SCHEMA,
+};
+
 /**
  * Ceiling on one answer, thinking included.
  *
@@ -290,7 +342,7 @@ export function createModelCall(env: Env, onUsage?: (usage: ModelUsage) => void)
           temperature: 0,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           responseMimeType: 'application/json',
-          responseSchema: input.answer === 'invitation' ? INVITATION_SCHEMA : ANSWER_SCHEMA,
+          responseSchema: RESPONSE_SCHEMAS[input.answer ?? 'tor'],
           abortSignal: signal,
         },
       });

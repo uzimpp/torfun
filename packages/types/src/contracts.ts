@@ -11,6 +11,17 @@ export const ContractSchema = z.object({
   contractDate: z.string().nullable(),
   contractFinishDate: z.string().nullable(),
   status: z.string().nullable(),
+  /**
+   * Project-level figures exactly as the API publishes them, repeated on every
+   * line of the project (ADR-0022): `sumPriceAgree` is the API's own aggregate of
+   * the agreed prices, not a total this system worked out or verified. Null where
+   * the API gave none; absent on lines stored before these were kept.
+   */
+  sumPriceAgree: z.number().nullish(),
+  /** The agency's budget for the project (วงเงินงบประมาณ). */
+  projectMoney: z.number().nullish(),
+  /** The reference price (ราคากลาง). */
+  priceBuild: z.number().nullish(),
 });
 export type Contract = z.infer<typeof ContractSchema>;
 
