@@ -44,7 +44,7 @@ export const companyRoutes: FastifyPluginAsyncZod = async (app) => {
     '/companies/search',
     {
       schema: {
-        querystring: z.object({ q: z.string().default('') }),
+        querystring: z.object({ q: z.string().max(200).default('') }),
         response: { 200: z.object({ companies: z.array(CompanyResponse) }) },
       },
     },

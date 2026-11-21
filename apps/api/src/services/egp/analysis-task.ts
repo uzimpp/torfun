@@ -117,6 +117,14 @@ export function readRetrievedArchive(
       );
     }
 
+    if (extraction.oversizeSkipped.length > 0) {
+      // Same rule as above: a bomb or an outsized member is shown, not swallowed.
+      await work.note(
+        'extract',
+        `Archive members not inflated (size limits): ${extraction.oversizeSkipped.join(', ')}`,
+      );
+    }
+
     // The record only counts as being read once there is something to read.
     if (extraction.torFiles.length > 0) {
       await work.store.transition(record.projectId, 'analysing');

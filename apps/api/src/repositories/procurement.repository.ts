@@ -30,6 +30,7 @@ import { appendStatusChange, currentDeadline, EMPTY_STAGES, OUTCOME_STATE } from
 import { mergeDiscovered } from './merge-discovered';
 import { hashSource, hasUpstreamChange } from './source-hash';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
+import { escapeRegex as escapeRegexLiteral } from '../core/regex';
 
 /**
  * Data access for ingested procurement records.
@@ -1503,8 +1504,9 @@ const URGENCY_ORDER = [
   },
 ];
 
+/** Search terms are trimmed before they are escaped. */
 function escapeRegex(value: string): string {
-  return value.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return escapeRegexLiteral(value.trim());
 }
 
 function regexAny(fields: readonly string[], value: string): Record<string, unknown> {
