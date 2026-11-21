@@ -195,6 +195,34 @@ describe('registration and the current user', () => {
     expect(response.json().user).toMatchObject({ company_id: null, company_name: null });
   });
 
+  test('refuses a password over 72 UTF-8 bytes, even when it is under 72 characters', async () => {
+    // 25 Thai characters are 75 bytes: bcrypt would silently drop the tail.
+    const tooLong = 'ก'.repeat(25);
+    const response = await register({
+      username: 'longpass',
+      password: tooLong,
+      confirm_password: tooLong,
+      first_name: 'Long',
+      last_name: 'Password',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(await users.findByUsername('longpass')).toBeNull();
+  });
+
+  test('accepts a password of exactly 72 UTF-8 bytes', async () => {
+    const atLimit = 'ก'.repeat(24);
+    const response = await register({
+      username: 'limitpass',
+      password: atLimit,
+      confirm_password: atLimit,
+      first_name: 'Limit',
+      last_name: 'Password',
+    });
+
+    expect(response.statusCode).toBe(201);
+  });
+
   test('/me resolves the name from the Company once one is joined', async () => {
     const company = await companies.create({ nameTh: 'บริษัท สยามซอฟต์ จำกัด', tin: null });
     const user = users.seed({ username: 'malee', companyId: company.id });
@@ -316,6 +344,7 @@ describe('account settings', () => {
   test('allows profile edits for Google-only users and rejects password changes', async () => {
     const { user } = await app.authService.loginWithGoogle({
       sub: 'google-settings',
+      email_verified: true,
       email: 'settings@example.com',
     });
     expect((await read(user)).json()).toMatchObject({ has_local_password: false });

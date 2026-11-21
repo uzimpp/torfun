@@ -138,7 +138,7 @@ describe('invitationRoleOf', () => {
     expect(invitationRoleOf(`pack/annoudoc_1_${projectId}.PDF`, projectId)).toBe('invitation');
   });
 
-  test('another project\'s file is not ours', () => {
+  test("another project's file is not ours", () => {
     expect(invitationRoleOf('annoudoc_1234567_69049099999.pdf', projectId)).toBeNull();
   });
 

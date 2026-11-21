@@ -10,6 +10,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
@@ -21,6 +22,7 @@
         "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
+        "TRUST_PROXY_HOPS",
         "VERTEX_AI_MODEL",
         "WEB_APP_URL",
         "SMTP_*",
@@ -45,6 +47,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
@@ -57,6 +60,7 @@
         "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
+        "TRUST_PROXY_HOPS",
         "VERTEX_AI_MODEL",
         "WEB_APP_URL",
         "SMTP_*",
@@ -70,6 +74,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
@@ -81,6 +86,7 @@
         "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
+        "TRUST_PROXY_HOPS",
         "VERTEX_AI_MODEL",
         "WEB_APP_URL",
         "SMTP_*",
