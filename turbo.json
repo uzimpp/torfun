@@ -10,6 +10,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
@@ -18,10 +19,15 @@
         "LOG_LEVEL",
         "MONGODB_DB",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
+        "TRUST_PROXY_HOPS",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "dev": {
@@ -41,6 +47,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
@@ -50,10 +57,15 @@
         "MONGODB_DB",
         "MONGODB_TEST_URI",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
+        "TRUST_PROXY_HOPS",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "test:e2e": {
@@ -62,6 +74,7 @@
       "env": [
         "ANALYSIS_CONCURRENCY",
         "CORS_ORIGINS",
+        "BREACHED_PASSWORD_CHECK",
         "EGP_*",
         "GOOGLE_*",
         "HOST",
@@ -70,10 +83,15 @@
         "LOG_LEVEL",
         "MONGODB_DB",
         "MONGODB_URI",
+        "MONGODB_TEST_URI",
         "NEXT_PUBLIC_*",
         "PORT",
+        "TRUST_PROXY_HOPS",
         "VERTEX_AI_MODEL",
-        "WEB_APP_URL"
+        "WEB_APP_URL",
+        "SMTP_*",
+        "LINE_*",
+        "NOTIFICATION_*"
       ]
     },
     "clean": {

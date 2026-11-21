@@ -6,12 +6,14 @@ import { dashboardRoutes } from './dashboard';
 import { ingestionRoutes } from './ingestion';
 import { procurementAdminRoutes } from './procurement-admin';
 import { scheduleRoutes } from './schedule';
+import { companyQualificationsRoutes } from './company-qualifications';
 import { companyRoutes } from './companies';
 import { clientRoutes } from './clients';
 import { experienceRoutes } from './experiences';
 import { torRoutes } from './tors';
 import { favoriteRoutes } from './favorites';
 import { torReportRoutes } from './tor-reports';
+import { notificationRoutes, notificationWorkerRoutes, lineWebhookRoutes } from './notifications';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes, { prefix: '/api' });
@@ -24,11 +26,15 @@ export async function registerRoutes(app: FastifyInstance) {
   // The vendor's own record. Each is its own plugin scope, which is what lets
   // `requireAuth` be added once per group rather than once per route.
   await app.register(companyRoutes, { prefix: '/api' });
+  await app.register(companyQualificationsRoutes, { prefix: '/api' });
   await app.register(clientRoutes, { prefix: '/api' });
   await app.register(experienceRoutes, { prefix: '/api' });
   await app.register(torRoutes, { prefix: '/api' });
   await app.register(favoriteRoutes, { prefix: '/api' });
   await app.register(torReportRoutes, { prefix: '/api' });
+  await app.register(notificationRoutes, { prefix: '/api' });
+  await app.register(notificationWorkerRoutes, { prefix: '/api' });
+  await app.register(lineWebhookRoutes, { prefix: '/api' });
 
   // Future route groups (per feature analysis in the project brief):
   // - /api/tors/:id/source (download/read original source, USR-07)

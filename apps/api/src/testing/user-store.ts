@@ -14,6 +14,7 @@ import type { NewUser, UserStore } from '../repositories/user.repository';
 export class InMemoryUserStore implements UserStore {
   private readonly users = new Map<string, User>();
   private readonly passwordHashes = new Map<string, string>();
+  private readonly googleIds = new Map<string, string>();
 
   /**
    * Seeds an account directly, the way a previous session would have left one.
@@ -45,8 +46,16 @@ export class InMemoryUserStore implements UserStore {
     return [...this.users.values()].find((user) => user.username === username) ?? null;
   }
 
-  async findByGoogleId(): Promise<User | null> {
+  async findByGoogleId(googleId: string): Promise<User | null> {
+    for (const [id, linked] of this.googleIds) {
+      if (linked === googleId) return this.users.get(id) ?? null;
+    }
     return null;
+  }
+
+  /** Test hook: the Google subject an account is linked to, if any. */
+  googleIdOf(id: string): string | undefined {
+    return this.googleIds.get(id);
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -54,11 +63,27 @@ export class InMemoryUserStore implements UserStore {
   }
 
   async findCredentials(
-    username: string,
+    lookup: Parameters<UserStore['findCredentials']>[0],
   ): Promise<{ user: User; passwordHash: string | null } | null> {
-    const user = await this.findByUsername(username);
+    const user =
+      'id' in lookup ? await this.findById(lookup.id) : await this.findByUsername(lookup.username);
     if (!user) return null;
     return { user, passwordHash: this.passwordHashes.get(user.id) ?? null };
+  }
+
+  async updateProfile(id: string, profile: Pick<User, 'firstName' | 'lastName'>) {
+    const user = this.users.get(id);
+    if (!user?.isActive) return false;
+    this.users.set(id, { ...user, ...profile, updatedAt: new Date() });
+    return true;
+  }
+
+  async replacePassword(id: string, currentHash: string, newHash: string) {
+    const user = this.users.get(id);
+    if (!user?.isActive || this.passwordHashes.get(id) !== currentHash) return false;
+    this.passwordHashes.set(id, newHash);
+    this.users.set(id, { ...user, updatedAt: new Date() });
+    return true;
   }
 
   async create(input: NewUser): Promise<User> {
@@ -70,10 +95,15 @@ export class InMemoryUserStore implements UserStore {
       ...(input.email ? { email: input.email } : {}),
     });
     if (input.passwordHash) this.passwordHashes.set(user.id, input.passwordHash);
+    if (input.googleId) this.googleIds.set(user.id, input.googleId);
     return user;
   }
 
-  async linkGoogleId(): Promise<void> {}
+  async linkGoogleId(id: string, googleId: string): Promise<boolean> {
+    if (!this.users.has(id) || this.googleIds.has(id)) return false;
+    this.googleIds.set(id, googleId);
+    return true;
+  }
 
   async setCompanyId(id: string, companyId: string | null): Promise<void> {
     const user = this.users.get(id);

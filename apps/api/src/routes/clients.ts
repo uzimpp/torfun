@@ -47,7 +47,7 @@ export const clientRoutes: FastifyPluginAsyncZod = async (app) => {
     '/clients/suggestions',
     {
       schema: {
-        querystring: z.object({ kind: ClientKind, q: z.string().default('') }),
+        querystring: z.object({ kind: ClientKind, q: z.string().max(200).default('') }),
         // A flat array of names, not objects: a suggestion is a string the
         // officer is about to type, and the Client it may become does not
         // exist yet.

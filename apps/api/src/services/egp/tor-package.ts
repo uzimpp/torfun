@@ -1,5 +1,12 @@
 import { unzipSync } from 'fflate';
 import { egpGet, UpstreamError } from './client';
+import {
+  ARCHIVE_LIMITS,
+  ArchiveRejectedError,
+  memberRejection,
+  readBodyCapped,
+  type MemberSize,
+} from './archive-limits';
 import { invitationRoleOf } from './document-roles';
 import { BROWSER_HEADERS, TOR_DOWNLOAD_URL, TOR_INFO_URL, TOR_MEMBER_PATTERNS } from './constants';
 
@@ -57,7 +64,7 @@ export async function resolveZipId(
 export async function downloadArchive(zipId: string, signal?: AbortSignal): Promise<Uint8Array> {
   const response = await egpGet(TOR_DOWNLOAD_URL, { fileId: zipId }, BROWSER_HEADERS, signal);
   const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = await readBodyCapped(response, ARCHIVE_LIMITS.maxDownloadBytes, `archive ${zipId}`);
 
   const looksLikeZip = bytes[0] === 0x50 && bytes[1] === 0x4b; // "PK"
   if (!contentType.includes('zip') && !looksLikeZip) {
@@ -135,12 +142,45 @@ function basename(member: string): string {
   return member.replace(/\\/g, '/').split('/').pop() ?? member;
 }
 
-/** Every member name in the archive, listed without inflating any of them. */
-function listMembers(archive: Uint8Array): string[] {
-  const members: string[] = [];
+/**
+ * Bytes one member costs against the archive's inflate budget. fflate allocates
+ * a deflated member's output from its declared `originalSize` but walks all
+ * `size` bytes of its input, and copies a stored member at its compressed
+ * `size`, so the larger of the two bounds both the memory and the work.
+ */
+function inflateCost({ size, originalSize }: MemberSize): number {
+  return Math.max(size, originalSize);
+}
+
+/**
+ * Every member name in the archive with its declared sizes, listed without
+ * inflating any of them. An archive with more entries than any real one is
+ * refused outright rather than walked.
+ *
+ * Every central-directory entry counts towards the limit, and a name that
+ * appears twice refuses the archive: fflate inflates each matching entry, so
+ * one chosen name repeated thousands of times would otherwise be charged to
+ * the budget once and inflated thousands of times. Entries that share one
+ * local header under different names are not refused (fflate's filter does
+ * not expose the header offset), but each is a separate name that is charged
+ * to the budget in full, here and again in `inflateChosen`, so overlapping
+ * them buys an attacker nothing beyond what the budget allows.
+ */
+function listMemberSizes(archive: Uint8Array): Map<string, MemberSize> {
+  const members = new Map<string, MemberSize>();
+  let entries = 0;
   unzipSync(archive, {
     filter: (file) => {
-      members.push(file.name);
+      entries += 1;
+      if (entries > ARCHIVE_LIMITS.maxEntries) {
+        throw new ArchiveRejectedError(
+          `archive has more than ${ARCHIVE_LIMITS.maxEntries} entries`,
+        );
+      }
+      if (members.has(file.name)) {
+        throw new ArchiveRejectedError(`archive lists member ${file.name} more than once`);
+      }
+      members.set(file.name, { size: file.size, originalSize: file.originalSize });
       return false;
     },
   });
@@ -148,16 +188,68 @@ function listMembers(archive: Uint8Array): string[] {
 }
 
 /**
+ * Drops members that are too large or look like a bomb, and stops once the
+ * archive's total inflate budget is spent. What is dropped is reported, never
+ * silently lost, so an administrator can see it.
+ */
+export function withinBudget<T>(
+  chosen: Map<string, T>,
+  sizes: Map<string, MemberSize>,
+  oversizeSkipped: string[],
+): Map<string, T> {
+  const kept = new Map<string, T>();
+  let total = 0;
+  for (const [member, tag] of chosen) {
+    const size = sizes.get(member) ?? { size: 0, originalSize: 0 };
+    const cost = inflateCost(size);
+    const reason =
+      memberRejection(size) ??
+      (total + cost > ARCHIVE_LIMITS.maxTotalInflatedBytes
+        ? `would exceed the ${ARCHIVE_LIMITS.maxTotalInflatedBytes}-byte archive budget`
+        : null);
+    if (reason) {
+      oversizeSkipped.push(`${member} (${reason})`);
+      continue;
+    }
+    total += cost;
+    kept.set(member, tag);
+  }
+  return kept;
+}
+
+/**
  * Inflate only the chosen members, which must already have passed the path guard;
  * output names are flattened to the basename, which that guard makes safe.
+ *
+ * Exported for tests only.
  */
-function inflateChosen<T>(
+export function inflateChosen<T>(
   archive: Uint8Array,
   chosen: Map<string, T>,
   namePattern: (tag: T) => ExtractedPdf['namePattern'],
 ): Array<[ExtractedPdf, T]> {
   if (chosen.size === 0) return [];
-  const entries = unzipSync(archive, { filter: (file) => chosen.has(file.name) });
+  // Checked again at inflate time, from the header fflate is about to trust,
+  // and charged per entry actually inflated: the budget holds even if this pass
+  // and the listing ever disagree about what the archive contains.
+  const inflated = new Set<string>();
+  let spent = 0;
+  const entries = unzipSync(archive, {
+    filter: (file) => {
+      if (!chosen.has(file.name) || memberRejection(file) !== null) return false;
+      if (inflated.has(file.name)) {
+        throw new ArchiveRejectedError(`archive lists member ${file.name} more than once`);
+      }
+      spent += inflateCost(file);
+      if (spent > ARCHIVE_LIMITS.maxTotalInflatedBytes) {
+        throw new ArchiveRejectedError(
+          `archive exceeds the ${ARCHIVE_LIMITS.maxTotalInflatedBytes}-byte inflate budget`,
+        );
+      }
+      inflated.add(file.name);
+      return true;
+    },
+  });
   const out: Array<[ExtractedPdf, T]> = [];
   for (const [member, tag] of chosen) {
     const payload = entries[member];
@@ -187,6 +279,8 @@ export interface ExtractionResult {
   members: string[];
   /** Members that matched a TOR pattern but were rejected by the path guard. */
   unsafeSkipped: string[];
+  /** Candidates not inflated because of their size or compression ratio, with the reason. */
+  oversizeSkipped: string[];
 }
 
 /**
@@ -202,7 +296,9 @@ export interface ExtractionResult {
  * several times the archive's size in memory for no purpose.
  */
 export function extractTorPdfs(archive: Uint8Array): ExtractionResult {
-  const members = listMembers(archive);
+  const sizes = listMemberSizes(archive);
+  const members = [...sizes.keys()];
+  const oversizeSkipped: string[] = [];
 
   const chosen = new Map<string, ExtractedPdf['namePattern']>();
   const unsafeSkipped: string[] = [];
@@ -225,8 +321,12 @@ export function extractTorPdfs(archive: Uint8Array): ExtractionResult {
     }
   }
 
-  const torFiles = inflateChosen(archive, chosen, (namePattern) => namePattern).map(([pdf]) => pdf);
-  return { torFiles, members, unsafeSkipped };
+  const torFiles = inflateChosen(
+    archive,
+    withinBudget(chosen, sizes, oversizeSkipped),
+    (namePattern) => namePattern,
+  ).map(([pdf]) => pdf);
+  return { torFiles, members, unsafeSkipped, oversizeSkipped };
 }
 
 /** The two documents read for the bid deadline, when the archive has them. */
@@ -240,14 +340,19 @@ export interface InvitationPdfs {
  * found by filename alone (see `invitationRoleOf`). Nothing else is inflated.
  */
 export function extractInvitationPdfs(archive: Uint8Array, projectId: string): InvitationPdfs {
+  const sizes = listMemberSizes(archive);
   const chosen = new Map<string, 'invitation' | 'bidding_document'>();
-  for (const member of listMembers(archive)) {
+  for (const member of sizes.keys()) {
     const role = invitationRoleOf(member, projectId);
     if (role && isSafeMember(member)) chosen.set(member, role);
   }
 
   const found: InvitationPdfs = { invitation: null, biddingDocument: null };
-  for (const [pdf, role] of inflateChosen(archive, chosen, () => 'unlabelled')) {
+  for (const [pdf, role] of inflateChosen(
+    archive,
+    withinBudget(chosen, sizes, []),
+    () => 'unlabelled',
+  )) {
     if (role === 'invitation') found.invitation = pdf;
     else found.biddingDocument = pdf;
   }

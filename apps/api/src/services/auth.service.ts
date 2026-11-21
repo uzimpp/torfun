@@ -1,6 +1,14 @@
+import { assertPasswordAcceptable } from './password-policy';
+import { noBreachCheck, type BreachChecker } from './breached-passwords';
 import bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../core/errors';
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  UnauthorizedError,
+} from '../core/errors';
 import type { User, UserRole } from '@torfun/types';
 import type { RefreshTokenStore } from '../repositories/refresh-token.repository';
 import type { UserStore } from '../repositories/user.repository';
@@ -18,6 +26,8 @@ export interface TokenPayload {
   user_id: string;
   username: string;
   role: UserRole;
+  /** Session id (refresh family). Lets a revoked session kill its access token at once. */
+  sid?: string;
 }
 
 export type SignToken = (payload: TokenPayload) => Promise<string> | string;
@@ -52,11 +62,31 @@ export interface AuthResult {
 const BCRYPT_ROUNDS = 12;
 
 /**
+ * A hash of a random secret at the same cost as a real one, compared against
+ * when a sign-in names no password account. Without it an unknown username was
+ * answered in about 1 ms and a real one in about 250 ms (bcrypt), so response
+ * time told an attacker which usernames exist (pentest A3b, ASVS V6.3.8).
+ * Built once, on the first miss, so startup does not pay for it.
+ */
+let decoyHash: Promise<string> | null = null;
+function decoy(): Promise<string> {
+  decoyHash ??= bcrypt.hash(randomBytes(32).toString('hex'), BCRYPT_ROUNDS);
+  return decoyHash;
+}
+
+/**
  * How long a refresh token stays usable, and so how long "stay signed in"
  * lasts. Lives here rather than in `plugins/jwt.ts` so this file keeps its
  * distance from Fastify; the route layer imports it for the cookie's Max-Age.
  */
-export const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60;
+export const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * Absolute session limit (ASVS V7.3.2). Rotation slides the idle window above
+ * forward on every refresh, so without this a stolen-then-kept-alive session
+ * would never end. Thirty days after sign-in the user signs in again.
+ */
+export const SESSION_ABSOLUTE_SECONDS = 30 * 24 * 60 * 60;
 
 /** Bytes of entropy in a refresh token. */
 const REFRESH_TOKEN_BYTES = 32;
@@ -74,14 +104,29 @@ export class AuthService {
     private readonly users: UserStore,
     private readonly refreshTokens: RefreshTokenStore,
     private readonly signToken: SignToken,
+    private readonly breaches: BreachChecker = noBreachCheck,
   ) {}
+
+  /** Local rules first (cheap, no network), then the known-breach lookup. */
+  private async assertPasswordAllowed(password: string, username: string): Promise<void> {
+    assertPasswordAcceptable(password, username);
+    if ((await this.breaches.breachCount(password)) > 0) {
+      throw new BadRequestError(
+        'That password has appeared in a data breach. Choose a different one.',
+      );
+    }
+  }
 
   /**
    * Mints a fresh pair. Passing an existing `familyId` continues a rotation
    * chain; omitting it starts a new one, which is what a sign-in does — so
    * each device gets its own chain and logging out of one leaves the others.
    */
-  private async issue(user: User, familyId: string = randomUUID()): Promise<AuthResult> {
+  private async issue(
+    user: User,
+    familyId: string = randomUUID(),
+    familyStartedAt: Date = new Date(),
+  ): Promise<AuthResult> {
     // Guarded here rather than at each call site so that no future sign-in
     // path can forget it: a deactivated account gets credentials from nowhere.
     if (!user.isActive) throw new ForbiddenError('Account is deactivated');
@@ -90,6 +135,7 @@ export class AuthService {
       user_id: user.id,
       username: user.username,
       role: user.role,
+      sid: familyId,
     });
 
     // Only the digest is persisted; this is the one moment the secret exists.
@@ -98,7 +144,13 @@ export class AuthService {
       userId: user.id,
       tokenHash: hashToken(refreshToken),
       familyId,
-      expiresAt: new Date(Date.now() + REFRESH_TTL_SECONDS * 1000),
+      familyStartedAt,
+      expiresAt: new Date(
+        Math.min(
+          Date.now() + REFRESH_TTL_SECONDS * 1000,
+          familyStartedAt.getTime() + SESSION_ABSOLUTE_SECONDS * 1000,
+        ),
+      ),
     });
 
     return { user, accessToken, refreshToken };
@@ -124,7 +176,11 @@ export class AuthService {
       throw new UnauthorizedError('Session revoked');
     }
 
-    if (stored.expiresAt.getTime() <= Date.now()) {
+    if (
+      stored.expiresAt.getTime() <= Date.now() ||
+      stored.familyStartedAt.getTime() + SESSION_ABSOLUTE_SECONDS * 1000 <= Date.now()
+    ) {
+      await this.refreshTokens.revokeFamily(stored.familyId);
       throw new UnauthorizedError('Session expired');
     }
 
@@ -141,8 +197,17 @@ export class AuthService {
       throw new ForbiddenError('Account is deactivated');
     }
 
-    await this.refreshTokens.revoke(stored.id);
-    return this.issue(user, stored.familyId);
+    // The successor is stored before the presented token is retired, and the
+    // retirement is conditional: only one caller can flip a token to revoked.
+    // A caller that loses that race holds a token someone else already
+    // exchanged, which is reuse. Retiring the family then also catches the
+    // winner's successor, because it was stored before the winner's revoke.
+    const session = await this.issue(user, stored.familyId, stored.familyStartedAt);
+    if (!(await this.refreshTokens.revoke(stored.id))) {
+      await this.refreshTokens.revokeFamily(stored.familyId);
+      throw new UnauthorizedError('Session revoked');
+    }
+    return session;
   }
 
   /**
@@ -157,7 +222,24 @@ export class AuthService {
     if (stored) await this.refreshTokens.revokeFamily(stored.familyId);
   }
 
+  /**
+   * Whether the session an access token names is still alive. A token without
+   * a `sid` (signed before sessions were tracked) is accepted until it expires
+   * on its own, at most one access-token lifetime.
+   */
+  async isSessionActive(sid: string | undefined): Promise<boolean> {
+    if (sid === undefined) return true;
+    return this.refreshTokens.isFamilyActive(sid);
+  }
+
+  /** Ends every session of one account. */
+  revokeAllSessions(userId: string): Promise<void> {
+    return this.refreshTokens.revokeAllForUser(userId);
+  }
+
   async register(input: RegisterInput): Promise<AuthResult> {
+    await this.assertPasswordAllowed(input.password, input.username);
+
     if (await this.users.findByUsername(input.username)) {
       throw new ConflictError('Username already exists');
     }
@@ -174,11 +256,13 @@ export class AuthService {
   }
 
   async login(username: string, password: string): Promise<AuthResult> {
-    const credentials = await this.users.findCredentials(username);
+    const credentials = await this.users.findCredentials({ username });
 
     // One message for "no such user" and "wrong password" alike, so the
     // endpoint can't be used to enumerate valid usernames.
     if (!credentials?.passwordHash) {
+      // Spend the same bcrypt work as a real check, so timing is no oracle.
+      await bcrypt.compare(password, await decoy());
       throw new UnauthorizedError('Invalid username or password');
     }
 
@@ -197,15 +281,29 @@ export class AuthService {
    *
    * An existing password account with the same email is linked rather than
    * duplicated, so a user who registered directly can later use the Google
-   * button and land in the same account.
+   * button and land in the same account. Only an account with no Google
+   * identity yet is linked; one already linked to another is refused.
    */
   async loginWithGoogle(profile: GoogleProfile): Promise<AuthResult> {
+    // An unverified address is only a claim. Without this, anyone who could get
+    // Google to report a victim's email (an unverified secondary address, say)
+    // would be linked straight into the victim's existing account below.
+    if (profile.email_verified !== true) {
+      throw new UnauthorizedError('Your Google account email is not verified');
+    }
+
     const linked = await this.users.findByGoogleId(profile.sub);
     if (linked) return this.issue(linked);
 
     const sameEmail = await this.users.findByEmail(profile.email);
     if (sameEmail) {
-      await this.users.linkGoogleId(sameEmail.id, profile.sub);
+      // Link only an account with no Google identity yet. One already linked to
+      // a different Google subject keeps it: the address may since belong to
+      // someone else (a re-issued work email), who must not inherit the
+      // account, its Company or its manager rights.
+      if (!(await this.users.linkGoogleId(sameEmail.id, profile.sub))) {
+        throw new UnauthorizedError('This Google account cannot sign in to Torfun');
+      }
       return this.issue(sameEmail);
     }
 
@@ -219,9 +317,51 @@ export class AuthService {
     return this.issue(created);
   }
 
-  async getById(id: string): Promise<User> {
-    const user = await this.users.findById(id);
-    if (!user) throw new NotFoundError('User not found');
-    return user;
+  private async activeCredentials(id: string) {
+    const credentials = await this.users.findCredentials({ id });
+    if (!credentials) throw new NotFoundError('User not found');
+    if (!credentials.user.isActive) throw new ForbiddenError('Account is deactivated');
+    return credentials;
+  }
+
+  async getAccount(id: string) {
+    const { user, passwordHash } = await this.activeCredentials(id);
+    return { user, hasLocalPassword: Boolean(passwordHash) };
+  }
+
+  async updateProfile(id: string, profile: Pick<User, 'firstName' | 'lastName'>) {
+    if (!(await this.users.updateProfile(id, profile))) {
+      throw new ForbiddenError('Account is unavailable');
+    }
+  }
+
+  /**
+   * Changes a password (ASVS V6.2.2, V6.2.3): the current one is required, the
+   * new one is screened like a sign-up password (common, context words,
+   * known breaches) and must differ from the old one. Every session of the
+   * account then ends, this one included (V7.4.3), and the caller gets a fresh
+   * session so the tab they used stays signed in.
+   */
+  async changePassword(
+    id: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<AuthResult> {
+    const { user, passwordHash } = await this.activeCredentials(id);
+    if (!passwordHash) throw new ForbiddenError('This account has no Torfun password');
+    if (!(await bcrypt.compare(currentPassword, passwordHash))) {
+      throw new BadRequestError('Current password is incorrect');
+    }
+    if (newPassword === currentPassword) {
+      throw new BadRequestError('Choose a password different from the current one.');
+    }
+    await this.assertPasswordAllowed(newPassword, user.username);
+
+    const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    if (!(await this.users.replacePassword(id, passwordHash, newHash))) {
+      throw new ConflictError('Account changed during this request. Please try again.');
+    }
+    await this.refreshTokens.revokeAllForUser(id);
+    return this.issue(user);
   }
 }

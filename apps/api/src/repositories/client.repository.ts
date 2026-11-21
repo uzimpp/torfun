@@ -1,5 +1,6 @@
 import { ObjectId, type Collection, type Db } from 'mongodb';
 import type { Client, ClientKind } from '@torfun/types';
+import { escapeRegex } from '../core/regex';
 
 /**
  * Data access for the organisations a Company has delivered work for.
@@ -48,10 +49,6 @@ function toDomain(document: ClientDocument): Client {
     createdAt: document.created_at,
     updatedAt: document.updated_at,
   };
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** The slice of this repository the service layer needs. */

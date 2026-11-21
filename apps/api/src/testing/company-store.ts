@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
-import type { Company } from '@torfun/types';
+import { randomUUID } from 'node:crypto';
+import type { Company, CompanyQualifications, CompanyQualificationsRecord } from '@torfun/types';
 import type { CompanyPatch, CompanyStore, NewCompany } from '../repositories/company.repository';
 
 /**
@@ -12,6 +13,37 @@ import type { CompanyPatch, CompanyStore, NewCompany } from '../repositories/com
  */
 export class InMemoryCompanyStore implements CompanyStore {
   private readonly companies = new Map<string, Company>();
+
+  private readonly qualifications = new Map<string, CompanyQualificationsRecord>();
+
+  async findQualifications(companyId: string): Promise<CompanyQualificationsRecord | null> {
+    if (!this.companies.has(companyId)) return null;
+    return (
+      this.qualifications.get(companyId) ?? {
+        companyId,
+        revision: null,
+        registeredCapitalThb: null,
+        certificates: [],
+        personnel: [],
+      }
+    );
+  }
+
+  async replaceQualifications(
+    companyId: string,
+    revision: string | null,
+    input: CompanyQualifications,
+  ): Promise<CompanyQualificationsRecord | null> {
+    if (
+      !this.companies.has(companyId) ||
+      (this.qualifications.get(companyId)?.revision ?? null) !== revision
+    ) {
+      return null;
+    }
+    const record = { ...input, companyId, revision: randomUUID() };
+    this.qualifications.set(companyId, record);
+    return record;
+  }
 
   async findById(id: string): Promise<Company | null> {
     return this.companies.get(id) ?? null;
