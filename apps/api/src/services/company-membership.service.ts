@@ -32,6 +32,8 @@ import type { UserStore } from '../repositories/user.repository';
  * Free of Fastify types, like every service.
  */
 
+export const SITE_ADMIN_HOLDS_NO_COMPANY = 'A Site Administrator does not belong to a company';
+
 export interface CompanyMember {
   user: User;
   isManager: boolean;
@@ -74,12 +76,19 @@ export class CompanyMembershipService {
     // an unverified or typed address never reaches this comparison.
     const domain = emailDomainOf(user.email);
     if (company.autoApproveDomain !== null && domain === company.autoApproveDomain) {
-      await this.stepDownToLeave(user);
-      await this.users.setCompanyId(user.id, company.id);
+      const restore = await this.stepDownToLeave(user);
+      // Conditional on the account still being an officer, so a promotion to
+      // Site Administrator that lands after the read above keeps them out.
+      if (!(await this.users.setCompanyId(user.id, company.id))) {
+        await restore();
+        throw new ForbiddenError(SITE_ADMIN_HOLDS_NO_COMPANY);
+      }
       return { outcome: 'joined', company };
     }
 
-    await this.users.setJoinRequest(user.id, company.id);
+    if (!(await this.users.setJoinRequest(user.id, company.id))) {
+      throw new ForbiddenError(SITE_ADMIN_HOLDS_NO_COMPANY);
+    }
     return { outcome: 'pending', company };
   }
 
@@ -115,8 +124,10 @@ export class CompanyMembershipService {
     const { company } = await this.manager(managerId);
     const applicant = await this.applicant(company, applicantId);
     const restore = await this.stepDownToLeave(applicant);
-    // Conditional on the request still being on file, so a request withdrawn
-    // or replaced a moment ago cannot be approved into the wrong Company.
+    // Conditional on the request still being on file and the applicant still
+    // being an officer, so a request withdrawn or replaced a moment ago cannot
+    // be approved into the wrong Company, nor one whose owner was made a Site
+    // Administrator approved into any.
     if (!(await this.users.acceptJoinRequest(applicant.id, company.id))) {
       await restore();
       throw new NotFoundError('No such join request');
@@ -254,9 +265,7 @@ export class CompanyMembershipService {
   private async officer(userId: string): Promise<User> {
     const user = await this.users.findById(userId);
     if (!user) throw new NotFoundError('No such account');
-    if (user.role === 'admin') {
-      throw new ForbiddenError('A Site Administrator does not belong to a company');
-    }
+    if (user.role === 'admin') throw new ForbiddenError(SITE_ADMIN_HOLDS_NO_COMPANY);
     return user;
   }
 
@@ -276,10 +285,18 @@ export class CompanyMembershipService {
     return found;
   }
 
-  /** Someone waiting to join this Company. Anyone else is "no such request". */
+  /**
+   * An officer waiting to join this Company. Anyone else, a Site Administrator
+   * with a request left over from before their promotion included, is "no
+   * such request".
+   */
   private async applicant(company: Company, userId: string): Promise<User> {
     const user = await this.users.findById(userId);
-    if (!user?.isActive || user.joinRequest?.companyId !== company.id) {
+    if (
+      !user?.isActive ||
+      user.role !== 'business_development_officer' ||
+      user.joinRequest?.companyId !== company.id
+    ) {
       throw new NotFoundError('No such join request');
     }
     return user;

@@ -15,8 +15,9 @@ import type { UserStore } from '../repositories/user.repository';
  *  - **The last active administrator is untouchable.** Demoting or deactivating
  *    them is refused while they are the only one left.
  *
- * Granting `admin` also clears any `companyId`, and the account's place among
- * that Company's managers: a Site Administrator holds no Company. Revoking it leaves a plain Business Development Officer who rejoins
+ * Granting `admin` also clears any `companyId`, any pending join request, and
+ * the account's place among that Company's managers: a Site Administrator
+ * holds no Company. Revoking it leaves a plain Business Development Officer who rejoins
  * one through the normal typeahead.
  *
  * Framework-free by design — it takes a `UserStore`, throws domain errors, and
@@ -57,13 +58,22 @@ export class AdminUsersService {
 
     if (patch.role !== undefined && patch.role !== target.role) {
       await this.users.setRole(targetId, patch.role);
-      if (patch.role === 'admin' && target.companyId !== null) {
+      if (patch.role === 'admin') {
+        // Always, not only when the account has a Company: this also ends a
+        // pending join request, which a manager could otherwise still approve.
+        // After `setRole`, so a join racing the promotion is refused by the
+        // store's role filter or undone here.
         await this.users.setCompanyId(targetId, null);
-        await this.companies?.removeManager(target.companyId, targetId, { keepOne: false });
+        if (target.companyId !== null) {
+          await this.companies?.removeManager(target.companyId, targetId, { keepOne: false });
+        }
       }
     }
     if (patch.isActive !== undefined && patch.isActive !== target.isActive) {
       await this.users.setActive(targetId, patch.isActive);
+      // A deactivated account's request is withdrawn, so reactivating it later
+      // does not bring an old request back in front of a manager.
+      if (!patch.isActive) await this.users.setJoinRequest(targetId, null);
     }
 
     // A disabled or re-roled account must not keep working on a token it
