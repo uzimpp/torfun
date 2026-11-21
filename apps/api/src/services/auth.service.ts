@@ -281,15 +281,29 @@ export class AuthService {
    *
    * An existing password account with the same email is linked rather than
    * duplicated, so a user who registered directly can later use the Google
-   * button and land in the same account.
+   * button and land in the same account. Only an account with no Google
+   * identity yet is linked; one already linked to another is refused.
    */
   async loginWithGoogle(profile: GoogleProfile): Promise<AuthResult> {
+    // An unverified address is only a claim. Without this, anyone who could get
+    // Google to report a victim's email (an unverified secondary address, say)
+    // would be linked straight into the victim's existing account below.
+    if (profile.email_verified !== true) {
+      throw new UnauthorizedError('Your Google account email is not verified');
+    }
+
     const linked = await this.users.findByGoogleId(profile.sub);
     if (linked) return this.issue(linked);
 
     const sameEmail = await this.users.findByEmail(profile.email);
     if (sameEmail) {
-      await this.users.linkGoogleId(sameEmail.id, profile.sub);
+      // Link only an account with no Google identity yet. One already linked to
+      // a different Google subject keeps it: the address may since belong to
+      // someone else (a re-issued work email), who must not inherit the
+      // account, its Company or its manager rights.
+      if (!(await this.users.linkGoogleId(sameEmail.id, profile.sub))) {
+        throw new UnauthorizedError('This Google account cannot sign in to Torfun');
+      }
       return this.issue(sameEmail);
     }
 
