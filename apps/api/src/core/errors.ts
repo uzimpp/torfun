@@ -68,6 +68,10 @@ export class TooManyRequestsError extends AppError {
  * already reads in `apps/web/src/lib/api.ts`.
  */
 export function registerErrorHandler(app: FastifyInstance) {
+  // Fastify's default 404 body echoes the method and path and adds fields of its
+  // own; keep unknown routes to the same bare shape as every other error.
+  app.setNotFoundHandler((_request, reply) => reply.code(404).send({ message: 'Not found' }));
+
   app.setErrorHandler<AppError | FastifyError>((error, request, reply) => {
     if (error instanceof AppError) {
       // Expected outcomes (bad login, duplicate username): not log-worthy at

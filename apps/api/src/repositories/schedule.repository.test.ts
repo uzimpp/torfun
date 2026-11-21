@@ -44,17 +44,13 @@ describeMongo('ScheduleRepository', () => {
   });
 
   test('a schedule saved before modes existed runs every day', async () => {
-    await (
-      await getDb()
-    )
-      .collection('ingestion_meta')
-      .insertOne({
-        _id: 'schedule' as never,
-        enabled: true,
-        time_of_day: '03:30',
-        updated_at: '2026-09-01T00:00:00.000Z',
-        updated_by: 'admin-1',
-      });
+    await (await getDb()).collection('ingestion_meta').insertOne({
+      _id: 'schedule' as never,
+      enabled: true,
+      time_of_day: '03:30',
+      updated_at: '2026-09-01T00:00:00.000Z',
+      updated_by: 'admin-1',
+    });
 
     expect((await repository.get()).schedule.weekdays).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });

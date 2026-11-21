@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { TooManyRequestsError } from '../core/errors';
+import { audit } from '../core/audit';
 
 /** Attempts allowed per account before the throttle bites, and the window. */
 const MAX_ATTEMPTS = 10;
@@ -51,6 +52,7 @@ export function createCredentialThrottle(
     // `isExceeded`.
     if (result.isAllowed || !result.isExceeded) return;
 
+    audit(request.log, 'auth.throttled', { ip: request.ip, reason: request.url });
     reply.header('retry-after', result.ttlInSeconds);
     throw new TooManyRequestsError(
       `Too many attempts for this account. Try again in ${result.ttlInSeconds} seconds.`,

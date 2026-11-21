@@ -28,7 +28,11 @@ export interface AdminUserPatch {
 }
 
 export class AdminUsersService {
-  constructor(private readonly users: UserStore) {}
+  constructor(
+    private readonly users: UserStore,
+    /** Ends an account's sessions; optional so unit tests need no token store. */
+    private readonly sessions?: { revokeAllSessions(userId: string): Promise<void> },
+  ) {}
 
   list(): Promise<User[]> {
     return this.users.list();
@@ -57,6 +61,11 @@ export class AdminUsersService {
     if (patch.isActive !== undefined && patch.isActive !== target.isActive) {
       await this.users.setActive(targetId, patch.isActive);
     }
+
+    // A disabled or re-roled account must not keep working on a token it
+    // already holds: end its sessions so the next request is refused.
+    const roleChanged = patch.role !== undefined && patch.role !== target.role;
+    if (patch.isActive === false || roleChanged) await this.sessions?.revokeAllSessions(targetId);
 
     const updated = await this.users.findById(targetId);
     if (!updated) throw new NotFoundError('No such account');

@@ -21,6 +21,8 @@ const BASE_ENV = {
   GOOGLE_OAUTH_CALLBACK_URL: 'http://localhost:8080/api/auth/google/callback',
   GOOGLE_CLOUD_PROJECT: 'torfun-test',
   EGP_API_KEY: 'test-egp-key',
+  // Tests never reach the network.
+  BREACHED_PASSWORD_CHECK: 'false',
 } satisfies Partial<z.input<typeof EnvSchema>>;
 
 export function testEnv(overrides: Partial<z.input<typeof EnvSchema>> = {}): Env {

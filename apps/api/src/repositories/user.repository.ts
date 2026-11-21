@@ -85,7 +85,11 @@ export interface UserStore {
   updateProfile(id: string, profile: Pick<User, 'firstName' | 'lastName'>): Promise<boolean>;
   replacePassword(id: string, currentHash: string, newHash: string): Promise<boolean>;
   create(input: NewUser): Promise<User>;
-  linkGoogleId(id: string, googleId: string): Promise<void>;
+  /**
+   * Links a Google subject to an account that has none yet. False when the
+   * account already has a Google identity (or is gone), and nothing changes.
+   */
+  linkGoogleId(id: string, googleId: string): Promise<boolean>;
   setCompanyId(id: string, companyId: string | null): Promise<void>;
   /** Every account, newest first — the account-management screen's one read. */
   list(): Promise<User[]>;
@@ -181,13 +185,16 @@ export class UserRepository implements UserStore {
     return toDomain({ ...document, _id: result.insertedId } as UserDocument);
   }
 
-  async linkGoogleId(id: string, googleId: string): Promise<void> {
-    await (
+  async linkGoogleId(id: string, googleId: string): Promise<boolean> {
+    // Conditional in the filter, so an account linked to one Google identity is
+    // never repointed at another, even by two sign-ins racing.
+    const result = await (
       await this.collection()
     ).updateOne(
-      { _id: new ObjectId(id) },
+      { _id: new ObjectId(id), google_id: { $exists: false } },
       { $set: { google_id: googleId, updated_at: new Date() } },
     );
+    return result.modifiedCount === 1;
   }
 
   /**
