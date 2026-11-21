@@ -214,6 +214,87 @@ describe('joining a company needs a manager', () => {
     expect(await companyOf(bob)).toBeNull();
   });
 
+  describe('a Site Administrator never joins a company', () => {
+    test('an officer promoted while waiting loses the request and cannot be approved', async () => {
+      const bob = users.seed({ username: 'bob' });
+      expect((await call(bob, 'POST', `/companies/${companyId}/join`)).statusCode).toBe(202);
+      const root = users.seed({ username: 'root', role: 'admin' });
+      expect(
+        (await call(root, 'PATCH', `/admin/users/${bob.id}`, { role: 'admin' })).statusCode,
+      ).toBe(200);
+
+      const res = await call(alice, 'POST', `/companies/me/join-requests/${bob.id}/approve`);
+      expect(res.statusCode).toBe(404);
+      expect(await companyOf(bob)).toBeNull();
+      expect((await users.findById(bob.id))?.joinRequest).toBeNull();
+      expect((await call(alice, 'GET', '/companies/me/join-requests')).json().requests).toEqual([]);
+    });
+
+    test('a request left on an administrator account is never listed or accepted', async () => {
+      // Data written before promotion cleared requests, or by a request that
+      // raced the promotion: the store itself must refuse it.
+      const admin = users.seed({ username: 'admin2', role: 'admin' });
+      expect(await users.setJoinRequest(admin.id, companyId)).toBe(false);
+      users.forceJoinRequest(admin.id, companyId);
+      users.seed({ username: 'root', role: 'admin' });
+
+      expect(await users.listJoinRequests(companyId)).toEqual([]);
+      expect(await users.acceptJoinRequest(admin.id, companyId)).toBe(false);
+      const res = await call(alice, 'POST', `/companies/me/join-requests/${admin.id}/approve`);
+      expect(res.statusCode).toBe(404);
+      expect(await companyOf(admin)).toBeNull();
+    });
+
+    test('a promotion that lands mid-join keeps the new administrator out', async () => {
+      await call(alice, 'PUT', '/companies/me/auto-approve', { domain: 'acme.co.th' });
+      const bob = users.seed({ username: 'bob', email: 'bob@acme.co.th' });
+
+      // The join reads Bob as an officer; the promotion commits right after.
+      const read = users.findById.bind(users);
+      users.findById = async (id: string) => {
+        const found = await read(id);
+        if (id === bob.id) {
+          users.findById = read;
+          await users.setRole(bob.id, 'admin');
+        }
+        return found;
+      };
+
+      expect((await call(bob, 'POST', `/companies/${companyId}/join`)).statusCode).toBe(403);
+      expect(await companyOf(bob)).toBeNull();
+    });
+
+    test('a promotion that lands mid-create keeps the new administrator out', async () => {
+      const bob = users.seed({ username: 'bob' });
+      const read = users.findById.bind(users);
+      users.findById = async (id: string) => {
+        const found = await read(id);
+        if (id === bob.id) {
+          users.findById = read;
+          await users.setRole(bob.id, 'admin');
+        }
+        return found;
+      };
+
+      const res = await call(bob, 'POST', '/companies', { name_th: 'บริษัท บี จำกัด' });
+      expect(res.statusCode).toBe(403);
+      expect(await companyOf(bob)).toBeNull();
+    });
+
+    test('deactivating an account withdraws its pending request', async () => {
+      const bob = users.seed({ username: 'bob' });
+      await call(bob, 'POST', `/companies/${companyId}/join`);
+      const root = users.seed({ username: 'root', role: 'admin' });
+      await call(root, 'PATCH', `/admin/users/${bob.id}`, { is_active: false });
+      await call(root, 'PATCH', `/admin/users/${bob.id}`, { is_active: true });
+
+      expect((await users.findById(bob.id))?.joinRequest).toBeNull();
+      expect(
+        (await call(alice, 'POST', `/companies/me/join-requests/${bob.id}/approve`)).statusCode,
+      ).toBe(404);
+    });
+  });
+
   describe('automatic approval by email domain', () => {
     test('admits a verified address at exactly the domain, and nobody else', async () => {
       const on = await call(alice, 'PUT', '/companies/me/auto-approve', { domain: '@ACME.co.th' });

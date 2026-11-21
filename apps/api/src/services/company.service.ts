@@ -2,7 +2,11 @@ import type { Company } from '@torfun/types';
 import { ForbiddenError, NotFoundError } from '../core/errors';
 import type { CompanyStore } from '../repositories/company.repository';
 import type { UserStore } from '../repositories/user.repository';
-import { isManagerOf, type CompanyMembershipService } from './company-membership.service';
+import {
+  isManagerOf,
+  SITE_ADMIN_HOLDS_NO_COMPANY,
+  type CompanyMembershipService,
+} from './company-membership.service';
 
 /**
  * Creating, finding and correcting the vendor's own record.
@@ -57,7 +61,12 @@ export class CompanyService {
     const restore = await this.membership.stepDownToLeave(user);
     try {
       const company = await this.companies.create({ ...input, managerIds: [userId] });
-      await this.users.setCompanyId(userId, company.id);
+      // Refused if the caller was made a Site Administrator since the check
+      // above. The new Company is left with no members; its manager id counts
+      // for nothing, because `isManagerOf` also needs the membership.
+      if (!(await this.users.setCompanyId(userId, company.id))) {
+        throw new ForbiddenError(SITE_ADMIN_HOLDS_NO_COMPANY);
+      }
       return company;
     } catch (error) {
       await restore();
@@ -98,7 +107,7 @@ export class CompanyService {
     const user = await this.users.findById(userId);
     if (!user) throw new NotFoundError('No such account');
     if (user.role === 'admin') {
-      throw new ForbiddenError('A Site Administrator does not belong to a company');
+      throw new ForbiddenError(SITE_ADMIN_HOLDS_NO_COMPANY);
     }
     return user;
   }

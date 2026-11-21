@@ -156,6 +156,25 @@ describeMongo('company membership storage', () => {
     expect(await users.acceptJoinRequest(applicant.id, company.id)).toBe(false);
   });
 
+  test('a Site Administrator is never filed, listed, accepted or pointed at a company', async () => {
+    const company = await companies.create({ nameTh: 'บริษัท สยามซอฟต์ จำกัด', tin: null });
+    const promoted = await officer('promoted');
+    await users.setJoinRequest(promoted.id, company.id);
+    await users.setRole(promoted.id, 'admin');
+
+    // A request left over from before the promotion cleared it.
+    expect(await users.listJoinRequests(company.id)).toEqual([]);
+    expect(await users.acceptJoinRequest(promoted.id, company.id)).toBe(false);
+    expect((await users.findById(promoted.id))?.companyId).toBeNull();
+
+    expect(await users.setCompanyId(promoted.id, company.id)).toBe(false);
+    expect((await users.findById(promoted.id))?.companyId).toBeNull();
+    expect(await users.setJoinRequest(promoted.id, company.id)).toBe(false);
+    // Clearing still works for an administrator.
+    expect(await users.setCompanyId(promoted.id, null)).toBe(true);
+    expect((await users.findById(promoted.id))?.joinRequest).toBeNull();
+  });
+
   test('members are listed oldest first, and repointing ends a pending request', async () => {
     const company = await companies.create({ nameTh: 'บริษัท สยามซอฟต์ จำกัด', tin: null });
     const first = await officer('first');
