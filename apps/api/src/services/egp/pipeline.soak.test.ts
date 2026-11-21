@@ -14,7 +14,6 @@ import { extractTorPdfs } from './tor-package';
  */
 
 const ARCHIVES = 50;
-const WARM_UP = 10;
 const MB = 1024 * 1024;
 
 const logger = {
@@ -34,6 +33,14 @@ function syntheticArchive(): Uint8Array {
     'contract_01.pdf': random(2 * MB),
   });
 }
+
+/**
+ * Deflating 5 MB takes about 350 ms, which was nearly all of this test's time
+ * when every read built its own archive. A few are built once instead, and each
+ * read hands out a fresh copy, so every record still allocates (and must free)
+ * an archive of its own.
+ */
+const POOL = 2;
 
 function record(index: number): Procurement {
   const projectId = String(66000000000 + index);
@@ -72,6 +79,7 @@ function memory() {
 }
 
 test(`${ARCHIVES} archives leave buffers where they started`, async () => {
+  const pool = Array.from({ length: POOL }, syntheticArchive);
   const records = Array.from({ length: ARCHIVES }, (_, index) => record(index));
   let read = 0;
   const classified: number[] = [];
@@ -93,7 +101,7 @@ test(`${ARCHIVES} archives leave buffers where they started`, async () => {
     resolveZipId: async () => 'zip',
     downloadArchive: async () => {
       read += 1;
-      return syntheticArchive();
+      return pool[read % POOL]!.slice();
     },
     extractTorPdfs,
     classifyDocument: async (pdf) => {
