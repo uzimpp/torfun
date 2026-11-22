@@ -1,0 +1,44 @@
+@startuml 01-architecture
+!pragma layout smetana
+!include style.iuml
+title torfun architecture
+left to right direction
+actor "BD Officer" as officer
+actor "Site Administrator" as admin
+package "apps/web  (Next.js 16)" as web {
+  [Server components\nsession gate] as sc
+  [Client components\nlib/api.ts] as cc
+}
+package "apps/api  (Fastify 5 on Bun)" as api {
+  [routes\nvalidate, call ONE service] as routes
+  [services\nrules and orchestration] as services
+  [ingestion pipeline\nDiscovery, Retrieval, Gate, Analysis] as pipe
+  [repositories\ndocument <-> domain] as repos
+}
+package "packages/types" as types {
+  [zod schemas, labels, constants] as schemas
+}
+database "MongoDB Atlas" as db
+cloud "e-GP" as egp
+cloud "Vertex AI\nGemini" as vertex
+cloud "Google OAuth" as oauth
+officer --> web
+admin --> web
+sc --> routes : cookies
+cc --> routes : JSON
+routes --> services
+services --> pipe
+services --> repos
+pipe --> repos
+repos --> db
+pipe --> egp : one request at a time\nthrough the Gate
+pipe --> vertex : TOR PDFs
+routes --> oauth : sign-in
+web ..> types : imports
+api ..> types : imports
+note bottom of routes
+  ESLint enforces the layers:
+  routes never import repositories,
+  services never import Fastify types.
+end note
+@enduml

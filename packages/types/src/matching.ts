@@ -1,20 +1,17 @@
 import { z } from 'zod';
+import { QualificationCheckSchema } from './qualification';
 
 /**
- * Inputs from the "past experience" profile (USR-06/08 feature analysis) that feed
- * the matching score. Exact weighting is still an open decision — this shape
- * is the placeholder contract between the matching service and the rest of the app.
+ * The vendor side of a score now lives in `company.ts` as `Company` and its
+ * `Experience` records. The flat `CompanyProfile` placeholder that used to sit
+ * here was never imported and described the same thing differently — see
+ * ADR-0009.
+ *
+ * Scores belong to a company, never to a procurement alone (ADR-0007).
+ * The qualification score (`qualification-match.ts`) is the share of clauses
+ * met, and 0 when any clause is not met: every bidder qualification is mandatory.
+ * Legal qualifications, industry and delivery capacity remain unverified.
  */
-export const CompanyProfileSchema = z.object({
-  pastIndustries: z.array(z.string()).default([]),
-  techStackExpertise: z.array(z.string()).default([]),
-  preferredProjectSizeThb: z
-    .object({ min: z.number().nonnegative(), max: z.number().nonnegative() })
-    .optional(),
-  yearsOfExperience: z.number().nonnegative().optional(),
-});
-export type CompanyProfile = z.infer<typeof CompanyProfileSchema>;
-
 export const MatchScoreBreakdownSchema = z.object({
   techStackScore: z.number().min(0).max(1),
   deadlineScore: z.number().min(0).max(1),
@@ -25,9 +22,26 @@ export const MatchScoreBreakdownSchema = z.object({
 export type MatchScoreBreakdown = z.infer<typeof MatchScoreBreakdownSchema>;
 
 export const MatchResultSchema = z.object({
-  torId: z.string(),
+  companyId: z.string(),
+  projectId: z.string(),
   overallScore: z.number().min(0).max(1),
   breakdown: MatchScoreBreakdownSchema,
   computedAt: z.coerce.date(),
+  reasons: z.array(z.string()),
+  unmatched: z.array(z.string()),
+  scoringVersion: z.string(),
+  inputVersion: z.string(),
 });
 export type MatchResult = z.infer<typeof MatchResultSchema>;
+
+export const QualificationMatchResultSchema = MatchResultSchema.pick({
+  projectId: true,
+  computedAt: true,
+}).extend({
+  companyId: z.string(),
+  overallScore: z.number().min(0).max(1).nullable(),
+  checks: z.array(QualificationCheckSchema),
+  /** The company's price-based decision rule (FR-29); null when it set no range. */
+  budgetRule: QualificationCheckSchema.nullable().optional(),
+});
+export type QualificationMatchResult = z.infer<typeof QualificationMatchResultSchema>;

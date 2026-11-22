@@ -1,0 +1,121 @@
+import { ObjectId } from 'mongodb';
+import { randomUUID } from 'node:crypto';
+import type { Company, CompanyQualifications, CompanyQualificationsRecord } from '@torfun/types';
+import type { CompanyPatch, CompanyStore, NewCompany } from '../repositories/company.repository';
+
+/**
+ * An in-memory `CompanyStore`.
+ *
+ * It really stores companies and really matches a substring the way the
+ * repository's regex does, so a test asserts on the record a request left
+ * behind. Ordering and collation are the real repository's integration tests'
+ * business, which is where a Mongo sort can actually be verified.
+ */
+export class InMemoryCompanyStore implements CompanyStore {
+  private readonly companies = new Map<string, Company>();
+
+  private readonly qualifications = new Map<string, CompanyQualificationsRecord>();
+
+  async findQualifications(companyId: string): Promise<CompanyQualificationsRecord | null> {
+    if (!this.companies.has(companyId)) return null;
+    return (
+      this.qualifications.get(companyId) ?? {
+        companyId,
+        revision: null,
+        registeredCapitalThb: null,
+        bidBudgetMinThb: null,
+        bidBudgetMaxThb: null,
+        certificates: [],
+        personnel: [],
+      }
+    );
+  }
+
+  async replaceQualifications(
+    companyId: string,
+    revision: string | null,
+    input: CompanyQualifications,
+  ): Promise<CompanyQualificationsRecord | null> {
+    if (
+      !this.companies.has(companyId) ||
+      (this.qualifications.get(companyId)?.revision ?? null) !== revision
+    ) {
+      return null;
+    }
+    const record = { ...input, companyId, revision: randomUUID() };
+    this.qualifications.set(companyId, record);
+    return record;
+  }
+
+  async findById(id: string): Promise<Company | null> {
+    return this.companies.get(id) ?? null;
+  }
+
+  async search(query: string, limit: number): Promise<Company[]> {
+    return [...this.companies.values()]
+      .filter((company) => company.nameTh.toLowerCase().includes(query.toLowerCase()))
+      .sort((a, b) => a.nameTh.localeCompare(b.nameTh))
+      .slice(0, limit);
+  }
+
+  async create(input: NewCompany): Promise<Company> {
+    const now = new Date();
+    const company: Company = {
+      id: new ObjectId().toString(),
+      nameTh: input.nameTh,
+      tin: input.tin,
+      managerIds: input.managerIds ?? [],
+      autoApproveDomain: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.companies.set(company.id, company);
+    return company;
+  }
+
+  async update(id: string, patch: CompanyPatch): Promise<Company | null> {
+    const existing = this.companies.get(id);
+    if (!existing) return null;
+
+    const updated: Company = {
+      ...existing,
+      ...(patch.nameTh !== undefined ? { nameTh: patch.nameTh } : {}),
+      ...(patch.tin !== undefined ? { tin: patch.tin } : {}),
+      ...(patch.autoApproveDomain !== undefined
+        ? { autoApproveDomain: patch.autoApproveDomain }
+        : {}),
+      updatedAt: new Date(),
+    };
+    this.companies.set(id, updated);
+    return updated;
+  }
+
+  async setManager(id: string, userId: string, isManager: boolean): Promise<Company | null> {
+    const existing = this.companies.get(id);
+    if (!existing) return null;
+    const others = existing.managerIds.filter((managerId) => managerId !== userId);
+    const updated: Company = {
+      ...existing,
+      managerIds: isManager ? [...others, userId] : others,
+      updatedAt: new Date(),
+    };
+    this.companies.set(id, updated);
+    return updated;
+  }
+
+  async removeManager(
+    id: string,
+    userId: string,
+    { keepOne }: { keepOne: boolean },
+  ): Promise<boolean> {
+    const existing = this.companies.get(id);
+    if (!existing?.managerIds.includes(userId)) return false;
+    if (keepOne && existing.managerIds.length < 2) return false;
+    this.companies.set(id, {
+      ...existing,
+      managerIds: existing.managerIds.filter((managerId) => managerId !== userId),
+      updatedAt: new Date(),
+    });
+    return true;
+  }
+}

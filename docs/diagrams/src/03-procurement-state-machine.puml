@@ -1,0 +1,71 @@
+@startuml 03-procurement-state-machine
+!pragma layout smetana
+!include style.iuml
+title State machine of one procurement
+left to right direction
+skinparam StateBackgroundColor<<Queued>> #FFF2CC
+skinparam StateBorderColor<<Queued>> #B8860B
+skinparam StateBackgroundColor<<Processing>> #D9E8FB
+skinparam StateBorderColor<<Processing>> #3D6AA3
+skinparam StateBackgroundColor<<Completed>> #DDF3E4
+skinparam StateBorderColor<<Completed>> #2F855A
+skinparam StateBackgroundColor<<Failed>> #FBE0E0
+skinparam StateBorderColor<<Failed>> #C53030
+skinparam StateBackgroundColor<<Agency>> #EEF3FA
+
+state "Pipeline: our State and Outcome" as Pipeline {
+  state queued <<Queued>>
+  state error <<Queued>>
+  state downloading <<Processing>>
+  state analysing <<Processing>>
+  state tor_analysed <<Completed>>
+  state needs_review <<Completed>>
+  state analysis_failed <<Completed>>
+  state no_tor_in_archive <<Completed>>
+  state out_of_scope <<Completed>>
+  state no_tor_package <<Failed>>
+  state abandoned <<Failed>>
+  [*] --> queued : discovered
+  queued --> out_of_scope : goods category\nhas no software
+  queued --> downloading : Gate turn
+  downloading --> no_tor_package : no zipId
+  downloading --> error : transport failure
+  error --> queued : retry next Run\n(attempts below 3)
+  error --> abandoned : third failure
+  downloading --> analysing : archive in hand
+  analysing --> tor_analysed : software,\nhigh confidence
+  analysing --> needs_review : low confidence\nor partial read
+  analysing --> analysis_failed : nothing readable
+  analysing --> no_tor_in_archive : no TOR inside
+  needs_review --> tor_analysed : admin approves
+  analysing --> [*] : not software, high confidence\nrecord deleted, tombstone kept
+  needs_review --> [*] : admin marks non-software\nor deletes
+}
+
+state "Agency lifecycle: Procurement Status" as Agency {
+  state unknown <<Agency>>
+  state drafting <<Agency>>
+  state open <<Agency>>
+  state evaluating <<Agency>>
+  state awarded <<Agency>>
+  state contracted <<Agency>>
+  [*] --> unknown
+  unknown --> drafting : draft TOR announced
+  drafting --> open : invitation published
+  open --> evaluating : bids priced or evaluated
+  evaluating --> awarded : winner announced
+  awarded --> contracted : contract signed
+  contracted --> [*]
+}
+
+legend right
+  Colour is the pipeline State:
+  yellow Queued, blue Processing,
+  green Completed, red Failed.
+  Officers see only tor_analysed records
+  that were not removed from publication.
+  The agency status is read from e-GP's timeline,
+  never set by a model. cancelled is in the enum
+  but no timeline code maps to it yet.
+endlegend
+@enduml
