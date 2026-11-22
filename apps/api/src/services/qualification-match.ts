@@ -189,10 +189,14 @@ export function evaluateQualifications(
   const checks = qualifications.map((requirement) =>
     compare(requirement, profile, experiences, today),
   );
-  // Unknowns never earn points. All-unknown and empty TORs have no score to rank.
-  const overallScore = checks.some((item) => item.status !== 'unknown')
-    ? checks.filter((item) => item.status === 'met').length / checks.length
-    : null;
+  // Every bidder qualification in a TOR is mandatory: failing one disqualifies
+  // the bid, so a single `not_met` scores 0 however many others pass. Unknowns
+  // never earn points. All-unknown and empty TORs have no score to rank.
+  const overallScore = checks.some((item) => item.status === 'not_met')
+    ? 0
+    : checks.some((item) => item.status !== 'unknown')
+      ? checks.filter((item) => item.status === 'met').length / checks.length
+      : null;
   return { checks, overallScore };
 }
 

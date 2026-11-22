@@ -106,6 +106,24 @@ describe('qualification evidence', () => {
     ).toBe(1);
   });
 
+  test('one failed qualification scores 0 however many others pass', () => {
+    const capital = {
+      kind: 'registered_capital',
+      manualReviewReason: null,
+      minValueThb: 5_000_000,
+      text: 'ทุนจดทะเบียนไม่น้อยกว่า 5 ล้านบาท',
+      source: '4.3',
+    } satisfies TorQualification;
+    const passing = { ...profile, registeredCapitalThb: 10_000_000 };
+    const failing = { ...profile, registeredCapitalThb: 1_000_000 };
+    expect(
+      evaluateQualifications([certificate, capital], passing, [], '2026-11-04').overallScore,
+    ).toBe(1);
+    const result = evaluateQualifications([certificate, capital], failing, [], '2026-11-04');
+    expect(result.checks.map((item) => item.status)).toEqual(['met', 'not_met']);
+    expect(result.overallScore).toBe(0);
+  });
+
   test('keeps legacy and conditional clauses out of the matched count', () => {
     const capital = {
       kind: 'registered_capital',
