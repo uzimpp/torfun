@@ -6,6 +6,15 @@ on:
     # `labeled` lets a reviewer add the `dast` label to any PR to run the image
     # scan and ZAP against it on demand (assignment criterion 15, issue #191).
     types: [opened, synchronize, reopened, labeled]
+  # Code-scanning alerts belong to a ref. A PR scan reports on refs/pull/N/merge,
+  # so it can never close an alert on `main`: without a scan of the branch itself,
+  # an alert opened by one weekly run stays open after the fix merges. Only the
+  # jobs that upload SARIF (sast, container-scan) run on push; the others only
+  # pass or fail, so they have no stale state to refresh.
+  push:
+    branches: [develop, main]
+  # Runs every job, like the weekly schedule. Use it to re-scan a branch on demand.
+  workflow_dispatch:
   schedule:
     # Catch newly-disclosed CVEs in unchanged dependencies.
     - cron: '0 6 * * 1'
@@ -15,6 +24,7 @@ permissions:
 
 jobs:
   dependency-audit:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -45,6 +55,7 @@ jobs:
           bun .github/scripts/new-advisories.ts "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" high critical
 
   secret-scan:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -104,7 +115,7 @@ jobs:
     # Runs after the image scan but not only when it passes: a Trivy finding
     # must not also hide the ZAP results, which test different things.
     if: >-
-      !cancelled() && (
+      !cancelled() && github.event_name != 'push' && (
       github.event_name != 'pull_request' ||
       github.event.pull_request.base.ref == 'main' ||
       contains(github.event.pull_request.labels.*.name, 'dast'))
