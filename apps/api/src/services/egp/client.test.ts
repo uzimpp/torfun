@@ -101,9 +101,11 @@ describe('what an error says about the request that caused it', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       )) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/egp-dept', {}, SECRET).catch(
-      (caught: unknown) => caught,
-    );
+    const error = await openDataGet(
+      'https://opend.data.go.th/govspending/service/egp-dept',
+      {},
+      SECRET,
+    ).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect((error as Error).message).toContain('invalid key');
@@ -114,13 +116,15 @@ describe('what an error says about the request that caused it', () => {
   test('a transport error that repeats the key, in a URL or not, is redacted', async () => {
     globalThis.fetch = (async () => {
       throw new Error(
-        `connect failed https://opend.test/egp-dept?api-key=${SECRET} {"api-key":"${SECRET}"}`,
+        `connect failed https://opend.data.go.th/govspending/service/egp-dept?api-key=${SECRET} {"api-key":"${SECRET}"}`,
       );
     }) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/egp-dept', {}, SECRET).catch(
-      (caught: unknown) => caught,
-    );
+    const error = await openDataGet(
+      'https://opend.data.go.th/govspending/service/egp-dept',
+      {},
+      SECRET,
+    ).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(UnreachableError);
     expect((error as Error).message).toContain('connect failed');
@@ -132,9 +136,11 @@ describe('what an error says about the request that caused it', () => {
     globalThis.fetch = (async () =>
       new Response(`<html>key ${SECRET}</html>`, { status: 200 })) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/egp-dept', {}, SECRET).catch(
-      (caught: unknown) => caught,
-    );
+    const error = await openDataGet(
+      'https://opend.data.go.th/govspending/service/egp-dept',
+      {},
+      SECRET,
+    ).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect((error as Error).message).not.toContain(SECRET);
@@ -271,7 +277,7 @@ describe('the open-data API is asked once, because every request is part of a sm
           });
     }) as unknown as typeof fetch;
 
-    const page = await openDataGet('https://opend.test/x', {}, 'k', {
+    const page = await openDataGet('https://opend.data.go.th/govspending/service/x', {}, 'k', {
       maxRetries: 1,
       retryBackoffMs: [0],
     });
@@ -290,7 +296,7 @@ describe('the open-data API is asked once, because every request is part of a sm
       });
     }) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/x', {}, 'k', {
+    const error = await openDataGet('https://opend.data.go.th/govspending/service/x', {}, 'k', {
       maxRetries: 2,
       retryBackoffMs: [0, 0],
     }).catch((caught: unknown) => caught);
@@ -307,7 +313,7 @@ describe('the open-data API is asked once, because every request is part of a sm
       return new Response('', { status: 503 });
     }) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/x', {}, 'k', {
+    const error = await openDataGet('https://opend.data.go.th/govspending/service/x', {}, 'k', {
       maxRetries: 2,
       retryBackoffMs: [0, 0],
       quotaBudget,
