@@ -350,7 +350,10 @@ export interface FindOptions {
    */
   order?: ProcurementOrder | 'urgency' | 'daysLeft';
   /** Optional score within the existing filters. Equal scores keep the base order. */
-  scoreQualifications?: (qualifications: TorAnalysis['qualifications']) => number | null;
+  scoreQualifications?: (
+    qualifications: TorAnalysis['qualifications'],
+    projectMoney: number | null,
+  ) => number | null;
   /** Today in Thailand, `YYYY-MM-DD`. The `daysLeft` order counts from it. */
   today?: string;
   limit: number;
@@ -1131,10 +1134,18 @@ export class ProcurementRepository
       const candidates = collection.aggregate<{
         _id: string;
         analysis?: Pick<TorAnalysis, 'qualifications'>;
-      }>([{ $match: filter }, ...ranked.stages, { $project: { 'analysis.qualifications': 1 } }]);
+        project_money?: number | null;
+      }>([
+        { $match: filter },
+        ...ranked.stages,
+        { $project: { 'analysis.qualifications': 1, project_money: 1 } },
+      ]);
       const scored: { id: string; score: number }[] = [];
       for await (const item of candidates) {
-        scored.push({ id: item._id, score: score(item.analysis?.qualifications) ?? -1 });
+        scored.push({
+          id: item._id,
+          score: score(item.analysis?.qualifications, item.project_money ?? null) ?? -1,
+        });
       }
       scored.sort((a, b) => b.score - a.score);
       const ids = scored.slice(options.offset, options.offset + options.limit).map(({ id }) => id);

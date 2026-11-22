@@ -41,5 +41,7 @@ export const QualificationMatchResultSchema = MatchResultSchema.pick({
   companyId: z.string(),
   overallScore: z.number().min(0).max(1).nullable(),
   checks: z.array(QualificationCheckSchema),
+  /** The company's price-based decision rule (FR-29); null when it set no range. */
+  budgetRule: QualificationCheckSchema.nullable().optional(),
 });
 export type QualificationMatchResult = z.infer<typeof QualificationMatchResultSchema>;

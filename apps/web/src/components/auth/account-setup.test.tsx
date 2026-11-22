@@ -32,6 +32,8 @@ beforeEach(() => {
     companyId: 'company',
     revision: null,
     registeredCapitalThb: null,
+    bidBudgetMinThb: null,
+    bidBudgetMaxThb: null,
     personnel: [],
     certificates: [
       { name: 'Expired', standard: 'ISO 9001', issuer: 'test', validUntil: '2000-01-01' },

@@ -66,8 +66,24 @@ export const PersonnelQualificationSchema = z.object({
 });
 export type PersonnelQualification = z.infer<typeof PersonnelQualificationSchema>;
 
+/**
+ * The price-based decision rule (FR-29): the range of announced budgets the
+ * company bids for. A TOR outside it scores 0, like a failed qualification.
+ * Either end may be open; both null means no rule.
+ */
+const bidBudgetInOrder = (value: {
+  bidBudgetMinThb?: number | null;
+  bidBudgetMaxThb?: number | null;
+}) =>
+  value.bidBudgetMinThb == null ||
+  value.bidBudgetMaxThb == null ||
+  value.bidBudgetMinThb <= value.bidBudgetMaxThb;
+const BID_BUDGET_ORDER_MESSAGE = 'งบประมาณขั้นต่ำต้องไม่มากกว่างบประมาณสูงสุด';
+
 export const CompanyQualificationsSchema = z.object({
   registeredCapitalThb: MoneyThbSchema.nullable(),
+  bidBudgetMinThb: MoneyThbSchema.nullable().default(null),
+  bidBudgetMaxThb: MoneyThbSchema.nullable().default(null),
   certificates: z.array(CompanyCertificateSchema).max(100),
   personnel: z.array(PersonnelQualificationSchema).max(100),
 });
@@ -80,25 +96,36 @@ export const CompanyQualificationsRecordSchema = CompanyQualificationsSchema.ext
 export type CompanyQualificationsRecord = z.infer<typeof CompanyQualificationsRecordSchema>;
 
 /** Company endpoints use snake_case on the wire. */
-export const CompanyQualificationsPayloadSchema = z.object({
-  company_id: CompanyQualificationsRecordSchema.shape.companyId,
-  revision: CompanyQualificationsRecordSchema.shape.revision,
-  registered_capital_thb: CompanyQualificationsSchema.shape.registeredCapitalThb,
-  certificates: z
-    .array(
-      CompanyCertificateSchema.omit({ validUntil: true }).extend({
-        valid_until: CompanyCertificateSchema.shape.validUntil,
+export const CompanyQualificationsPayloadSchema = z
+  .object({
+    company_id: CompanyQualificationsRecordSchema.shape.companyId,
+    revision: CompanyQualificationsRecordSchema.shape.revision,
+    registered_capital_thb: CompanyQualificationsSchema.shape.registeredCapitalThb,
+    bid_budget_min_thb: CompanyQualificationsSchema.shape.bidBudgetMinThb,
+    bid_budget_max_thb: CompanyQualificationsSchema.shape.bidBudgetMaxThb,
+    certificates: z
+      .array(
+        CompanyCertificateSchema.omit({ validUntil: true }).extend({
+          valid_until: CompanyCertificateSchema.shape.validUntil,
+        }),
+      )
+      .max(100),
+    personnel: z
+      .array(
+        PersonnelQualificationSchema.omit({ yearsOfExperience: true }).extend({
+          years_of_experience: PersonnelQualificationSchema.shape.yearsOfExperience,
+        }),
+      )
+      .max(100),
+  })
+  .refine(
+    (payload) =>
+      bidBudgetInOrder({
+        bidBudgetMinThb: payload.bid_budget_min_thb,
+        bidBudgetMaxThb: payload.bid_budget_max_thb,
       }),
-    )
-    .max(100),
-  personnel: z
-    .array(
-      PersonnelQualificationSchema.omit({ yearsOfExperience: true }).extend({
-        years_of_experience: PersonnelQualificationSchema.shape.yearsOfExperience,
-      }),
-    )
-    .max(100),
-});
+    { message: BID_BUDGET_ORDER_MESSAGE, path: ['bid_budget_max_thb'] },
+  );
 export type CompanyQualificationsPayload = z.infer<typeof CompanyQualificationsPayloadSchema>;
 
 export function toCompanyQualificationsPayload(
@@ -108,6 +135,8 @@ export function toCompanyQualificationsPayload(
     company_id: record.companyId,
     revision: record.revision,
     registered_capital_thb: record.registeredCapitalThb,
+    bid_budget_min_thb: record.bidBudgetMinThb,
+    bid_budget_max_thb: record.bidBudgetMaxThb,
     certificates: record.certificates.map(({ validUntil, ...item }) => ({
       ...item,
       valid_until: validUntil,
@@ -126,6 +155,8 @@ export function fromCompanyQualificationsPayload(
     companyId: payload.company_id,
     revision: payload.revision,
     registeredCapitalThb: payload.registered_capital_thb,
+    bidBudgetMinThb: payload.bid_budget_min_thb,
+    bidBudgetMaxThb: payload.bid_budget_max_thb,
     certificates: payload.certificates.map(({ valid_until, ...item }) => ({
       ...item,
       validUntil: valid_until,

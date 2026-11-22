@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import type { CompanyQualificationsRecord, Experience, TorQualification } from '@torfun/types';
-import { evaluateQualifications } from './qualification-match';
+import { checkBudgetRule, evaluateQualifications } from './qualification-match';
 
 const profile: CompanyQualificationsRecord = {
   companyId: 'company',
   revision: null,
   registeredCapitalThb: null,
+  bidBudgetMinThb: null,
+  bidBudgetMaxThb: null,
   certificates: [
     { name: 'Quality', standard: 'ISO 9001', issuer: 'Issuer', validUntil: '2026-11-04' },
   ],
@@ -144,5 +146,48 @@ describe('qualification evidence', () => {
     );
     expect(result.checks.map((item) => item.status)).toEqual(['met', 'unknown', 'unknown']);
     expect(result.overallScore).toBe(1 / 3);
+  });
+});
+
+describe('price-based decision rule (FR-29)', () => {
+  const ranged = { ...profile, bidBudgetMinThb: 1_000_000, bidBudgetMaxThb: 10_000_000 };
+
+  test('no range set means no rule', () => {
+    expect(checkBudgetRule(profile, 5_000_000)).toBeNull();
+    expect(
+      evaluateQualifications([certificate], profile, [], '2026-11-04', 50).budgetRule,
+    ).toBeNull();
+  });
+
+  test('a budget inside the range keeps the qualification score', () => {
+    const result = evaluateQualifications([certificate], ranged, [], '2026-11-04', 5_000_000);
+    expect(result.budgetRule?.status).toBe('met');
+    expect(result.overallScore).toBe(1);
+  });
+
+  test('a budget outside the range scores 0 even when every clause is met', () => {
+    const low = evaluateQualifications([certificate], ranged, [], '2026-11-04', 500_000);
+    const high = evaluateQualifications([certificate], ranged, [], '2026-11-04', 20_000_000);
+    expect(low.budgetRule?.status).toBe('not_met');
+    expect(low.overallScore).toBe(0);
+    expect(high.overallScore).toBe(0);
+  });
+
+  test('either end may be open, and the ends are inclusive', () => {
+    const minOnly = { ...profile, bidBudgetMinThb: 1_000_000, bidBudgetMaxThb: null };
+    expect(checkBudgetRule(minOnly, 1_000_000)?.status).toBe('met');
+    expect(checkBudgetRule(minOnly, 999_999)?.status).toBe('not_met');
+    expect(
+      checkBudgetRule({ ...profile, bidBudgetMinThb: null, bidBudgetMaxThb: 5 }, 5)?.status,
+    ).toBe('met');
+  });
+
+  test('an unannounced budget is unknown and does not change the score', () => {
+    const result = evaluateQualifications([certificate], ranged, [], '2026-11-04', null);
+    expect(result.budgetRule).toMatchObject({
+      status: 'unknown',
+      evidence: expect.arrayContaining(['TOR ไม่ได้ประกาศงบประมาณ']),
+    });
+    expect(result.overallScore).toBe(1);
   });
 });

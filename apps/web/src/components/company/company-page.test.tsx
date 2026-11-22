@@ -59,6 +59,8 @@ beforeEach(() => {
     certificates: [],
     personnel: [],
     registeredCapitalThb: null,
+    bidBudgetMinThb: null,
+    bidBudgetMaxThb: null,
   });
   mocked.saveCompanyQualifications.mockImplementation(async (input) => input);
   mocked.fetchClients.mockResolvedValue({ clients: [] });
@@ -174,4 +176,27 @@ test('a plain member sees colleagues but no requests and no controls', async () 
   expect(screen.queryByRole('button', { name: /นำ .* ออกจากบริษัท/ })).not.toBeInTheDocument();
   // The API would refuse it anyway; the page does not ask.
   expect(mocked.fetchJoinRequests).not.toHaveBeenCalled();
+});
+
+test('saves the bid budget range and refuses a minimum above the maximum', async () => {
+  const user = userEvent.setup();
+  render(<CompanyPage />);
+  await user.click(await screen.findByRole('button', { name: 'แก้ไขคุณสมบัติ' }));
+  const range = within(screen.getByRole('group', { name: 'ช่วงงบประมาณโครงการที่บริษัทยื่น' }));
+  await user.type(range.getByLabelText('งบประมาณขั้นต่ำ (บาท)'), '5000000');
+  await user.type(range.getByLabelText('งบประมาณสูงสุด (บาท)'), '1000000');
+  await user.click(screen.getByRole('button', { name: 'บันทึกคุณสมบัติ' }));
+  expect(
+    await screen.findByText('งบประมาณขั้นต่ำต้องไม่มากกว่างบประมาณสูงสุด'),
+  ).toBeInTheDocument();
+  expect(mocked.saveCompanyQualifications).not.toHaveBeenCalled();
+
+  await user.clear(range.getByLabelText('งบประมาณสูงสุด (บาท)'));
+  await user.type(range.getByLabelText('งบประมาณสูงสุด (บาท)'), '20000000');
+  await user.click(screen.getByRole('button', { name: 'บันทึกคุณสมบัติ' }));
+  await vi.waitFor(() =>
+    expect(mocked.saveCompanyQualifications).toHaveBeenCalledWith(
+      expect.objectContaining({ bidBudgetMinThb: 5_000_000, bidBudgetMaxThb: 20_000_000 }),
+    ),
+  );
 });

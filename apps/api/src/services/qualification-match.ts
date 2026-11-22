@@ -180,24 +180,52 @@ function compare(
   }
 }
 
+/**
+ * The company's price-based decision rule (FR-29): is the TOR's announced
+ * budget inside the range the company bids for? Null when no range is set.
+ */
+export function checkBudgetRule(
+  profile: Pick<CompanyQualificationsRecord, 'bidBudgetMinThb' | 'bidBudgetMaxThb'>,
+  budgetThb: number | null | undefined,
+): QualificationCheck | null {
+  const min = profile.bidBudgetMinThb ?? null;
+  const max = profile.bidBudgetMaxThb ?? null;
+  if (min === null && max === null) return null;
+  const range = `ช่วงงบประมาณที่บริษัทยื่น ${min === null ? 'ไม่กำหนด' : thb.format(min)} – ${
+    max === null ? 'ไม่กำหนด' : thb.format(max)
+  }`;
+  if (budgetThb == null) return check('unknown', 'TOR ไม่ได้ประกาศงบประมาณ', range);
+  const inside = (min === null || budgetThb >= min) && (max === null || budgetThb <= max);
+  return check(recorded(inside), `งบประมาณโครงการ ${thb.format(budgetThb)}`, range);
+}
+
 export function evaluateQualifications(
   qualifications: TorQualification[],
   profile: CompanyQualificationsRecord,
   experiences: Experience[],
   today: string,
-): { checks: QualificationCheck[]; overallScore: number | null } {
+  budgetThb?: number | null,
+): {
+  checks: QualificationCheck[];
+  overallScore: number | null;
+  budgetRule: QualificationCheck | null;
+} {
   const checks = qualifications.map((requirement) =>
     compare(requirement, profile, experiences, today),
   );
+  const budgetRule = checkBudgetRule(profile, budgetThb);
   // Every bidder qualification in a TOR is mandatory: failing one disqualifies
-  // the bid, so a single `not_met` scores 0 however many others pass. Unknowns
-  // never earn points. All-unknown and empty TORs have no score to rank.
-  const overallScore = checks.some((item) => item.status === 'not_met')
-    ? 0
-    : checks.some((item) => item.status !== 'unknown')
-      ? checks.filter((item) => item.status === 'met').length / checks.length
-      : null;
-  return { checks, overallScore };
+  // the bid, so a single `not_met` scores 0 however many others pass. A budget
+  // outside the company's own range is a decision not to bid and scores 0 too;
+  // the rule itself earns no points. Unknowns never earn points. All-unknown
+  // and empty TORs have no score to rank.
+  const overallScore =
+    budgetRule?.status === 'not_met' || checks.some((item) => item.status === 'not_met')
+      ? 0
+      : checks.some((item) => item.status !== 'unknown')
+        ? checks.filter((item) => item.status === 'met').length / checks.length
+        : null;
+  return { checks, overallScore, budgetRule };
 }
 
 export function computeQualificationMatch(
@@ -207,11 +235,12 @@ export function computeQualificationMatch(
   experiences: Experience[],
   today: string,
   now: Date,
+  budgetThb?: number | null,
 ): QualificationMatchResult {
   return {
     projectId,
     companyId: profile.companyId,
     computedAt: now,
-    ...evaluateQualifications(qualifications, profile, experiences, today),
+    ...evaluateQualifications(qualifications, profile, experiences, today, budgetThb),
   };
 }
