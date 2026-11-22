@@ -44,8 +44,8 @@ BD Officer with no Company to `/company-experiences`; administrators are exempt,
 and that page must never gate itself or it redirects to itself.
 
 Routes in the `(chrome)` group get the header and footer from
-`app/(chrome)/layout.tsx`. The rest — `/login`, `/register`, `/company-experiences`
-— deliberately get neither: they are steps in one sign-up flow rather than places
+`app/(chrome)/layout.tsx`. The rest (`/login`, `/register`, `/company-experiences`)
+deliberately get neither: they are steps in one sign-up flow rather than places
 to navigate from, and they show `OnboardingSteps` instead. The group changes no
 URL.
 
@@ -56,11 +56,8 @@ with neither. `requireCompany` still sends an officer with no record to the
 guided one.
 
 `/search` is not gated. A guest who searches from the landing page arrives with
-their words intact and is told what the index needs, rather than being redirected
-into a form that loses them. The announcement index is served by
-`/api/ingestion/projects`, which is **admin-only**, so a BD Officer's search
-currently reports that rather than returning rows — opening the index to that
-role is an API change, not a UI one.
+their words intact and is told what the index needs, instead of being redirected
+to a form that loses them. Search reads `/api/tors`, which is open to officers.
 
 ## Notifications
 

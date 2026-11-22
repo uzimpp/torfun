@@ -4,7 +4,7 @@ Technical requirements read from the code, one layer below the product-level
 [SRS](SRS.md). They cover the pipeline, the gate, security, reliability and data,
 and they have their own IDs (FR-AUTH-01, NFR-UP-03, ...). Where this page and the
 SRS overlap, the SRS ID is authoritative. Scope, user stories and the glossary are
-in the SRS; the vocabulary is defined in [`CONTEXT.md`](../CONTEXT.md).
+in the SRS; the vocabulary is defined in [`GLOSSARY.md`](../GLOSSARY.md).
 
 Baseline: `develop` @ `5e622a3`. Version 0.1, draft for team review. The structure
 follows ISO/IEC/IEEE 29148:2018.
@@ -36,11 +36,11 @@ Terms not defined in the SRS glossary:
 
 | Ref | Document |
 | --- | -------- |
-| R1 | [`CONTEXT.md`](../CONTEXT.md), the domain vocabulary |
+| R1 | [`GLOSSARY.md`](../GLOSSARY.md), the domain vocabulary |
 | R2 | [`AGENTS.md`](../AGENTS.md) and the per-app `AGENTS.md` files, for product intent and guardrails |
 | R3 | The root and per-app `README.md` files, for setup, endpoints and pages |
 | R4 | ISO/IEC/IEEE 29148:2018, Requirements engineering |
-| R5 | ADR-0002, -0004, -0006, -0007, -0009, -0015, -0018, -0020 and -0021, cited in the code but not on this branch (OI-02) |
+| R5 | ADR-0002, -0004, -0006, -0007, -0009, -0015, -0018, -0020 and -0021, cited in the code but missing from the repository (OI-02) |
 
 ## 2. Overall description
 
@@ -417,8 +417,8 @@ _Alternate:_ another Run is live → `409`. _Exception:_ upstream refusal → Ru
 
 ## 9. Key decisions that constrain requirements
 
-Decision records are cited throughout the code but are not on this branch;
-summarised here from those citations so the requirements read in context.
+Decision records are cited throughout the code, but `docs/adr/` does not exist.
+This table is summarised from those citations so the requirements read in context.
 
 | ADR | Decision (as cited) |
 | --- | ------------------- |
@@ -437,12 +437,11 @@ summarised here from those citations so the requirements read in context.
 | ID | Item | Owner / next step |
 | -- | ---- | ----------------- |
 | OI-01 | The upstream research authorisation's limits are not recorded in the repository. | Record or link them; reconcile with NFR-UP-* |
-| OI-02 | `docs/adr/` and `docs/migrations/` are referenced by README/AGENTS but absent from this branch. | Restore from the branch that holds them, or re-create |
+| OI-02 | `docs/adr/` is cited by the code, README, and AGENTS but does not exist. | Re-create it from the citations, or find the original |
 | OI-03 | Match scoring (FR-DISC-10) is the product's headline promise but only a placeholder type exists. | Plan the feature; add company key to `MatchResult` |
-| OI-04 | `apps/web/README.md` says an officer's `/search` is admin-only, but the web client calls `/api/tors` (open to officers); the README appears stale. | Verify and update README |
 | OI-05 | No data-protection (PDPA) review is recorded. | Decide and document |
 | OI-06 | No performance baseline (NFR-PERF-01) or accessibility audit (NFR-USE-04). | Measure; set targets |
-| OI-07 | `/api/dashboard` and `/api/admin/test` are placeholders returning a greeting. | Remove or implement |
+| OI-07 | `/api/dashboard` is a placeholder that returns a greeting. | Remove or implement |
 | OI-08 | `GET /api/tors/:projectId/source` downloads the archive from e-GP without the Gate, so it can overlap other downloads and a Run, and a latched Gate does not stop it. | Route it through a shared gate, or record the research authorisation's position (see OI-01) |
 | R-01 | Dependence on undocumented e-GP endpoints and RSS shape; any change silently stops ingestion. | Dependency-health check, failure log, alerting |
 | R-02 | The Gate makes throughput inherently slow; history backfill competes with fresh work. | Tiered scheduling (FR-RUN-06) |

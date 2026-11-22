@@ -2,7 +2,7 @@
 
 - Version: 0.3. Team SRS of 30 August 2026, with implementation status and reconciliation changes.
 - Status: draft for review. Implementation status is judged against `develop` @ `5e622a3`.
-- Related: [system-requirements.md](system-requirements.md), [architecture.md](architecture.md), [data-model.md](data-model.md), [`CONTEXT.md`](../CONTEXT.md).
+- Related: [system-requirements.md](system-requirements.md), [architecture.md](architecture.md), [data-model.md](data-model.md), [`GLOSSARY.md`](../GLOSSARY.md).
 
 Sections 1 to 5 and Appendices A and B are the team's SRS, with the same
 requirement IDs. Version 0.3 adds three things:
@@ -80,26 +80,26 @@ data service".]
 
 **In scope**
 
-- **Announcement Ingestion** — a scheduled retrieval process that reads the e-GP announcement feed (draft TOR and invitation announcements for e-bidding), filters records to the agencies in the Source Registry (Appendix A), and uses each project identifier to retrieve announcement details and attached TOR files from e-GP. Records are deduplicated by project identifier; retrieval failures are logged for administrator review. [Changed D-01: was "queries the Thailand Government Spending open data API".]
-- **Document Extraction** — a pipeline in which Vertex AI reads each TOR file directly, including scanned Thai documents, and derives structured attributes: budget, submission deadline, technology stack, target platform and industry sector. [Changed D-04: was "extracts text … applies OCR".]
-- **Company Profile and Matching** — a single organisation-wide profile (past project industries, technology expertise, project size range, target platforms, years of experience). Each announcement is assigned a matching score against it; scores are recomputed when the profile changes.
-- **Search, Filtering and Dashboard** — a ranked view of recommended announcements, filterable by budget range, publication date, submission deadline, technology stack, industry sector and target platform.
-- **TOR Review** — in-browser display of the AI summary alongside access to the original source document, both for reading in the platform and for download.
-- **Email Notification** — automated email and in-application alerts when a newly ingested announcement exceeds the configured matching-score threshold or a saved TOR's status changes.
-- **Identity and Access Management** — role-based access control with two roles, Business Development Officer and Site Administrator. Authentication is by username and password, or Google OAuth (FR-03). [Changed D-12: was "TBD".]
-- **Administration** — administrator control over the Source Registry, ingestion schedule, company profile and user accounts.
+- **Announcement Ingestion**: a scheduled retrieval process that reads the e-GP announcement feed (draft TOR and invitation announcements for e-bidding), filters records to the agencies in the Source Registry (Appendix A), and uses each project identifier to retrieve announcement details and attached TOR files from e-GP. Records are deduplicated by project identifier; retrieval failures are logged for administrator review. [Changed D-01: was "queries the Thailand Government Spending open data API".]
+- **Document Extraction**: a pipeline in which Vertex AI reads each TOR file directly, including scanned Thai documents, and derives structured attributes: budget, submission deadline, technology stack, target platform and industry sector. [Changed D-04: was "extracts text … applies OCR".]
+- **Company Profile and Matching**: a single organisation-wide profile (past project industries, technology expertise, project size range, target platforms, years of experience). Each announcement is assigned a matching score against it; scores are recomputed when the profile changes.
+- **Search, Filtering and Dashboard**: a ranked view of recommended announcements, filterable by budget range, publication date, submission deadline, technology stack, industry sector and target platform.
+- **TOR Review**: in-browser display of the AI summary alongside access to the original source document, both for reading in the platform and for download.
+- **Email Notification**: automated email and in-application alerts when a newly ingested announcement exceeds the configured matching-score threshold or a saved TOR's status changes.
+- **Identity and Access Management**: role-based access control with two roles, Business Development Officer and Site Administrator. Authentication is by username and password, or Google OAuth (FR-03). [Changed D-12: was "TBD".]
+- **Administration**: administrator control over the Source Registry, ingestion schedule, company profile and user accounts.
 
 **Out of scope for this phase**
 
-- **General web crawling** — targeted retrieval by known project identifier only; no link discovery, site traversal, or ingestion from sources outside the Source Registry.
-- **Non-software and out-of-registry announcements** — excluded regardless of relevance.
-- **Bid preparation and submission** — the platform supports the decision whether to pursue an opportunity; it does not generate proposals, pricing or bid documents, and does not submit bids.
-- **Third-party TOR publication** — all content originates from government sources.
-- **Mobile application development** — optimised for desktop browsers; no native iOS/Android apps.
-- **AI model training** — pre-trained Vertex AI only; nothing is trained, fine-tuned or hosted.
-- **Alternative notification channels** — no LINE, SMS or any channel other than email and in-application.
-- **Per-user profiles** — one shared company profile; no individual profiles or multi-tenant operation. [Open D-05]: the built system has one Company per vendor, so this exclusion does not describe it.
-- **Payment processing** — internal tool; no payment gateway or subscription management.
+- **General web crawling**: targeted retrieval by known project identifier only; no link discovery, site traversal, or ingestion from sources outside the Source Registry.
+- **Non-software and out-of-registry announcements**: excluded regardless of relevance.
+- **Bid preparation and submission**: the platform supports the decision whether to pursue an opportunity; it does not generate proposals, pricing or bid documents, and does not submit bids.
+- **Third-party TOR publication**: all content originates from government sources.
+- **Mobile application development**: optimised for desktop browsers; no native iOS/Android apps.
+- **AI model training**: pre-trained Vertex AI only; nothing is trained, fine-tuned or hosted.
+- **Alternative notification channels**: no LINE, SMS or any channel other than email and in-application.
+- **Per-user profiles**: one shared company profile; no individual profiles or multi-tenant operation. [Open D-05]: the built system has one Company per vendor, so this exclusion does not describe it.
+- **Payment processing**: internal tool; no payment gateway or subscription management.
 
 ## 2. Overall Description
 
@@ -111,11 +111,11 @@ Thailand, without manually searching multiple procurement websites.
 
 The platform interfaces with:
 
-- **External procurement websites** — collects project title, organisation, budget, procurement method, announcement date, deadline, TOR information and source URL from supported Thai government procurement sources.
-- **AI service (Google Vertex AI)** — classifies whether a project is software-related and relevant. AI results are recommendations and do not replace official procurement information.
-- **Database service (MongoDB Atlas)** — stores users, procurement records, classification results, saved TORs, recommendations and other application data.
-- **Authentication provider** — manages identity and secures user-specific features. Credentials and sensitive information shall not be stored in plaintext.
-- **Official procurement sources** — Torfun maintains links to the original sources so users can verify information and access the official TOR before deciding to participate.
+- **External procurement websites**: collects project title, organisation, budget, procurement method, announcement date, deadline, TOR information and source URL from supported Thai government procurement sources.
+- **AI service (Google Vertex AI)**: classifies whether a project is software-related and relevant. AI results are recommendations and do not replace official procurement information.
+- **Database service (MongoDB Atlas)**: stores users, procurement records, classification results, saved TORs, recommendations and other application data.
+- **Authentication provider**: manages identity and secures user-specific features. Credentials and sensitive information shall not be stored in plaintext.
+- **Official procurement sources**: Torfun maintains links to the original sources so users can verify information and access the official TOR before deciding to participate.
 
 ![torfun architecture](diagrams/png/01-architecture.png)
 
@@ -157,24 +157,24 @@ crawling errors, manage system configuration and monitor platform health.
 
 **Assumptions**
 
-1. **Stable procurement source availability** — supported Thai government procurement websites remain accessible; structure changes or outages may affect data collection.
-2. **Standardised browser environment** — modern browsers (Chrome, Firefox, Safari, Edge) with HTML5, JavaScript and HTTPS.
-3. **External AI service availability** — Vertex AI remains accessible and its quota and rate limits suffice for expected volume.
-4. **Procurement data consistency** — the structure and content of source data stay consistent enough for the crawler and extraction to operate.
-5. **Internet connectivity** — users keep a stable connection; offline operation is not supported.
-6. **User technical proficiency** — users have basic digital literacy.
-7. **Official source verification** — users verify requirements, deadlines and eligibility at the official source before applying.
-8. **Supported procurement sources** — only explicitly configured sources are collected; arbitrary websites are not supported.
+1. **Stable procurement source availability**: supported Thai government procurement websites remain accessible; structure changes or outages may affect data collection.
+2. **Standardised browser environment**: modern browsers (Chrome, Firefox, Safari, Edge) with HTML5, JavaScript and HTTPS.
+3. **External AI service availability**: Vertex AI remains accessible and its quota and rate limits suffice for expected volume.
+4. **Procurement data consistency**: the structure and content of source data stay consistent enough for the crawler and extraction to operate.
+5. **Internet connectivity**: users keep a stable connection; offline operation is not supported.
+6. **User technical proficiency**: users have basic digital literacy.
+7. **Official source verification**: users verify requirements, deadlines and eligibility at the official source before applying.
+8. **Supported procurement sources**: only explicitly configured sources are collected; arbitrary websites are not supported.
 
 **Dependencies**
 
-1. **External procurement websites** — endpoint, structure, availability, access policy or format changes may affect ingestion.
-2. **Generative AI service (Vertex AI)** — latency, downtime, quota or model-behaviour changes are outside Torfun's control.
-3. **Database service (MongoDB Atlas)** — disruptions affect all persisted functions.
-4. **Authentication service** — an outage may prevent access to protected features.
-5. **Cloud infrastructure and connectivity** — frontend, backend, database, sources and AI services must be reachable.
-6. **Development frameworks** — Next.js, Node.js, MongoDB and open-source libraries; breaking changes may require rework.
-7. **Third-party service policies** — terms, access policies, rate limits or restrictions of procurement websites and providers.
+1. **External procurement websites**: endpoint, structure, availability, access policy or format changes may affect ingestion.
+2. **Generative AI service (Vertex AI)**: latency, downtime, quota or model-behaviour changes are outside Torfun's control.
+3. **Database service (MongoDB Atlas)**: disruptions affect all persisted functions.
+4. **Authentication service**: an outage may prevent access to protected features.
+5. **Cloud infrastructure and connectivity**: frontend, backend, database, sources and AI services must be reachable.
+6. **Development frameworks**: Next.js, Node.js, MongoDB and open-source libraries; breaking changes may require rework.
+7. **Third-party service policies**: terms, access policies, rate limits or restrictions of procurement websites and providers.
 
 > [Changed D-09] The backend runs on **Bun** (Fastify 5) rather than Node.js; the
 > frontend is Next.js 16. Constraints C-01 and C-02 below were added.
@@ -223,7 +223,7 @@ Status reflects whether the story can be completed end to end in the built syste
 | ID | Requirement | Status | Note |
 | -- | ----------- | ------ | ---- |
 | FR-01 | The system SHALL restrict the Dashboard, My TOR, and all personalized features to Authenticated Users; Guests attempting to access a protected feature SHALL be redirected to login. | Done | Server components call `requireUser()` / `requireAdmin()` and redirect. |
-| FR-02 | The system SHALL support two roles — Business Development Officer and Site Administrator — with role-based access control enforced on every protected route and API endpoint. | Done | `requireAuth` / `requireAdmin` hooks per route scope. |
+| FR-02 | The system SHALL support two roles, Business Development Officer and Site Administrator, with role-based access control enforced on every protected route and API endpoint. | Done | `requireAuth` / `requireAdmin` hooks per route scope. |
 | FR-03 | The authentication mechanism SHALL support both username/password and Google OAuth. | Done | |
 | FR-04 | The system SHALL let an Authenticated User find an existing company and request to join it, or create one if it does not exist. [Changed D-13: was "…add themselves to any company…"] | Done | Company typeahead, join request and create (`/companies`). |
 | FR-04a | Joining a company SHALL require approval by one of that company's Company Managers. The creator of a company SHALL be its first Company Manager, and a company with members SHALL always keep at least one. A Company Manager MAY enable automatic approval for one email domain, which SHALL admit only users whose verified email is at exactly that domain; the domain SHALL be the manager's own and SHALL NOT be a public mail provider. A pending request SHALL grant no access to company data. [Added D-13] | Done | `company-membership.service.ts`, `/companies/me/join-requests`, `/companies/me/auto-approve`; members panel on `/company`. Tests: `src/security/company-join-approval.test.ts`. |
@@ -441,22 +441,22 @@ now read from the e-GP announcement feed.]
 | SRC-05 | Customs Department | กรมศุลกากร | Department | Done: `0305` |
 ## Appendix B: Glossary
 
-Domain terms are defined canonically in [`CONTEXT.md`](../CONTEXT.md) — use its
+Domain terms are defined canonically in [`GLOSSARY.md`](../GLOSSARY.md). Use its
 terms and avoid the aliases it lists.
 
 | Term | Definition |
 | ---- | ---------- |
 | AI | Artificial Intelligence |
-| API | Application Programming Interface — a set of protocols that lets software applications communicate |
+| API | Application Programming Interface: a set of protocols that lets software applications communicate |
 | e-GP | Thailand's electronic Government Procurement system, `gprocurement.go.th` |
-| TOR | Terms of Reference — the PDF stating what an agency wants built |
+| TOR | Terms of Reference: the PDF stating what an agency wants built |
 | Procurement | One government procurement project, keyed by an 11-digit `projectId` |
 | Archive | The ZIP an announcement publishes, containing the TOR beside unrelated documents |
 | Company Manager | ผู้ดูแลบริษัท. A member who approves who joins a company and edits its name and TIN. Per company, not a system role |
 | Join request | A user's request to join a company. Grants nothing until a Company Manager approves it, or automatic approval admits the user's verified email domain |
 | Run / Gate | One execution of the ingestion pipeline / the single choke point through which it reaches e-GP |
 | Latency | The delay between a user action and the system's response |
-| OAuth 2.0 | Open Authorization — a standard protocol letting users sign in through a provider without sharing passwords |
+| OAuth 2.0 | Open Authorization: a standard protocol letting users sign in through a provider without sharing passwords |
 | Payload | The data sent to or received from an API |
 | Polling | Repeatedly checking the status of a task at regular intervals until completion |
 | Session token | A secure credential in a cookie that keeps a user signed in across page visits |

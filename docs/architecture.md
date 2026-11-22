@@ -154,9 +154,9 @@ missing variable. A new variable goes in `env.ts`, `.env.example` and
 ## 9. Decisions
 
 The code cites ADR-0002, -0004, -0006, -0007, -0009, -0015, -0018, -0020 and
--0021, but `docs/adr/` is not on this branch. [SRS section 6.2](SRS.md#62-decision-log)
-records what each citation implies. New decisions that are expensive to reverse
-should be written up as ADRs with context, decision and consequences.
+-0021, but `docs/adr/` does not exist in the repository. [SRS section 6.2](SRS.md#62-decision-log)
+records what each citation implies. Write a decision up as an ADR with its context,
+the decision, and the consequences when it is expensive to reverse.
 
 ## 10. Risks and debt
 
@@ -168,8 +168,7 @@ should be written up as ADRs with context, decision and consequences.
 | Failed analyses are not retried, because archives are not stored | Manual re-run needed | Accepted trade-off |
 | The waiting room is in memory | A crash means re-downloading | Bounded size; refresh logic |
 | The auth code uses older snake_case identifiers | Inconsistent style | Convert when touched |
-| `/dashboard` and `/admin/test` are placeholders | Dead surface | Remove or implement |
-| `docs/adr/` and `docs/migrations/` are missing | Lost rationale | Restore |
-| `apps/web/README.md` says officer search is admin-only | Misleading | Update; the client calls `/api/tors` |
+| `/dashboard` is a placeholder | Dead surface | Remove or implement |
+| `docs/adr/` is missing | The code cites decisions nobody can read | Restore or re-create |
 
-Glossary: [`CONTEXT.md`](../CONTEXT.md) is canonical.
+Glossary: [`GLOSSARY.md`](../GLOSSARY.md) is canonical.
