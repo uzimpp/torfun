@@ -21,6 +21,9 @@ import { escapeRegex } from '../core/regex';
 interface QualificationsDocument {
   revision: string;
   registered_capital_thb: number | null;
+  /** Absent on documents written before the price rule (FR-29); read as null. */
+  bid_budget_min_thb?: number | null;
+  bid_budget_max_thb?: number | null;
   certificates: { name: string; standard: string; issuer: string; valid_until: string }[];
   personnel: {
     role: string;
@@ -76,6 +79,8 @@ function qualificationsOf(
     companyId: document._id.toString(),
     revision: stored?.revision ?? null,
     registeredCapitalThb: stored?.registered_capital_thb ?? null,
+    bidBudgetMinThb: stored?.bid_budget_min_thb ?? null,
+    bidBudgetMaxThb: stored?.bid_budget_max_thb ?? null,
     certificates:
       stored?.certificates.map(({ valid_until, ...item }) => ({
         ...item,
@@ -154,6 +159,8 @@ export class CompanyRepository implements CompanyStore {
     const qualifications: QualificationsDocument = {
       revision: randomUUID(),
       registered_capital_thb: input.registeredCapitalThb,
+      bid_budget_min_thb: input.bidBudgetMinThb,
+      bid_budget_max_thb: input.bidBudgetMaxThb,
       certificates: input.certificates.map(({ validUntil, ...item }) => ({
         ...item,
         valid_until: validUntil,

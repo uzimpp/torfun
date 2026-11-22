@@ -741,6 +741,8 @@ describe('notifications over HTTP and Mongo', () => {
     const companies = new CompanyRepository(async () => db);
     await companies.replaceQualifications(officer.companyId!, null, {
       registeredCapitalThb: 100,
+      bidBudgetMinThb: null,
+      bidBudgetMaxThb: null,
       certificates: [],
       personnel: [],
     });

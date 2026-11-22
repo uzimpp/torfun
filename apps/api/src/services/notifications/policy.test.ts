@@ -17,6 +17,8 @@ const profile: CompanyQualificationsRecord = {
   companyId: 'company',
   revision: null,
   registeredCapitalThb: 100,
+  bidBudgetMinThb: null,
+  bidBudgetMaxThb: null,
   certificates: [],
   personnel: [],
 };

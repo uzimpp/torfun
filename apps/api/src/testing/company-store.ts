@@ -23,6 +23,8 @@ export class InMemoryCompanyStore implements CompanyStore {
         companyId,
         revision: null,
         registeredCapitalThb: null,
+        bidBudgetMinThb: null,
+        bidBudgetMaxThb: null,
         certificates: [],
         personnel: [],
       }
