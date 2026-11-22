@@ -172,14 +172,14 @@ One short answer per ASVS 5.0 documentation requirement. Each states what the co
 
 ### Outbound communication inventory (V13.1.1, V13.2.4)
 
-| Peer                         | Purpose                           | Control                                                     |
-| ---------------------------- | --------------------------------- | ----------------------------------------------------------- |
-| MongoDB Atlas                | all stored data                   | connection string from the environment                      |
-| e-GP (`gprocurement.go.th`)  | announcement feed and TOR archive | fixed host allowlist, one request at a time, redirects held |
-| Vertex AI (Gemini)           | reads the TOR PDF                 | service credentials, schema-validated output               |
-| Google OAuth                 | sign-in                           | PKCE, `state`, verified email required                      |
-| Have I Been Pwned range API  | breached-password check           | 5-character hash prefix only, 2 s timeout, fails open       |
-| Email and LINE providers     | notifications                     | recipient fields validated, only needed fields sent         |
+| Peer                        | Purpose                           | Control                                                     |
+| --------------------------- | --------------------------------- | ----------------------------------------------------------- |
+| MongoDB Atlas               | all stored data                   | connection string from the environment                      |
+| e-GP (`gprocurement.go.th`) | announcement feed and TOR archive | fixed host allowlist, one request at a time, redirects held |
+| Vertex AI (Gemini)          | reads the TOR PDF                 | service credentials, schema-validated output                |
+| Google OAuth                | sign-in                           | PKCE, `state`, verified email required                      |
+| Have I Been Pwned range API | breached-password check           | 5-character hash prefix only, 2 s timeout, fails open       |
+| Email and LINE providers    | notifications                     | recipient fields validated, only needed fields sent         |
 
 ### Input validation and business rules (V2.1.2, V2.1.3, V5.1.1)
 
@@ -191,13 +191,13 @@ One short answer per ASVS 5.0 documentation requirement. Each states what the co
 
 ### Sensitive data and retention (V14.1.1, V14.1.2)
 
-| Data                                         | Class                | Protection                                                            |
-| -------------------------------------------- | -------------------- | --------------------------------------------------------------------- |
-| Password hashes, refresh-token hashes        | secret               | never serialised; `findCredentials` only                              |
-| Account profile (name, email)                | personal             | own record and admins only; redacted from logs                        |
-| Company qualifications, match evidence       | company-confidential | members of the company only; `Cache-Control: private, no-store`       |
-| Procurement records and TOR text             | public source data   | officers see finished records; the source PDF stays available         |
-| Notifications and delivery log               | personal             | owner only                                                            |
+| Data                                   | Class                | Protection                                                      |
+| -------------------------------------- | -------------------- | --------------------------------------------------------------- |
+| Password hashes, refresh-token hashes  | secret               | never serialised; `findCredentials` only                        |
+| Account profile (name, email)          | personal             | own record and admins only; redacted from logs                  |
+| Company qualifications, match evidence | company-confidential | members of the company only; `Cache-Control: private, no-store` |
+| Procurement records and TOR text       | public source data   | officers see finished records; the source PDF stays available   |
+| Notifications and delivery log         | personal             | owner only                                                      |
 
 Ingestion run records expire after 90 days (TTL index). Account and company data are kept until an administrator
 removes them; there is no self-service deletion yet.
