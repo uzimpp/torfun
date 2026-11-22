@@ -1180,6 +1180,40 @@ describeMongo('ProcurementRepository', () => {
     });
   });
 
+  describe('province filter', () => {
+    test('matches a province in agency or project names, and only the formal forms of ambiguous ones', async () => {
+      const visible = { state: 'Completed', outcome: 'tor_analysed' } as const;
+      await repository.upsert(
+        procurement({
+          ...visible,
+          projectId: 'cm-agency',
+          deptName: 'องค์การบริหารส่วนจังหวัดเชียงใหม่',
+        }),
+      );
+      await repository.upsert(
+        procurement({ ...visible, projectId: 'cm-project', projectName: 'ระบบโรงพยาบาลเชียงใหม่' }),
+      );
+      await repository.upsert(
+        procurement({ ...visible, projectId: 'bkk', deptName: 'สำนักงาน กทม.' }),
+      );
+      await repository.upsert(
+        procurement({ ...visible, projectId: 'loei', deptName: 'สำนักงานสาธารณสุขจังหวัดเลย' }),
+      );
+      await repository.upsert(
+        procurement({ ...visible, projectId: 'not-loei', projectName: 'ระบบที่ใช้งานได้เลย' }),
+      );
+      const ids = async (province: Parameters<typeof repository.find>[0]['province']) =>
+        (await repository.find({ province, limit: 10, offset: 0 })).items
+          .map((item) => item.projectId)
+          .sort();
+
+      expect(await ids('เชียงใหม่')).toEqual(['cm-agency', 'cm-project']);
+      // The fixture's default agency is กรุงเทพมหานคร, so the two without their own agency match too.
+      expect(await ids('กรุงเทพมหานคร')).toEqual(['bkk', 'cm-project', 'not-loei']);
+      expect(await ids('เลย')).toEqual(['loei']);
+    });
+  });
+
   describe('amend', () => {
     const at = '2026-09-01T00:00:00.000Z';
 

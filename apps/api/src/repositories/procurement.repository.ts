@@ -22,11 +22,18 @@ import type {
   Stages,
   StatusChange,
   TargetPlatform,
+  ThaiProvince,
   TorAnalysis,
   Tombstone,
   TombstoneReason,
 } from '@torfun/types';
-import { appendStatusChange, currentDeadline, EMPTY_STAGES, OUTCOME_STATE } from '@torfun/types';
+import {
+  appendStatusChange,
+  currentDeadline,
+  EMPTY_STAGES,
+  OUTCOME_STATE,
+  provinceTerms,
+} from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 import { hashSource, hasUpstreamChange } from './source-hash';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
@@ -333,6 +340,8 @@ export interface FindOptions {
   targetPlatforms?: TargetPlatform[];
   /** Keyword over existing names only; this is not an authoritative classification. */
   industry?: string;
+  /** A province, matched by `provinceTerms` over agency and project names. */
+  province?: ThaiProvince;
   /**
    * Search ordering choices, plus internal queue orders. `announced` is newest
    * announcement first; `deadline` puts upcoming open deadlines first;
@@ -1078,6 +1087,17 @@ export class ProcurementRepository
     }
     if (options.industry?.trim()) {
       clauses.push(regexAny(['project_name', 'dept_name', 'dept_sub_name'], options.industry));
+    }
+    if (options.province) {
+      const pattern = {
+        $regex: provinceTerms(options.province).map(escapeRegex).join('|'),
+        $options: 'i',
+      };
+      clauses.push({
+        $or: ['dept_name', 'dept_sub_name', 'project_name'].map((field) => ({
+          [field]: pattern,
+        })),
+      });
     }
     if (options.techStack?.length) {
       // ALL semantics: each requested term must match at least one array entry.
