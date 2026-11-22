@@ -1235,7 +1235,8 @@ describeMongo('ProcurementRepository', () => {
         targetPlatforms: ['mobile'],
         limit: 10,
       });
-      expect(peers.map((peer) => peer.projectId).sort()).toEqual(['platform', 'tech']);
+      // The TOR names technology, so a platform-only match is not a peer.
+      expect(peers.map((peer) => peer.projectId)).toEqual(['tech']);
       expect(peers.find((peer) => peer.projectId === 'tech')).toEqual({
         projectId: 'tech',
         projectName: 'จ้างพัฒนาระบบสารสนเทศ',
@@ -1253,6 +1254,36 @@ describeMongo('ProcurementRepository', () => {
           limit: 10,
         }),
       ).toEqual([]);
+    });
+
+    test('a TOR naming technology is not crowded out by newer platform-only TORs', async () => {
+      const analysed = { state: 'Completed', outcome: 'tor_analysed' } as const;
+      await repository.upsert(
+        procurement({
+          ...analysed,
+          projectId: 'true-peer',
+          announceDate: '2026-01-01',
+          analysis: analysis({ techStack: ['Java'], targetPlatforms: ['web_app'] }),
+        }),
+      );
+      for (let i = 0; i < 5; i += 1) {
+        await repository.upsert(
+          procurement({
+            ...analysed,
+            projectId: `newer-platform-only-${i}`,
+            announceDate: '2026-06-01',
+            analysis: analysis({ techStack: ['PHP'], targetPlatforms: ['web_app'] }),
+          }),
+        );
+      }
+      const peers = await repository.budgetPeers({
+        excludeProjectId: 'self',
+        outcome: 'tor_analysed',
+        techStack: ['Java'],
+        targetPlatforms: ['web_app'],
+        limit: 3,
+      });
+      expect(peers.map((peer) => peer.projectId)).toEqual(['true-peer']);
     });
   });
 

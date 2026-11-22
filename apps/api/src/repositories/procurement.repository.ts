@@ -359,9 +359,9 @@ export interface BudgetPeerCandidate {
 }
 
 /**
- * Officer-visible TORs with a known budget that share a technology term or a
- * platform with the given ones (FR-25). Ranking is the caller's; this only
- * narrows the scan and keeps it light.
+ * Officer-visible TORs with a known budget that share a technology term with
+ * the given ones, or a platform when none are given (FR-25). Ranking is the
+ * caller's; this only narrows the scan and keeps it light.
  */
 export interface BudgetPeerSource {
   budgetPeers(query: {
@@ -1056,18 +1056,20 @@ export class ProcurementRepository
     targetPlatforms: string[];
     limit: number;
   }): Promise<BudgetPeerCandidate[]> {
-    const either: Record<string, unknown>[] = [];
-    if (query.techStack.length) {
-      either.push({
-        'analysis.techStack': {
-          $in: query.techStack.map((term) => new RegExp(`^${escapeRegex(term.trim())}$`, 'i')),
-        },
-      });
-    }
-    if (query.targetPlatforms.length) {
-      either.push({ 'analysis.targetPlatforms': { $in: query.targetPlatforms } });
-    }
-    if (!either.length) return [];
+    // A TOR that names technology is compared only with TORs sharing one, the
+    // same rule `compareBudget` applies. Filtering here, before the limit, keeps
+    // newer platform-only TORs from filling the scan and hiding older true peers.
+    // Platform alone decides only when the TOR names no technology.
+    const sharing: Record<string, unknown> | null = query.techStack.length
+      ? {
+          'analysis.techStack': {
+            $in: query.techStack.map((term) => new RegExp(`^${escapeRegex(term.trim())}$`, 'i')),
+          },
+        }
+      : query.targetPlatforms.length
+        ? { 'analysis.targetPlatforms': { $in: query.targetPlatforms } }
+        : null;
+    if (!sharing) return [];
     const collection = await this.records();
     const documents = await collection
       .find(
@@ -1076,7 +1078,7 @@ export class ProcurementRepository
           outcome: query.outcome,
           publication_removed_at: null,
           project_money: { $gt: 0 },
-          $or: either,
+          ...sharing,
         },
         {
           projection: {

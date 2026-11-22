@@ -152,10 +152,12 @@ export class InMemoryProcurementStore implements ProcurementDataSource, BudgetPe
           !record.publicationRemoval &&
           record.projectMoney !== null &&
           record.projectMoney > 0 &&
-          ((record.analysis?.techStack ?? []).some((term) => tech.has(term.trim().toLowerCase())) ||
-            (record.analysis?.targetPlatforms ?? []).some((p) =>
-              query.targetPlatforms.includes(p),
-            )),
+          // Technology decides when the TOR names any; platform only otherwise.
+          (tech.size
+            ? (record.analysis?.techStack ?? []).some((term) => tech.has(term.trim().toLowerCase()))
+            : (record.analysis?.targetPlatforms ?? []).some((p) =>
+                query.targetPlatforms.includes(p),
+              )),
       )
       .slice(0, query.limit)
       .map((record) => ({
