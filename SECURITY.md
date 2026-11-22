@@ -48,10 +48,11 @@ All values live in code; this table is what to change together if one moves.
 - A token minted before session tracking has no `sid` and is accepted until it expires (at most 15 minutes).
 - Session lookup is one indexed query per authenticated request. Apply
   `docs/migrations/2026-11-refresh-token-session-indexes.js` before deploying.
-- Web CSP: `script-src` still allows `'unsafe-inline'` (a nonce CSP would force fully dynamic rendering) and
-  `object-src blob:` is open for the in-browser TOR PDF viewer. React text rendering carries the XSS defense. The one
+- Web CSP: `script-src` still allows `'unsafe-inline'` (a nonce CSP would force fully dynamic rendering).
+  `object-src`, `frame-src` and `base-uri` are `'none'`; the TOR PDF is drawn to canvas by pdf.js from bytes, never
+  navigated as a document in this origin. React text rendering carries the XSS defense. The one
   `dangerouslySetInnerHTML` (`apps/web/src/components/ui/chart.tsx`, the shadcn chart component) writes a `<style>`
-  block from chart colour config fixed in code, never from user or API data. The gap is pinned by
+  block from chart colour config fixed in code, never from user or API data. The remaining gap is pinned by
   `apps/web/src/lib/security-headers.test.ts` (#193).
 - Anyone can still create a Company named like a real one and manage it. A real employee who joins that look-alike by
   mistake shares only their own data with it; verifying Companies against the DBD register is future work.
