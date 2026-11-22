@@ -6,9 +6,9 @@ import type { UserStore } from '../repositories/user.repository';
  *
  * Read from the stored user, never from the request: no endpoint in this
  * feature accepts a company id from its caller, so the only way to reach a
- * Client or an Experience is to already belong to the Company that owns it
- * (ADR-0008 accepts that anyone may *join* a Company; it does not accept that
- * anyone may address one they have not joined).
+ * Client or an Experience is to already belong to the Company that owns it,
+ * and belonging takes a Company Manager's approval
+ * (`company-membership.service.ts`; pentest P-1, #200).
  *
  * Reading the user per request rather than trusting a claim in the token is
  * also what makes switching take effect immediately instead of at the next

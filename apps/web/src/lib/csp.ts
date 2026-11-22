@@ -23,10 +23,17 @@ export function contentSecurityPolicy(apiUrl: string, { dev = false } = {}): str
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
     "font-src 'self'",
-    "frame-src 'self' blob:",
+    // Nothing here embeds a document: the TOR PDF is drawn to canvas by pdf.js
+    // from bytes, never given to the browser as a <frame>/<object>. `none` means
+    // a blob or attacker-supplied URL can't be rendered as a document in this
+    // origin (ASVS V3.2.1, V3.4.3).
+    "frame-src 'none'",
     `connect-src 'self' ${apiOrigin}`,
-    "object-src blob:",
-    "base-uri 'self'",
+    "object-src 'none'",
+    // No <base> is ever used; forbidding it stops an injected one from
+    // rebasing every relative URL (ASVS V3.4.3, and the <base> route to DOM
+    // clobbering in V3.2.3).
+    "base-uri 'none'",
     "form-action 'self'",
     "frame-ancestors 'none'",
     'upgrade-insecure-requests',

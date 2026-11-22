@@ -105,9 +105,55 @@ export class InMemoryUserStore implements UserStore {
     return true;
   }
 
-  async setCompanyId(id: string, companyId: string | null): Promise<void> {
+  /** Like the repository, only an officer is ever pointed at a Company. */
+  async setCompanyId(id: string, companyId: string | null): Promise<boolean> {
     const user = this.users.get(id);
-    if (user) this.users.set(id, { ...user, companyId, updatedAt: new Date() });
+    if (!user || (companyId && user.role !== 'business_development_officer')) return false;
+    this.users.set(id, { ...user, companyId, joinRequest: null, updatedAt: new Date() });
+    return true;
+  }
+
+  async setJoinRequest(id: string, companyId: string | null): Promise<boolean> {
+    const user = this.users.get(id);
+    if (!user || (companyId && user.role !== 'business_development_officer')) return false;
+    const joinRequest = companyId ? { companyId, requestedAt: new Date() } : null;
+    this.users.set(id, { ...user, joinRequest });
+    return true;
+  }
+
+  /**
+   * Test hook: writes a request without the role check, the way data filed
+   * before promotions cleared requests can still be lying in the database.
+   */
+  forceJoinRequest(id: string, companyId: string): void {
+    const user = this.users.get(id);
+    if (user) this.users.set(id, { ...user, joinRequest: { companyId, requestedAt: new Date() } });
+  }
+
+  async acceptJoinRequest(id: string, companyId: string): Promise<boolean> {
+    const user = this.users.get(id);
+    if (!user?.isActive || user.role !== 'business_development_officer') return false;
+    if (user.joinRequest?.companyId !== companyId) return false;
+    return this.setCompanyId(id, companyId);
+  }
+
+  /** Oldest first: seeding order stands in for `created_at`. */
+  async listByCompany(companyId: string): Promise<User[]> {
+    return [...this.users.values()].filter((user) => user.companyId === companyId && user.isActive);
+  }
+
+  async listJoinRequests(companyId: string): Promise<User[]> {
+    return [...this.users.values()]
+      .filter(
+        (user) =>
+          user.joinRequest?.companyId === companyId &&
+          user.role === 'business_development_officer' &&
+          user.isActive,
+      )
+      .sort(
+        (a, b) =>
+          (a.joinRequest?.requestedAt.getTime() ?? 0) - (b.joinRequest?.requestedAt.getTime() ?? 0),
+      );
   }
 
   /** Newest first, the way the Mongo-backed repository sorts by `created_at`. */

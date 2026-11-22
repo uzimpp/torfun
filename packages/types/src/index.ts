@@ -4,6 +4,7 @@ export * from './matching';
 export * from './budget-comparison';
 export * from './qualification';
 export * from './company';
+export * from './company-membership';
 export * from './egp';
 export * from './procurement-dates';
 export * from './schedule';

@@ -222,6 +222,10 @@ export default function TorPdfViewer({ data }: { data: ArrayBuffer }) {
       ) : (
         <Document
           file={data}
+          // A link inside an agency's PDF must not navigate this tab away from
+          // the signed-in app (ASVS V3.2.1). react-pdf's default is the same
+          // tab; its default rel (noopener noreferrer nofollow) is kept.
+          externalLinkTarget="_blank"
           className="flex min-h-0 flex-1 flex-col"
           onLoadSuccess={handleLoadSuccess}
           onLoadError={() => setError('ไม่สามารถแสดงตัวอย่างเอกสาร TOR ได้')}

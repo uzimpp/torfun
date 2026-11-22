@@ -62,10 +62,21 @@ describe('company routes', () => {
     });
 
     expect(response.statusCode).toBe(201);
-    // The company object itself, and exactly these three fields: creating,
-    // joining and correcting all answer in this one shape.
-    expect(Object.keys(response.json()).sort()).toEqual(['id', 'name_th', 'tin']);
-    expect(response.json()).toMatchObject({ name_th: TRUE_CORP, tin: '0107536000021' });
+    // The caller's own company, in the shape `/me` and a correction answer in.
+    expect(Object.keys(response.json()).sort()).toEqual([
+      'auto_approve_domain',
+      'id',
+      'is_manager',
+      'name_th',
+      'tin',
+    ]);
+    // Whoever creates a company manages it, so someone can answer join requests.
+    expect(response.json()).toMatchObject({
+      name_th: TRUE_CORP,
+      tin: '0107536000021',
+      is_manager: true,
+      auto_approve_domain: null,
+    });
   });
 
   test('a name with no บริษัท prefix is still accepted', async () => {
@@ -121,7 +132,7 @@ describe('company routes', () => {
     expect(response.statusCode).toBe(404);
   });
 
-  test('a colleague joins the record the first officer made', async () => {
+  test('a colleague asks to join the record the first officer made, and gets in once approved', async () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/companies',
@@ -137,24 +148,39 @@ describe('company routes', () => {
       cookies: session(colleague),
     });
     expect(search.json().companies).toHaveLength(1);
-    expect(search.json().companies[0].id).toBe(companyId);
+    // Search says which company it is and nothing about who runs it.
+    expect(search.json().companies[0]).toEqual({ id: companyId, name_th: TRUE_CORP, tin: null });
 
-    const joined = await app.inject({
+    const asked = await app.inject({
       method: 'POST',
       url: `/api/companies/${companyId}/join`,
       cookies: session(colleague),
     });
 
-    expect(joined.statusCode).toBe(200);
-    expect(joined.json<Record<string, unknown>>()).toEqual({
-      id: companyId,
-      name_th: TRUE_CORP,
-      tin: null,
+    expect(asked.statusCode).toBe(202);
+    expect(asked.json<Record<string, unknown>>()).toEqual({
+      outcome: 'pending',
+      company: { id: companyId, name_th: TRUE_CORP, tin: null },
     });
+    expect((await users.findById(colleague.id))?.companyId).toBeNull();
+
+    const approved = await app.inject({
+      method: 'POST',
+      url: `/api/companies/me/join-requests/${colleague.id}/approve`,
+      cookies: session(officer),
+    });
+    expect(approved.statusCode).toBe(204);
     expect((await users.findById(colleague.id))?.companyId).toBe(companyId);
+
+    const mine = await app.inject({
+      method: 'GET',
+      url: '/api/companies/me',
+      cookies: session(colleague),
+    });
+    expect(mine.json()).toMatchObject({ id: companyId, is_manager: false });
   });
 
-  test('an officer who joined the wrong company can switch', async () => {
+  test('asking to join a second company replaces the first request', async () => {
     const wrong = await companies.create({ nameTh: PARTNERSHIP, tin: null });
     const right = await companies.create({ nameTh: TRUE_CORP, tin: null });
 
@@ -169,12 +195,12 @@ describe('company routes', () => {
       cookies: session(officer),
     });
 
-    const mine = await app.inject({
+    const pending = await app.inject({
       method: 'GET',
-      url: '/api/companies/me',
+      url: '/api/companies/join-request',
       cookies: session(officer),
     });
-    expect(mine.json().name_th).toBe(TRUE_CORP);
+    expect(pending.json().company.name_th).toBe(TRUE_CORP);
   });
 
   test('joining a company that does not exist is a 404', async () => {
@@ -214,6 +240,25 @@ describe('company routes', () => {
 
     expect(response.statusCode).toBe(403);
     expect((await users.findById(admin.id))?.companyId).toBeNull();
+  });
+
+  test('only a manager corrects the company record', async () => {
+    const company = await companies.create({
+      nameTh: PARTNERSHIP,
+      tin: null,
+      managerIds: [officer.id],
+    });
+    await users.setCompanyId(officer.id, company.id);
+    const member = users.seed({ username: 'member', companyId: company.id });
+
+    const denied = await app.inject({
+      method: 'PATCH',
+      url: '/api/companies/me',
+      cookies: session(member),
+      payload: { name_th: 'บริษัท ปลอม จำกัด' },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect((await companies.findById(company.id))?.nameTh).toBe(PARTNERSHIP);
   });
 
   test('the caller can correct their own company, and only their own', async () => {

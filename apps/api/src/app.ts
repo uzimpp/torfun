@@ -41,6 +41,7 @@ import { noBreachCheck, PwnedPasswordsChecker } from './services/breached-passwo
 import { AdminUsersService } from './services/admin-users.service';
 import { CompanyQualificationsService } from './services/company-qualifications.service';
 import { CompanyService } from './services/company.service';
+import { CompanyMembershipService } from './services/company-membership.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
@@ -237,14 +238,22 @@ export async function buildApp(
       : noBreachCheck,
   );
   app.decorate('authService', authService);
-  app.decorate('adminUsersService', new AdminUsersService(userRepository, authService));
+  app.decorate(
+    'adminUsersService',
+    new AdminUsersService(userRepository, authService, companyRepository),
+  );
   const companyQualificationsService = new CompanyQualificationsService(
     companyRepository,
     experienceRepository,
     userRepository,
   );
   app.decorate('companyQualificationsService', companyQualificationsService);
-  app.decorate('companyService', new CompanyService(companyRepository, userRepository));
+  const companyMembershipService = new CompanyMembershipService(companyRepository, userRepository);
+  app.decorate('companyMembershipService', companyMembershipService);
+  app.decorate(
+    'companyService',
+    new CompanyService(companyRepository, userRepository, companyMembershipService),
+  );
   app.decorate(
     'clientService',
     new ClientService(clientRepository, experienceRepository, userRepository, agencyNames),
