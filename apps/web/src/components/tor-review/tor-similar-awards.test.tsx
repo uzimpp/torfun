@@ -87,6 +87,7 @@ const result = (overrides: Partial<SimilarAwards> = {}): SimilarAwards => ({
   listed: [listed()],
   bidderCalls: { used: 1, max: 10 },
   competition: competition(),
+  repeatWinners: null,
   complete: true,
   cached: false,
   fetchedAt: '2026-11-22T03:00:00.000Z',
@@ -419,8 +420,9 @@ describe('TorSimilarAwards: the competition level', () => {
     await renderResult(result({ competition: competition({ withKnownBidderCount: 3 }) }));
 
     expect(screen.getByText(/ยังสรุประดับการแข่งขันไม่ได้: ต้องมีอย่างน้อย/)).toHaveTextContent(
-      '5 โครงการที่ทราบจำนวนผู้เสนอราคา (ตอนนี้ 3)',
+      '5 โครงการที่ทราบจำนวนผู้เสนอราคา',
     );
+    expect(screen.queryByText(/ตอนนี้/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^การแข่งขัน: (น้อยราย|มากราย)/)).not.toBeInTheDocument();
   });
 
@@ -458,6 +460,33 @@ describe('TorSimilarAwards: the competition level', () => {
     );
 
     expect(screen.getByText(/การแข่งขัน: มากราย/)).toBeInTheDocument();
+  });
+});
+
+describe('TorSimilarAwards: winners that appear again', () => {
+  test('names each repeat winner with its count out of the listed awards, and its limits', async () => {
+    await renderResult(
+      result({
+        repeatWinners: {
+          projects: 8,
+          winners: [
+            { name: 'บริษัท เอ จำกัด', wins: 3 },
+            { name: 'บริษัท บี จำกัด', wins: 2 },
+          ],
+        },
+      }),
+    );
+
+    const line = screen.getByText('ผู้ชนะที่พบซ้ำ:', { exact: false }).closest('p')!;
+    expect(line).toHaveTextContent('บริษัท เอ จำกัด (3 จาก 8 โครงการ)');
+    expect(line).toHaveTextContent('บริษัท บี จำกัด (2 จาก 8 โครงการ)');
+    expect(line).toHaveTextContent('นับจากโครงการในรายการเท่านั้น');
+  });
+
+  test('shows nothing at all when no name repeats', async () => {
+    await renderResult(result({ repeatWinners: null }));
+
+    expect(screen.queryByText(/ผู้ชนะที่พบซ้ำ/)).not.toBeInTheDocument();
   });
 });
 

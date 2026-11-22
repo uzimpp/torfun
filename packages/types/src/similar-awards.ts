@@ -156,6 +156,16 @@ export const SimilarAwardsSchema = z.object({
   bidderCalls: z.object({ used: z.number().int().nonnegative(), max: z.number().int().positive() }),
   /** Read from the listed projects only, the ones whose bidders were looked up. */
   competition: CompetitionSchema.nullable(),
+  /**
+   * Winners named in at least two of the listed awards, counted out of the listed awards
+   * with a determined winner; null where no name repeats. Exact names only.
+   */
+  repeatWinners: z
+    .object({
+      projects: z.number().int().positive(),
+      winners: z.array(z.object({ name: z.string(), wins: z.number().int().min(2) })),
+    })
+    .nullable(),
   /** Every search and every bidder lookup was made: false where one failed or the quota ran out. */
   complete: z.boolean(),
   /** Served from this server's memory, not asked of the open-data API again. */

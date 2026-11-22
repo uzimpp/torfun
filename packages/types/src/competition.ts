@@ -452,3 +452,47 @@ export function closestAwardDigests(
     })),
   };
 }
+
+/** A winner named in at least `REPEAT_WINNER_MIN_WINS` of the listed past awards. */
+export const REPEAT_WINNER_MIN_WINS = 2;
+
+/** Most repeat winners reported. */
+export const REPEAT_WINNER_MAX_LISTED = 3;
+
+export interface RepeatWinner {
+  name: string;
+  /** Listed past awards this exact name won, each project counted once. */
+  wins: number;
+}
+
+export interface RepeatWinners {
+  /** Listed past awards with a determined winner: what `wins` is counted out of. */
+  projects: number;
+  /** At most `REPEAT_WINNER_MAX_LISTED`, most wins first, then by name. */
+  winners: RepeatWinner[];
+}
+
+/**
+ * Winners that appear again among the given past awards, for #144. Only awards whose
+ * winner is determined (`winnerStatus` is `resolved`) count, and a name is counted once
+ * per project however many contracts it won there. Names are compared exactly, so a
+ * differently spelled name is a different winner; nothing is merged by guess. A joint
+ * venture is counted under its consortium's name. Null where no name reaches
+ * `REPEAT_WINNER_MIN_WINS`: a name that won once is not "repeated".
+ */
+export function repeatWinners(digests: readonly AwardDigest[]): RepeatWinners | null {
+  const unique = uniqueByProject(digests);
+  const resolved = unique.filter((digest) => digest.winnerStatus === 'resolved');
+  const wins = new Map<string, number>();
+  for (const digest of resolved) {
+    for (const name of new Set(digest.winners.map((winner) => winner.name))) {
+      wins.set(name, (wins.get(name) ?? 0) + 1);
+    }
+  }
+  const winners = [...wins]
+    .filter(([, count]) => count >= REPEAT_WINNER_MIN_WINS)
+    .map(([name, count]) => ({ name, wins: count }))
+    .sort((a, b) => b.wins - a.wins || a.name.localeCompare(b.name))
+    .slice(0, REPEAT_WINNER_MAX_LISTED);
+  return winners.length === 0 ? null : { projects: resolved.length, winners };
+}

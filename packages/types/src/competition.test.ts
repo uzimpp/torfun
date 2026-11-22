@@ -8,6 +8,7 @@ import {
   competitionLevel,
   digestAward,
   digestFromLines,
+  repeatWinners,
   type AwardDigest,
   type CompetitionProject,
 } from './competition';
@@ -1137,5 +1138,64 @@ describe('a summary built elsewhere with a blank winner name is read as having n
       winners: [{ name: A, jointVenture: false }],
       clean: true,
     });
+  });
+});
+
+describe('repeatWinners: a name that wins again among the given awards', () => {
+  const won = (name: string, id: string) =>
+    digestAward(
+      project({ projectId: id }),
+      summariseAward([line({ projectId: id, winnerName: name })], []),
+    );
+
+  test('counts a name once per project and keeps only names that won at least twice', () => {
+    const result = repeatWinners([
+      won(A, 'p1'),
+      won(A, 'p2'),
+      won(A, 'p3'),
+      won(B, 'p4'),
+      won(B, 'p5'),
+      won(C, 'p6'),
+    ]);
+    expect(result).toEqual({
+      projects: 6,
+      winners: [
+        { name: A, wins: 3 },
+        { name: B, wins: 2 },
+      ],
+    });
+  });
+
+  test('is null where every winner won once', () => {
+    expect(repeatWinners([won(A, 'p1'), won(B, 'p2'), won(C, 'p3')])).toBeNull();
+    expect(repeatWinners([])).toBeNull();
+  });
+
+  test('a project given twice counts once, so it cannot make a repeat by itself', () => {
+    expect(repeatWinners([won(A, 'p1'), won(A, 'p1')])).toBeNull();
+  });
+
+  test('names are exact: a different spelling is a different winner', () => {
+    expect(repeatWinners([won(A, 'p1'), won(`${A} `, 'p2')])).toBeNull();
+  });
+
+  test('an award whose winner is not determined is neither counted nor in the total', () => {
+    const undetermined = digestAward(project({ projectId: 'u1' }), summariseAward([], []));
+    const result = repeatWinners([won(A, 'p1'), won(A, 'p2'), undetermined]);
+    expect(result?.projects).toBe(2);
+  });
+
+  test('reports at most three, most wins first, ties by name', () => {
+    const names = ['บริษัท ง จำกัด', 'บริษัท ค จำกัด', 'บริษัท ข จำกัด', 'บริษัท ก จำกัด'];
+    const digests = names.flatMap((name, index) => [
+      won(name, `a${index}`),
+      won(name, `b${index}`),
+    ]);
+    const result = repeatWinners(digests);
+    expect(result?.winners.map((winner) => winner.name)).toEqual([
+      'บริษัท ก จำกัด',
+      'บริษัท ข จำกัด',
+      'บริษัท ค จำกัด',
+    ]);
   });
 });

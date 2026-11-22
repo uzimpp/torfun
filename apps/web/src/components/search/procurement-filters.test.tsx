@@ -260,7 +260,7 @@ describe('evaluation method filter (#143)', () => {
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} onApply={onApply} />);
 
     expect(screen.getByRole('group', { name: /วิธีพิจารณาผู้ชนะ/ })).toBeInTheDocument();
-    expect(screen.getByText('เฉพาะโครงการที่ AI อ่านวิธีพิจารณาจากเอกสารแล้ว')).toBeInTheDocument();
+    expect(screen.getByText('ใช้ได้เฉพาะโครงการที่ระบบอ่านวิธีพิจารณาแล้ว')).toBeInTheDocument();
     for (const name of ['เกณฑ์ราคา', 'เกณฑ์ราคาประกอบเกณฑ์อื่น', 'วิธีอื่น']) {
       expect(screen.getByRole('checkbox', { name })).toHaveAttribute('name', 'evaluationMethod');
     }

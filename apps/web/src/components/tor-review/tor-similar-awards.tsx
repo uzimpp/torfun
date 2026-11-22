@@ -178,8 +178,28 @@ function Competition({ result }: { result: SimilarAwards }) {
   return (
     <p className="text-muted-foreground border-t pt-4 text-sm">
       ยังสรุประดับการแข่งขันไม่ได้: ต้องมีอย่างน้อย{' '}
-      <span data-numeric>{competition.minSample}</span> โครงการที่ทราบจำนวนผู้เสนอราคา (ตอนนี้{' '}
-      <span data-numeric>{competition.withKnownBidderCount}</span>)
+      <span data-numeric>{competition.minSample}</span> โครงการที่ทราบจำนวนผู้เสนอราคา
+    </p>
+  );
+}
+
+function RepeatWinners({ result }: { result: SimilarAwards }) {
+  const repeat = result.repeatWinners;
+  if (!repeat) return null;
+  return (
+    <p className="border-t pt-4 text-sm">
+      <span className="font-medium">ผู้ชนะที่พบซ้ำ: </span>
+      {repeat.winners.map((winner, index) => (
+        <span key={winner.name}>
+          {index > 0 && ' · '}
+          {winner.name}{' '}
+          <span className="text-muted-foreground">
+            (<span data-numeric>{winner.wins}</span> จาก <span data-numeric>{repeat.projects}</span>{' '}
+            โครงการ)
+          </span>
+        </span>
+      ))}
+      <span className="text-muted-foreground block text-xs">นับจากโครงการในรายการเท่านั้น</span>
     </p>
   );
 }
@@ -307,6 +327,7 @@ function Result({ result }: { result: SimilarAwards }) {
       )}
 
       <Competition result={result} />
+      <RepeatWinners result={result} />
       <Details result={result} />
     </div>
   );

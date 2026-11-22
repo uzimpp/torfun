@@ -2,6 +2,7 @@ import {
   closestAwardDigests,
   competitionLevel,
   digestAward,
+  repeatWinners,
   SIMILAR_AWARDS_MAX_BIDDER_CALLS,
   SIMILAR_AWARDS_MAX_SEARCHES,
   summariseAward,
@@ -127,6 +128,7 @@ function emptyResult(overrides: Partial<SimilarAwards>): SimilarAwards {
     listed: [],
     bidderCalls: { used: 0, max: SIMILAR_AWARDS_MAX_BIDDER_CALLS },
     competition: null,
+    repeatWinners: null,
     complete: true,
     cached: false,
     fetchedAt: null,
@@ -283,6 +285,7 @@ export class SimilarAwardsService {
       listed,
       bidderCalls: { used, max: SIMILAR_AWARDS_MAX_BIDDER_CALLS },
       competition: digests.length > 0 ? competitionLevel(digests) : null,
+      repeatWinners: repeatWinners(digests),
       complete,
       fetchedAt: started.toISOString(),
     });

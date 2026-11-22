@@ -409,6 +409,29 @@ describe('SimilarAwardsService: the filters only cut unrelated rows', () => {
   });
 });
 
+describe('SimilarAwardsService: winners that appear again', () => {
+  const won = (id: string, name: string) =>
+    row(id, { contract: [{ contract_no: `CN-${id}`, winner_name: name, price_agree: 950_000 }] });
+
+  test('names a winner of two or more listed awards, counted out of those with a winner', async () => {
+    const { client } = fakeClient({
+      rowsByYear: { 2569: [won('p1', A), won('p2', A), won('p3', B)] },
+    });
+    const { service } = build(client);
+
+    const result = await service.find('tor-1', 'officer');
+
+    expect(result.repeatWinners).toEqual({ projects: 3, winners: [{ name: A, wins: 2 }] });
+  });
+
+  test('is null where no name repeats', async () => {
+    const { client } = fakeClient({ rowsByYear: { 2569: [won('p1', A), won('p2', B)] } });
+    const { service } = build(client);
+
+    expect((await service.find('tor-1', 'officer')).repeatWinners).toBeNull();
+  });
+});
+
 describe('SimilarAwardsService: the listing', () => {
   test('lists the ten nearest in planned budget, nearest first, with the full count', async () => {
     const rows = Array.from({ length: 12 }, (_, index) =>

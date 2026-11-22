@@ -887,7 +887,7 @@ export function ProcurementFilters({
             <fieldset>
               <legend className="text-sm font-medium">วิธีพิจารณาผู้ชนะ (ตรงอย่างน้อยหนึ่ง)</legend>
               <p className="text-muted-foreground mt-1 text-xs">
-                เฉพาะโครงการที่ AI อ่านวิธีพิจารณาจากเอกสารแล้ว
+                ใช้ได้เฉพาะโครงการที่ระบบอ่านวิธีพิจารณาแล้ว
               </p>
               <div className="mt-1 grid gap-x-3">
                 {EVALUATION_METHOD_ORDER.map((method) => (

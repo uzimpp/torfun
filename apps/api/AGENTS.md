@@ -202,7 +202,8 @@ hours. A result is found by a similar name only: the agency and e-bidding filter
 unrelated rows and prove nothing about similarity or software work, and the page says
 so. Winners and agreed prices come from `summariseAward`; prices show only for a
 single-contract, single-item award with a known bidder count; the competition level
-(`competitionLevel` in `packages/types`) is hidden under 5 known counts. Provisional:
+(`competitionLevel` in `packages/types`) is hidden under 5 known counts. Winners named in
+two or more listed awards are shown too (`repeatWinners`, exact names, top 3). Provisional:
 the keyword rules were tried on two projects, and the few/many boundary (3) and the
 minimum (5) are not validated against real data.
 
