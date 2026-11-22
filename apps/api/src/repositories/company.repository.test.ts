@@ -80,6 +80,8 @@ describeMongo('company-scoped repositories', () => {
     });
     const input = {
       registeredCapitalThb: 100_000,
+      bidBudgetMinThb: null,
+      bidBudgetMaxThb: null,
       certificates: [
         { name: 'Quality', standard: 'ISO 9001', issuer: 'Issuer', validUntil: '2026-11-04' },
       ],

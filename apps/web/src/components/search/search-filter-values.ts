@@ -5,6 +5,8 @@ import {
   type ProcurementFilters,
   type ProcurementOrder,
   type TargetPlatform,
+  type ThaiProvince,
+  THAI_PROVINCES,
 } from '@torfun/types';
 
 export interface SearchFilterValues {
@@ -26,6 +28,7 @@ export interface SearchFilterValues {
   /** Methods read from the documents (#143); a project with no reading never matches. */
   evaluationMethod: EvaluationMethod[];
   industry: string;
+  province: '' | ThaiProvince;
 }
 
 export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
@@ -46,6 +49,7 @@ export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
   targetPlatforms: [],
   evaluationMethod: [],
   industry: '',
+  province: '',
 };
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -96,6 +100,9 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
     targetPlatforms: [...new Set(platforms)],
     evaluationMethod: [...new Set(methods)],
     industry: first(params.industry),
+    province: (THAI_PROVINCES as readonly string[]).includes(first(params.province))
+      ? (first(params.province) as ThaiProvince)
+      : '',
   };
 }
 
@@ -117,6 +124,7 @@ export function activeFilterCount(values: SearchFilterValues): number {
     values.targetPlatforms.length > 0,
     values.evaluationMethod.length > 0,
     values.industry,
+    values.province,
   ].filter(Boolean).length;
 }
 
@@ -157,6 +165,7 @@ export function toProjectFilters(
     ...(values.targetPlatforms.length > 0 ? { targetPlatforms: values.targetPlatforms } : {}),
     ...(values.evaluationMethod.length > 0 ? { evaluationMethod: values.evaluationMethod } : {}),
     ...(values.industry ? { industry: values.industry } : {}),
+    ...(values.province ? { province: values.province } : {}),
   };
 }
 
@@ -184,6 +193,7 @@ export function searchHref(values: SearchFilterValues, page = 1): string {
     params.set('evaluationMethod', values.evaluationMethod.join(','));
   }
   if (values.industry) params.set('industry', values.industry);
+  if (values.province) params.set('province', values.province);
   if (page > 1) params.set('page', String(page));
   const query = params.toString();
   return `/search${query ? `?${query}` : ''}`;
@@ -205,7 +215,8 @@ export type SearchFilterCriterion =
   | 'techStack'
   | 'targetPlatforms'
   | 'evaluationMethod'
-  | 'industry';
+  | 'industry'
+  | 'province';
 
 /** Clears one visible criterion while preserving the search words and every other filter. */
 export function withoutSearchFilter(
@@ -222,6 +233,7 @@ export function withoutSearchFilter(
     case 'outcome':
     case 'techStack':
     case 'industry':
+    case 'province':
       return { ...values, [criterion]: '' };
     case 'budget':
       return { ...values, minBudget: '', maxBudget: '' };

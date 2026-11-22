@@ -160,6 +160,8 @@ describe('TOR detail routes', () => {
       companyId: company.id,
       revision: null,
       registeredCapitalThb: 100_000,
+      bidBudgetMinThb: null,
+      bidBudgetMaxThb: null,
       certificates: [
         { name: 'Security', standard: 'ISO 27001', issuer: 'Test', validUntil: '2099-12-31' },
       ],
@@ -246,7 +248,7 @@ describe('TOR detail routes', () => {
         projectId: 'other-qualified',
         analysis: {
           ...analysis,
-          qualifications: analysis.qualifications?.filter((clause) => clause.source !== 'หน้า 13'),
+          qualifications: analysis.qualifications?.filter((clause) => clause.source !== 'หน้า 12'),
         },
       }),
     );
@@ -257,7 +259,7 @@ describe('TOR detail routes', () => {
     expect(detail.json().analysis.qualifications[0].source).toBe('ข้อ 4.2');
     expect(detail.json().matchResult).toMatchObject({
       companyId: company.id,
-      overallScore: 1 / 4,
+      overallScore: 0,
       checks: [
         { status: 'met', evidence: [expect.stringContaining('Security')] },
         {
@@ -280,7 +282,7 @@ describe('TOR detail routes', () => {
     expect(list.json()).toMatchObject({
       items: [
         { projectId: 'other-qualified', matchScore: 1 / 3 },
-        { projectId: 'qualified', matchScore: 1 / 4 },
+        { projectId: 'qualified', matchScore: 0 },
         { projectId: 'project-1', matchScore: null },
       ],
       total: 3,
@@ -291,6 +293,76 @@ describe('TOR detail routes', () => {
     expect((await save(member, fromCompanyQualificationsPayload(saved.json()))).statusCode).toBe(
       404,
     );
+  });
+
+  test('a TOR outside the company bid budget range scores 0 in detail and ranking', async () => {
+    const company = await companies.create({ nameTh: 'บริษัท ช่วงราคา จำกัด', tin: null });
+    const member = users.seed({ companyId: company.id });
+    const cookies = {
+      [ACCESS_COOKIE]: app.jwt.sign({
+        user_id: member.id,
+        username: member.username,
+        role: member.role,
+      }),
+    };
+    const profile: CompanyQualificationsRecord = {
+      companyId: company.id,
+      revision: null,
+      registeredCapitalThb: null,
+      bidBudgetMinThb: 5_000_000,
+      bidBudgetMaxThb: 1_000_000,
+      certificates: [
+        { name: 'Security', standard: 'ISO 27001', issuer: 'Test', validUntil: '2099-12-31' },
+      ],
+      personnel: [],
+    };
+    const save = (record: CompanyQualificationsRecord) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/companies/me/qualifications',
+        cookies,
+        payload: toCompanyQualificationsPayload(record),
+        headers: { 'content-type': 'application/json' },
+      });
+    expect((await save(profile)).statusCode).toBe(400);
+    expect((await save({ ...profile, bidBudgetMaxThb: 10_000_000 })).statusCode).toBe(200);
+
+    await procurements.upsert(
+      procurement({
+        projectId: 'priced',
+        projectMoney: 4_500_000,
+        analysis: {
+          summary: '',
+          scopeOfWork: [],
+          budgetThb: null,
+          deadlineAt: null,
+          durationDays: null,
+          techStack: [],
+          targetPlatforms: [],
+          requiredQualifications: [],
+          qualifications: [
+            {
+              kind: 'company_certificate',
+              manualReviewReason: null,
+              standard: 'ISO 27001',
+              issuer: null,
+              text: 'ISO 27001',
+              source: 'ข้อ 1',
+            },
+          ],
+        },
+      }),
+    );
+    const detail = await app.inject({ url: '/api/tors/priced', cookies });
+    expect(detail.json().matchResult).toMatchObject({
+      overallScore: 0,
+      checks: [{ status: 'met' }],
+      budgetRule: { status: 'not_met' },
+    });
+    const list = await app.inject({ url: '/api/tors?limit=5', cookies });
+    expect(
+      list.json().items.find((item: { projectId: string }) => item.projectId === 'priced'),
+    ).toMatchObject({ matchScore: 0 });
   });
 
   test('rejects an anonymous caller', async () => {

@@ -31,11 +31,24 @@ export function TorQualificationResults({
         </p>
         {result && (
           <p className="text-muted-foreground text-sm">
-            คะแนนคิดจากสัดส่วนข้อที่ตรงเงื่อนไขต่อข้อที่สกัดได้ทั้งหมด
+            คะแนนคิดจากสัดส่วนข้อที่ตรงเงื่อนไขต่อข้อที่สกัดได้ทั้งหมด หากมีข้อใดไม่ตรงเงื่อนไข
+            คะแนนเป็น 0% เพราะคุณสมบัติผู้ยื่นข้อเสนอทุกข้อเป็นเงื่อนไขบังคับ
           </p>
         )}
       </CardHeader>
       <CardContent>
+        {result?.budgetRule && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm">
+            <Badge variant={result.budgetRule.status === 'not_met' ? 'destructive' : 'outline'}>
+              {result.budgetRule.status === 'met'
+                ? 'อยู่ในช่วงงบประมาณที่บริษัทยื่น'
+                : result.budgetRule.status === 'not_met'
+                  ? 'อยู่นอกช่วงงบประมาณที่บริษัทยื่น'
+                  : 'ยังเทียบช่วงงบประมาณไม่ได้'}
+            </Badge>
+            <span className="text-muted-foreground">{result.budgetRule.evidence.join(' · ')}</span>
+          </div>
+        )}
         {qualifications === undefined && (
           <p className="text-muted-foreground text-sm">ยังไม่มีผลการสกัดคุณสมบัติแบบแยกรายข้อ</p>
         )}

@@ -101,6 +101,12 @@ function QualificationsOverview({
           ? 'ยังไม่ได้ระบุ'
           : `${profile.registeredCapitalThb.toLocaleString('th-TH')} บาท`}
       </p>
+      <p>
+        ช่วงงบประมาณที่บริษัทยื่น{' '}
+        {profile.bidBudgetMinThb === null && profile.bidBudgetMaxThb === null
+          ? 'ไม่กำหนด'
+          : `${profile.bidBudgetMinThb === null ? 'ไม่กำหนดขั้นต่ำ' : `${profile.bidBudgetMinThb.toLocaleString('th-TH')} บาท`} – ${profile.bidBudgetMaxThb === null ? 'ไม่กำหนดสูงสุด' : `${profile.bidBudgetMaxThb.toLocaleString('th-TH')} บาท`}`}
+      </p>
       <div>
         <h3 className="font-medium">ใบรับรองบริษัท</h3>
         {profile.certificates.length ? (
@@ -193,6 +199,8 @@ function QualificationsForm({
       companyId: profile.companyId,
       revision: profile.revision,
       registeredCapitalThb: number('capital'),
+      bidBudgetMinThb: number('bid-min'),
+      bidBudgetMaxThb: number('bid-max'),
       certificates: certificates.map(({ id }) => ({
         name: value(`${id}-name`),
         standard: value(`${id}-standard`),
@@ -212,6 +220,15 @@ function QualificationsForm({
             : null,
       })),
     });
+    if (
+      parsed.success &&
+      parsed.data.bidBudgetMinThb !== null &&
+      parsed.data.bidBudgetMaxThb !== null &&
+      parsed.data.bidBudgetMinThb > parsed.data.bidBudgetMaxThb
+    ) {
+      setError('งบประมาณขั้นต่ำต้องไม่มากกว่างบประมาณสูงสุด');
+      return;
+    }
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       setError(
@@ -249,6 +266,32 @@ function QualificationsForm({
             defaultValue={profile.registeredCapitalThb ?? ''}
           />
         </Field>
+        <fieldset className="grid gap-3 sm:grid-cols-2">
+          <legend className="mb-1 font-medium">ช่วงงบประมาณโครงการที่บริษัทยื่น</legend>
+          <p className="text-muted-foreground text-sm sm:col-span-2">
+            TOR ที่งบประมาณอยู่นอกช่วงนี้จะได้คะแนน 0% เว้นว่างไว้หากไม่ต้องการกำหนด
+          </p>
+          <Field label="งบประมาณขั้นต่ำ (บาท)">
+            <Input
+              name="bid-min"
+              type="number"
+              min={0}
+              max={Number.MAX_SAFE_INTEGER}
+              step="1"
+              defaultValue={profile.bidBudgetMinThb ?? ''}
+            />
+          </Field>
+          <Field label="งบประมาณสูงสุด (บาท)">
+            <Input
+              name="bid-max"
+              type="number"
+              min={0}
+              max={Number.MAX_SAFE_INTEGER}
+              step="1"
+              defaultValue={profile.bidBudgetMaxThb ?? ''}
+            />
+          </Field>
+        </fieldset>
         <fieldset className="grid gap-3">
           <legend className="mb-3 font-medium">ใบรับรองบริษัท</legend>
           {certificates.map(({ id, item }, index) => (

@@ -10,7 +10,12 @@ import {
 } from 'react';
 import Link from 'next/link';
 import { CircleAlert, ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react';
-import { STATUS_LABELS, ProcurementStatus, type TargetPlatform } from '@torfun/types';
+import {
+  STATUS_LABELS,
+  ProcurementStatus,
+  THAI_PROVINCES,
+  type TargetPlatform,
+} from '@torfun/types';
 import { BudgetRangeFilter } from './budget-range-filter';
 import { DateRangeFilter } from './date-range-filter';
 
@@ -97,6 +102,9 @@ function activeFilters(values: SearchFilterValues): ActiveFilter[] {
   }
   if (values.industry) {
     filters.push({ criterion: 'industry', label: `ชื่อโครงการ/หน่วยงาน: ${values.industry}` });
+  }
+  if (values.province) {
+    filters.push({ criterion: 'province', label: `จังหวัด: ${values.province}` });
   }
   return filters;
 }
@@ -391,7 +399,10 @@ export function ProcurementFilters({
 
   function applyChange(event: ChangeEvent<HTMLFormElement>) {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement) || !target.name)
+    if (
+      !(target instanceof HTMLInputElement || target instanceof HTMLSelectElement) ||
+      !target.name
+    )
       return;
     if (target.name === 'status' || target.name === 'minDaysLeft') return;
     if (textChangeTimer.current) clearTimeout(textChangeTimer.current);
@@ -467,7 +478,11 @@ export function ProcurementFilters({
         <div className="hidden shrink-0 items-center gap-2 lg:flex">
           <SlidersHorizontal aria-hidden="true" className="text-primary size-4 shrink-0" />
           <h2 className="font-semibold whitespace-nowrap">ตัวกรองประกาศ</h2>
-          {count > 0 && <Badge className="shrink-0" variant="secondary">{count}</Badge>}
+          {count > 0 && (
+            <Badge className="shrink-0" variant="secondary">
+              {count}
+            </Badge>
+          )}
         </div>
         <button
           type="button"
@@ -489,7 +504,7 @@ export function ProcurementFilters({
           type="button"
           onClick={clearForm}
           disabled={count === 0}
-          className="text-primary hover:text-primary/80 focus-visible:ring-ring/70 -mr-2 min-h-10 shrink-0 justify-self-end rounded-md px-2 text-sm font-medium cursor-pointer underline-offset-4 outline-none transition-colors hover:underline focus-visible:ring-2 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+          className="text-primary hover:text-primary/80 focus-visible:ring-ring/70 disabled:text-muted-foreground -mr-2 min-h-10 shrink-0 cursor-pointer justify-self-end rounded-md px-2 text-sm font-medium underline-offset-4 transition-colors outline-none hover:underline focus-visible:ring-2 disabled:cursor-not-allowed disabled:no-underline"
         >
           ล้างทั้งหมด
         </button>
@@ -820,6 +835,31 @@ export function ProcurementFilters({
                 placeholder="เช่น โรงพยาบาล, โรงเรียน"
                 hint="คำค้นไม่ใช่หมวดอุตสาหกรรมที่ยืนยันแล้ว"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="province">จังหวัด</Label>
+              <div className="relative">
+                <select
+                  id="province"
+                  name="province"
+                  defaultValue={formValues.province}
+                  className={cn(selectClass, 'appearance-none pr-10')}
+                >
+                  <option value="">ทุกจังหวัด</option>
+                  {THAI_PROVINCES.map((province) => (
+                    <option key={province} value={province}>
+                      {province}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="text-muted-foreground pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2"
+                />
+              </div>
+              <p className="text-muted-foreground text-xs">
+                ค้นจากชื่อหน่วยงานและชื่อโครงการ e-GP ไม่มีข้อมูลที่ตั้งโดยตรง
+              </p>
             </div>
           </div>
           <div className="border-border space-y-4 border-t pt-4">

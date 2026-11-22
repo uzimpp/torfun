@@ -6,6 +6,7 @@ export * from './evaluation';
 export * from './company';
 export * from './company-membership';
 export * from './egp';
+export * from './province';
 export * from './procurement-dates';
 export * from './schedule';
 export * from './ingestion-ops';

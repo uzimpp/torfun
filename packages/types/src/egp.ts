@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { EvaluationMethod, EvaluationSchema } from './evaluation';
 import { TorQualificationSchema } from './qualification';
 import { QualificationMatchResultSchema } from './matching';
+import { ThaiProvince } from './province';
 
 /**
  * Domain types for the e-GP ingestion pipeline (Thai government procurement).
@@ -594,6 +595,8 @@ export const ProcurementListQuerySchema = z
     evaluationMethod: QueryList(EvaluationMethod).optional(),
     /** Keyword matched against existing project and agency names, not a classification. */
     industry: z.string().trim().min(1).max(100).optional(),
+    /** A province matched against agency and project names (no location field upstream). */
+    province: ThaiProvince.optional(),
     order: ProcurementOrderSchema.optional(),
     limit: z.coerce.number().int().positive().max(200).default(50),
     offset: z.coerce.number().int().nonnegative().default(0),

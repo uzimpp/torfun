@@ -24,11 +24,18 @@ import type {
   StatusChange,
   EvaluationMethod,
   TargetPlatform,
+  ThaiProvince,
   TorAnalysis,
   Tombstone,
   TombstoneReason,
 } from '@torfun/types';
-import { appendStatusChange, currentDeadline, EMPTY_STAGES, OUTCOME_STATE } from '@torfun/types';
+import {
+  appendStatusChange,
+  currentDeadline,
+  EMPTY_STAGES,
+  OUTCOME_STATE,
+  provinceTerms,
+} from '@torfun/types';
 import { mergeDiscovered } from './merge-discovered';
 import { hashSource, hasUpstreamChange } from './source-hash';
 import { INGESTION_META_COLLECTION } from './ingestion-meta';
@@ -340,6 +347,8 @@ export interface FindOptions {
   evaluationMethod?: EvaluationMethod[];
   /** Keyword over existing names only; this is not an authoritative classification. */
   industry?: string;
+  /** A province, matched by `provinceTerms` over agency and project names. */
+  province?: ThaiProvince;
   /**
    * Search ordering choices, plus internal queue orders. `announced` is newest
    * announcement first; `deadline` puts upcoming open deadlines first;
@@ -348,7 +357,10 @@ export interface FindOptions {
    */
   order?: ProcurementOrder | 'urgency' | 'daysLeft';
   /** Optional score within the existing filters. Equal scores keep the base order. */
-  scoreQualifications?: (qualifications: TorAnalysis['qualifications']) => number | null;
+  scoreQualifications?: (
+    qualifications: TorAnalysis['qualifications'],
+    projectMoney: number | null,
+  ) => number | null;
   /** Today in Thailand, `YYYY-MM-DD`. The `daysLeft` order counts from it. */
   today?: string;
   limit: number;
@@ -1112,6 +1124,17 @@ export class ProcurementRepository
     if (options.industry?.trim()) {
       clauses.push(regexAny(['project_name', 'dept_name', 'dept_sub_name'], options.industry));
     }
+    if (options.province) {
+      const pattern = {
+        $regex: provinceTerms(options.province).map(escapeRegex).join('|'),
+        $options: 'i',
+      };
+      clauses.push({
+        $or: ['dept_name', 'dept_sub_name', 'project_name'].map((field) => ({
+          [field]: pattern,
+        })),
+      });
+    }
     if (options.techStack?.length) {
       // ALL semantics: each requested term must match at least one array entry.
       clauses.push(
@@ -1147,10 +1170,18 @@ export class ProcurementRepository
       const candidates = collection.aggregate<{
         _id: string;
         analysis?: Pick<TorAnalysis, 'qualifications'>;
-      }>([{ $match: filter }, ...ranked.stages, { $project: { 'analysis.qualifications': 1 } }]);
+        project_money?: number | null;
+      }>([
+        { $match: filter },
+        ...ranked.stages,
+        { $project: { 'analysis.qualifications': 1, project_money: 1 } },
+      ]);
       const scored: { id: string; score: number }[] = [];
       for await (const item of candidates) {
-        scored.push({ id: item._id, score: score(item.analysis?.qualifications) ?? -1 });
+        scored.push({
+          id: item._id,
+          score: score(item.analysis?.qualifications, item.project_money ?? null) ?? -1,
+        });
       }
       scored.sort((a, b) => b.score - a.score);
       const ids = scored.slice(options.offset, options.offset + options.limit).map(({ id }) => id);

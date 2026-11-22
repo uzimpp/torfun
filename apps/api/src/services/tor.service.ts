@@ -61,16 +61,19 @@ export class TorService {
         ? await this.qualifications?.matchingInputs(userId)
         : null;
     const today = thailandDay(now);
-    const score = (clauses: TorAnalysis['qualifications']) =>
+    const score = (clauses: TorAnalysis['qualifications'], projectMoney: number | null) =>
       clauses?.length && inputs
-        ? evaluateQualifications(clauses, inputs.profile, inputs.experiences, today).overallScore
+        ? evaluateQualifications(clauses, inputs.profile, inputs.experiences, today, projectMoney)
+            .overallScore
         : null;
     const canScore =
       inputs &&
       (inputs.experiences.length ||
         inputs.profile.certificates.length ||
         inputs.profile.personnel.length ||
-        inputs.profile.registeredCapitalThb !== null);
+        inputs.profile.registeredCapitalThb !== null ||
+        inputs.profile.bidBudgetMinThb !== null ||
+        inputs.profile.bidBudgetMaxThb !== null);
     const { items, total } = await this.procurements.find({
       ...filters,
       ...(canScore && order === 'match' ? { scoreQualifications: score } : {}),
@@ -78,7 +81,9 @@ export class TorService {
     return {
       items: items.map((item) => ({
         ...presentTo(audience, item),
-        ...(canScore ? { matchScore: score(item.analysis?.qualifications) } : {}),
+        ...(canScore
+          ? { matchScore: score(item.analysis?.qualifications, item.projectMoney) }
+          : {}),
       })),
       total,
     };
@@ -113,6 +118,7 @@ export class TorService {
               inputs.experiences,
               thailandDay(now),
               now,
+              procurement.projectMoney,
             )
           : null,
     };

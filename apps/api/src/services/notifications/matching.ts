@@ -114,6 +114,7 @@ export function computeNotificationMatch(
           experiences,
           thailandDay(now),
           now,
+          tor.projectMoney,
         )
       : null;
   const reasons = clauses.flatMap((clause, i) => {
@@ -127,7 +128,10 @@ export function computeNotificationMatch(
     overallScore: result?.overallScore ?? null,
     reasons: reasons.length ? reasons : ['ยังไม่มีคุณสมบัติแบบมีโครงสร้าง โปรดตรวจ TOR ต้นฉบับ'],
     unmatched: clauses.filter((_, i) => result?.checks[i]?.status !== 'met').map((c) => c.text),
-    disqualified: result?.checks.some((c) => c.status === 'not_met') ?? false,
+    disqualified:
+      (result?.checks.some((c) => c.status === 'not_met') ||
+        result?.budgetRule?.status === 'not_met') ??
+      false,
     scoringVersion: 'qualification-clauses-v1',
     inputVersion: createHash('sha256')
       .update(JSON.stringify({ clauses, profile, experiences, today: thailandDay(now) }))

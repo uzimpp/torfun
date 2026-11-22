@@ -48,17 +48,19 @@ All values live in code; this table is what to change together if one moves.
 - A token minted before session tracking has no `sid` and is accepted until it expires (at most 15 minutes).
 - Session lookup is one indexed query per authenticated request. Apply
   `docs/migrations/2026-11-refresh-token-session-indexes.js` before deploying.
-- Web CSP: `script-src` still allows `'unsafe-inline'` (a nonce CSP would force fully dynamic rendering) and
-  `object-src blob:` is open for the in-browser TOR PDF viewer. React text rendering carries the XSS defense. The one
+- Web CSP: `script-src` still allows `'unsafe-inline'` (a nonce CSP would force fully dynamic rendering).
+  `object-src`, `frame-src` and `base-uri` are `'none'`; the TOR PDF is drawn to canvas by pdf.js from bytes, never
+  navigated as a document in this origin. React text rendering carries the XSS defense. The one
   `dangerouslySetInnerHTML` (`apps/web/src/components/ui/chart.tsx`, the shadcn chart component) writes a `<style>`
-  block from chart colour config fixed in code, never from user or API data. The gap is pinned by
+  block from chart colour config fixed in code, never from user or API data. The remaining gap is pinned by
   `apps/web/src/lib/security-headers.test.ts` (#193).
 - Anyone can still create a Company named like a real one and manage it. A real employee who joins that look-alike by
   mistake shares only their own data with it; verifying Companies against the DBD register is future work.
-- Automatic approval trusts the email Google sign-in supplies, which requires `email_verified` (#197). #197 is merged
-  into this branch; merge #197 first. Run `docs/migrations/2026-11-company-managers.js` before deploying, or existing Companies have
-  no manager to approve requests.
-- File-size, archive-entry and SSRF guards for ingestion are not yet implemented (#155, #151).
+- Automatic approval trusts the email Google sign-in supplies, which requires `email_verified` (#197, merged).
+  Run `docs/migrations/2026-11-company-managers.js` before deploying, or existing Companies have no manager to approve requests.
+- Ingestion caps one download at 200 MB, an archive at 2,000 entries and a 300 MB inflate budget, and guards outbound
+  fetches against SSRF (`apps/api/src/services/egp/archive-limits.ts`, PR #196). The wider ASVS V1/V5 work is still
+  tracked in #151 and #155.
 
 ## Verification
 

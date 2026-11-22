@@ -151,7 +151,8 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       const score = options.scoreQualifications;
       items.sort(
         (a, b) =>
-          (score(b.analysis?.qualifications) ?? -1) - (score(a.analysis?.qualifications) ?? -1),
+          (score(b.analysis?.qualifications, b.projectMoney) ?? -1) -
+          (score(a.analysis?.qualifications, a.projectMoney) ?? -1),
       );
     }
     return {
