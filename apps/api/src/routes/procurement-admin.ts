@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { TombstoneSchema } from '@torfun/types';
 import { requireAdmin } from '../hooks/require-admin';
+import { expensiveRouteLimit } from '../plugins/security';
 
 /**
  * What a Site Administrator does to a procurement or a tombstone: overrule the
@@ -46,6 +47,7 @@ export const procurementAdminRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/ingestion/procurements/:projectId/read-anyway',
     {
+      config: { rateLimit: expensiveRouteLimit.upstreamRead },
       schema: {
         params: ProjectParams,
         response: { 202: z.object({ started: z.literal(true) }), ...notFoundOrConflict },
@@ -99,6 +101,7 @@ export const procurementAdminRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/ingestion/tombstones/:projectId/restore',
     {
+      config: { rateLimit: expensiveRouteLimit.upstreamRead },
       schema: {
         params: ProjectParams,
         response: { 202: z.object({ started: z.literal(true) }), ...notFoundOrConflict },

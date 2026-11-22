@@ -1,11 +1,14 @@
+import type { Writable } from 'node:stream';
 import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { loadEnv, type Env } from './config/env';
 import { registerErrorHandler } from './core/errors';
+import { LOG_REDACTION } from './core/log-redaction';
 import { registerMongo } from './core/mongo';
 import { registerSecurityPlugins } from './plugins/security';
+import { registerOriginGuard } from './plugins/origin-guard';
 import { registerJwt } from './plugins/jwt';
 import { registerGoogleOAuth } from './plugins/google-oauth';
 import {
@@ -51,9 +54,11 @@ import {
   type GovSpendingCooldownStore,
 } from './repositories/govspending-cooldown.repository';
 import { AuthService } from './services/auth.service';
+import { noBreachCheck, PwnedPasswordsChecker } from './services/breached-passwords';
 import { AdminUsersService } from './services/admin-users.service';
 import { CompanyQualificationsService } from './services/company-qualifications.service';
 import { CompanyService } from './services/company.service';
+import { CompanyMembershipService } from './services/company-membership.service';
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
@@ -145,11 +150,23 @@ export interface RepositoryOverrides {
  * `config/env.ts` would otherwise make impossible. `repositories` is the same
  * idea applied to storage — see `RepositoryOverrides`.
  */
-export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOverrides = {}) {
+export async function buildApp(
+  env: Env = loadEnv(),
+  repositories: RepositoryOverrides = {},
+  /** Tests pass a stream to read the log back (audit-trail assertions). */
+  options: { logStream?: Writable } = {},
+) {
   const app = Fastify({
+    // A function, not the number: Fastify 5.12 treats a bare hop count as
+    // "trust nothing", since it cannot know the peer is really a proxy. Here
+    // the deployment vouches for that; see TRUST_PROXY_HOPS in config/env.ts.
+    trustProxy: (_address: string, hop: number) => hop < env.TRUST_PROXY_HOPS,
     logger: {
       level: env.LOG_LEVEL,
-      transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+      redact: LOG_REDACTION,
+      ...(options.logStream
+        ? { stream: options.logStream }
+        : { transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined }),
     },
   }).withTypeProvider<ZodTypeProvider>();
 
@@ -158,6 +175,7 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   registerErrorHandler(app);
 
   await registerSecurityPlugins(app, env);
+  registerOriginGuard(app, env);
   await app.register(fastifyCookie);
   await registerJwt(app, env);
   await registerGoogleOAuth(app, env);
@@ -244,18 +262,34 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
   app.decorate('notificationWorkerService', notificationWorkerService);
   app.addHook('onClose', async () => notificationWorkerService.stop());
 
-  app.decorate(
-    'authService',
-    new AuthService(userRepository, refreshTokenRepository, (payload) => app.jwt.sign(payload)),
+  const authService = new AuthService(
+    userRepository,
+    refreshTokenRepository,
+    (payload) => app.jwt.sign(payload),
+    env.BREACHED_PASSWORD_CHECK
+      ? new PwnedPasswordsChecker({
+          onUnavailable: (reason) =>
+            app.log.warn({ reason }, 'breached-password lookup unavailable; accepting password'),
+        })
+      : noBreachCheck,
   );
-  app.decorate('adminUsersService', new AdminUsersService(userRepository));
+  app.decorate('authService', authService);
+  app.decorate(
+    'adminUsersService',
+    new AdminUsersService(userRepository, authService, companyRepository),
+  );
   const companyQualificationsService = new CompanyQualificationsService(
     companyRepository,
     experienceRepository,
     userRepository,
   );
   app.decorate('companyQualificationsService', companyQualificationsService);
-  app.decorate('companyService', new CompanyService(companyRepository, userRepository));
+  const companyMembershipService = new CompanyMembershipService(companyRepository, userRepository);
+  app.decorate('companyMembershipService', companyMembershipService);
+  app.decorate(
+    'companyService',
+    new CompanyService(companyRepository, userRepository, companyMembershipService),
+  );
   app.decorate(
     'clientService',
     new ClientService(clientRepository, experienceRepository, userRepository, agencyNames),

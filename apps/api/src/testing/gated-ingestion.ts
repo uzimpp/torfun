@@ -43,7 +43,7 @@ export function gatedDeps(fail = false) {
     },
     resolveZipId: async () => null,
     downloadArchive: async () => new Uint8Array(),
-    extractTorPdfs: () => ({ torFiles: [], members: [], unsafeSkipped: [] }),
+    extractTorPdfs: () => ({ torFiles: [], members: [], unsafeSkipped: [], oversizeSkipped: [] }),
     classifyDocument: async () => ({
       isTor: false,
       torKind: null,

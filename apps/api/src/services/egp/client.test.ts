@@ -36,7 +36,7 @@ describe('egpGet with a caller-supplied signal', () => {
     const controller = new AbortController();
 
     const started = Date.now();
-    const pending = egpGet('https://example.test/x', {}, {}, controller.signal);
+    const pending = egpGet('https://process5.gprocurement.go.th/x', {}, {}, controller.signal);
     setTimeout(() => controller.abort(), 10);
 
     await expect(pending).rejects.toThrow();
@@ -51,13 +51,15 @@ describe('egpGet with a caller-supplied signal', () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(egpGet('https://example.test/x', {}, {}, controller.signal)).rejects.toThrow();
+    await expect(
+      egpGet('https://process5.gprocurement.go.th/x', {}, {}, controller.signal),
+    ).rejects.toThrow();
     expect(calls.count).toBe(0);
   });
 
   test('without a signal it behaves as before', async () => {
     globalThis.fetch = (async () => new Response('ok', { status: 200 })) as unknown as typeof fetch;
-    const response = await egpGet('https://example.test/x', {}, {});
+    const response = await egpGet('https://process5.gprocurement.go.th/x', {}, {});
     expect(await response.text()).toBe('ok');
   });
 });
@@ -69,7 +71,7 @@ describe('what an error says about the request that caused it', () => {
     globalThis.fetch = (async () => new Response('', { status: 429 })) as unknown as typeof fetch;
 
     const error = await openDataGet(
-      'https://opend.test/egp-dept',
+      'https://opend.data.go.th/egp-dept',
       { dept_name: 'x' },
       SECRET,
     ).catch((caught: unknown) => caught);
@@ -77,14 +79,14 @@ describe('what an error says about the request that caused it', () => {
     expect(error).toBeInstanceOf(RateLimitedError);
     const message = (error as Error).message;
     expect(message).not.toContain(SECRET);
-    expect(message).toContain('https://opend.test/egp-dept'); // still says where
+    expect(message).toContain('https://opend.data.go.th/egp-dept'); // still says where
     expect(message).toContain('429');
   });
 
   test('an upstream error message never contains the API key either', async () => {
     globalThis.fetch = (async () => new Response('', { status: 404 })) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/egp-dept', {}, SECRET).catch(
+    const error = await openDataGet('https://opend.data.go.th/egp-dept', {}, SECRET).catch(
       (caught: unknown) => caught,
     );
 
@@ -161,7 +163,7 @@ describe('the open-data API daily quota', () => {
       'x-ratelimit-remaining-day': '640',
     });
 
-    const page = await openDataGet('https://opend.test/x', {}, 'k');
+    const page = await openDataGet('https://opend.data.go.th/x', {}, 'k');
 
     expect(page.quota).toEqual({ limitDay: 1000, remainingDay: 640 });
   });
@@ -169,7 +171,7 @@ describe('the open-data API daily quota', () => {
   test('is unknown when the headers are absent, rather than zero', async () => {
     globalThis.fetch = answering({});
 
-    const page = await openDataGet('https://opend.test/x', {}, 'k');
+    const page = await openDataGet('https://opend.data.go.th/x', {}, 'k');
 
     expect(page.quota).toEqual({ limitDay: null, remainingDay: null });
   });
@@ -181,7 +183,7 @@ describe('the open-data API daily quota', () => {
         headers: { 'x-ratelimit-limit-day': '1000', 'x-ratelimit-remaining-day': '0' },
       })) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/x', {}, 'k').catch((e: unknown) => e);
+    const error = await openDataGet('https://opend.data.go.th/x', {}, 'k').catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(RateLimitedError);
     expect((error as RateLimitedError).quota).toEqual({ limitDay: 1000, remainingDay: 0 });
@@ -195,7 +197,7 @@ describe('a 403 is not the same refusal from the two upstreams', () => {
   test('from the open-data API it is a block or a refused key, not an exhausted allowance', async () => {
     globalThis.fetch = refusing(403, { 'x-ratelimit-remaining-day': '640' });
 
-    const error = await openDataGet('https://opend.test/x', {}, 'k').catch((e: unknown) => e);
+    const error = await openDataGet('https://opend.data.go.th/x', {}, 'k').catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(OpenDataForbiddenError);
     expect(error).not.toBeInstanceOf(RateLimitedError);
@@ -204,7 +206,7 @@ describe('a 403 is not the same refusal from the two upstreams', () => {
   test('from the open-data API a 429 is still the day running out', async () => {
     globalThis.fetch = refusing(429);
 
-    const error = await openDataGet('https://opend.test/x', {}, 'k').catch((e: unknown) => e);
+    const error = await openDataGet('https://opend.data.go.th/x', {}, 'k').catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(RateLimitedError);
   });
@@ -212,7 +214,9 @@ describe('a 403 is not the same refusal from the two upstreams', () => {
   test('from the procurement site it is still a hard stop', async () => {
     globalThis.fetch = refusing(403);
 
-    const error = await egpGet('https://site.test/x', {}, {}).catch((e: unknown) => e);
+    const error = await egpGet('https://process5.gprocurement.go.th/x', {}, {}).catch(
+      (e: unknown) => e,
+    );
 
     expect(error).toBeInstanceOf(RateLimitedError);
   });
@@ -220,7 +224,7 @@ describe('a 403 is not the same refusal from the two upstreams', () => {
   test('the forbidden message never contains the API key', async () => {
     globalThis.fetch = refusing(403);
 
-    const error = await openDataGet('https://opend.test/x', {}, 'SECRET-KEY-123').catch(
+    const error = await openDataGet('https://opend.data.go.th/x', {}, 'SECRET-KEY-123').catch(
       (e: unknown) => e,
     );
 
@@ -236,7 +240,7 @@ describe('the open-data API is asked once, because every request is part of a sm
       return new Response('', { status: 503 });
     }) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/x', {}, 'k').catch((e: unknown) => e);
+    const error = await openDataGet('https://opend.data.go.th/x', {}, 'k').catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect(calls.count).toBe(1);
@@ -249,7 +253,7 @@ describe('the open-data API is asked once, because every request is part of a sm
       throw new TypeError('network down');
     }) as unknown as typeof fetch;
 
-    const error = await openDataGet('https://opend.test/x', {}, 'k').catch((e: unknown) => e);
+    const error = await openDataGet('https://opend.data.go.th/x', {}, 'k').catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect(calls.count).toBe(1);
@@ -318,15 +322,23 @@ describe('the open-data API is asked once, because every request is part of a sm
     globalThis.fetch = (async () => {
       throw new TypeError('network down');
     }) as unknown as typeof fetch;
-    const silent = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup').catch(
-      (e: unknown) => e,
-    );
+    const silent = await egpGet(
+      'https://process5.gprocurement.go.th/x',
+      {},
+      {},
+      undefined,
+      'lookup',
+    ).catch((e: unknown) => e);
     expect(silent).toBeInstanceOf(UnreachableError);
 
     globalThis.fetch = (async () => new Response('', { status: 503 })) as unknown as typeof fetch;
-    const answered = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup').catch(
-      (e: unknown) => e,
-    );
+    const answered = await egpGet(
+      'https://process5.gprocurement.go.th/x',
+      {},
+      {},
+      undefined,
+      'lookup',
+    ).catch((e: unknown) => e);
     expect(answered).toBeInstanceOf(UpstreamError);
     expect(answered).not.toBeInstanceOf(UnreachableError);
   });
@@ -338,9 +350,13 @@ describe('the open-data API is asked once, because every request is part of a sm
       throw new TypeError('network down');
     }) as unknown as typeof fetch;
 
-    const error = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup').catch(
-      (e: unknown) => e,
-    );
+    const error = await egpGet(
+      'https://process5.gprocurement.go.th/x',
+      {},
+      {},
+      undefined,
+      'lookup',
+    ).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect(calls.count).toBe(1);
@@ -353,7 +369,7 @@ describe('the open-data API is asked once, because every request is part of a sm
       return calls.count === 1 ? new Response('', { status: 503 }) : new Response('ok');
     }) as unknown as typeof fetch;
 
-    const response = await egpGet('https://site.test/x', {}, {});
+    const response = await egpGet('https://process5.gprocurement.go.th/x', {}, {});
 
     expect(await response.text()).toBe('ok');
     expect(calls.count).toBe(2);
@@ -370,9 +386,13 @@ describe('a web page where e-GP should have sent data', () => {
   test('a lookup answered with one is the site being unavailable, named by its title', async () => {
     globalThis.fetch = (async () => new Response(notice)) as unknown as typeof fetch;
 
-    const error = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup').catch(
-      (e: unknown) => e,
-    );
+    const error = await egpGet(
+      'https://process5.gprocurement.go.th/x',
+      {},
+      {},
+      undefined,
+      'lookup',
+    ).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(SiteUnavailableError);
     expect((error as Error).message).toContain('แจ้งปิดระบบ e-GP ชั่วคราว');
@@ -384,7 +404,13 @@ describe('a web page where e-GP should have sent data', () => {
         '<?xml version="1.0"?><rss><channel></channel></rss>',
       )) as unknown as typeof fetch;
 
-    const response = await egpGet('https://site.test/x', {}, {}, undefined, 'lookup');
+    const response = await egpGet(
+      'https://process5.gprocurement.go.th/x',
+      {},
+      {},
+      undefined,
+      'lookup',
+    );
 
     expect(await response.text()).toContain('<rss>');
   });

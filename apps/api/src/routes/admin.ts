@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { fullName, UserRole, type User } from '@torfun/types';
 import { requireAdmin } from '../hooks/require-admin';
+import { audit } from '../core/audit';
 
 /**
  * Site Administrator surface: the account list and the one write that manages
@@ -60,11 +61,6 @@ const PatchBody = z
 export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', requireAdmin);
 
-  app.get('/admin/test', async (request) => ({
-    message: `Welcome Admin ${request.user.username}`,
-    role: request.user.role,
-  }));
-
   app.get(
     '/admin/users',
     {
@@ -94,7 +90,43 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
         ...(request.body.role !== undefined ? { role: request.body.role } : {}),
         ...(request.body.is_active !== undefined ? { isActive: request.body.is_active } : {}),
       });
+      audit(request.log, 'admin.user.updated', {
+        ip: request.ip,
+        userId: request.user.user_id,
+        targetUserId: updated.id,
+        role: updated.role,
+        isActive: updated.isActive,
+      });
       return toAdminUserResponse(updated);
+    },
+  );
+
+  /**
+   * Makes a member a Company Manager, for a Company whose managers have all
+   * gone. Only someone already in the Company qualifies: an administrator can
+   * repair a Company, not put a stranger into it.
+   */
+  app.post(
+    '/admin/companies/:id/managers',
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        body: z.object({ user_id: z.string() }),
+        response: { 204: z.null(), 404: z.object({ message: z.string() }) },
+      },
+    },
+    async (request, reply) => {
+      const company = await app.companyMembershipService.assignManager(
+        request.params.id,
+        request.body.user_id,
+      );
+      audit(request.log, 'admin.company.manager.assigned', {
+        ip: request.ip,
+        userId: request.user.user_id,
+        targetUserId: request.body.user_id,
+        companyId: company.id,
+      });
+      return reply.code(204).send(null);
     },
   );
 };

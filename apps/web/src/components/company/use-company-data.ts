@@ -11,14 +11,17 @@ import {
   fetchClients,
   fetchExperiences,
   fetchMyCompany,
+  fetchMyJoinRequest,
   joinCompany,
   updateClient,
   updateExperience,
   updateMyCompany,
+  withdrawJoinRequest,
   type ClientInput,
   type ClientResponse,
   type CompanyInput,
-  type CompanyResponse,
+  type MyCompanyResponse,
+  type PendingJoinRequest,
   type ExperienceInput,
   type ExperienceResponse,
 } from '@/lib/api';
@@ -38,7 +41,9 @@ import {
  */
 export interface CompanyData {
   /** The caller's own company, or null before they have joined one. */
-  company: CompanyResponse | null;
+  company: MyCompanyResponse | null;
+  /** A join request no Company Manager has answered yet. */
+  pendingRequest: PendingJoinRequest | null;
   clients: ClientResponse[];
   experiences: ExperienceResponse[];
   loading: boolean;
@@ -50,8 +55,14 @@ export interface CompanyData {
   createOwnCompany: (input: CompanyInput) => Promise<boolean>;
   /** Edits the company the caller already belongs to. */
   editOwnCompany: (input: Partial<CompanyInput>) => Promise<boolean>;
-  /** Joins a company a colleague already created, rather than making a second. */
-  joinExistingCompany: (id: string) => Promise<boolean>;
+  /**
+   * Asks to join a company a colleague already created, rather than making a
+   * second. `pending` until a Company Manager approves; null on failure.
+   */
+  joinExistingCompany: (id: string) => Promise<'joined' | 'pending' | null>;
+  withdrawRequest: () => Promise<boolean>;
+  /** Reads everything again, after a change made elsewhere on the page. */
+  reload: () => void;
   saveClient: (input: ClientInput, id?: string) => Promise<ClientResponse | null>;
   removeClient: (id: string) => Promise<boolean>;
   saveExperience: (input: ExperienceInput, id?: string) => Promise<boolean>;
@@ -63,7 +74,8 @@ function messageOf(caught: unknown, fallback: string): string {
 }
 
 export function useCompanyData(): CompanyData {
-  const [company, setCompany] = useState<CompanyResponse | null>(null);
+  const [company, setCompany] = useState<MyCompanyResponse | null>(null);
+  const [pendingRequest, setPendingRequest] = useState<PendingJoinRequest | null>(null);
   const [clients, setClients] = useState<ClientResponse[]>([]);
   const [experiences, setExperiences] = useState<ExperienceResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,10 +89,17 @@ export function useCompanyData(): CompanyData {
     // overwritten by a slower one that was already on its way.
     let cancelled = false;
 
-    Promise.all([fetchMyCompany(), fetchClients(), fetchExperiences()]).then(
-      ([companyData, clientData, experienceData]) => {
+    Promise.all([
+      fetchMyCompany(),
+      fetchClients(),
+      fetchExperiences(),
+      // Secondary: failing to read it must not cost the officer the whole page.
+      fetchMyJoinRequest().catch(() => null),
+    ]).then(
+      ([companyData, clientData, experienceData, requestData]) => {
         if (cancelled) return;
         setCompany(companyData);
+        setPendingRequest(requestData);
         setClients(clientData.clients);
         setExperiences(experienceData.experiences);
         setError(null);
@@ -139,12 +158,24 @@ export function useCompanyData(): CompanyData {
 
   const joinExistingCompany = useCallback(
     async (id: string) => {
-      const joined = await run(() => joinCompany(id), 'เข้าร่วมบริษัทไม่สำเร็จ');
-      if (joined) setCompany(joined);
-      return joined !== null;
+      const answer = await run(() => joinCompany(id), 'ส่งคำขอเข้าร่วมบริษัทไม่สำเร็จ');
+      if (!answer) return null;
+      if (answer.outcome === 'joined') {
+        setCompany(answer.company);
+        setPendingRequest(null);
+      } else {
+        setPendingRequest({ company: answer.company, requested_at: new Date().toISOString() });
+      }
+      return answer.outcome;
     },
     [run],
   );
+
+  const withdrawRequest = useCallback(async () => {
+    const done = await run(() => withdrawJoinRequest().then(() => true), 'ยกเลิกคำขอไม่สำเร็จ');
+    if (done) setPendingRequest(null);
+    return done !== null;
+  }, [run]);
 
   const saveClient = useCallback(
     (input: ClientInput, id?: string) =>
@@ -180,6 +211,7 @@ export function useCompanyData(): CompanyData {
 
   return {
     company,
+    pendingRequest,
     clients,
     experiences,
     loading,
@@ -188,6 +220,8 @@ export function useCompanyData(): CompanyData {
     createOwnCompany,
     editOwnCompany,
     joinExistingCompany,
+    withdrawRequest,
+    reload,
     saveClient,
     removeClient,
     saveExperience,

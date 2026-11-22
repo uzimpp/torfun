@@ -13,6 +13,7 @@ import {
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
 import { audienceOf } from '../services/audience';
+import { expensiveRouteLimit } from '../plugins/security';
 
 export const torRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', requireAuth);
@@ -146,6 +147,7 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/tors/:projectId/source',
     {
+      config: { rateLimit: expensiveRouteLimit.sourceDownload },
       schema: {
         params: z.object({ projectId: z.string().min(1) }),
         response: { 200: z.any(), 404: z.object({ message: z.string() }) },

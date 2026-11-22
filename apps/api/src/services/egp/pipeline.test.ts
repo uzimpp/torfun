@@ -117,6 +117,7 @@ function deps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       torFiles: [extracted()],
       members: ['Attach_TOR_1.pdf', 'annoudoc_1.pdf'],
       unsafeSkipped: [],
+      oversizeSkipped: [],
     }),
     classifyDocument: async () => ({
       isTor: true,
@@ -268,6 +269,7 @@ describe('runIngestion', () => {
         torFiles: [extracted({ member: 'CONTRACTOR.pdf', filename: 'CONTRACTOR.pdf' })],
         members: ['CONTRACTOR.pdf'],
         unsafeSkipped: [],
+        oversizeSkipped: [],
       }),
       classifyDocument: async () => ({
         isTor: false,
@@ -339,6 +341,7 @@ describe('runIngestion', () => {
         torFiles: [extracted()],
         members: ['Attach_TOR_1.pdf'],
         unsafeSkipped: ['../../etc/Attach_TOR_evil.pdf'],
+        oversizeSkipped: [],
       }),
       classifyDocument: async () => ({
         isTor: false,
@@ -451,6 +454,7 @@ describe('runIngestion', () => {
         torFiles: [extracted()],
         members: ['Attach_TOR_1.pdf'],
         unsafeSkipped: ['../../etc/Attach_TOR_evil.pdf'],
+        oversizeSkipped: [],
       }),
     });
 
@@ -478,6 +482,7 @@ describe('runIngestion', () => {
         // never sent, because reading them costs tokens for nothing.
         members: ['Attach_TOR_1.pdf', 'TOR.pdf', 'annoudoc_1.pdf', 'Attach_PUB_9.pdf'],
         unsafeSkipped: [],
+        oversizeSkipped: [],
       }),
       classifyDocument: classify,
     });
@@ -499,7 +504,12 @@ describe('stages and the per-record deadline', () => {
   test('a record with nothing to read never reaches analysing', async () => {
     const repository = new InMemoryProcurementStore();
     await run(repository, {
-      extractTorPdfs: () => ({ torFiles: [], members: ['annoudoc_1.pdf'], unsafeSkipped: [] }),
+      extractTorPdfs: () => ({
+        torFiles: [],
+        members: ['annoudoc_1.pdf'],
+        unsafeSkipped: [],
+        oversizeSkipped: [],
+      }),
     });
 
     const outcomes = (await repository.get('66059313551'))?.statusHistory.map((s) => s.outcome);
@@ -723,6 +733,7 @@ describe('what a retrieval remembers about the archive', () => {
         ],
         members: ['quotation.pdf', '20240823082250355.pdf'],
         unsafeSkipped: [],
+        oversizeSkipped: [],
       }),
     });
 
@@ -1029,6 +1040,7 @@ describe('the analysis pool', () => {
           torFiles: four,
           members: four.map((pdf) => pdf.member),
           unsafeSkipped: [],
+          oversizeSkipped: [],
         }),
         classifyDocument: async (pdf) => {
           inFlight += 1;
@@ -1751,6 +1763,7 @@ describe('the Analysis limit and the waiting room (ADR-0020)', () => {
       torFiles: pair,
       members: pair.map((pdf) => pdf.member),
       unsafeSkipped: [],
+      oversizeSkipped: [],
     }),
   });
   const classified = {
@@ -1962,7 +1975,12 @@ describe('runIngestion: the bid deadline', () => {
     const repository = new InMemoryProcurementStore();
     await run(repository, {
       ...invited('2026-10-20T09:30:00.000Z'),
-      extractTorPdfs: () => ({ torFiles: [], members: ['annoudoc_1.pdf'], unsafeSkipped: [] }),
+      extractTorPdfs: () => ({
+        torFiles: [],
+        members: ['annoudoc_1.pdf'],
+        unsafeSkipped: [],
+        oversizeSkipped: [],
+      }),
     });
 
     const record = await repository.get('66059313551');
