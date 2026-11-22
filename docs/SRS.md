@@ -97,7 +97,7 @@ data service".]
 - **Third-party TOR publication**: all content originates from government sources.
 - **Mobile application development**: optimised for desktop browsers; no native iOS/Android apps.
 - **AI model training**: pre-trained Vertex AI only; nothing is trained, fine-tuned or hosted.
-- **Alternative notification channels**: no LINE, SMS or any channel other than email and in-application.
+- **Alternative notification channels**: no SMS or any channel other than email, in-application and LINE. [Open D-14]: LINE was added after this SRS was written.
 - **Per-user profiles**: one shared company profile; no individual profiles or multi-tenant operation. [Open D-05]: the built system has one Company per vendor, so this exclusion does not describe it.
 - **Payment processing**: internal tool; no payment gateway or subscription management.
 
@@ -296,7 +296,7 @@ Status reflects whether the story can be completed end to end in the built syste
 | FR-36 | The system SHALL generate a notification when a newly ingested announcement's matching score exceeds a configurable threshold, or when a saved TOR's status changes. | Done | `services/notifications/`: a match is announced when the score passes the officer's threshold (`minQualificationScore`) and filters; a saved TOR's status or deadline change is announced too. |
 | FR-37 | The system SHALL support two notification delivery channels: email and in-application. | Done | In-app inbox and email, plus LINE as a third channel. |
 | FR-38 | Authenticated Users SHALL be able to configure, per event type, which channel(s) deliver the notification. | Done | Per event (match found, status changed, new open) and per channel, in notification settings. |
-| FR-39 | Notification delivery SHALL be limited to email and in-application channels; LINE, SMS, and any other channel SHALL NOT be implemented. | Done | Trivially true: none is implemented. |
+| FR-39 | Notification delivery SHALL be limited to email and in-application channels; LINE, SMS, and any other channel SHALL NOT be implemented. | Differs | [Open D-14] LINE was added as a third channel (#129), so the limit no longer holds. SMS and every other channel are still not implemented. |
 
 ### 4.9 Administration
 
@@ -346,9 +346,9 @@ allowlist, rate limits, credential throttling, CI security scans).
 
 | Status | Functional requirements | Count |
 | ------ | ----------------------- | ----- |
-| Done | FR-01–05, 08–13, 15–17, 19–20, 23–24, 26–31, 33–39, 41–43 | 34 |
+| Done | FR-01–05, 08–13, 15–17, 19–20, 23–24, 26–31, 33–38, 41–43 | 33 |
 | Partial | FR-06, 14, 18, 44 | 4 |
-| Differs (open) | FR-21, 22, 40 | 3 |
+| Differs (open) | FR-21, 22, 39, 40 | 4 |
 | Planned | FR-25 | 1 |
 | Unverified | FR-07, 32 | 2 |
 | Total | | 44 |
@@ -379,6 +379,7 @@ needed. The original wording column keeps what the SRS said before.
 | D-11 | Appendix B had terms from another project | Applied: Appendix B | Quota ("songs"), Standard Audio Controls, UUID ("shared songs") | Copy-paste from a template. Added TOR, e-GP, Procurement, Archive, Run/Gate. |
 | D-12 | Authentication is decided | Applied: §1.3 | "The authentication mechanism is TBD" | FR-03 already fixes username/password and Google OAuth. |
 | D-13 | Joining a company needs a Company Manager's approval | Applied: FR-04 reworded, FR-04a added, §2.2 note, Appendix B (18 November 2026) | "…a mechanism to add themselves to any company…" | The penetration test (finding P-1, issue #200) showed that self-service joining let any registered user read another company's capital, certificates, past contracts and clients. Supersedes ADR-0008 ("membership is claimed, not granted"). |
+| D-14 | LINE is built as a third notification channel | Open: FR-37 records LINE; FR-39 marked Differs; "Alternative notification channels" scope line reworded | "limited to email and in-application channels" | LINE delivery shipped in #129 (styled email and LINE messages). Decide whether to keep it and reword FR-39, or remove it to match the SRS. SMS and other channels remain out of scope. |
 | D-05 | One shared Company Profile, admin-edited, vs. a Company per vendor made of Clients and Experience, edited by officers | Open: FR-21, FR-22, section 1.3 and "Per-user profiles" unchanged | n/a | The code follows ADR-0007 and -0009. It conflicts with the "single shared profile" scope and with the out-of-scope item. If several vendors share one deployment, rewrite FR-21/22 and drop the exclusion. If not, the code has to change. Also decides how FR-23 (matching) is keyed. |
 | D-07 | Admins create, suspend and remove accounts | Open: FR-06 unchanged | n/a | Built: list, activate/deactivate and grant/revoke admin; users self-register. Decide whether admin-created and removable accounts are wanted. |
 | D-08 | Admins manage the Source Registry | Applied: FR-40 now Done | n/a | Built: an admin-managed registry stored in `ingestion_meta` (`source_registry`); absent means the shipped five. |
