@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { Procurement, Tombstone, TombstoneReason } from '@torfun/types';
+import type { Procurement, ReviewAlerts, Tombstone, TombstoneReason } from '@torfun/types';
 import { ConflictError, NotFoundError } from '../core/errors';
 import type { ProcurementStore } from '../repositories/procurement.repository';
 import { OFFICER_VISIBLE_OUTCOME } from './audience';
@@ -16,6 +16,9 @@ import type { StartRunInput } from './ingestion.service';
  * it goes, and in the log where nothing else is kept. None of them reaches the
  * upstream site; that is the Run's business alone.
  */
+/** How many held records the header alert lists. */
+export const REVIEW_ALERTS_SHOWN = 5;
+
 export class ProcurementAdminService {
   constructor(
     private readonly store: ProcurementStore,
@@ -24,6 +27,25 @@ export class ProcurementAdminService {
     private readonly logger: FastifyBaseLogger,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /** How many records wait for a person's decision, and the newest few (FR-14). */
+  async reviewAlerts(): Promise<ReviewAlerts> {
+    const { items, total } = await this.store.find({
+      outcome: 'needs_review',
+      order: 'announced',
+      limit: REVIEW_ALERTS_SHOWN,
+      offset: 0,
+    });
+    return {
+      waiting: total,
+      latest: items.map(({ projectId, projectName, deptName, holdReason }) => ({
+        projectId,
+        projectName,
+        deptName,
+        holdReason,
+      })),
+    };
+  }
 
   private async getOrThrow(projectId: string): Promise<Procurement> {
     const record = await this.store.get(projectId);
