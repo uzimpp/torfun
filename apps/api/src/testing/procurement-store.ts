@@ -137,6 +137,8 @@ export class InMemoryProcurementStore implements ProcurementDataSource, BudgetPe
 
   async budgetPeers(query: {
     excludeProjectId: string;
+    /** The outcome officers may see, from `services/audience.ts`. */
+    outcome: IngestionOutcome;
     techStack: string[];
     targetPlatforms: string[];
     limit: number;
@@ -146,7 +148,7 @@ export class InMemoryProcurementStore implements ProcurementDataSource, BudgetPe
       .filter(
         (record) =>
           record.projectId !== query.excludeProjectId &&
-          record.outcome === 'tor_analysed' &&
+          record.outcome === query.outcome &&
           !record.publicationRemoval &&
           record.projectMoney !== null &&
           record.projectMoney > 0 &&

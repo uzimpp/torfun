@@ -366,6 +366,8 @@ export interface BudgetPeerCandidate {
 export interface BudgetPeerSource {
   budgetPeers(query: {
     excludeProjectId: string;
+    /** The outcome officers may see, from `services/audience.ts`. */
+    outcome: IngestionOutcome;
     techStack: string[];
     targetPlatforms: string[];
     limit: number;
@@ -1048,6 +1050,8 @@ export class ProcurementRepository
 
   async budgetPeers(query: {
     excludeProjectId: string;
+    /** The outcome officers may see, from `services/audience.ts`. */
+    outcome: IngestionOutcome;
     techStack: string[];
     targetPlatforms: string[];
     limit: number;
@@ -1069,7 +1073,7 @@ export class ProcurementRepository
       .find(
         {
           _id: { $ne: query.excludeProjectId },
-          outcome: 'tor_analysed',
+          outcome: query.outcome,
           publication_removed_at: null,
           project_money: { $gt: 0 },
           $or: either,

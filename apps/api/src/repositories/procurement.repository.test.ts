@@ -1230,6 +1230,7 @@ describeMongo('ProcurementRepository', () => {
 
       const peers = await repository.budgetPeers({
         excludeProjectId: 'self',
+        outcome: 'tor_analysed',
         techStack: ['React'],
         targetPlatforms: ['mobile'],
         limit: 10,
@@ -1246,6 +1247,7 @@ describeMongo('ProcurementRepository', () => {
       expect(
         await repository.budgetPeers({
           excludeProjectId: 'self',
+          outcome: 'tor_analysed',
           techStack: [],
           targetPlatforms: [],
           limit: 10,

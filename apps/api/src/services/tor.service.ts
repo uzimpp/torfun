@@ -43,6 +43,7 @@ export class TorService {
     const candidates = this.budgetPeers
       ? await this.budgetPeers.budgetPeers({
           excludeProjectId: tor.projectId,
+          outcome: OFFICER_VISIBLE_OUTCOME,
           techStack: tor.analysis?.techStack ?? [],
           targetPlatforms: tor.analysis?.targetPlatforms ?? [],
           // Scan wider than the peers kept, so ranking has room to choose.
