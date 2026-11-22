@@ -31,6 +31,7 @@ interface NotificationDocument {
 interface ObservationDocument {
   _id: string;
   matched_at: string | null;
+  match_notified_at?: string | null;
   opened_at?: string | null;
   deadline_at?: string | null;
   status: ProcurementStatus;
@@ -159,11 +160,55 @@ export class NotificationRepository implements NotificationStore {
       await session.withTransaction(async () => {
         const observations = db.collection<ObservationDocument>('notification_observations');
         const row = await observations.findOne({ _id: id }, { session });
+        // Legacy eligibility markers could be consumed with every channel off.
+        // Recover alert history from the deterministic IDs once, preserving real
+        // alerts (including read/dismissed and email/LINE-only notifications).
+        const legacyAlerts =
+          row && row.match_notified_at === undefined
+            ? await db
+                .collection<NotificationDocument>('notifications')
+                .find(
+                  {
+                    _id: {
+                      $in: [key(id, 'match_found', 'initial'), key(id, 'new_open', 'initial')],
+                    },
+                  },
+                  { session, projection: { event: 1, created_at: 1, in_app: 1 } },
+                )
+                .toArray()
+            : [];
+        const actualLegacyAlerts: typeof legacyAlerts = [];
+        for (const alert of legacyAlerts) {
+          const recorded =
+            alert.in_app ||
+            (await db
+              .collection<DeliveryDocument>('notification_deliveries')
+              .findOne(
+                { _id: { $in: [key(alert._id, 'email'), key(alert._id, 'line')] } },
+                { session, projection: { _id: 1 } },
+              ));
+          if (recorded) actualLegacyAlerts.push(alert);
+          else
+            // An invisible placeholder with no delivery must not block the same
+            // deterministic alert ID when a usable channel is enabled later.
+            await db
+              .collection<NotificationDocument>('notifications')
+              .deleteOne({ _id: alert._id }, { session });
+        }
+        const legacyMatch = actualLegacyAlerts.find((alert) => alert.event === 'match_found');
+        const legacyOpen = actualLegacyAlerts.find((alert) => alert.event === 'new_open');
         const previous: NotificationObservation | null = row
           ? {
               id: row._id,
               matchedAt: row.matched_at,
-              openedAt: row.opened_at,
+              matchNotifiedAt:
+                row.match_notified_at === undefined
+                  ? (legacyMatch?.created_at ?? null)
+                  : row.match_notified_at,
+              openedAt:
+                row.match_notified_at === undefined
+                  ? (legacyMatch?.created_at ?? legacyOpen?.created_at ?? null)
+                  : row.opened_at,
               deadlineAt: row.deadline_at,
               status: row.status,
               revision: row.revision,
@@ -178,6 +223,7 @@ export class NotificationRepository implements NotificationStore {
           {
             $set: {
               matched_at: observation.matchedAt,
+              match_notified_at: observation.matchNotifiedAt ?? null,
               opened_at: observation.openedAt ?? null,
               deadline_at: observation.deadlineAt ?? null,
               status: observation.status,

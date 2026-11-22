@@ -37,13 +37,19 @@ export function planNotification(
   if (previous && Date.parse(previous.sourceUpdatedAt) > Date.parse(input.sourceUpdatedAt))
     return null;
   const accepted = input.acceptsFilters !== false;
-  const initial = !previous?.matchedAt && input.qualifies && accepted;
-  const newOpenPreferences = input.contact.preferences.newOpen;
-  const opened =
-    !previous?.openedAt &&
-    input.open &&
+  const available = (preferences: NotificationContact['preferences']['matchFound']) =>
+    Boolean(
+      preferences.inApp ||
+      (preferences.email && input.contact.email && input.contact.emailVerifiedAt) ||
+      (preferences.line && input.contact.lineUserId && input.contact.lineFollowing),
+    );
+  const initial =
+    !previous?.matchNotifiedAt &&
+    input.qualifies &&
     accepted &&
-    (newOpenPreferences.inApp || newOpenPreferences.email || newOpenPreferences.line);
+    available(input.contact.preferences.matchFound);
+  const opened =
+    !previous?.openedAt && input.open && accepted && available(input.contact.preferences.newOpen);
   const changed = Boolean(
     previous &&
     (previous.matchedAt || input.followed) &&
@@ -52,33 +58,34 @@ export function planNotification(
       (previous.deadlineAt !== undefined && previous.deadlineAt !== input.deadlineAt)),
   );
   const revision = (previous?.revision ?? 0) + (changed ? 1 : 0);
+  // One alert covers overlapping events. An opening takes priority over a
+  // status change so a disabled status channel cannot consume the opening.
+  const event = initial
+    ? 'match_found'
+    : opened
+      ? 'new_open'
+      : changed && available(input.contact.preferences.statusChanged)
+        ? 'status_changed'
+        : null;
   const id = observationId(input);
   const observation: NotificationObservation = {
     id,
-    matchedAt: previous?.matchedAt ?? (initial ? input.now.toISOString() : null),
-    openedAt: previous?.openedAt ?? (opened || initial ? input.now.toISOString() : null),
+    matchedAt:
+      previous?.matchedAt ?? (input.qualifies && accepted ? input.now.toISOString() : null),
+    matchNotifiedAt: previous?.matchNotifiedAt ?? (initial ? input.now.toISOString() : null),
+    openedAt:
+      previous?.openedAt ??
+      (event === 'match_found' || event === 'new_open' ? input.now.toISOString() : null),
     deadlineAt: input.deadlineAt,
     status: input.status,
     revision,
     sourceUpdatedAt: input.sourceUpdatedAt,
   };
-  if (!initial && !changed && !opened) return { observation, notification: null, deliveries: [] };
-  const matchPreferences = input.contact.preferences.matchFound;
-  const event =
-    initial && (matchPreferences.inApp || matchPreferences.email || matchPreferences.line)
-      ? 'match_found'
-      : changed
-        ? 'status_changed'
-        : opened
-          ? 'new_open'
-          : null;
   if (!event) return { observation, notification: null, deliveries: [] };
   const preferences =
     input.contact.preferences[
       event === 'match_found' ? 'matchFound' : event === 'new_open' ? 'newOpen' : 'statusChanged'
     ];
-  if (event === 'new_open' && !preferences.inApp && !preferences.email && !preferences.line)
-    return { observation, notification: null, deliveries: [] };
   const notification: Notification = {
     id: key(id, event, event === 'status_changed' ? String(revision) : 'initial'),
     userId: input.userId,

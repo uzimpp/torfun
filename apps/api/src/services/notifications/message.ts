@@ -5,7 +5,7 @@ export function notificationMessage(notification: Notification, webUrl: string) 
   const settingsUrl = new URL('/settings', webUrl).href;
   const title =
     notification.event === 'match_found'
-      ? 'พบ TOR ที่ตรงกับผลงานบริษัท'
+      ? 'พบ TOR ที่คุณสมบัติตรงกับบริษัท'
       : notification.event === 'new_open'
         ? 'TOR เปิดรับข้อเสนอใหม่'
         : 'TOR ที่สนใจเปลี่ยนสถานะหรือกำหนดเวลา';
