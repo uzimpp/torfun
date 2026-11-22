@@ -9,7 +9,9 @@
 | [api.md](api.md)                                 | Every HTTP endpoint, who may call it, and how a request travels                                                                                         | Developers, QA          |
 | [data-model.md](data-model.md)                   | What is stored, how it relates, and what the enums mean                                                                                                 | Developers              |
 | [threat-model.md](threat-model.md)               | Which threats were ranked, what mitigates each, and whether the mitigation exists                                                                       | Developers, reviewers   |
-| [security/](security)                            | Evidence for the security work: the penetration test report, the ZAP baseline, and the SAST and dependency scans                                        | Reviewers               |
+| [pentest/REPORT.md](pentest/REPORT.md) | The black-box penetration test of the API, with its attack script and results | Reviewers |
+| [zap-triage.md](zap-triage.md) | The OWASP ZAP baseline results and why each alert is accepted or fixed | Reviewers |
+| [sast-and-dependencies.md](sast-and-dependencies.md) | CodeQL and dependency audit results | Reviewers |
 | [diagrams/](diagrams/README.md)                  | The five diagrams that matter, as PlantUML source with rendered PNG                                                                                     | Everyone                |
 | [`../GLOSSARY.md`](../GLOSSARY.md)               | The domain vocabulary. Read it before naming anything                                                                                                   | Everyone                |
 | [`../AGENTS.md`](../AGENTS.md)                   | Product intent and guardrails for upstream access and AI output                                                                                         | Everyone, coding agents |

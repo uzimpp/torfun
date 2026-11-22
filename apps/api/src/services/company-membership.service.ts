@@ -7,7 +7,7 @@ import type { UserStore } from '../repositories/user.repository';
  * Who belongs to a Company, and who decides that.
  *
  * Replaces ADR-0008's "membership is claimed, not granted". The black-box
- * pentest (docs/security/pentest, finding P-1, issue #200) showed what claiming
+ * pentest (docs/pentest, finding P-1, issue #200) showed what claiming
  * cost: anyone who signed up could find a Company by name, join it in one call
  * and read its registered capital, certificates, past contracts and clients.
  * Now joining is a request, and a Company Manager answers it.

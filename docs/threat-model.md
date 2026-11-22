@@ -1,8 +1,7 @@
 # Threat model
 
-Torfun: software-procurement discovery and TOR matching. This is the design-phase
-artefact for assignment criteria 2 and 16 (issues #180, #181). It ranks threats,
-names the mitigation for each, and records whether the mitigation exists today.
+Torfun: software-procurement discovery and TOR matching. It ranks threats, names the mitigation for each, and records whether the
+mitigation exists today (issues #180, #181).
 
 Status values come from reading the code on `develop`, not from the plan. "Done"
 means the control is in the code; it is not "verified" until the linked test or

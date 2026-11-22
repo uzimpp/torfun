@@ -1,8 +1,8 @@
 # OWASP ZAP baseline: results and triage
 
 Run: GitHub Actions run 43964288258 on PR #198 (2026-11-16), `zap-baseline.py -a` against an ephemeral
-`docker compose` stack (web on :3000, API on :8080). Reports: `zap-web-report.html|md`, `zap-api-report.html|md`.
-Assignment criterion 15; issue #191.
+`docker compose` stack (web on :3000, API on :8080). The full ZAP reports are not kept here. Re-run the
+`security.yml` workflow to regenerate them. Issue #191.
 
 | Target                                                         | FAIL | WARN | IGNORE (pre-triaged) | PASS |
 | -------------------------------------------------------------- | ---- | ---- | -------------------- | ---- |
