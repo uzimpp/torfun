@@ -348,6 +348,30 @@ export interface FindOptions {
   offset: number;
 }
 
+/** What a budget comparison reads of another TOR: no summary, archive or qualifications. */
+export interface BudgetPeerCandidate {
+  projectId: string;
+  projectName: string;
+  deptName: string;
+  projectMoney: number;
+  techStack: string[];
+  targetPlatforms: string[];
+}
+
+/**
+ * Officer-visible TORs with a known budget that share a technology term or a
+ * platform with the given ones (FR-25). Ranking is the caller's; this only
+ * narrows the scan and keeps it light.
+ */
+export interface BudgetPeerSource {
+  budgetPeers(query: {
+    excludeProjectId: string;
+    techStack: string[];
+    targetPlatforms: string[];
+    limit: number;
+  }): Promise<BudgetPeerCandidate[]>;
+}
+
 /** What one sweep did to the store. */
 export interface UpsertSummary {
   created: number;
@@ -463,7 +487,8 @@ export interface IngestionStatsSource {
 }
 
 /** All Procurement reads used above the persistence layer. */
-export interface ProcurementDataSource extends ProcurementStore, AgencyNameSource {
+export interface ProcurementDataSource
+  extends ProcurementStore, AgencyNameSource, BudgetPeerSource {
   ensureIndexes(): Promise<void>;
   summary(): Promise<IngestionSummary>;
   /** The most recently updated procurements, newest first. */
@@ -611,7 +636,7 @@ function throughputOf(ends: StatusChange[], dates: string[]): DailyThroughput[] 
 }
 
 export class ProcurementRepository
-  implements ProcurementStore, AgencyNameSource, IngestionStatsSource
+  implements ProcurementStore, AgencyNameSource, IngestionStatsSource, BudgetPeerSource
 {
   constructor(private readonly getDb: () => Promise<Db>) {}
 
@@ -1019,6 +1044,57 @@ export class ProcurementRepository
       );
     }
     return stale.length;
+  }
+
+  async budgetPeers(query: {
+    excludeProjectId: string;
+    techStack: string[];
+    targetPlatforms: string[];
+    limit: number;
+  }): Promise<BudgetPeerCandidate[]> {
+    const either: Record<string, unknown>[] = [];
+    if (query.techStack.length) {
+      either.push({
+        'analysis.techStack': {
+          $in: query.techStack.map((term) => new RegExp(`^${escapeRegex(term.trim())}$`, 'i')),
+        },
+      });
+    }
+    if (query.targetPlatforms.length) {
+      either.push({ 'analysis.targetPlatforms': { $in: query.targetPlatforms } });
+    }
+    if (!either.length) return [];
+    const collection = await this.records();
+    const documents = await collection
+      .find(
+        {
+          _id: { $ne: query.excludeProjectId },
+          outcome: 'tor_analysed',
+          publication_removed_at: null,
+          project_money: { $gt: 0 },
+          $or: either,
+        },
+        {
+          projection: {
+            project_name: 1,
+            dept_name: 1,
+            project_money: 1,
+            'analysis.techStack': 1,
+            'analysis.targetPlatforms': 1,
+          },
+        },
+      )
+      .sort({ announce_date: -1 })
+      .limit(query.limit)
+      .toArray();
+    return documents.map((document) => ({
+      projectId: String(document._id),
+      projectName: document.project_name,
+      deptName: document.dept_name,
+      projectMoney: document.project_money as number,
+      techStack: document.analysis?.techStack ?? [],
+      targetPlatforms: document.analysis?.targetPlatforms ?? [],
+    }));
   }
 
   async get(projectId: string): Promise<Procurement | undefined> {

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  BudgetComparisonSchema,
   TorListQuerySchema,
   ProcurementListResponseSchema,
   TorDetailSchema,
@@ -62,6 +63,26 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
         request.params.projectId,
         audienceOf(request.user.role),
         request.user.user_id,
+      );
+    },
+  );
+
+  app.get(
+    '/tors/:projectId/budget-comparison',
+    {
+      schema: {
+        params: z.object({ projectId: z.string().min(1) }),
+        response: {
+          200: BudgetComparisonSchema,
+          404: z.object({ message: z.string() }),
+        },
+      },
+    },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'private, no-store');
+      return app.torService.budgetComparison(
+        request.params.projectId,
+        audienceOf(request.user.role),
       );
     },
   );

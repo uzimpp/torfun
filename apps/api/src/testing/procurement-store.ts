@@ -8,6 +8,8 @@ import {
   type Tombstone,
 } from '@torfun/types';
 import {
+  type BudgetPeerCandidate,
+  type BudgetPeerSource,
   holdReasonFor,
   type FeedCursor,
   type FindOptions,
@@ -26,7 +28,7 @@ import { hashSource, hasUpstreamChange } from '../repositories/source-hash';
  * it happened to call. Ordering is left to the real repository's integration
  * tests, which is where a Mongo sort can actually be verified.
  */
-export class InMemoryProcurementStore implements ProcurementDataSource {
+export class InMemoryProcurementStore implements ProcurementDataSource, BudgetPeerSource {
   private readonly records = new Map<string, Procurement>();
   private readonly hashes = new Map<string, string>();
   private readonly failures: IngestionFailure[] = [];
@@ -131,6 +133,37 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
     };
     this.records.set(projectId, updated);
     return updated;
+  }
+
+  async budgetPeers(query: {
+    excludeProjectId: string;
+    techStack: string[];
+    targetPlatforms: string[];
+    limit: number;
+  }): Promise<BudgetPeerCandidate[]> {
+    const tech = new Set(query.techStack.map((term) => term.trim().toLowerCase()));
+    return [...this.records.values()]
+      .filter(
+        (record) =>
+          record.projectId !== query.excludeProjectId &&
+          record.outcome === 'tor_analysed' &&
+          !record.publicationRemoval &&
+          record.projectMoney !== null &&
+          record.projectMoney > 0 &&
+          ((record.analysis?.techStack ?? []).some((term) => tech.has(term.trim().toLowerCase())) ||
+            (record.analysis?.targetPlatforms ?? []).some((p) =>
+              query.targetPlatforms.includes(p),
+            )),
+      )
+      .slice(0, query.limit)
+      .map((record) => ({
+        projectId: record.projectId,
+        projectName: record.projectName,
+        deptName: record.deptName,
+        projectMoney: record.projectMoney as number,
+        techStack: record.analysis?.techStack ?? [],
+        targetPlatforms: record.analysis?.targetPlatforms ?? [],
+      }));
   }
 
   async find(options: FindOptions): Promise<FindResult> {

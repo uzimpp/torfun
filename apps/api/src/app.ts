@@ -285,6 +285,7 @@ export async function buildApp(
     undefined,
     undefined,
     companyQualificationsService,
+    procurementRepository,
   );
   app.decorate('torService', torService);
   app.decorate(

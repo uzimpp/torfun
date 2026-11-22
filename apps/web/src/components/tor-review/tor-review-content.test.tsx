@@ -14,6 +14,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchTor: vi.fn(),
   fetchTorMatch: vi.fn(),
+  fetchBudgetComparison: vi.fn(),
 }));
 
 const api = await import('@/lib/api');
@@ -52,6 +53,18 @@ const officialDeadline = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.fetchTorMatch.mockResolvedValue({ match: null });
+  mocked.fetchBudgetComparison.mockResolvedValue({
+    projectId: '66059313551',
+    budget: 4_500_000,
+    peerCount: 0,
+    min: null,
+    p25: null,
+    median: null,
+    p75: null,
+    max: null,
+    percentile: null,
+    peers: [],
+  });
 });
 
 describe('TorReviewContent', () => {

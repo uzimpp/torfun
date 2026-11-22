@@ -1,4 +1,5 @@
 import type {
+  BudgetComparison,
   ChangePassword,
   ClientKind,
   CompanyQualificationsPayload,
@@ -188,6 +189,10 @@ export function fetchFiscalYears(): Promise<ProcurementYearsResponse> {
 
 export function fetchTor(projectId: string): Promise<TorDetail> {
   return request<TorDetail>(`/api/tors/${encodeURIComponent(projectId)}`);
+}
+
+export function fetchBudgetComparison(projectId: string): Promise<BudgetComparison> {
+  return request<BudgetComparison>(`/api/tors/${encodeURIComponent(projectId)}/budget-comparison`);
 }
 
 export function submitTorReport(

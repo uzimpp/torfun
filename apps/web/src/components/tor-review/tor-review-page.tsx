@@ -9,6 +9,7 @@ import { TorReviewBackButton } from './tor-review-back-button';
 import { MatchEvidence } from '@/components/notifications/match-evidence';
 import { TorDownloadButton } from './tor-download-button';
 import { TorQualificationResults } from './tor-qualification-results';
+import { TorBudgetComparison } from './tor-budget-comparison';
 import { TorFavoriteButton } from './tor-favorite-button';
 import { TorReportButton } from './tor-report-button';
 
@@ -114,6 +115,11 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
       <section aria-labelledby="match-heading" className="mt-10">
         <SectionHeading id="match-heading" title="คุณสมบัติผู้เสนอราคาเทียบกับบริษัท" />
         <TorQualificationResults qualifications={tor.qualifications} result={tor.matchResult} />
+      </section>
+
+      <section aria-labelledby="budget-heading" className="mt-10">
+        <SectionHeading id="budget-heading" title="งบประมาณเทียบกับโครงการที่คล้ายกัน" />
+        <TorBudgetComparison projectId={tor.projectId} />
       </section>
 
       {!tor.publicationRemoval && (

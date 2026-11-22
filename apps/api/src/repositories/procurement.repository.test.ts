@@ -1180,6 +1180,80 @@ describeMongo('ProcurementRepository', () => {
     });
   });
 
+  describe('budgetPeers', () => {
+    test('returns light, officer-visible peers sharing a term or platform, never the TOR itself', async () => {
+      const analysed = { state: 'Completed', outcome: 'tor_analysed' } as const;
+      await repository.upsert(
+        procurement({
+          ...analysed,
+          projectId: 'self',
+          analysis: analysis({ techStack: ['react'] }),
+        }),
+      );
+      await repository.upsert(
+        procurement({
+          ...analysed,
+          projectId: 'tech',
+          analysis: analysis({ techStack: ['REACT'] }),
+        }),
+      );
+      await repository.upsert(
+        procurement({
+          ...analysed,
+          projectId: 'platform',
+          analysis: analysis({ techStack: ['PHP'], targetPlatforms: ['mobile'] }),
+        }),
+      );
+      await repository.upsert(
+        procurement({
+          ...analysed,
+          projectId: 'unrelated',
+          analysis: analysis({ techStack: ['COBOL'], targetPlatforms: ['windows'] }),
+        }),
+      );
+      await repository.upsert(
+        procurement({
+          ...analysed,
+          projectId: 'no-budget',
+          projectMoney: null,
+          analysis: analysis({ techStack: ['React'] }),
+        }),
+      );
+      await repository.upsert(
+        procurement({
+          projectId: 'held',
+          state: 'Completed',
+          outcome: 'needs_review',
+          analysis: analysis({ techStack: ['React'] }),
+        }),
+      );
+
+      const peers = await repository.budgetPeers({
+        excludeProjectId: 'self',
+        techStack: ['React'],
+        targetPlatforms: ['mobile'],
+        limit: 10,
+      });
+      expect(peers.map((peer) => peer.projectId).sort()).toEqual(['platform', 'tech']);
+      expect(peers.find((peer) => peer.projectId === 'tech')).toEqual({
+        projectId: 'tech',
+        projectName: 'จ้างพัฒนาระบบสารสนเทศ',
+        deptName: 'กรุงเทพมหานคร',
+        projectMoney: 1_000_000,
+        techStack: ['REACT'],
+        targetPlatforms: ['web_app'],
+      });
+      expect(
+        await repository.budgetPeers({
+          excludeProjectId: 'self',
+          techStack: [],
+          targetPlatforms: [],
+          limit: 10,
+        }),
+      ).toEqual([]);
+    });
+  });
+
   describe('amend', () => {
     const at = '2026-09-01T00:00:00.000Z';
 

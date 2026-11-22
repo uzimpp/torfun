@@ -361,6 +361,57 @@ describe('TOR detail routes', () => {
     expect(response.statusCode).toBe(200);
   });
 
+  test('compares a TOR budget with similar analysed TORs, never hidden ones', async () => {
+    const analysed = (techStack: string[]) =>
+      ({
+        summary: '',
+        scopeOfWork: [],
+        budgetThb: null,
+        deadlineAt: null,
+        durationDays: null,
+        techStack,
+        targetPlatforms: ['web_app'],
+        requiredQualifications: [],
+      }) as TorAnalysis;
+    await procurements.upsert(
+      procurement({ projectId: 'target', projectMoney: 3_000_000, analysis: analysed(['React']) }),
+    );
+    await procurements.upsert(
+      procurement({ projectId: 'peer', projectMoney: 2_000_000, analysis: analysed(['react']) }),
+    );
+    await procurements.upsert(
+      procurement({
+        projectId: 'held',
+        outcome: 'needs_review',
+        projectMoney: 9_000_000,
+        analysis: analysed(['React']),
+      }),
+    );
+
+    const response = await app.inject({
+      url: '/api/tors/target/budget-comparison',
+      cookies: session(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    expect(response.json()).toMatchObject({
+      projectId: 'target',
+      budget: 3_000_000,
+      peerCount: 1,
+      median: 2_000_000,
+      percentile: 100,
+      peers: [{ projectId: 'peer', budget: 2_000_000, shared: ['react', 'web_app'] }],
+    });
+
+    const hidden = await app.inject({
+      url: '/api/tors/held/budget-comparison',
+      cookies: session(),
+    });
+    expect(hidden.statusCode).toBe(404);
+    const anonymous = await app.inject({ url: '/api/tors/target/budget-comparison' });
+    expect(anonymous.statusCode).toBe(401);
+  });
+
   test('returns 404 for an unknown project', async () => {
     const response = await app.inject({
       method: 'GET',

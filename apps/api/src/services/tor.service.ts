@@ -1,5 +1,6 @@
 import {
   thailandDay,
+  type BudgetComparison,
   type Procurement,
   type TorAnalysis,
   type TorDetail,
@@ -10,7 +11,12 @@ import type { CompanyQualificationsService } from './company-qualifications.serv
 import { computeQualificationMatch, evaluateQualifications } from './qualification-match';
 import { resolveProcurementListOptions } from './procurement-list-options';
 import { NotFoundError } from '../core/errors';
-import type { FindOptions, ProcurementStore } from '../repositories/procurement.repository';
+import type {
+  BudgetPeerSource,
+  FindOptions,
+  ProcurementStore,
+} from '../repositories/procurement.repository';
+import { compareBudget, PEER_LIMIT } from './budget-comparison';
 import { downloadArchive, extractTorPdfs } from './egp/tor-package';
 import { isVisibleTo, OFFICER_VISIBLE_OUTCOME, presentTo, type Audience } from './audience';
 
@@ -25,7 +31,26 @@ export class TorService {
     private readonly download: (zipId: string) => Promise<Uint8Array> = downloadArchive,
     private readonly now: () => Date = () => new Date(),
     private readonly qualifications?: CompanyQualificationsService,
+    private readonly budgetPeers?: BudgetPeerSource,
   ) {}
+
+  /**
+   * The TOR's announced budget beside similar TORs already analysed (FR-25).
+   * Visibility is checked first, so a hidden TOR is a 404 here as everywhere.
+   */
+  async budgetComparison(projectId: string, audience: Audience): Promise<BudgetComparison> {
+    const tor = await this.get(projectId, audience);
+    const candidates = this.budgetPeers
+      ? await this.budgetPeers.budgetPeers({
+          excludeProjectId: tor.projectId,
+          techStack: tor.analysis?.techStack ?? [],
+          targetPlatforms: tor.analysis?.targetPlatforms ?? [],
+          // Scan wider than the peers kept, so ranking has room to choose.
+          limit: PEER_LIMIT * 25,
+        })
+      : [];
+    return compareBudget(tor, candidates);
+  }
 
   /**
    * An officer's query is narrowed to analysed TORs here, after whatever they
