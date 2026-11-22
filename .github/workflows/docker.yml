@@ -1,9 +1,15 @@
 name: Docker Build, Push & Deploy
 
 on:
+  # `main` is the integration branch and only runs CI and the security checks.
+  # Releases go out from the `deploy` branch: promote with a fast-forward push
+  # (`git push origin main:deploy`), never a force push. `workflow_dispatch`
+  # re-runs a deploy after fixing a variable or an IAM grant, with no new commit;
+  # it deploys only when run on `deploy` (see the `if:` on the deploy jobs).
   push:
-    branches: [main]
+    branches: [deploy]
     tags: ['v*']
+  workflow_dispatch:
 
 # Required repo Variables (Settings > Secrets and variables > Actions > Variables):
 #   GCP_PROJECT_ID                 e.g. torfun-prod
@@ -58,7 +64,7 @@ jobs:
           images: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REGISTRY_REPO }}/${{ matrix.app }}
           tags: |
             type=sha,format=long,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/deploy' }}
 
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -93,7 +99,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
   deploy-api:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/deploy'
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
@@ -122,7 +128,7 @@ jobs:
             EGP_API_KEY=EGP_API_KEY:latest
 
   deploy-web:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/deploy'
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
