@@ -208,7 +208,7 @@ removes them; there is no self-service deletion yet.
   to commit SHAs.
 - Remediation time frames: a critical advisory fails the pull request and is fixed before merge; a new high advisory
   fails the pull request; the weekly audit covers everything else. An accepted advisory (currently the high `zod`
-  one, no fixed 3.x release) is recorded with its reason in `docs/security/evidence/sast-and-dependencies.md`.
+  one, no fixed 3.x release) is recorded with its reason in `docs/sast-and-dependencies.md`.
 - No SBOM file is generated yet.
 
 ### Logging inventory (V16.1.1, V16.2.1)
