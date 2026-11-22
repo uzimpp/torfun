@@ -94,10 +94,10 @@ const notReachable = (error: unknown) =>
 /**
  * Renews the session, at most once at a time.
  *
- * The access cookie lives fifteen minutes and only page navigation used to
- * renew it (`proxy.ts`), so a console left polling went dark at the fifteen-
- * minute mark. Refresh tokens rotate, so two refreshes racing would present the
- * same token twice and end the session; concurrent callers share one promise.
+ * The access cookie lives fifteen minutes, and page navigation renews it
+ * (`proxy.ts`), so a console left polling needs this call to stay signed in.
+ * Refresh tokens rotate, so two refreshes racing would present the same token
+ * twice and end the session. Concurrent callers share one promise.
  */
 function refreshSession(): Promise<void> {
   refreshInFlight ??= (async () => {

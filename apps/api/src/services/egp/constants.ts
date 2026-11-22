@@ -13,7 +13,6 @@
  */
 export const OPEN_DATA_BASE = 'https://opend.data.go.th/govspending/service';
 export const DEPT_URL = `${OPEN_DATA_BASE}/egp-dept`;
-export const CONTRACT_URL = `${OPEN_DATA_BASE}/egp-contract`;
 
 /**
  * e-GP procurement app, used purely as a keyed lookup by project id.
@@ -78,9 +77,6 @@ export const FEED_E_BIDDING_METHOD_ID = '16';
  */
 export const FEED_ANNOUNCEMENT_TYPES = ['B0', 'D0'] as const;
 export type FeedAnnouncementType = (typeof FEED_ANNOUNCEMENT_TYPES)[number];
-
-/** The most items the feed returns for one call; `countbyday` says how many there really were. */
-export const FEED_ITEM_CAP = 20;
 
 /**
  * How far back, ending today, Discovery accumulates: a year, so the queue holds

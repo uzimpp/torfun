@@ -58,8 +58,8 @@ export function SearchExperience({
 
   // Filter forms and clear links navigate through Next.js. The client boundary
   // can survive that navigation, so sync its state when the server sends a new
-  // URL rather than keying/remounting the search field (which previously left
-  // a duplicate search box in the document).
+  // URL. Keying or remounting the search field would leave a duplicate search
+  // box in the document.
   if (initialKey !== serverKey) {
     setServerKey(initialKey);
     setBaseFilters(initialFilters);

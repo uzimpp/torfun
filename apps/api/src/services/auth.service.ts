@@ -33,10 +33,10 @@ export interface TokenPayload {
 export type SignToken = (payload: TokenPayload) => Promise<string> | string;
 
 /**
- * Registration no longer asks for a company. The question is asked once, on
- * the company page, where there is room to explain that the record is shared
- * with colleagues — and the Company owns its own name (ADR-0007), so an
- * account has nowhere to keep a second copy of it.
+ * Registration does not ask for a company. That question belongs on the company
+ * page, where there is room to explain that the record is shared with
+ * colleagues. The Company owns its own name (ADR-0007), so an account has
+ * nowhere to keep a second copy of it.
  */
 export interface RegisterInput {
   username: string;

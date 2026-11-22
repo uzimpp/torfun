@@ -1,10 +1,9 @@
 /**
  * The original TOR PDF as a file in the user's hands.
  *
- * Three screens offer the download, and each used to build its own object URL,
- * anchor and click, trusting whatever `Content-Type` the API happened to send.
- * The bytes come from an agency archive and are untrusted, so the type is
- * decided here, once, from the content itself (ASVS V3.2.1: never let the
+ * Three screens offer the download. The bytes come from an agency archive and
+ * are untrusted, so this module decides the type once, from the content itself,
+ * instead of trusting the `Content-Type` the API sends (ASVS V3.2.1: never let the
  * browser interpret a response in a context it was not meant for).
  */
 

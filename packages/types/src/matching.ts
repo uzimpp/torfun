@@ -2,10 +2,8 @@ import { z } from 'zod';
 import { QualificationCheckSchema } from './qualification';
 
 /**
- * The vendor side of a score now lives in `company.ts` as `Company` and its
- * `Experience` records. The flat `CompanyProfile` placeholder that used to sit
- * here was never imported and described the same thing differently — see
- * ADR-0009.
+ * The vendor side of a score lives in `company.ts` as `Company` and its
+ * `Experience` records (ADR-0009).
  *
  * Scores belong to a company, never to a procurement alone (ADR-0007).
  * The qualification score (`qualification-match.ts`) is the share of clauses

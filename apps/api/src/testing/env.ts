@@ -4,14 +4,12 @@ import { EnvSchema, type Env } from '../config/env';
 /**
  * A valid `Env` for tests, built without touching `process.env`.
  *
- * Tests pass the result to `buildApp(env)`, so a run no longer depends on what
- * happens to be exported in the shell, in CI, or in a developer's local `.env`.
- * That used to matter: CI never set `EGP_API_KEY`, so the suite only passed
- * because a preloaded module patched `process.env` before validation ran.
+ * Tests pass the result to `buildApp(env)`, so a run does not depend on what is
+ * exported in the shell, in CI, or in a developer's local `.env`.
  *
  * Overrides are raw strings, the same shape the real environment supplies, and
- * go through `EnvSchema` — so defaults and coercions behave exactly as they do
- * in production, and a test cannot construct an `Env` the schema would reject.
+ * go through `EnvSchema`. Defaults and coercions behave as they do in
+ * production, and a test cannot construct an `Env` the schema would reject.
  */
 const BASE_ENV = {
   MONGODB_URI: 'mongodb://localhost:27017/torfun-test',
