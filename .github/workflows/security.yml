@@ -57,6 +57,13 @@ jobs:
   secret-scan:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    # gitleaks-action lists the PR's commits through the API. On a private
+    # repository that needs pull-requests read, which the workflow-level
+    # `contents: read` does not grant, so the job died with a 403 before it
+    # scanned anything. Granted to this job only.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
