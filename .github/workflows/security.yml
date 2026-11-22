@@ -67,6 +67,11 @@ jobs:
   # `security-events: write`.
   sast:
     runs-on: ubuntu-latest
+    # CodeQL reads the workflow run's metadata, which a private repository only
+    # allows with `actions: read`.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: github/codeql-action/init@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
