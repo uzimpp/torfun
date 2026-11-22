@@ -221,7 +221,10 @@ export interface NotificationDelivery {
 
 export interface NotificationObservation {
   id: string;
+  /** Eligibility history, including matches observed while match alerts were disabled. */
   matchedAt: string | null;
+  /** First persisted match alert; legacy observations are reconciled from stored alerts. */
+  matchNotifiedAt?: string | null;
   openedAt?: string | null;
   deadlineAt?: string | null;
   status: z.infer<typeof ProcurementStatus>;

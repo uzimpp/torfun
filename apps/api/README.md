@@ -160,7 +160,8 @@ preferences; `/notifications` remains the inbox. Admins inspect delivery failure
   a baseline, not an invented historical change.
 - `new_open` is a separate opt-in for published, open software e-bidding TORs. It
   works without a company or experience record. When a first match is also due,
-  one match alert takes precedence over a duplicate new-open alert.
+  one match alert takes precedence over a duplicate new-open alert. Otherwise a
+  first opening takes precedence over an overlapping status-change alert.
 - Every event supports independent in-app/email/LINE choices and saved filters:
   exact agency names, inclusive budget bounds, work platform(s) from TOR analysis,
   and a minimum qualification score. Missing evidence fails an enabled filter.
@@ -171,6 +172,17 @@ notifications default off; enable them explicitly in settings. Existing preferen
 records read with compatible defaults; `docs/migrations/notification-policy.js`
 provides an optional idempotent metadata migration. Old technology-based alerts
 retain their scoring-version label rather than being relabeled as qualifications.
+
+Turning match alerts on picks up currently eligible TORs during the existing
+reconciliation scan, even if they qualified while match alerts were off. Eligibility
+history still tracks status changes independently of the first-match preference.
+Unavailable destinations do not consume first-match or new-open alerts. Previously
+created alerts are not resent when adding a channel or re-enabling a preference.
+Legacy observations are repaired lazily from actual stored alerts, including
+external-only and dismissed alerts, so duplicates stay suppressed. The optional
+idempotent `docs/migrations/notification-alert-state.js` performs the same metadata
+repair in advance. Only invisible placeholders without delivery jobs are removed;
+neither path changes procurement evidence or contacts e-GP.
 
 Existing TORs without structured qualifications remain unscored. Their summaries
 and source PDFs remain available. There is no synthetic backfill or extra upstream

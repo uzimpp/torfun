@@ -736,6 +736,165 @@ describe('notifications over HTTP and Mongo', () => {
     expect((await inbox(other)).total).toBe(2);
   }, 30000);
 
+  test('a favorited TOR opening reaches enabled new-open channels when status alerts are off', async () => {
+    const prefs = defaultNotificationPreferences();
+    prefs.status_changed = { in_app: false, email: false, line: false };
+    prefs.new_open = { in_app: true, email: true, line: true };
+    await verifiedEmail();
+    await linkedLine();
+    expect((await request(officer, 'PUT', '/api/notifications/settings', prefs)).statusCode).toBe(
+      200,
+    );
+    sent.length = 0;
+    const tor = notificationTor();
+    tor.analysis!.qualifications = undefined;
+    tor.timeline.status = 'drafting';
+    await new FavoriteRepository(async () => db).add({
+      userId: officer.id,
+      projectId: tor.projectId,
+    });
+    await source.upsert(tor);
+    await app.notificationWorkerService.run();
+    expect((await inbox()).total).toBe(0);
+    await source.amend(tor.projectId, { timeline: { ...tor.timeline, status: 'open' } }, true);
+    await app.notificationWorkerService.run();
+    for (let i = 0; i < 3; i++) await app.notificationWorkerService.run();
+    expect((await inbox()).items).toEqual([
+      expect.objectContaining({ event: 'new_open', status: 'open', score: null }),
+    ]);
+    expect(sent).toHaveLength(1);
+    expect(pushes).toHaveLength(1);
+  }, 30000);
+
+  test('enabling match alerts catches eligible TORs once after an all-off observation', async () => {
+    const prefs = defaultNotificationPreferences();
+    prefs.match_found.in_app = false;
+    expect((await request(officer, 'PUT', '/api/notifications/settings', prefs)).statusCode).toBe(
+      200,
+    );
+    await source.upsert(notificationTor());
+    await app.notificationWorkerService.run();
+    expect((await inbox()).total).toBe(0);
+    prefs.match_found.in_app = true;
+    expect((await request(officer, 'PUT', '/api/notifications/settings', prefs)).statusCode).toBe(
+      200,
+    );
+    for (let i = 0; i < 4; i++) await app.notificationWorkerService.run();
+    expect((await inbox()).items).toEqual([expect.objectContaining({ event: 'match_found' })]);
+    prefs.match_found.in_app = false;
+    await request(officer, 'PUT', '/api/notifications/settings', prefs);
+    prefs.match_found.in_app = true;
+    await request(officer, 'PUT', '/api/notifications/settings', prefs);
+    for (let i = 0; i < 3; i++) await app.notificationWorkerService.run();
+    expect((await inbox()).total).toBe(1);
+  }, 30000);
+
+  test('legacy consumed match markers recover while real dismissed and external-only alerts stay deduplicated', async () => {
+    const prefs = defaultNotificationPreferences();
+    prefs.match_found.in_app = false;
+    await request(officer, 'PUT', '/api/notifications/settings', prefs);
+    const tor = notificationTor();
+    await source.upsert(tor);
+    await app.notificationWorkerService.run();
+    const observation = observationId({
+      userId: officer.id,
+      companyId: officer.companyId!,
+      projectId: tor.projectId,
+    });
+    // The old worker marked a match/opening consumed even though it created no alert.
+    await db
+      .collection<{ _id: string; [key: string]: unknown }>('notification_observations')
+      .updateOne(
+        { _id: observation },
+        { $unset: { match_notified_at: '' }, $set: { opened_at: tor.updatedAt } },
+      );
+    prefs.match_found.in_app = true;
+    await request(officer, 'PUT', '/api/notifications/settings', prefs);
+    for (let i = 0; i < 3; i++) await app.notificationWorkerService.run();
+    const result = await inbox();
+    expect(result.total).toBe(1);
+    await request(officer, 'PATCH', `/api/notifications/${result.items[0].id}`, {
+      action: 'dismiss',
+    });
+    await db
+      .collection<{ _id: string; [key: string]: unknown }>('notification_observations')
+      .updateOne({ _id: observation }, { $unset: { match_notified_at: '' } });
+    for (let i = 0; i < 3; i++) await app.notificationWorkerService.run();
+    expect((await inbox()).total).toBe(0);
+    expect(await db.collection('notifications').countDocuments({ user_id: officer.id })).toBe(1);
+    await verifiedEmail();
+    await request(officer, 'PUT', '/api/notifications/settings', preferences('email', false));
+    sent.length = 0;
+    await source.upsert(notificationTor({ projectId: 'legacy-email-only' }));
+    await app.notificationWorkerService.run();
+    expect(sent).toHaveLength(1);
+    await db
+      .collection<{ _id: string; [key: string]: unknown }>('notification_observations')
+      .updateMany({}, { $unset: { match_notified_at: '' } });
+    for (let i = 0; i < 3; i++) await app.notificationWorkerService.run();
+    expect(sent).toHaveLength(1);
+  }, 30000);
+
+  test('legacy opening markers without an actual alert recover exactly once', async () => {
+    const prefs = defaultNotificationPreferences();
+    prefs.new_open.in_app = true;
+    prefs.status_changed.in_app = false;
+    await request(other, 'PUT', '/api/notifications/settings', prefs);
+    const tor = notificationTor();
+    tor.analysis!.qualifications = undefined;
+    await source.upsert(tor);
+    // Reproduce metadata left by the old disabled status event swallowing an opening.
+    const id = observationId({
+      userId: other.id,
+      companyId: other.companyId!,
+      projectId: tor.projectId,
+    });
+    await db
+      .collection<{ _id: string; [key: string]: unknown }>('notification_observations')
+      .insertOne({
+        _id: id,
+        matched_at: null,
+        opened_at: tor.updatedAt,
+        status: 'open',
+        deadline_at: tor.analysis!.deadlineAt,
+        revision: 1,
+        source_updated_at: tor.updatedAt,
+      });
+    for (let i = 0; i < 4; i++) await app.notificationWorkerService.run();
+    expect((await inbox(other)).items).toEqual([expect.objectContaining({ event: 'new_open' })]);
+    await db
+      .collection<{ _id: string; [key: string]: unknown }>('notification_observations')
+      .updateOne({ _id: id }, { $unset: { match_notified_at: '' } });
+    for (let i = 0; i < 3; i++) await app.notificationWorkerService.run();
+    expect((await inbox(other)).total).toBe(1);
+  }, 30000);
+
+  test('invisible legacy placeholders without delivery jobs do not block recovered alerts', async () => {
+    const tor = notificationTor();
+    await source.upsert(tor);
+    await app.notificationWorkerService.run();
+    const initial = (await inbox()).items[0];
+    await db
+      .collection<{ _id: string }>('notifications')
+      .updateOne({ _id: initial.id }, { $set: { in_app: false } });
+    await db.collection<{ _id: string }>('notification_observations').updateOne(
+      {
+        _id: observationId({
+          userId: officer.id,
+          companyId: officer.companyId!,
+          projectId: tor.projectId,
+        }),
+      },
+      { $unset: { match_notified_at: '' } },
+    );
+    expect((await inbox()).total).toBe(0);
+    for (let i = 0; i < 4; i++) await app.notificationWorkerService.run();
+    expect((await inbox()).items).toEqual([
+      expect.objectContaining({ id: initial.id, event: 'match_found', read_at: null }),
+    ]);
+    expect(await db.collection('notifications').countDocuments({ user_id: officer.id })).toBe(1);
+  }, 30000);
+
   test('a known failed clause blocks a high-score match and changed filters suppress queued mail', async () => {
     const tor = notificationTor();
     const companies = new CompanyRepository(async () => db);

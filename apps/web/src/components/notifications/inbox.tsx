@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { MATCH_NOTIFICATION_THRESHOLD } from '@torfun/types';
 import { Bell, CheckCheck, Inbox as InboxIcon, RefreshCw } from 'lucide-react';
 import { readAllNotifications, updateNotification, verifyNotificationEmail } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -50,7 +51,8 @@ export function Inbox({ verificationToken }: { verificationToken?: string }) {
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">การแจ้งเตือน</h1>
           <p className="text-muted-foreground mt-3 max-w-2xl text-sm leading-relaxed">
-            TOR ที่ตรงกับผลงาน และความเคลื่อนไหวของโครงการที่เคยตรงกัน รวมไว้ในที่เดียว
+            TOR ที่คุณสมบัติตรงกับบริษัท และความเคลื่อนไหวของโครงการที่เคยตรงกันหรือบันทึกไว้
+            รวมไว้ในที่เดียว
           </p>
         </div>
         <Button variant="outline" onClick={reload} disabled={busy}>
@@ -145,7 +147,7 @@ export function Inbox({ verificationToken }: { verificationToken?: string }) {
               <p className="text-muted-foreground mx-auto mt-2 max-w-sm text-sm leading-relaxed">
                 {filter === 'unread'
                   ? 'กลับมาดูโอกาสใหม่ได้ภายหลัง'
-                  : 'เมื่อพบ TOR ที่เทคโนโลยีและแพลตฟอร์มตรงกับผลงานตั้งแต่ 70% ระบบจะแจ้งให้คุณทราบ'}
+                  : `ระบบแจ้งเมื่อคะแนนคุณสมบัติตรงกับบริษัทตั้งแต่ ${Math.round((settings?.match_threshold ?? MATCH_NOTIFICATION_THRESHOLD) * 100)}% และไม่มีเงื่อนไขที่ตรวจแล้วไม่ผ่าน ตามช่องทางที่เปิดไว้ หรือเปิดรับแจ้ง TOR ใหม่ได้ในการตั้งค่า`}
               </p>
               {filter === 'all' && (
                 <Link

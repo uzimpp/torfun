@@ -101,6 +101,8 @@ describe('notification inbox', () => {
     vi.mocked(api.fetchNotifications).mockResolvedValue({ items: [], total: 0, unread_count: 0 });
     render(<Inbox />);
     expect(await screen.findByText('ยังไม่มีการแจ้งเตือน')).toBeInTheDocument();
+    expect(screen.getByText(/คะแนนคุณสมบัติตรงกับบริษัทตั้งแต่ 70%/)).toBeInTheDocument();
+    expect(screen.queryByText(/เทคโนโลยีและแพลตฟอร์มตรงกับผลงาน/)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'ตรวจสอบข้อมูลบริษัทและผลงาน' })).toHaveAttribute(
       'href',
       '/company',
