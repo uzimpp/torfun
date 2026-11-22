@@ -46,6 +46,11 @@ jobs:
 
   secret-scan:
     runs-on: ubuntu-latest
+    # gitleaks lists the pull request's commits. A private repository needs the
+    # explicit read grant; a public one does not.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -56,17 +61,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Code scanning is not available on a private repository without GitHub Code
+  # Security, so the SARIF results are kept as a workflow artifact instead of
+  # being uploaded. To use the Security tab again, restore `upload` and
+  # `security-events: write`.
   sast:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: github/codeql-action/init@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
         with:
           languages: javascript-typescript
       - uses: github/codeql-action/analyze@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
+        with:
+          upload: never
+          upload-database: false
+          output: codeql-results
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: codeql-sarif
+          path: codeql-results
 
   container-scan:
     if: >-
@@ -74,9 +89,6 @@ jobs:
       github.event.pull_request.base.ref == 'main' ||
       contains(github.event.pull_request.labels.*.name, 'dast')
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
     strategy:
       matrix:
         app: [web, api]
@@ -94,11 +106,11 @@ jobs:
           ignore-unfixed: true
           format: sarif
           output: trivy-${{ matrix.app }}.sarif
-      - uses: github/codeql-action/upload-sarif@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          sarif_file: trivy-${{ matrix.app }}.sarif
-          category: trivy-${{ matrix.app }}
+          name: trivy-${{ matrix.app }}-sarif
+          path: trivy-${{ matrix.app }}.sarif
 
   dast-zap-baseline:
     # Runs after the image scan but not only when it passes: a Trivy finding
