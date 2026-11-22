@@ -8,7 +8,8 @@ import { QualificationCheckSchema } from './qualification';
  * ADR-0009.
  *
  * Scores belong to a company, never to a procurement alone (ADR-0007).
- * This first scorer compares documented technology and platform overlap.
+ * The qualification score (`qualification-match.ts`) is the share of clauses
+ * met, and 0 when any clause is not met: every bidder qualification is mandatory.
  * Legal qualifications, industry and delivery capacity remain unverified.
  */
 export const MatchScoreBreakdownSchema = z.object({

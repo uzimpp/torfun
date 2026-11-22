@@ -175,7 +175,7 @@ describe('TOR detail routes', () => {
         projectId: 'other-qualified',
         analysis: {
           ...analysis,
-          qualifications: analysis.qualifications?.filter((clause) => clause.source !== 'หน้า 13'),
+          qualifications: analysis.qualifications?.filter((clause) => clause.source !== 'หน้า 12'),
         },
       }),
     );
@@ -186,7 +186,7 @@ describe('TOR detail routes', () => {
     expect(detail.json().analysis.qualifications[0].source).toBe('ข้อ 4.2');
     expect(detail.json().matchResult).toMatchObject({
       companyId: company.id,
-      overallScore: 1 / 4,
+      overallScore: 0,
       checks: [
         { status: 'met', evidence: [expect.stringContaining('Security')] },
         {
@@ -209,7 +209,7 @@ describe('TOR detail routes', () => {
     expect(list.json()).toMatchObject({
       items: [
         { projectId: 'other-qualified', matchScore: 1 / 3 },
-        { projectId: 'qualified', matchScore: 1 / 4 },
+        { projectId: 'qualified', matchScore: 0 },
         { projectId: 'project-1', matchScore: null },
       ],
       total: 3,
