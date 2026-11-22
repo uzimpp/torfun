@@ -754,7 +754,8 @@ describe('notifications over HTTP and Mongo', () => {
     await source.upsert(tor);
     await app.notificationWorkerService.run();
     const match = (await request(officer, 'GET', `/api/matching/${tor.projectId}`)).json().match;
-    expect(match.overall_score).toBe(0.75);
+    // Three of four clauses pass, but the failed one disqualifies the bid.
+    expect(match.overall_score).toBe(0);
     expect(match.reasons).toContain('ไม่ตรงเงื่อนไข: ทุน 150');
     expect((await inbox()).total).toBe(0);
     await verifiedEmail();
