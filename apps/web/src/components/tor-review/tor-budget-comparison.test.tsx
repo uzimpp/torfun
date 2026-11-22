@@ -50,7 +50,7 @@ const comparison = (groups: BudgetComparison['groups'], budget: number | null = 
 beforeEach(() => vi.clearAllMocks());
 
 describe('TorBudgetComparison', () => {
-  test('says the figure is a planned budget, never a winning or contract price', async () => {
+  test('names the figure a planned budget, and nowhere a winning or contract price', async () => {
     mocked.fetchTorBudgetComparison.mockResolvedValue(
       comparison([
         group('category', 1_000_000, [900_000, 950_000, 1_100_000, 1_200_000, 1_300_000]),
@@ -60,19 +60,12 @@ describe('TorBudgetComparison', () => {
     );
     render(<TorBudgetComparison projectId="tor" />);
 
-    expect(
-      await screen.findByText(
-        /งบประมาณคือวงเงินที่หน่วยงานตั้งไว้ก่อนจัดซื้อจัดจ้าง ไม่ใช่ราคาที่ชนะหรือราคาตามสัญญา/,
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText('งบประมาณที่ตั้งไว้ของ TOR นี้:')).toBeInTheDocument();
+    expect(await screen.findByText('งบประมาณที่ตั้งไว้ของ TOR นี้:')).toBeInTheDocument();
     expect(screen.getAllByText('งบประมาณที่ตั้งไว้').length).toBeGreaterThan(0);
     expect(mocked.fetchTorBudgetComparison).toHaveBeenCalledWith('tor');
     const text = document.body.textContent ?? '';
-    // The only mention of a winning or contract price is the sentence saying it is not one.
-    expect(text.replace(/ไม่ใช่ราคาที่ชนะหรือราคาตามสัญญา/g, '')).not.toMatch(
-      /ราคาที่ชนะ|ราคาตามสัญญา|ราคาตลาด|ควรเสนอ/,
-    );
+    // The figure is only ever called a planned budget: no winning, contract or market price.
+    expect(text).not.toMatch(/ราคาที่ชนะ|ราคาตามสัญญา|ราคาตลาด|ควรเสนอ/);
   });
 
   test('shows min, median, max and where the TOR sits once there are five comparables', async () => {
@@ -97,8 +90,8 @@ describe('TorBudgetComparison', () => {
     );
     render(<TorBudgetComparison projectId="tor" />);
 
-    expect(await screen.findByText(/ข้อมูลไม่พอสำหรับสรุป/)).toBeInTheDocument();
-    expect(screen.getByText(/ต้องมีอย่างน้อย 5 โครงการ/)).toBeInTheDocument();
+    expect(await screen.findByText(/ในโครงการที่ TORfun เก็บไว้ พบ/)).toBeInTheDocument();
+    expect(screen.queryByText(/ข้อมูลไม่พอ/)).not.toBeInTheDocument();
     expect(screen.queryByText('งบประมาณที่ตั้งไว้ต่ำสุด')).not.toBeInTheDocument();
     expect(screen.queryByText('มัธยฐาน')).not.toBeInTheDocument();
     expect(screen.queryByText(/อันดับ/)).not.toBeInTheDocument();
@@ -178,7 +171,7 @@ describe('TorBudgetComparison', () => {
       screen.getByText(
         (_, element) =>
           element?.tagName === 'P' &&
-          /พบโครงการที่เทียบได้ 0 โครงการ/.test(element.textContent ?? ''),
+          /ในโครงการที่ TORfun เก็บไว้ พบ 0 โครงการ/.test(element.textContent ?? ''),
       ),
     ).toBeInTheDocument();
   });
@@ -225,5 +218,96 @@ describe('TorBudgetComparison', () => {
     rerender(<TorBudgetComparison projectId="second" />);
     expect(screen.queryByText('หมวดแรก')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+});
+
+describe('TorBudgetComparison: a short list', () => {
+  const names = (long: string) => ({
+    ...candidate(1, 900_000),
+    projectName: long,
+  });
+
+  test('a long project name is shown in full and wraps, and amounts never wrap', async () => {
+    const long =
+      'โครงการจัดซื้อจัดจ้างระบบสารสนเทศเพื่อการบริหารจัดการข้อมูลกลางของหน่วยงานขนาดใหญ่มาก'.repeat(
+        2,
+      );
+    mocked.fetchTorBudgetComparison.mockResolvedValue(
+      comparison([
+        {
+          basis: 'category' as const,
+          criterion: 'เกณฑ์ตัวอย่าง',
+          ...compareBudget(1_000_000, [names(long)]),
+        },
+      ]),
+    );
+    render(<TorBudgetComparison projectId="tor" />);
+
+    const link = await screen.findByRole('link', { name: long });
+    // The whole name is on the page: not cut with an ellipsis, so it may take more than one line.
+    expect(link).toHaveTextContent(long);
+    expect(link).not.toHaveClass('truncate');
+    expect(link).toHaveClass('break-words');
+    const row = link.closest('tr')!;
+    for (const amount of [
+      within(row).getByText('900,000 บาท'),
+      within(row).getByText('−100,000 บาท'),
+    ]) {
+      expect(amount.closest('td')).toHaveClass('whitespace-nowrap');
+    }
+  });
+
+  test('the explanatory sentences and the table caption are not shown', async () => {
+    mocked.fetchTorBudgetComparison.mockResolvedValue(
+      comparison([group('category', 1_000_000, [900_000, 1_100_000])]),
+    );
+    render(<TorBudgetComparison projectId="tor" />);
+
+    await screen.findByText(/ในโครงการที่ TORfun เก็บไว้ พบ/);
+    expect(screen.queryByText(/ไม่ปรับตามเงินเฟ้อ/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ใกล้เคียงกับ TOR นี้ที่สุด/)).not.toBeInTheDocument();
+    expect(document.querySelector('caption')).toBeNull();
+  });
+});
+
+describe('TorBudgetComparison: wording and the phone layout', () => {
+  test('says the count is of the projects TORfun has stored, never of projects that exist', async () => {
+    mocked.fetchTorBudgetComparison.mockResolvedValue(
+      comparison([group('category', 1_000_000, [900_000, 1_100_000, 1_200_000])]),
+    );
+    render(<TorBudgetComparison projectId="tor" />);
+
+    expect(await screen.findByText(/ในโครงการที่ TORfun เก็บไว้ พบ/)).toHaveTextContent(
+      'ในโครงการที่ TORfun เก็บไว้ พบ 3 โครงการ',
+    );
+    expect(screen.queryByText(/พบโครงการที่เทียบได้/)).not.toBeInTheDocument();
+  });
+
+  test('on a phone each project is stacked with labelled figures, so nothing scrolls sideways', async () => {
+    mocked.fetchTorBudgetComparison.mockResolvedValue(
+      comparison([group('category', 1_000_000, [900_000, 1_100_000])]),
+    );
+    render(<TorBudgetComparison projectId="tor" />);
+
+    const table = (await screen.findAllByRole('table'))[0]!;
+    // A block below the `sm` breakpoint and a table from it up.
+    expect(table).toHaveClass('block', 'sm:table');
+    expect(table.parentElement).not.toHaveClass('overflow-x-auto');
+    expect(table.parentElement).toHaveClass('sm:overflow-x-auto');
+    const row = within(table).getAllByRole('row')[1]!;
+    expect(row).toHaveClass('block', 'sm:table-row');
+    const cells = within(row).getAllByRole('cell');
+    expect(cells.map((cell) => cell.getAttribute('data-label'))).toEqual([
+      null,
+      'งบประมาณที่ตั้งไว้',
+      'ต่างจาก TOR นี้',
+      'ปีงบประมาณ',
+    ]);
+    // Amounts are never split from "บาท", and the name is not capped on a phone.
+    expect(cells[1]).toHaveClass('whitespace-nowrap');
+    expect(cells[2]).toHaveClass('whitespace-nowrap');
+    const link = within(cells[0]!).getByRole('link');
+    expect(link).toHaveClass('max-w-none');
+    expect(link.className).not.toContain('max-w-[22rem]');
   });
 });

@@ -44,7 +44,7 @@ function firstGroup(groups: readonly BudgetComparisonGroup[]): BudgetComparisonB
     groups[0])!.basis;
 }
 
-function Group({ group, minSample }: { group: BudgetComparisonGroup; minSample: number }) {
+function Group({ group }: { group: BudgetComparisonGroup }) {
   const { summary } = group;
   const names = BASIS[group.basis];
 
@@ -63,7 +63,7 @@ function Group({ group, minSample }: { group: BudgetComparisonGroup; minSample: 
         จับคู่ด้วย {names.matched}: <span className="text-foreground">{group.criterion}</span>
       </p>
       <p className="text-sm">
-        พบโครงการที่เทียบได้ <span data-numeric>{group.count}</span> โครงการ
+        ในโครงการที่ TORfun เก็บไว้ พบ <span data-numeric>{group.count}</span> โครงการ
         {group.count > group.projects.length && (
           <span className="text-muted-foreground">
             {' '}
@@ -97,20 +97,16 @@ function Group({ group, minSample }: { group: BudgetComparisonGroup; minSample: 
             {summary.rankOf} (1 = งบต่ำสุด)
           </p>
         </div>
-      ) : (
-        <p className="text-muted-foreground text-sm">
-          ข้อมูลไม่พอสำหรับสรุป (ต้องมีอย่างน้อย {minSample} โครงการ จึงจะแสดงค่าต่ำสุด มัธยฐาน
-          และสูงสุด)
-        </p>
-      )}
+      ) : null}
 
       {group.projects.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <caption className="text-muted-foreground pb-2 text-start text-xs">
-              โครงการที่งบประมาณที่ตั้งไว้ใกล้เคียงกับ TOR นี้ที่สุด
-            </caption>
-            <thead>
+        <div className="sm:overflow-x-auto">
+          {/*
+            A table from `sm` up. Below it each project is a block: the name, then each
+            figure on its own line with its label, so nothing needs a sideways scroll.
+          */}
+          <table className="block w-full text-sm sm:table">
+            <thead className="hidden sm:table-header-group">
               <tr className="text-muted-foreground border-b text-start text-xs">
                 <th className="py-1.5 pe-3 text-start font-medium">โครงการ</th>
                 <th className="py-1.5 pe-3 text-end font-medium">งบประมาณที่ตั้งไว้</th>
@@ -118,25 +114,42 @@ function Group({ group, minSample }: { group: BudgetComparisonGroup; minSample: 
                 <th className="py-1.5 text-end font-medium">ปีงบประมาณ</th>
               </tr>
             </thead>
-            <tbody className="divide-border divide-y">
+            <tbody className="divide-border block divide-y sm:table-row-group">
               {group.projects.map((project) => (
-                <tr key={project.projectId}>
-                  <td className="py-1.5 pe-3">
+                <tr key={project.projectId} className="block py-2.5 sm:table-row sm:py-0">
+                  <td className="block pb-1 sm:table-cell sm:py-1.5 sm:pe-3">
                     <Link
                       href={`/tor/${encodeURIComponent(project.projectId)}`}
-                      className="text-primary hover:underline"
+                      className="text-primary block max-w-none break-words hover:underline sm:max-w-xl lg:max-w-2xl"
                     >
                       {project.projectName}
                     </Link>
-                    <span className="text-muted-foreground block text-xs">{project.deptName}</span>
+                    <span
+                      className="text-muted-foreground block max-w-none truncate text-xs sm:max-w-xl lg:max-w-2xl"
+                      title={project.deptName}
+                    >
+                      {project.deptName}
+                    </span>
                   </td>
-                  <td className="py-1.5 pe-3 text-end" data-numeric>
+                  <td
+                    data-label="งบประมาณที่ตั้งไว้"
+                    className="before:text-muted-foreground flex justify-between gap-3 py-0.5 whitespace-nowrap before:text-xs before:content-[attr(data-label)] sm:table-cell sm:py-1.5 sm:pe-3 sm:text-end sm:before:hidden"
+                    data-numeric
+                  >
                     {money(project.budget)}
                   </td>
-                  <td className="py-1.5 pe-3 text-end" data-numeric>
+                  <td
+                    data-label="ต่างจาก TOR นี้"
+                    className="before:text-muted-foreground flex justify-between gap-3 py-0.5 whitespace-nowrap before:text-xs before:content-[attr(data-label)] sm:table-cell sm:py-1.5 sm:pe-3 sm:text-end sm:before:hidden"
+                    data-numeric
+                  >
                     {signed(project.difference)}
                   </td>
-                  <td className="py-1.5 text-end" data-numeric>
+                  <td
+                    data-label="ปีงบประมาณ"
+                    className="before:text-muted-foreground flex justify-between gap-3 py-0.5 before:text-xs before:content-[attr(data-label)] sm:table-cell sm:py-1.5 sm:text-end sm:before:hidden"
+                    data-numeric
+                  >
                     {project.budgetYear ?? 'ไม่ทราบ'}
                   </td>
                 </tr>
@@ -158,12 +171,8 @@ function Comparison({ comparison }: { comparison: BudgetComparison }) {
     <Card className="mt-5">
       <CardHeader>
         <CardTitle className="text-base">
-          งบประมาณที่ตั้งไว้ เทียบกับโครงการคล้ายกันที่ผ่านมา
+          งบประมาณที่ตั้งไว้ เทียบกับโครงการคล้ายกันที่ประกาศก่อนหน้า
         </CardTitle>
-        <p className="text-muted-foreground text-sm">
-          งบประมาณคือวงเงินที่หน่วยงานตั้งไว้ก่อนจัดซื้อจัดจ้าง ไม่ใช่ราคาที่ชนะหรือราคาตามสัญญา
-          เทียบเฉพาะโครงการที่ TORfun เก็บไว้และประกาศก่อน TOR นี้ ไม่ปรับตามเงินเฟ้อหรือปีงบประมาณ
-        </p>
         <p className="text-sm">
           งบประมาณที่ตั้งไว้ของ TOR นี้:{' '}
           <span data-numeric className="font-medium">
@@ -192,7 +201,7 @@ function Comparison({ comparison }: { comparison: BudgetComparison }) {
           ))}
         </div>
         <div role="tabpanel">
-          <Group group={group} minSample={comparison.minSample} />
+          <Group group={group} />
         </div>
       </CardContent>
     </Card>

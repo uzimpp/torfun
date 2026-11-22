@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { summariseAward } from './award';
+import { isNamed, summariseAward } from './award';
+import { digestAward, type CompetitionProject } from './competition';
 import type { Contract, ContractSubmission } from './contracts';
 
-// Fixtures only: the shapes the API publishes (see docs/research/bid-strategy), with invented names.
+// Fixtures only: the shapes the API publishes, with invented names.
 const line = (overrides: Partial<Contract> = {}): Contract => ({
   projectId: 'p1',
   contractYear: 2569,
@@ -18,6 +19,15 @@ const line = (overrides: Partial<Contract> = {}): Contract => ({
   priceBuild: 2_990_000,
   ...overrides,
 });
+
+const project: CompetitionProject = {
+  projectId: 'p1',
+  projectName: 'โครงการตัวอย่าง',
+  deptName: 'หน่วยงานตัวอย่าง',
+  budget: 3_000_000,
+  budgetYear: 2569,
+  announceDate: '2026-01-01T00:00:00.000Z',
+};
 
 const bid = (
   merchantName: string | null,
@@ -237,7 +247,11 @@ describe('summariseAward: what it will not guess', () => {
 
     expect(summary.status).toBe('none');
     expect(summary.awards).toEqual([]);
-    expect(summary).toMatchObject({ contractYear: null, sumPriceAgree: null, bidderCount: 1 });
+    // The bids' year has no contract line, so they are not any award's bids: no count.
+    expect(summary).toMatchObject({ contractYear: null, sumPriceAgree: null, bidderCount: null });
+    expect(summary.bidYears).toEqual([
+      { contractYear: 2569, bidderCount: 1, hasContractLine: false },
+    ]);
     expect(summary.items).toHaveLength(1);
   });
 
@@ -338,5 +352,532 @@ describe('summariseAward: what it will not guess', () => {
     );
 
     expect(summary.sumPriceAgree).toBe(999);
+  });
+});
+
+describe('summariseAward: bids are never pooled across contract years', () => {
+  const inYear = (
+    year: number,
+    merchantName: string | null,
+    submitPrice: number | null,
+    seqNo: number | null = 1,
+  ): ContractSubmission => ({ ...bid(merchantName, submitPrice, seqNo), contractYear: year });
+
+  const B = 'บริษัท บี จำกัด';
+  const C = 'บริษัท ซี จำกัด';
+
+  test('the same item number in two years is two items, each with its own bids and figures', () => {
+    const summary = summariseAward(
+      [],
+      [inYear(2569, A, 300), inYear(2568, B, 100), inYear(2568, C, 200), inYear(2569, B, 500)],
+    );
+
+    expect(summary.items.map((item) => [item.contractYear, item.seqNo, item.bids.length])).toEqual([
+      [2568, 1, 2],
+      [2569, 1, 2],
+    ]);
+    expect(summary.items.map((item) => [item.lowest, item.highest, item.average])).toEqual([
+      [100, 200, 150],
+      [300, 500, 400],
+    ]);
+  });
+
+  test('the same company bidding in two years is not one bidder: counts are per year', () => {
+    const summary = summariseAward(
+      [
+        line({ contractYear: 2568, contractNo: 'N1' }),
+        line({ contractYear: 2569, contractNo: 'N2' }),
+      ],
+      [inYear(2568, A, 100), inYear(2569, A, 200)],
+    );
+
+    expect(summary.bidYears).toEqual([
+      { contractYear: 2568, bidderCount: 1, hasContractLine: true },
+      { contractYear: 2569, bidderCount: 1, hasContractLine: true },
+    ]);
+    expect(summary.bidderCount).toBeNull();
+  });
+
+  test('bids of one year keep the project count as before', () => {
+    const summary = summariseAward([line()], [inYear(2569, A, 100), inYear(2569, B, 200)]);
+
+    expect(summary.bidYears).toEqual([
+      { contractYear: 2569, bidderCount: 2, hasContractLine: true },
+    ]);
+    expect(summary.bidderCount).toBe(2);
+  });
+
+  test('a year with an unnamed bid has no count, and the others keep theirs', () => {
+    const summary = summariseAward(
+      [
+        line({ contractYear: 2568, contractNo: 'N1' }),
+        line({ contractYear: 2569, contractNo: 'N2' }),
+      ],
+      [inYear(2568, null, 100), inYear(2569, A, 200)],
+    );
+
+    expect(summary.bidYears).toEqual([
+      { contractYear: 2568, bidderCount: null, hasContractLine: true },
+      { contractYear: 2569, bidderCount: 1, hasContractLine: true },
+    ]);
+    expect(summary.bidderCount).toBeNull();
+  });
+
+  test('items are ordered by year, then item number with an unnumbered item last in its year', () => {
+    const summary = summariseAward(
+      [],
+      [
+        { ...inYear(2569, A, 1, null) },
+        inYear(2568, A, 2, 2),
+        inYear(2568, A, 3, null),
+        inYear(2568, B, 4, 1),
+      ],
+    );
+
+    expect(summary.items.map((item) => [item.contractYear, item.seqNo])).toEqual([
+      [2568, 1],
+      [2568, 2],
+      [2568, null],
+      [2569, null],
+    ]);
+    expect(summary.bidYears.map((year) => year.contractYear)).toEqual([2568, 2569]);
+  });
+
+  test('unnumbered bids of one year form one item, and not one with those of another year', () => {
+    const summary = summariseAward(
+      [],
+      [inYear(2568, A, 1, null), inYear(2568, B, 2, null), inYear(2569, A, 3, null)],
+    );
+
+    expect(summary.items.map((item) => [item.contractYear, item.seqNo, item.bids.length])).toEqual([
+      [2568, null, 2],
+      [2569, null, 1],
+    ]);
+  });
+
+  test('no bids give no years and no count', () => {
+    expect(summariseAward([line()], [])).toMatchObject({ bidYears: [], bidderCount: null });
+  });
+
+  test('a winner is matched only against the bids of its own year', () => {
+    const summary = summariseAward(
+      [line({ contractYear: 2569, winnerName: A, priceAgree: 90 })],
+      [inYear(2568, A, 80), inYear(2568, B, 70), inYear(2569, A, 100), inYear(2569, C, 60)],
+    );
+
+    expect(summary.awards[0]).toMatchObject({
+      winnerBid: { submittedPrice: 100, lowerBids: 1 },
+      winnerBidUnavailable: null,
+    });
+  });
+
+  test('a winner with bids only in another year has no winner bid, and none is borrowed', () => {
+    const summary = summariseAward(
+      [line({ contractYear: 2569, winnerName: A })],
+      [inYear(2568, A, 80), inYear(2568, B, 70)],
+    );
+
+    expect(summary.awards[0]).toMatchObject({
+      winnerBid: null,
+      winnerBidUnavailable: 'bids_in_other_year',
+    });
+  });
+
+  test('no bids at all stays no_bids, and bids of another year are the distinct reason', () => {
+    const own = line({ contractYear: 2569, winnerName: A });
+
+    expect(summariseAward([own], []).awards[0]!.winnerBidUnavailable).toBe('no_bids');
+    expect(summariseAward([own], [inYear(2568, A, 80)]).awards[0]!.winnerBidUnavailable).toBe(
+      'bids_in_other_year',
+    );
+    // Bids of its own year, even with another year's beside them, are not "other year".
+    expect(
+      summariseAward([own], [inYear(2568, B, 70), inYear(2569, A, 80)]).awards[0]!
+        .winnerBidUnavailable,
+    ).toBeNull();
+  });
+
+  describe('the project bidder count follows the same year eligibility as #144', () => {
+    test('bids of a year with no contract line give no project count, while the year keeps its own', () => {
+      const summary = summariseAward(
+        [line({ contractYear: 2569 })],
+        [inYear(2568, A, 80), inYear(2568, B, 70)],
+      );
+
+      expect(summary.bidderCount).toBeNull();
+      expect(summary.bidYears).toEqual([
+        { contractYear: 2568, bidderCount: 2, hasContractLine: false },
+      ]);
+    });
+
+    test('with a contract line of the bids’ year the project count is given', () => {
+      const summary = summariseAward(
+        [line({ contractYear: 2568 })],
+        [inYear(2568, A, 80), inYear(2568, B, 70)],
+      );
+
+      expect(summary.bidderCount).toBe(2);
+    });
+
+    test('the summary and the #144 digest agree on whether the count is known', () => {
+      for (const [contractYear, bidYear] of [
+        [2569, 2569],
+        [2569, 2568],
+      ] as const) {
+        const contracts = [line({ contractYear })];
+        const bids = [inYear(bidYear, A, 80), inYear(bidYear, B, 70)];
+        const summary = summariseAward(contracts, bids);
+
+        expect(digestAward(project, summary).bidderCount).toBe(summary.bidderCount);
+      }
+    });
+  });
+
+  test('several items in the winner’s own year are still not guessed at', () => {
+    const summary = summariseAward(
+      [line({ contractYear: 2569, winnerName: A })],
+      [inYear(2569, A, 100, 1), inYear(2569, A, 200, 2)],
+    );
+
+    expect(summary.awards[0]).toMatchObject({
+      winnerBid: null,
+      winnerBidUnavailable: 'multi_item',
+    });
+  });
+
+  test('one item in the winner’s year is matched even when another year has several', () => {
+    const summary = summariseAward(
+      [line({ contractYear: 2569, winnerName: A })],
+      [inYear(2568, A, 1, 1), inYear(2568, B, 2, 2), inYear(2569, A, 100, 1)],
+    );
+
+    expect(summary.awards[0]).toMatchObject({ winnerBid: { submittedPrice: 100, lowerBids: 0 } });
+  });
+
+  test('a joint venture uses its consortium line\u2019s year for the winner\u2019s own bid', () => {
+    const consortium = 'กิจการค้าร่วม เอ็นบี';
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: consortium }),
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: A, priceAgree: 0 }),
+      ],
+      [inYear(2568, consortium, 50), inYear(2569, consortium, 100)],
+    );
+
+    expect(summary.awards).toHaveLength(1);
+    expect(summary.awards[0]).toMatchObject({
+      structure: { kind: 'joint_venture' },
+      winnerBid: { submittedPrice: 100 },
+    });
+  });
+
+  test('no date decides anything: contract dates never change which bids are matched', () => {
+    const base = summariseAward(
+      [line({ contractYear: 2569, contractDate: '1 ม.ค. 69' })],
+      [inYear(2568, A, 80), inYear(2569, A, 100)],
+    );
+    const other = summariseAward(
+      [line({ contractYear: 2569, contractDate: '31 ธ.ค. 60' })],
+      [inYear(2568, A, 80), inYear(2569, A, 100)],
+    );
+
+    expect(other.awards[0]).toEqual({
+      ...base.awards[0]!,
+      structure: { kind: 'single', contract: expect.any(Object) },
+    });
+    expect(base.awards[0]).toMatchObject({ winnerBid: { submittedPrice: 100 } });
+  });
+});
+
+describe('summariseAward: contract lines of different years are never merged', () => {
+  const CONSORTIUM = 'กิจการค้าร่วม เอ็นบี';
+  const B = 'บริษัท บี จำกัด';
+  const unresolvedOf = (summary: ReturnType<typeof summariseAward>) =>
+    summary.awards.map((award) =>
+      award.structure.kind === 'unresolved'
+        ? [award.structure.reason, award.structure.contracts.map((c) => c.contractYear)]
+        : award.structure.kind,
+    );
+
+  test('the same contract number in two years is two separate awards, and neither names a winner', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'C-1', contractYear: 2568, winnerName: A, priceAgree: 100 }),
+        line({ contractNo: 'C-1', contractYear: 2569, winnerName: B, priceAgree: 200 }),
+      ],
+      [],
+    );
+
+    expect(summary.status).toBe('unresolved');
+    expect(unresolvedOf(summary)).toEqual([
+      ['number_in_other_year', [2568]],
+      ['number_in_other_year', [2569]],
+    ]);
+    expect(summary.awards.map((award) => [award.winnerName, award.agreedContractPrice])).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+  });
+
+  test('a consortium of one year and a zero-price member of another are neither merged nor named winners', () => {
+    const summary = summariseAward(
+      [
+        line({
+          contractNo: 'JV',
+          contractYear: 2569,
+          winnerName: CONSORTIUM,
+          priceAgree: 49_450_000,
+        }),
+        line({ contractNo: 'JV', contractYear: 2568, winnerName: A, priceAgree: 0 }),
+      ],
+      [{ ...bid(A, 10), contractYear: 2568 }],
+    );
+
+    expect(unresolvedOf(summary)).toEqual([
+      ['number_in_other_year', [2569]],
+      ['number_in_other_year', [2568]],
+    ]);
+    for (const award of summary.awards) {
+      expect(award).toMatchObject({
+        winnerName: null,
+        agreedContractPrice: null,
+        winnerBid: null,
+        winnerBidUnavailable: 'unresolved_winner',
+      });
+    }
+    expect(summary.awards.some((award) => award.structure.kind === 'joint_venture')).toBe(false);
+  });
+
+  test('the lines of an unresolved award are kept as published, with their own year and price', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: CONSORTIUM, priceAgree: 5 }),
+        line({ contractNo: 'JV', contractYear: 2568, winnerName: A, priceAgree: 0 }),
+      ],
+      [],
+    );
+
+    const lines = summary.awards.flatMap((award) =>
+      award.structure.kind === 'unresolved'
+        ? award.structure.contracts.map((c) => [c.contractYear, c.winnerName, c.priceAgree])
+        : [],
+    );
+    expect(lines).toEqual([
+      [2569, CONSORTIUM, 5],
+      [2568, A, 0],
+    ]);
+  });
+
+  test('a lone line stays a winner when its number appears in no other year', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'C-1', contractYear: 2568, winnerName: A }),
+        line({ contractNo: 'C-2', contractYear: 2569, winnerName: B }),
+      ],
+      [],
+    );
+
+    expect(summary.status).toBe('resolved');
+    expect(summary.awards.map((award) => [award.structure.kind, award.winnerName])).toEqual([
+      ['single', A],
+      ['single', B],
+    ]);
+  });
+
+  test('the same joint venture pattern in two years is two joint ventures, each with its own members', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'JV', contractYear: 2568, winnerName: CONSORTIUM }),
+        line({ contractNo: 'JV', contractYear: 2568, winnerName: A, priceAgree: 0 }),
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: CONSORTIUM }),
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: B, priceAgree: 0 }),
+      ],
+      [],
+    );
+
+    expect(summary.status).toBe('resolved');
+    expect(summary.awards).toHaveLength(2);
+    const members = summary.awards.map((award) =>
+      award.structure.kind === 'joint_venture'
+        ? award.structure.members.map((member) => [member.contractYear, member.winnerName])
+        : null,
+    );
+    expect(members).toEqual([[[2568, A]], [[2569, B]]]);
+  });
+
+  test('a complete joint venture in one year and a lone line of the same number in another: only the lone one is unresolved', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: CONSORTIUM }),
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: A, priceAgree: 0 }),
+        line({ contractNo: 'JV', contractYear: 2568, winnerName: B, priceAgree: 0 }),
+      ],
+      [],
+    );
+
+    expect(unresolvedOf(summary)).toEqual(['joint_venture', ['number_in_other_year', [2568]]]);
+    expect(summary.awards[0]).toMatchObject({ winnerName: CONSORTIUM });
+    expect(summary.awards[1]).toMatchObject({ winnerName: null });
+  });
+
+  test('an ambiguous group stays within its own year, and a lone line of another year is unresolved apart', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'X', contractYear: 2568, winnerName: A }),
+        line({ contractNo: 'X', contractYear: 2568, winnerName: B }),
+        line({ contractNo: 'X', contractYear: 2569, winnerName: A }),
+      ],
+      [],
+    );
+
+    expect(unresolvedOf(summary)).toEqual([
+      ['ambiguous_lines', [2568, 2568]],
+      ['number_in_other_year', [2569]],
+    ]);
+  });
+
+  test('lines with no contract number are grouped per year, never across years', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: null, contractYear: 2569, winnerName: A }),
+        line({ contractNo: null, contractYear: 2568, winnerName: B }),
+        line({ contractNo: null, contractYear: 2568, winnerName: A }),
+      ],
+      [],
+    );
+
+    expect(unresolvedOf(summary)).toEqual([
+      ['unnumbered_lines', [2568, 2568]],
+      ['unnumbered_lines', [2569]],
+    ]);
+  });
+
+  test('within one year the grouping is as it was: a consortium with its members, and separate numbers apart', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: CONSORTIUM }),
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: A, priceAgree: 0 }),
+        line({ contractNo: 'JV', contractYear: 2569, winnerName: B, priceAgree: 0 }),
+        line({ contractNo: 'C-2', contractYear: 2569, winnerName: B }),
+      ],
+      [],
+    );
+
+    expect(summary.status).toBe('resolved');
+    expect(summary.awards).toHaveLength(2);
+    const first = summary.awards[0]!.structure;
+    expect(first.kind === 'joint_venture' && first.members.map((m) => m.winnerName)).toEqual([
+      A,
+      B,
+    ]);
+    expect(summary.awards[1]!.structure).toMatchObject({ kind: 'single' });
+  });
+
+  test('a lone line in a single-year project is a winner as before, even with a number shared by nobody', () => {
+    const summary = summariseAward([line({ contractNo: 'ONLY', winnerName: A })], []);
+
+    expect(summary.status).toBe('resolved');
+    expect(summary.awards[0]).toMatchObject({ structure: { kind: 'single' }, winnerName: A });
+  });
+
+  test('an unresolved award in one year does not turn the awards of other numbers unresolved', () => {
+    const summary = summariseAward(
+      [
+        line({ contractNo: 'X', contractYear: 2568, winnerName: A }),
+        line({ contractNo: 'X', contractYear: 2568, winnerName: B }),
+        line({ contractNo: 'Y', contractYear: 2569, winnerName: B }),
+      ],
+      [],
+    );
+
+    expect(summary.status).toBe('unresolved');
+    expect(summary.awards.map((award) => award.structure.kind)).toEqual(['unresolved', 'single']);
+  });
+});
+
+describe('summariseAward: a blank name is a missing name', () => {
+  const inYear = (year: number, name: string | null, price: number): ContractSubmission => ({
+    ...bid(name, price),
+    contractYear: year,
+  });
+
+  test.each(['', ' ', '   ', '\t', '\n', ' \t\n '])('isNamed refuses %p', (name) => {
+    expect(isNamed(name)).toBe(false);
+  });
+
+  test('isNamed accepts a name, and refuses null and undefined', () => {
+    expect(isNamed(A)).toBe(true);
+    expect(isNamed(' A ')).toBe(true);
+    expect(isNamed(null)).toBe(false);
+    expect(isNamed(undefined)).toBe(false);
+  });
+
+  test.each(['', '   ', '\t\n'])(
+    'a bidder named %p is unnamed: the item and project counts are unknown, not a count',
+    (blank) => {
+      const summary = summariseAward(
+        [line()],
+        [bid(A, 1), bid(blank, 2), bid('บริษัท บี จำกัด', 3)],
+      );
+
+      expect(summary.items[0]!.bidderCount).toBeNull();
+      expect(summary.bidderCount).toBeNull();
+      expect(summary.bidYears).toEqual([
+        { contractYear: 2569, bidderCount: null, hasContractLine: true },
+      ]);
+    },
+  );
+
+  test('a blank bidder name is carried as missing, so it is shown and sorted as an unnamed bid', () => {
+    const summary = summariseAward([], [bid('', 5), bid(A, 9)]);
+
+    expect(summary.items[0]!.bids.map((entry) => entry.merchantName)).toEqual([null, A]);
+  });
+
+  test('a blank bidder in one year leaves only that year without a count', () => {
+    const summary = summariseAward(
+      [
+        line({ contractYear: 2568, contractNo: 'N1' }),
+        line({ contractYear: 2569, contractNo: 'N2' }),
+      ],
+      [inYear(2568, '  ', 1), inYear(2569, A, 2)],
+    );
+
+    expect(summary.bidYears).toEqual([
+      { contractYear: 2568, bidderCount: null, hasContractLine: true },
+      { contractYear: 2569, bidderCount: 1, hasContractLine: true },
+    ]);
+  });
+
+  test('names are still compared exactly: a trailing space is a different bidder, never trimmed away', () => {
+    const summary = summariseAward([line()], [bid(A, 1), bid(`${A} `, 2)]);
+
+    expect(summary.bidderCount).toBe(2);
+    expect(summary.items[0]!.bids.map((entry) => entry.merchantName)).toEqual([A, `${A} `]);
+  });
+
+  test.each(['', '   ', '\t'])(
+    'a winner named %p has no name, and is matched to no bid, blank or not',
+    (blank) => {
+      const summary = summariseAward(
+        [line({ winnerName: blank })],
+        [bid(blank, 100), bid('บริษัท บี จำกัด', 200)],
+      );
+
+      expect(summary.awards[0]).toMatchObject({
+        winnerName: null,
+        winnerBid: null,
+        winnerBidUnavailable: 'no_exact_match',
+      });
+    },
+  );
+
+  test('a named winner is matched exactly as before', () => {
+    const summary = summariseAward(
+      [line({ winnerName: A })],
+      [bid(A, 100), bid('บริษัท บี จำกัด', 200)],
+    );
+
+    expect(summary.awards[0]).toMatchObject({ winnerName: A, winnerBid: { submittedPrice: 100 } });
   });
 });

@@ -11,7 +11,7 @@ import { fetchTorContractSubmissions, fetchTorContracts } from '@/lib/api';
 
 /**
  * The award summary of one procurement (#142), from open-data contract lines whose
- * `projectId` is **exactly** this procurement's project id (ADR-0022, rule 6).
+ * `projectId` is **exactly** this procurement's project id.
  * There is no fuzzy match, no name match and no fallback to another project: a
  * line carrying any other id is dropped here even if the API returned it, and a
  * project with no line of its own is `null`, which the page shows as an empty
@@ -26,7 +26,7 @@ import { fetchTorContractSubmissions, fetchTorContracts } from '@/lib/api';
  * dates are unparsed Thai text, so dates are not used to pick a contract. Lines of
  * every contract year under the exact id are therefore all kept. If a project is
  * re-announced under the same id, an earlier round's award can show on the
- * current TOR (ADR-0022, rule 6: re-announcement untested).
+ * current TOR (re-announcement is untested).
  */
 export function awardFor(
   projectId: string,

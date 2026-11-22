@@ -7,6 +7,7 @@ import {
   type QuotaReading,
 } from './client';
 import { CONTRACT_URL, CONTRACT_SUBMIT_URL } from './constants';
+import { KEYWORD_MIN_SEARCH_LENGTH } from './similar-keyword';
 import type { Env } from '../../config/env';
 import { POLITENESS } from './constants';
 
@@ -20,7 +21,7 @@ export interface EGPContractRecord {
   dept_sub_name?: string;
   project_money?: number;
   price_build?: number;
-  /** The API's own aggregate of the agreed prices; used as published (ADR-0022). */
+  /** The API's own aggregate of the agreed prices; used as published. */
   sum_price_agree?: number;
   purchase_method_name?: string;
   year?: number;
@@ -36,7 +37,7 @@ export interface EGPContractRecord {
 }
 
 /**
- * One line item of a project and the bidders on it (Phase 0, ADR-0022). `seq_no`
+ * One line item of a project and the bidders on it (as seen in live samples). `seq_no`
  * and `seq_no_desc` are on the record, not on each bidder, and `submit_price`
  * arrives as a numeric string such as "3000000.00".
  */
@@ -116,6 +117,62 @@ export async function getContracts(
   });
 }
 
+/**
+ * How many rows one keyword search reads. One page, no paging (the right limit is still
+ * an open decision): a keyword that matches more than this is cut and says so
+ * through `truncated`. 50 is what the 2026-11-22 tests used; it is not a decision.
+ */
+export const KEYWORD_SEARCH_PAGE_SIZE = 50;
+
+export interface KeywordSearchResult {
+  rows: EGPContractRecord[];
+  /** How many rows the API says match; may be more than `rows` holds. */
+  total: number | null;
+  /** More rows match than were read: the rest were not asked for. */
+  truncated: boolean;
+  quota: QuotaReading;
+}
+
+/**
+ * One search of signed contracts by a keyword matched inside the project name, for
+ * one contract year (#144). Exactly one request: no paging and no retry, so
+ * a failed or refused search is never repeated on its own and costs one call at most.
+ * `egp-contract` ignores a `project_id` filter, so a name is the only handle there is;
+ * a row found this way is not known to be the project asked about, only to have a
+ * name containing the keyword.
+ *
+ * Refuses, without a request, a keyword that is empty or shorter than the search
+ * minimum (it would match a great many unrelated rows) and a year that is not a whole
+ * number. Errors carry no key: `openDataGet` removes it.
+ */
+export async function searchContractsByKeyword(
+  keyword: string,
+  year: number,
+  env: Env,
+  quotaBudget = new OpenDataQuotaBudget(),
+): Promise<KeywordSearchResult> {
+  const text = keyword.trim();
+  if (text.length < KEYWORD_MIN_SEARCH_LENGTH) {
+    throw new RangeError(
+      `A keyword search needs at least ${KEYWORD_MIN_SEARCH_LENGTH} characters, got ${text.length}`,
+    );
+  }
+  if (!Number.isInteger(year)) throw new RangeError('A keyword search needs a whole contract year');
+
+  const page = await openDataGet<EGPContractRecord>(
+    CONTRACT_URL,
+    { keyword: text, year, limit: KEYWORD_SEARCH_PAGE_SIZE, offset: 0 },
+    env.EGP_API_KEY,
+    { maxRetries: 0, quotaBudget },
+  );
+  return {
+    rows: page.rows,
+    total: page.total,
+    truncated: page.total !== null && page.total > page.rows.length,
+    quota: page.quota,
+  };
+}
+
 export async function getContractSubmissions(
   projectId: string,
   year: number,
@@ -135,6 +192,37 @@ export async function getContractSubmissions(
     env.EGP_API_KEY,
     { maxRetries: CONTRACT_API_RETRIES, quotaBudget },
   );
+}
+
+/**
+ * One page of a project's bidders for one contract year (#144): exactly one
+ * request, no paging and no retry, so the number of calls a caller makes is the number
+ * of calls spent. `truncated` is set when more rows match than the page holds, and the
+ * caller must not treat such a page as the project's bidders.
+ */
+export async function fetchProjectSubmissionsOnce(
+  projectId: string,
+  year: number,
+  env: Env,
+  quotaBudget = new OpenDataQuotaBudget(),
+): Promise<{
+  rows: EGPContractSubmitRecord[];
+  total: number | null;
+  truncated: boolean;
+  quota: QuotaReading;
+}> {
+  const page = await openDataGet<EGPContractSubmitRecord>(
+    CONTRACT_SUBMIT_URL,
+    { project_id: projectId, year, limit: 1000, offset: 0 },
+    env.EGP_API_KEY,
+    { maxRetries: 0, quotaBudget },
+  );
+  return {
+    rows: page.rows,
+    total: page.total,
+    truncated: page.total !== null && page.total > page.rows.length,
+    quota: page.quota,
+  };
 }
 
 export async function getAllContracts(

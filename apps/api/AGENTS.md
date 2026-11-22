@@ -102,8 +102,8 @@ Retrieval reads in the record's own gate turn (ADR-0020). Until then the year is
 null, never guessed. Each agency-day is saved as soon as it is read, and its new
 projects join Retrieval's queue at once. Every Run reads the new days; the cursor
 covers exactly the days read in full, even when the sweep is cut short. The open-data
-client is not used for discovery; it reads signed contracts and bid submissions
-(ADR-0022). Every open-data response echoes the caller's `api-key` in a `request`
+client is not used for discovery; it reads signed contracts and bid submissions.
+Every open-data response echoes the caller's `api-key` in a `request`
 field: strip it at the client and never log or store a raw response. Never
 call the process5 search endpoints: they sit behind Cloudflare Turnstile
 (ADR-0018).
@@ -151,56 +151,60 @@ What the model's verdict may do is decided in `services/egp/decision.ts`: only a
 confident, whole-document answer shows a record to officers or drops it (leaving a
 tombstone); everything else is held (`needs_review`) for an administrator.
 
-How the winner is chosen (#143) is read by a separate, best-effort model call
-after that decision, never inside the verdict (`services/egp/evaluation.ts`,
-`vertex/evaluation-reader.ts`, its own prompt version and a third response schema):
-the invitation announcement first, the bidding document in its place when there is
-no invitation, and the main TOR only if it was read whole and the first document
-stated no method, at most two calls. It runs only for a record the verdict keeps or
-holds, from the archive bytes already in memory, so it adds no site request. A
-failure is logged against the record and leaves the analysis and the outcome as
-the verdict made them; `analysis.evaluation` is then absent, which is not the same
-as present with no method (read, and the document said nothing). Nothing is
-repaired: weights stay in the unit written, a reading with any invalid criterion
-is dropped whole, and a total that does not add up is shown flagged, not corrected.
-Unvalidated until real documents are checked (none were available when this was
-built): that the invitation is where the method and weights are stated, the three
-method values, and the one level of nested criteria. Re-reading an analysed project
-needs a new Run (the archive is not stored), so older records have no evaluation.
+How the winner is chosen (#143) is read by a separate, best-effort model call after
+the verdict, never inside it (`services/egp/evaluation.ts`,
+`vertex/evaluation-reader.ts`, with its own prompt version and response schema): the
+invitation announcement first, the bidding document when there is no invitation, and
+the main TOR only if it was read whole and the first document stated no method. It adds
+no site request, and a failure leaves the analysis and outcome as the verdict made them
+(`analysis.evaluation` is then absent, which is not the same as present with no
+method). Nothing is repaired: weights stay in the unit written, a reading with an
+invalid criterion is dropped whole, and a total that does not add up is shown flagged.
+Not yet checked against real documents. Re-reading an analysed project needs a new Run
+(the archive is not stored).
 
 Who won and at what price (#142) is derived from the stored contract lines and bid
-submissions by `summariseAward` in `packages/types/src/award.ts`, a pure function
-that follows ADR-0022: the submitted bid and the agreed contract price stay two
-different numbers; a joint venture is a consortium line plus member lines, members
-are never winners, and anything that does not clearly resolve is left "unresolved";
-a winner's own bid is shown only for a single-item project and an exact name match;
-bidders are counted as distinct exact names, null when unknown; the API's
-`sum_price_agree`, `project_money` and `price_build` are kept on each contract line
-as published and never recomputed. The detail page shows it (`TorAwardSection`, from
-`/api/tors/:projectId/contracts` and `/contract-submissions`) for lines whose
-`projectId` equals the procurement's own **exactly**: no fuzzy, name or nearby-id
-match and no fallback to another project; with none, it shows an empty state. The
-open-data `project_id` matched the e-GP project id on name, agency, budget and
-reference price in five samples, but re-announced projects and cross-year contracts
-are untested (ADR-0022, rule 6, partially confirmed), so every figure stays labelled
-open data to verify. Which announcement round a contract belongs to is **not**
-decided: Discovery's latest-announcement rule (newer `announceDate` of the same
-type, invitation over draft) only chooses the feed snapshot a record is built from,
-and `invitationMoved` only marks the invitation PDF stale; neither relates to
-contracts. A contract line has no announcement id or round and its dates are
-unparsed Thai text, so dates must not be used to pick a contract. Every contract
-year under the exact id is shown, and a project re-announced under the same id can
-show an earlier round's award (untested, ADR-0022 rule 6).
+submissions by `summariseAward` in `packages/types/src/award.ts`, a pure function. The
+submitted bid and the agreed contract price are different numbers and stay apart; a
+joint venture is a consortium line plus member lines under one contract number in one
+contract year, members are never winners, and anything unclear is left "unresolved". A
+winner's own bid is shown only for a single-item project and an exact name match.
+Bidders are counted as distinct exact names (null when unknown), and bids are never
+pooled across contract years (a bid carries no year, so its year is the one the sync
+asked for). The API's `sum_price_agree`, `project_money` and `price_build` are kept as
+published and never recomputed. The detail page shows it (`TorAwardSection`, from
+`/api/tors/:projectId/contracts` and `/contract-submissions`) only for lines whose
+`projectId` equals the procurement's own exactly, labelled as unverified: the open-data
+`project_id` matched e-GP's in five samples, but re-announced projects and cross-year
+contracts are untested. Which announcement round a contract belongs to is not decided,
+and contract dates (unparsed Thai text) must not be used to pick one.
 
-A TOR's planned budget against similar earlier procurements (#61, ADR-0023,
+A TOR's planned budget against similar earlier procurements (#61,
 `TorService.budgetComparison`, `compareBudget` in `packages/types`) uses only stored
-procurements. Three separate groups (same e-GP category, same agency, a shared
-technology); a comparable is exactly what an officer may see (`isVisibleTo`: outcome
-`tor_analysed`, not removed, so held and admin-only records never count, and the pool
-is the same whoever asks), has a `projectMoney`, and was announced strictly before the
-TOR. `count`, the statistics and the rank cover every eligible one; only ten are
-listed, nearest budget first; under 5 there is no summary. `projectMoney` is the
-planned budget, never a winning or contract price: keep it named and worded so.
+procurements, in three separate groups (same e-GP category, same agency, a shared
+technology). A comparable is exactly what an officer may see (`isVisibleTo`: outcome
+`tor_analysed`, not removed, the same pool for everyone), has a `projectMoney`, and was
+announced strictly before the TOR. The count, statistics and rank cover every eligible
+one; ten are listed, nearest budget first; under 5 there is no summary. `projectMoney`
+is the planned budget, never a winning or contract price: keep it named and worded so.
+
+Similar past awards (#144) are found in open data by name, because the stored pool is
+small and the open-data contract search takes no project id. `buildSimilarKeyword`
+(`services/egp/similar-keyword.ts`) cuts the procedure, verb, agency and quantity words
+from a TOR's name; `SimilarAwardsService` searches the current fiscal year and the two
+before it, keeps rows of the same agency, e-bidding, with contract lines and announced
+before the TOR, lists the ten nearest in planned budget, then looks up their bidders by
+the found row's own id and year (`POST /api/tors/:projectId/similar-awards`, from a
+button, never on load). Each request is one open-data call with no paging and no retry,
+at most 3 searches and 10 bidder lookups; it stops at the first refusal and sets the
+same 24-hour cooldown as the contract sync, and results are kept in memory for 24
+hours. A result is found by a similar name only: the agency and e-bidding filters cut
+unrelated rows and prove nothing about similarity or software work, and the page says
+so. Winners and agreed prices come from `summariseAward`; prices show only for a
+single-contract, single-item award with a known bidder count; the competition level
+(`competitionLevel` in `packages/types`) is hidden under 5 known counts. Provisional:
+the keyword rules were tried on two projects, and the few/many boundary (3) and the
+minimum (5) are not validated against real data.
 
 An administrator's overrides (approve a held record, mark non-software, delete with
 or without a tombstone, remove or restore a tombstone) live in

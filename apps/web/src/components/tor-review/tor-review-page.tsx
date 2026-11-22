@@ -10,6 +10,7 @@ import { MatchEvidence } from '@/components/notifications/match-evidence';
 import { TorDownloadButton } from './tor-download-button';
 import { TorAwardSection } from './tor-award-section';
 import { TorBudgetComparison } from './tor-budget-comparison';
+import { TorSimilarAwards } from './tor-similar-awards';
 import { TorEvaluationCriteria } from './tor-evaluation-criteria';
 import { TorQualificationResults } from './tor-qualification-results';
 import { TorFavoriteButton } from './tor-favorite-button';
@@ -129,8 +130,13 @@ export function TorReviewPage({ tor }: { tor: TorReviewData }) {
         <TorBudgetComparison projectId={tor.projectId} />
       </section>
 
+      <section aria-labelledby="similar-awards-heading" className="mt-10">
+        <SectionHeading id="similar-awards-heading" title="โครงการคล้ายกันในอดีต" />
+        <TorSimilarAwards projectId={tor.projectId} />
+      </section>
+
       <section aria-labelledby="award-heading" className="mt-10">
-        <SectionHeading id="award-heading" title="ผู้ชนะและราคา (open data)" />
+        <SectionHeading id="award-heading" title="ผู้ชนะและราคา" />
         <TorAwardSection projectId={tor.projectId} />
       </section>
 

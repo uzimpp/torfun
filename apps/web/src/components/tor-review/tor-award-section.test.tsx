@@ -99,7 +99,7 @@ describe('TorAwardSection', () => {
     });
     render(<TorAwardSection projectId="P1" />);
 
-    expect(await screen.findByText('ผู้ชนะและราคาจาก open data')).toBeInTheDocument();
+    expect(await screen.findByText('ผู้ชนะและราคาของโครงการนี้')).toBeInTheDocument();
     expect(screen.getAllByText('บริษัท เอ จำกัด').length).toBeGreaterThan(0);
     expect(mocked.fetchTorContracts).toHaveBeenCalledWith('P1');
     expect(mocked.fetchTorContractSubmissions).toHaveBeenCalledWith('P1');
@@ -152,10 +152,10 @@ describe('TorAwardSection', () => {
     }));
     mocked.fetchTorContractSubmissions.mockResolvedValue({ items: [] });
     const { rerender } = render(<TorAwardSection projectId="P1" />);
-    expect(await screen.findByText('ผู้ชนะและราคาจาก open data')).toBeInTheDocument();
+    expect(await screen.findByText('ผู้ชนะและราคาของโครงการนี้')).toBeInTheDocument();
 
     rerender(<TorAwardSection projectId="P2" />);
-    expect(screen.queryByText('ผู้ชนะและราคาจาก open data')).not.toBeInTheDocument();
+    expect(screen.queryByText('ผู้ชนะและราคาของโครงการนี้')).not.toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByText('ยังไม่มีข้อมูลผู้ชนะและราคา')).toBeInTheDocument(),
     );

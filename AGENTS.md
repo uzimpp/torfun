@@ -58,7 +58,7 @@ extracted. Never-read projects go first, newest announcement first; projects
 already read have the timeline read again, oldest check first, and are retrieved
 again only if the invitation moved. The open-data API (GovSpending) is not read
 for discovery or the project queue: it holds only signed contracts. It is read
-separately, for past awards, bidders and prices (ADR-0022), never through the
+separately, for past awards, bidders and prices, never through the
 `gprocurement.go.th` gate. **Analysis** is Gemini reading the archive's TOR
 PDFs; it never touches e-GP, so it is the only stage that overlaps another's
 requests. Discovery and Retrieval reach `gprocurement.go.th` through one gate,

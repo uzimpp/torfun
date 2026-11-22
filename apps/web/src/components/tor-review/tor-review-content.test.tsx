@@ -183,7 +183,7 @@ describe('TorReviewContent', () => {
     });
     render(<TorReviewContent projectId={tor.projectId} />);
 
-    expect(await screen.findByText('ผู้ชนะและราคา (open data)')).toBeInTheDocument();
+    expect(await screen.findByText('ผู้ชนะและราคา')).toBeInTheDocument();
     expect(await screen.findByText('บริษัท ตัวอย่าง จำกัด')).toBeInTheDocument();
     expect(mocked.fetchTorContracts).toHaveBeenCalledWith(tor.projectId);
   });

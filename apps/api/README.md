@@ -66,6 +66,8 @@ Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
 | GET    | `/tors/:projectId`                                  | user   | One procurement by its project id                      |
 | GET    | `/tors/:projectId/contracts`                        | user   | Awarded contracts; optional `contract_year`            |
 | GET    | `/tors/:projectId/contract-submissions`             | user   | Bid submissions; optional `contract_year`              |
+| GET    | `/tors/:projectId/budget-comparison`                | user   | Planned budget against similar earlier procurements    |
+| POST   | `/tors/:projectId/similar-awards`                   | user   | Past awards found by similar name (spends quota)       |
 | GET    | `/tors/:projectId/source`                           | user   | Download the original TOR PDF                          |
 | POST   | `/tors/:projectId/reports`                          | user   | Report a TOR for admin review                          |
 | GET    | `/admin/tor-reports`                                | admin  | Shared report queue, newest first                      |
@@ -154,6 +156,15 @@ one is stored empty and counted in a warning).
 Pagination and retries share one per-run quota budget. A 24-hour cooldown is
 stored in MongoDB after a refusal or exhausted quota, so later runs and restarted
 API instances do not call either GovSpending endpoint until it expires.
+
+## Similar awards
+
+`POST /api/tors/:projectId/similar-awards` looks for past awards whose project name
+resembles the TOR's, in the contract data, and returns their winners, agreed prices
+and bidders. It is a POST so that only a click spends the daily open-data allowance:
+at most 3 searches and 10 bidder lookups per request, no retries, the same 24-hour
+cooldown after a refusal, and results kept in memory for 24 hours. Matches are by name
+only and are not confirmed to be the same kind of work.
 
 ## Health checks
 

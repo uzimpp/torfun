@@ -23,6 +23,7 @@ import type {
   TorReportListResponse,
   TorReportFilter,
   ReviewTorReport,
+  SimilarAwards,
 } from '@torfun/types';
 import { fromCompanyQualificationsPayload, toCompanyQualificationsPayload } from '@torfun/types';
 
@@ -198,12 +199,23 @@ export function fetchTorBudgetComparison(projectId: string): Promise<BudgetCompa
   return request<BudgetComparison>(`/api/tors/${encodeURIComponent(projectId)}/budget-comparison`);
 }
 
-/** Contract lines the open-data API published for exactly this project id (ADR-0022). */
+/**
+ * Similar past awards found in open data by this TOR's name (#144). A POST,
+ * not a GET: it spends the open-data API's daily allowance, so only a click asks it.
+ * No body, so no JSON content-type (see `stopIngestionRun`).
+ */
+export function fetchTorSimilarAwards(projectId: string): Promise<SimilarAwards> {
+  return request<SimilarAwards>(`/api/tors/${encodeURIComponent(projectId)}/similar-awards`, {
+    method: 'POST',
+  });
+}
+
+/** Contract lines the open-data API published for exactly this project id. */
 export function fetchTorContracts(projectId: string): Promise<{ items: Contract[] }> {
   return request<{ items: Contract[] }>(`/api/tors/${encodeURIComponent(projectId)}/contracts`);
 }
 
-/** Bid submissions the open-data API published for exactly this project id (ADR-0022). */
+/** Bid submissions the open-data API published for exactly this project id. */
 export function fetchTorContractSubmissions(
   projectId: string,
 ): Promise<{ items: ContractSubmission[] }> {

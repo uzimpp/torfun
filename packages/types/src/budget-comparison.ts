@@ -9,7 +9,7 @@ import { z } from 'zod';
  * (วงเงินงบประมาณ), set before any tender. It is not a winning price or a
  * contract price, and nothing in this module may be named or worded as one.
  *
- * The rules (see ADR-0023), each leaving something out rather than guess:
+ * The rules, each leaving something out rather than guess:
  *  - `count` is every eligible comparable, never the number shown;
  *  - the statistics and the rank are computed over all of them;
  *  - below `BUDGET_COMPARISON_MIN_SAMPLE` comparables there is no summary and no

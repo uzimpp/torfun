@@ -13,7 +13,7 @@ export const ContractSchema = z.object({
   status: z.string().nullable(),
   /**
    * Project-level figures exactly as the API publishes them, repeated on every
-   * line of the project (ADR-0022): `sumPriceAgree` is the API's own aggregate of
+   * line of the project: `sumPriceAgree` is the API's own aggregate of
    * the agreed prices, not a total this system worked out or verified. Null where
    * the API gave none; absent on lines stored before these were kept.
    */

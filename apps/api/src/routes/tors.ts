@@ -9,6 +9,7 @@ import {
   ProcurementListResponseSchema,
   TorDetailSchema,
   ProcurementYearsResponseSchema,
+  SimilarAwardsSchema,
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
 import { audienceOf } from '../services/audience';
@@ -83,6 +84,22 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
         request.params.projectId,
         audienceOf(request.user.role),
       );
+    },
+  );
+
+  // POST, not GET: it spends the open-data API's daily allowance, so a link prefetch,
+  // a crawler or a reload must never trigger it. The page calls it from a button.
+  app.post(
+    '/tors/:projectId/similar-awards',
+    {
+      schema: {
+        params: z.object({ projectId: z.string().min(1) }),
+        response: { 200: SimilarAwardsSchema, 404: z.object({ message: z.string() }) },
+      },
+    },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'private, no-store');
+      return app.similarAwardsService.find(request.params.projectId, audienceOf(request.user.role));
     },
   );
 

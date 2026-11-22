@@ -77,7 +77,7 @@ function errorText(error: unknown): string {
   return message.slice(0, MAX_ERROR_LENGTH);
 }
 
-function contractRecords(rows: EGPContractRecord[], year: number): Contract[] {
+export function contractRecords(rows: EGPContractRecord[], year: number): Contract[] {
   return rows.flatMap((row) => {
     if (!row.project_id || !Array.isArray(row.contract)) {
       throw new Error('GovSpending returned a malformed contract record');
@@ -109,7 +109,7 @@ function numberOrNull(value: unknown): number | null {
 /**
  * A submitted price from the API: a numeric string ("3000000.00") or a number.
  * Anything else — empty, negative, not a number — is null, never 0 and never a
- * guess (ADR-0022).
+ * guess.
  */
 export function parseSubmitPrice(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
@@ -124,7 +124,7 @@ function lineItemNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
 }
 
-function submissionRecords(
+export function submissionRecords(
   rows: EGPContractSubmitRecord[],
   projectId: string,
   year: number,

@@ -14,3 +14,5 @@ export * from './notification';
 export * from './contracts';
 export * from './award';
 export * from './budget-comparison';
+export * from './competition';
+export * from './similar-awards';

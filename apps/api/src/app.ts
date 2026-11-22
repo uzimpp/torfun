@@ -59,6 +59,7 @@ import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
 import { createIngestionDeps } from './services/egp/pipeline';
 import { ContractsService } from './services/contracts.service';
+import { SimilarAwardsService, type SimilarAwardsClient } from './services/similar-awards.service';
 import { ProcurementAdminService } from './services/procurement-admin.service';
 import { ScheduleService } from './services/schedule.service';
 import { SchedulerService } from './services/scheduler.service';
@@ -119,6 +120,8 @@ export interface RepositoryOverrides {
   contractSync?: ContractSyncStore;
   contractEnrichment?: ContractEnrichmentStore;
   govSpendingCooldown?: GovSpendingCooldownStore;
+  /** The two open-data calls similar awards makes; a test passes a fake so none reaches the network. */
+  similarAwardsClient?: SimilarAwardsClient;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
   notifications?: NotificationStore;
@@ -314,6 +317,16 @@ export async function buildApp(env: Env = loadEnv(), repositories: RepositoryOve
     companyQualificationsService,
   );
   app.decorate('torService', torService);
+  app.decorate(
+    'similarAwardsService',
+    new SimilarAwardsService(
+      torService,
+      env,
+      govSpendingCooldown,
+      app.log,
+      repositories.similarAwardsClient ? { client: repositories.similarAwardsClient } : {},
+    ),
+  );
   app.decorate(
     'torReportService',
     new TorReportService(
