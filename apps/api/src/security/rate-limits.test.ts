@@ -9,8 +9,8 @@ import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { InMemoryIngestionRunStore, noStats } from '../testing/ingestion-run-store';
 
 /**
- * Advanced feature: rate limiting for backend APIs (issue #168, ASVS V2.4.1,
- * V15.2.2, threat T-13). Expensive routes get a tighter budget than the global
+ * Rate limiting for backend APIs (issue #168, ASVS V2.4.1, V15.2.2, threat
+ * T-13). Expensive routes get a tighter budget than the global
  * 100/min, and the budget answers 429 with a Retry-After.
  */
 describe('expensive route limits', () => {

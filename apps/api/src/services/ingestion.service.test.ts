@@ -238,7 +238,7 @@ describe('runMayContinue', () => {
 });
 
 describe('IngestionService and the discovery sweep', () => {
-  test('every Run sweeps, however soon after the last (ADR-0020)', async () => {
+  test('every Run sweeps, however soon after the last', async () => {
     const { service, open, calls } = build();
 
     await service.startRun({});

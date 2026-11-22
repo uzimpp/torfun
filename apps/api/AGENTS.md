@@ -102,15 +102,14 @@ history newest-first, at most `FEED_BACKFILL_REQUESTS_PER_RUN` requests, back
 stored from the feed alone, with `budgetYear`, `typeId`, `goodsId` and
 `deptSubName` null: they come from its project detail
 (`AnnouncementClient.projectDetail`, the getProjectDetail endpoint), which
-Retrieval reads in the record's own gate turn (ADR-0020). Until then the year is
+Retrieval reads in the record's own gate turn. Until then the year is
 null, never guessed. Each agency-day is saved as soon as it is read, and its new
 projects join Retrieval's queue at once. Every Run reads the new days; the cursor
 covers exactly the days read in full, even when the sweep is cut short. The open-data
 client is kept for a future winner lookup and is not used for discovery. Never
-call the process5 search endpoints: they sit behind Cloudflare Turnstile
-(ADR-0018).
+call the process5 search endpoints: they sit behind Cloudflare Turnstile.
 
-A Run has three stages side by side (ADR-0020): Discovery, one Retrieval worker
+A Run has three stages side by side: Discovery, one Retrieval worker
 taking one project at a time, and Analysis, one task per downloaded Archive. The
 upstream site is reached through one gate (`services/egp/site-gate.ts`), shared
 by Discovery and Retrieval: one request in flight, a pause after each, and when

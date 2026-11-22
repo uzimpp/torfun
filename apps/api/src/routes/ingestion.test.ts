@@ -168,7 +168,7 @@ describe('ingestion route access and procurement query validation', () => {
       });
 
       expect(response.statusCode).toBe(202);
-      // A sweep can no longer be skipped, so there is nothing to force (ADR-0020).
+      // A sweep can no longer be skipped, so there is nothing to force.
       expect(startRun).toHaveBeenCalledWith({});
     });
   });

@@ -69,7 +69,7 @@ agencies. The platform reads the e-GP announcement feed for e-bidding tenders
 published by those agencies, uses the project identifier to obtain the
 corresponding project detail, announcement timeline and TOR attachment from the
 e-GP system, extracts key attributes from the document, and scores each
-opportunity against the company profile. It serves as a working interface
+opportunity against the company profile. It is a working interface
 between Business Development Officers and dispersed public procurement sources,
 replacing manual portal-by-portal inspection with a single ranked and filterable
 view. [Changed D-01: the source was "the Thailand Government Spending open

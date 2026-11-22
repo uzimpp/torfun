@@ -118,7 +118,7 @@ export function createRunLedger(options: {
       await note(record, work.stage, message);
       if (fresh) {
         // A transport failure leaves the record Queued for the next run and
-        // spends an attempt; the last attempt ends it (ADR-0006).
+        // spends an attempt; the last attempt ends it.
         const attempts = record.attempts + 1;
         const exhausted = attempts >= MAX_ATTEMPTS;
         await repository.transition(

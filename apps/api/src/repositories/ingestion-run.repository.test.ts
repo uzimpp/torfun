@@ -81,7 +81,7 @@ describeMongo('IngestionRunRepository', () => {
     expect(await runs.recent(10)).toEqual([written]);
   });
 
-  test('a run logged before ADR-0020 still reads back with its runners and skipped sweep', async () => {
+  test('a run logged before every Run swept still reads back with its runners and skipped sweep', async () => {
     const written = run('a', '2026-10-01T00:01:00.000Z');
     await runs.record(written);
     const stored = (await getDb()).collection('ingestion_runs');
@@ -95,7 +95,7 @@ describeMongo('IngestionRunRepository', () => {
     ]);
   });
 
-  test('a run logged before ADR-0021 reads back as having found nothing out of scope', async () => {
+  test('a run logged before out-of-scope tracking reads back as having found nothing out of scope', async () => {
     const written = run('a', '2026-10-01T00:01:00.000Z');
     await runs.record(written);
     const stored = (await getDb()).collection('ingestion_runs');

@@ -28,7 +28,6 @@ on:
 # Every var the api requires must appear below: `loadEnv()` validates the whole
 # schema at startup and throws, so a missing one is a container that never
 # listens, not a feature that quietly degrades.
-# See scripts/gcp-bootstrap.sh for the one-time setup that creates all of the above.
 
 permissions:
   contents: read

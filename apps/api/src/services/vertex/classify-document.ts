@@ -13,7 +13,7 @@ import { TOR_PROMPT, TOR_PROMPT_VERSION } from './prompts/tor-analysis';
 /**
  * Asks Gemini what one PDF from an announcement Archive actually is.
  *
- * One document per call, because the bytes are not stored (ADR-0002) and so
+ * One document per call, because the bytes are not stored and so
  * must travel as base64 `inlineData`; several PDFs in one request body would
  * breach the size limit. The consequence is that this function can never
  * compare candidates — it reports on the document in front of it, and
@@ -64,7 +64,7 @@ export type ReadMode = 'pdf' | 'text' | 'first_pages';
 
 /**
  * The model answers with its software judgement inside the analysis. The stored
- * analysis keeps only the reason (ADR-0016): the flags travel beside it as
+ * analysis keeps only the reason: the flags travel beside it as
  * `judgement`, to be turned into an Outcome and not kept.
  */
 const AnswerAnalysis = TorAnalysisSchema.omit({ reason: true, promptVersion: true }).extend({

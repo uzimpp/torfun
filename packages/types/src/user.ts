@@ -14,7 +14,7 @@ export const UserSchema = z.object({
    * Null is what the web gate redirects on; administrators are exempt and are
    * expected to stay null.
    *
-   * The Company owns its own name (ADR-0007), so a user document carries no
+   * The Company owns its own name, so a user document carries no
    * second copy of it.
    */
   companyId: z.string().nullable(),

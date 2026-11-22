@@ -37,7 +37,7 @@ interface CompanyDocument {
   qualifications?: QualificationsDocument;
   _id: ObjectId;
   name_th: string;
-  /** Optional and carries no uniqueness constraint — see ADR-0008. */
+  /** Optional and carries no uniqueness constraint. */
   tin: string | null;
   /** Absent on Companies created before managers existed; see the 2026-11 migration. */
   manager_ids?: string[];

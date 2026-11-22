@@ -37,8 +37,8 @@ Self-registration always creates a Business Development Officer. The admin role 
 
 Each Run has three stages working side by side. [`docs/ingestion-flow.md`](docs/ingestion-flow.md) has the full detail.
 
-- Discovery reads e-GP's announcement feed, one agency and one day at a time, and admits the e-bidding draft TORs and invitations that have no tombstone. It never looks at the title. It asks about the days since the last Run first, then about a share of the past year (ADR-0018). A new project is stored as Queued from the feed alone and handed to Retrieval at once.
-- Retrieval makes one turn at the site per project. It reads the project detail until it has been read once, which gives the real budget year (empty until then, never guessed). It reads the announcement timeline (greenBook) for status and bid deadline. Then it fetches the announcement archive and extracts the TOR PDFs. Never-read projects go first, newest announcement first. Projects already read get their timeline read again, oldest check first, and are retrieved again only if the invitation moved. The open-data API is not read, because it holds only signed contracts (ADR-0004).
+- Discovery reads e-GP's announcement feed, one agency and one day at a time, and admits the e-bidding draft TORs and invitations that have no tombstone. It never looks at the title. It asks about the days since the last Run first, then about a share of the past year. A new project is stored as Queued from the feed alone and handed to Retrieval at once.
+- Retrieval makes one turn at the site per project. It reads the project detail until it has been read once, which gives the real budget year (empty until then, never guessed). It reads the announcement timeline (greenBook) for status and bid deadline. Then it fetches the announcement archive and extracts the TOR PDFs. Never-read projects go first, newest announcement first. Projects already read get their timeline read again, oldest check first, and are retrieved again only if the invitation moved. The open-data API is not read, because it holds only signed contracts.
 - Analysis is Gemini reading the archive's TOR PDFs. It never touches e-GP, so it is the only stage that overlaps another stage's requests.
 
 Discovery and Retrieval reach `gprocurement.go.th` through one gate, one request at a time.
@@ -61,7 +61,7 @@ Every request to the site is one of these, and all happen inside one gate hold: 
 
 The process5 project search sits behind Cloudflare Turnstile and is never called. Do not add a captcha solver, a copied browser token, or a headless browser to reach it. The delays and the gate are not performance tuning. Do not parallelise around them, and do not retry past a refusal.
 
-No volume cap applies, so a Run works through the whole queue. That is the owner's decision (ADR-0015). If the site's owner ever states a limit, put it in code, not in this file. The one exception is Discovery's history: reading the past year takes a fixed share of each Run (`FEED_BACKFILL_REQUESTS_PER_RUN`, ADR-0018), so the new days and the queue are not starved behind it. New days are always read in full.
+No volume cap applies, so a Run works through the whole queue. That is the owner's decision. If the site's owner ever states a limit, put it in code, not in this file. The one exception is Discovery's history: reading the past year takes a fixed share of each Run (`FEED_BACKFILL_REQUESTS_PER_RUN`), so the new days and the queue are not starved behind it. New days are always read in full.
 
 ### Ingested data is evidence
 

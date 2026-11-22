@@ -6,9 +6,8 @@ import { ThaiProvince } from './province';
 /**
  * Domain types for the e-GP ingestion pipeline (Thai government procurement).
  *
- * Ported from the Python POC in `scripts/` — see docs/poc_fullflow/README.md
- * for the investigation these shapes came out of. They live in the shared
- * types package because the admin UI renders the same records the API stores.
+ * These live in the shared types package because the admin UI renders the
+ * same records the API stores.
  */
 
 /**
@@ -138,7 +137,7 @@ export const EMPTY_TIMELINE: Timeline = {
  * after the last attempt. A TOR Gemini reads as not software is not an outcome:
  * a confident answer drops the record (and tombstones it), an unsure one holds it
  * as `needs_review`. `out_of_scope` is a project whose Goods Category no
- * software work is filed under (ADR-0021): kept, but nothing more is read for it.
+ * software work is filed under: kept, but nothing more is read for it.
  */
 export const IngestionOutcome = z.enum([
   'queued',
@@ -156,8 +155,8 @@ export const IngestionOutcome = z.enum([
 export type IngestionOutcome = z.infer<typeof IngestionOutcome>;
 
 /**
- * Transport failures a Procurement may accumulate before it is abandoned
- * (ADR-0006). A policy, not a finding: it bounds how much of a capped Run a
+ * Transport failures a Procurement may accumulate before it is abandoned. A
+ * policy, not a finding: it bounds how much of a capped Run a
  * permanently broken project can consume. Shared so the console counts against
  * the same number the pipeline enforces.
  */
@@ -232,7 +231,7 @@ export function appendStatusChange(
 /**
  * What a document inside an announcement Archive turned out to be.
  *
- * Decided by reading the document (ADR-0003), never by matching its filename —
+ * Decided by reading the document, never by matching its filename —
  * the loose filename pattern matches `CONTRACTOR.pdf` and `MONITOR_spec.pdf`,
  * and cannot tell a ร่าง from the TOR it supersedes. The two exceptions are
  * `invitation` and `bidding_document`, which e-GP names by a fixed convention
@@ -250,7 +249,7 @@ export type DocumentRole = z.infer<typeof DocumentRole>;
 
 /**
  * One document found inside an Archive. A manifest entry, not a file: the bytes
- * are never persisted (ADR-0002), so this records what was there and what it
+ * are never persisted, so this records what was there and what it
  * was judged to be.
  */
 export const ArchiveDocumentSchema = z.object({
@@ -289,7 +288,7 @@ export type TargetPlatform = z.infer<typeof TargetPlatform>;
  * like are out. `low` is the model saying it cannot tell, which is a legitimate
  * answer and is held for a person rather than guessed at.
  *
- * Only the Outcome records what was decided from this (ADR-0016), so these two
+ * Only the Outcome records what was decided from this, so these two
  * flags are read once, by `decideOutcome`, and never stored.
  */
 export const SoftwareConfidence = z.enum(['high', 'low']);
@@ -409,7 +408,7 @@ export const ArchiveSchema = z.object({
   zipId: z.string(),
   /**
    * Every candidate document found in the archive and what it turned out to
-   * be. A manifest, not files: the bytes are never persisted (ADR-0002).
+   * be. A manifest, not files: the bytes are never persisted.
    */
   documents: z.array(ArchiveDocumentSchema),
   /**
@@ -427,7 +426,7 @@ export type Archive = z.infer<typeof ArchiveSchema>;
  * which is the deduplication key the functional requirements call for.
  *
  * A field copied from an e-GP response keeps e-GP's name; one this system works
- * out keeps its own (ADR-0021).
+ * out keeps its own.
  */
 export const ProcurementSchema = z.object({
   projectId: z.string(),
@@ -463,7 +462,7 @@ export const ProcurementSchema = z.object({
   outcome: IngestionOutcome,
   /**
    * Transport failures so far. Derived on write so retrieval can leave out
-   * exhausted records in the query itself (ADR-0006).
+   * exhausted records in the query itself.
    */
   attempts: z.number().int().nonnegative(),
   /** Why the record is held for review; null unless `outcome` is `needs_review`. */

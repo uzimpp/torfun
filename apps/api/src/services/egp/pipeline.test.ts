@@ -150,7 +150,7 @@ describe('runIngestion', () => {
   });
 
   test('PDF bytes are never written to the record', async () => {
-    // ADR-0002: nothing is persisted but the manifest. A payload reaching the
+    // Nothing is persisted but the manifest. A payload reaching the
     // repository would be written to Mongo on the next run.
     const repository = new InMemoryProcurementStore();
     await run(repository);
@@ -697,7 +697,7 @@ describe('a sweep that only re-sees what it already has', () => {
 });
 
 describe('when discovery runs', () => {
-  test('every Run sweeps, however soon after the last: there is no skip (ADR-0020)', async () => {
+  test('every Run sweeps, however soon after the last: there is no skip', async () => {
     const repository = new InMemoryProcurementStore();
     const discover = mock(async (context: SweepContext) => deps().discoverProjects(context));
 
@@ -1059,7 +1059,7 @@ describe('the reaper', () => {
   });
 });
 
-describe('retry policy (ADR-0006)', () => {
+describe('retry policy', () => {
   const resetting = {
     resolveZipId: async () => {
       throw new Error('connection reset');
@@ -1221,7 +1221,7 @@ describe('a record the model drops', () => {
   });
 });
 
-describe('Discovery reads the procurement detail and admits by category (ADR-0021)', () => {
+describe('Discovery reads the procurement detail and admits by category', () => {
   /** As Discovery stores it: from the feed alone, with no detail yet. */
   const unread = (overrides: Partial<Procurement> = {}) =>
     procurement({ budgetYear: null, detailReadAt: null, ...overrides });
@@ -1637,7 +1637,7 @@ describe('Retrieval and Analysis sharing the Run', () => {
   });
 });
 
-describe('the Analysis limit and the waiting room (ADR-0020)', () => {
+describe('the Analysis limit and the waiting room', () => {
   const ids = ['66059313551', '66059313552'];
   const pair = ['A', 'B'].map((letter) =>
     extracted({ member: `Attach_TOR_${letter}.pdf`, filename: `Attach_TOR_${letter}.pdf` }),
@@ -2227,7 +2227,7 @@ describe('runIngestion: the timeline', () => {
     });
   });
 
-  describe('a refresh and the procurement detail (ADR-0021)', () => {
+  describe('a refresh and the procurement detail', () => {
     const ID = '66059313599';
     const CLOSES = '2026-10-26T17:00:00.000Z';
     const DRAFT_TIMELINE = [row('B0', '2026-10-20T02:00:00.000Z')];
@@ -2678,7 +2678,7 @@ describe('runIngestion: the timing log', () => {
   });
 });
 
-describe('a Run that streams Discovery, Retrieval and Analysis (ADR-0020)', () => {
+describe('a Run that streams Discovery, Retrieval and Analysis', () => {
   const TODAY = '2026-10-07';
   const FOUND = '66109000001';
   const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

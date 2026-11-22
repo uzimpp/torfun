@@ -7,7 +7,7 @@ import { MoneyThbSchema, WorkTypeSchema } from './qualification';
  *
  * `Procurement` describes what an agency wants built; `Company` and its
  * `Experience` records describe what a software house has already built. The two
- * are deliberately expressed in one vocabulary — see ADR-0009 — so a later
+ * are deliberately expressed in one vocabulary — so a later
  * matching feature compares like with like instead of reconciling two lists that
  * were never designed to agree.
  */
@@ -82,7 +82,7 @@ export const CompanySchema = z.object({
   id: z.string(),
   /** The registered Thai name. The only name this system holds. */
   nameTh: ThaiCompanyName,
-  /** Optional, and carries no uniqueness constraint — see ADR-0008. */
+  /** Optional, and carries no uniqueness constraint. */
   tin: Tin.nullable(),
   /**
    * Company Managers' user ids (see `company-membership.ts`). Stored ids, not a

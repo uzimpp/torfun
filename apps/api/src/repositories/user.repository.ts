@@ -49,7 +49,7 @@ export interface NewUser {
 
 /**
  * The only role that may hold a Company or ask to join one. Site
- * Administrators hold none (ADR-0011), and every write that puts an account in
+ * Administrators hold none, and every write that puts an account in
  * a Company carries this in its filter.
  */
 const OFFICER: UserRole = 'business_development_officer';
@@ -237,7 +237,7 @@ export class UserRepository implements UserStore {
   /**
    * Points an account at a Company, or at none.
    *
-   * Switching is a plain repoint (ADR-0008): the Company keeps its Clients and
+   * Switching is a plain repoint: the Company keeps its Clients and
    * Experiences, because they were never the person's to take with them.
    */
   async setCompanyId(id: string, companyId: string | null): Promise<boolean> {

@@ -17,7 +17,7 @@ import { ProcurementSchema, type Procurement } from '@torfun/types';
 | `session.ts`  | The two session cookie names                                                                         |
 | `matching.ts` | `MatchResult` and its score breakdown                                              |
 
-Two rules keep this package a contract rather than a dumping ground. Persistence
+Two rules keep this package to the contract between the apps. Persistence
 shapes never enter it. `_id` and `password_hash` stay inside their repository.
 And what the words mean is settled in `GLOSSARY.md` at the repo root; read it
 before adding a name here.

@@ -18,7 +18,7 @@ import { requireAuth } from '../hooks/require-auth';
  * **none of them accepts a company id the caller chose to act as** — `/me`
  * resolves the Company from the signed-in account. `:id` appears exactly once,
  * on `join`, where naming another Company is the entire operation, and joining
- * is now only a request until a Company Manager approves it (pentest P-1).
+ * is only a request until a Company Manager approves it (pentest P-1).
  *
  * The rules — who may approve, the last-manager guard, the domain check — live
  * in `CompanyMembershipService`; this file shapes the wire and writes the audit

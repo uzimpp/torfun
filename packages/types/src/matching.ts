@@ -3,9 +3,9 @@ import { QualificationCheckSchema } from './qualification';
 
 /**
  * The vendor side of a score lives in `company.ts` as `Company` and its
- * `Experience` records (ADR-0009).
+ * `Experience` records.
  *
- * Scores belong to a company, never to a procurement alone (ADR-0007).
+ * Scores belong to a company, never to a procurement alone.
  * The qualification score (`qualification-match.ts`) is the share of clauses
  * met, and 0 when any clause is not met: every bidder qualification is mandatory.
  * Legal qualifications, industry and delivery capacity remain unverified.

@@ -6,7 +6,7 @@ import { InMemoryUserStore } from '../testing/user-store';
 /**
  * The account-management rules, at the service seam: who a Site Administrator
  * may promote, demote or deactivate, and the two things they may never do —
- * touch their own account, or remove the last one of themselves (ADR-0011).
+ * touch their own account, or remove the last one of themselves.
  *
  * Framework-free by design, so these run against the in-memory `UserStore`
  * with no Mongo and no Fastify.

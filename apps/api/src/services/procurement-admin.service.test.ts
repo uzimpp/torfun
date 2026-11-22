@@ -273,7 +273,7 @@ describe('restoring a tombstone', () => {
     });
   });
 
-  test('one written before snapshots still asks for one Run for that project, and makes no sweep for it (ADR-0020)', async () => {
+  test('one written before snapshots still asks for one Run for that project, and makes no sweep for it', async () => {
     const { store, service, runs } = await build([]);
     await store.tombstone(tombstone);
 
@@ -406,7 +406,7 @@ describe('restoring a tombstone, end to end through a real Run', () => {
       '66059313553',
     ]);
 
-    // A one-project Run skips Discovery (ADR-0020): there is nothing to rebuild it from.
+    // A one-project Run skips Discovery: there is nothing to rebuild it from.
     expect(asked).toEqual([]);
     expect(await store.get('66059313551')).toBeUndefined();
     expect(await store.get('66059313552')).toBeUndefined();

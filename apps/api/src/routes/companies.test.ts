@@ -224,7 +224,7 @@ describe('company routes', () => {
     });
 
     expect(response.statusCode).toBe(403);
-    // The account stays companyless — an admin holds no Company (ADR-0011).
+    // The account stays companyless — an admin holds no Company.
     expect((await users.findById(admin.id))?.companyId).toBeNull();
   });
 

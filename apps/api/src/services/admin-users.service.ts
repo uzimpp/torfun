@@ -8,7 +8,7 @@ import type { UserStore } from '../repositories/user.repository';
  * all, activate or deactivate one, and grant or revoke the `admin` role.
  *
  * Two rules are load-bearing and both exist so the screen cannot lock every
- * human out of `admin` — recoverable only by editing Mongo (ADR-0011):
+ * human out of `admin` — recoverable only by editing Mongo:
  *
  *  - **No self-targeting.** An administrator cannot change their own role or
  *    active flag; a second administrator has to do it.

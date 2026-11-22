@@ -24,7 +24,7 @@ export interface Pick {
 
 /**
  * Retrieval's queue: never-read projects first, then refreshes, and the waiting
- * room both draw on (ADR-0020).
+ * room both draw on.
  */
 export interface RetrievalQueue {
   /** Add a candidate. A project is queued once per Run, however many ways it is found. */
@@ -39,7 +39,7 @@ export interface RetrievalQueue {
    *
    * Never-read projects go first, but each needs a place before its turn. When
    * the room is full the gate goes on serving refreshes, which take no place up
-   * front (ADR-0020), so a full room does not hold them up behind fresh work.
+   * front, so a full room does not hold them up behind fresh work.
    * Null when nothing can be taken now: the queue is empty, or everything in it
    * needs a place and none is free.
    */

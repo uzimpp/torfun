@@ -53,12 +53,10 @@ import { escapeRegex as escapeRegexLiteral } from '../core/regex';
 /**
  * Values this system stored before the status and outcome vocabulary changed.
  *
- * Read as their new equivalents so a record written before the migration ran
- * (`docs/migrations/2026-09-30-status-outcome-vocabulary.js`) is served rather
- * than failing the whole response it appears in — the API validates every
- * response against the schema, so one stale value would 500 a page or the
- * summary. The migration rewrites them for good; this only covers the gap
- * between deploying the code and running it.
+ * Read as their new equivalents so a stale record is served instead of failing
+ * the whole response it appears in: the API validates every response against
+ * the schema, so one stale value would 500 a page or the summary. Delete these
+ * maps once no stored document holds an old value.
  */
 const LEGACY_OUTCOMES: Record<string, IngestionOutcome> = { processing: 'downloading' };
 const LEGACY_STATUSES: Record<string, ProcurementStatus> = {
@@ -116,7 +114,7 @@ interface ProcurementDocument {
   /** `currentDeadline` as of the last write, for search and ordering; not part of the domain. */
   deadline_at?: string | null;
   updated_at: string;
-  /** Flat fields stored before ADR-0021. Canonical fields take precedence. */
+  /** Flat fields stored before the detail was read in its own turn. Canonical fields take precedence. */
   status?: string;
   detail_checked_at?: string | null;
   timeline_checked_at?: string | null;
@@ -315,7 +313,7 @@ export interface FindOptions {
   /**
    * Only records whose procurement detail was read (true) or never read
    * (false). Discovery reads it for a Queued record before Retrieval may take
-   * the record (ADR-0021).
+   * the record.
    */
   detailRead?: boolean;
   /** Publication filter. Report removal is independent of ingestion outcome. */

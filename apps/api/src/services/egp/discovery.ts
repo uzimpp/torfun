@@ -16,15 +16,15 @@ import { SiteClosedError, SiteLatchedError, type GateTier } from './site-gate';
 
 /**
  * Stage 1 of the pipeline: e-GP's announcement feed, asked agency by agency and
- * day by day for e-bidding drafts and invitations (ADR-0018).
+ * day by day for e-bidding drafts and invitations.
  *
  * The feed answers for one agency, one announcement type and one day at a time,
  * so a sweep is a grid of those, and the cursor remembers, per agency and type,
  * the range of days already read in full. A sweep asks about the days after that
  * range (and today, still filling), then a share of the year before it. A
  * project is stored from the feed alone, with its procurement detail unread;
- * the pipeline reads that next, and only then is it admitted for Retrieval
- * (ADR-0021). Every request goes to gprocurement.go.th, the site the
+ * the pipeline reads that next, and only then is it admitted for Retrieval.
+ * Every request goes to gprocurement.go.th, the site the
  * downloads use, so each is made through the SiteGate like theirs (`site`).
  */
 
@@ -164,7 +164,7 @@ function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurem
  * is still filling.
  *
  * Admission is the agency (the feed is asked per agency), the tender method and
- * the tombstone. The title is not consulted (ADR-0014).
+ * the tombstone. The title is not consulted.
  */
 export async function discoverProjects(
   context: SweepContext,

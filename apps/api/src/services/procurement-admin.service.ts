@@ -125,7 +125,7 @@ export class ProcurementAdminService {
    * Run holds the lease: a refused start leaves the tombstone standing, and a
    * sweep already running cannot admit the project in the gap.
    *
-   * A one-project Run makes no sweep (ADR-0020), so a tombstone written before
+   * A one-project Run makes no sweep, so a tombstone written before
    * the snapshot was kept has nothing to rebuild from: the project comes back
    * only if a later Run's days include it, and this Run says so in the failure
    * log.
