@@ -26,7 +26,7 @@ describe('web security headers', () => {
     const csp = (await pageHeaders())['content-security-policy']!;
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("frame-ancestors 'none'");
-    expect(csp).toContain("base-uri 'self'");
+    expect(csp).toContain("base-uri 'none'");
     expect(csp).toContain("form-action 'self'");
     expect(csp).toContain('upgrade-insecure-requests');
   });
@@ -35,8 +35,9 @@ describe('web security headers', () => {
     const csp = (await pageHeaders())['content-security-policy']!;
     expect(csp).not.toMatch(/(^|[\s;])\*([\s;]|$)/);
     expect(csp).not.toContain("'unsafe-eval'");
-    // Plugins are limited to blob: (the in-browser TOR PDF viewer), never http(s) or *.
-    expect(csp).toMatch(/object-src blob:(;|$)/);
+    // The PDF is drawn to canvas by pdf.js, so no browser plugin is needed:
+    // object-src is 'none', never http(s), blob: or *.
+    expect(csp).toMatch(/object-src 'none'(;|$)/);
   });
 
   // KNOWN GAP (SECURITY.md, #193): script-src still allows 'unsafe-inline' because a nonce
