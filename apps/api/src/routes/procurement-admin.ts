@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { ReviewAlertsSchema, TombstoneSchema } from '@torfun/types';
+import { TombstoneSchema } from '@torfun/types';
 import { requireAdmin } from '../hooks/require-admin';
 import { expensiveRouteLimit } from '../plugins/security';
 
@@ -20,15 +20,6 @@ const notFoundOrConflict = { 404: Message, 409: Message };
 
 export const procurementAdminRoutes: FastifyPluginAsyncZod = async (app) => {
   app.addHook('onRequest', requireAdmin);
-
-  app.get(
-    '/ingestion/review-alerts',
-    { schema: { response: { 200: ReviewAlertsSchema } } },
-    async (_request, reply) => {
-      reply.header('Cache-Control', 'private, no-store');
-      return app.procurementAdminService.reviewAlerts();
-    },
-  );
 
   app.post(
     '/ingestion/procurements/:projectId/approve',

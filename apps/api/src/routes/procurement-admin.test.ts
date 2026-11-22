@@ -64,37 +64,6 @@ describe('administrator actions on a procurement', () => {
   const admin = () => as('admin');
   const officer = () => as('business_development_officer');
 
-  test('the review alert counts held records for an admin only, and approval clears it', async () => {
-    const url = '/api/ingestion/review-alerts';
-    expect((await app.inject({ url })).statusCode).toBe(401);
-    expect((await app.inject({ url, cookies: officer() })).statusCode).toBe(403);
-
-    const alert = await app.inject({ url, cookies: admin() });
-    expect(alert.statusCode).toBe(200);
-    expect(alert.headers['cache-control']).toBe('private, no-store');
-    expect(alert.json<unknown>()).toEqual({
-      waiting: 1,
-      latest: [
-        {
-          projectId: ID,
-          projectName: 'จ้างพัฒนาระบบสารสนเทศ',
-          deptName: 'กรุงเทพมหานคร',
-          holdReason: 'partial_read',
-        },
-      ],
-    });
-
-    await app.inject({
-      method: 'POST',
-      url: `/api/ingestion/procurements/${ID}/approve`,
-      cookies: admin(),
-    });
-    expect((await app.inject({ url, cookies: admin() })).json<unknown>()).toEqual({
-      waiting: 0,
-      latest: [],
-    });
-  });
-
   const actions = [
     { name: 'approve', method: 'POST' as const, url: `/api/ingestion/procurements/${ID}/approve` },
     {

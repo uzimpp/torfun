@@ -3,7 +3,6 @@ import Link from 'next/link';
 import type { CurrentUser } from '@/lib/auth';
 import { buttonVariants } from '@/components/ui/button';
 import { NotificationBell } from '@/components/notifications/notification-bell';
-import { ReviewAlertBell } from '@/components/admin/review-alert-bell';
 import { ThemeToggle } from '@/components/auth/theme-toggle';
 import { UserMenu } from '@/components/auth/user-menu';
 import { cn } from '@/lib/utils';
@@ -48,7 +47,6 @@ export function SiteHeader({
 
         <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2">
           {user?.role === 'business_development_officer' && <NotificationBell />}
-          {user?.role === 'admin' && <ReviewAlertBell />}
           <ThemeToggle
             initialTheme={initialTheme}
             className="border-border/60 bg-background/80 size-10 rounded-full shadow-none"

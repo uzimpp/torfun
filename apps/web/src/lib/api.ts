@@ -1,6 +1,5 @@
 import type {
   ChangePassword,
-  ReviewAlerts,
   ClientKind,
   CompanyQualificationsPayload,
   CompanyQualificationsRecord,
@@ -186,11 +185,6 @@ export function fetchProjects(filters: ProjectFilters = {}): Promise<ProjectList
 
 export function fetchFiscalYears(): Promise<ProcurementYearsResponse> {
   return request<ProcurementYearsResponse>('/api/tors/years');
-}
-
-/** Held records waiting for an administrator's decision (FR-14). Admin only. */
-export function fetchReviewAlerts(): Promise<ReviewAlerts> {
-  return request<ReviewAlerts>('/api/ingestion/review-alerts');
 }
 
 export function fetchTor(projectId: string): Promise<TorDetail> {
