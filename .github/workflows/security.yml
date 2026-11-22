@@ -84,7 +84,19 @@ jobs:
       - uses: github/codeql-action/init@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
         with:
           languages: javascript-typescript
+      # Uploading to the Security tab needs code scanning, which a private
+      # repository only has with GitHub Advanced Security. Without it the
+      # analysis still runs; the SARIF is kept as a workflow artifact instead.
       - uses: github/codeql-action/analyze@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
+        with:
+          upload: ${{ github.event.repository.private && 'never' || 'always' }}
+          output: codeql-results
+      - name: Keep the CodeQL results as an artifact
+        if: ${{ github.event.repository.private }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codeql-sarif
+          path: codeql-results
 
   container-scan:
     if: >-
@@ -110,10 +122,12 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: true
-          format: sarif
-          output: trivy-${{ matrix.app }}.sarif
+          # A private repository without Advanced Security cannot take SARIF,
+          # so print the table to the log; the exit code still gates the job.
+          format: ${{ github.event.repository.private && 'table' || 'sarif' }}
+          output: ${{ !github.event.repository.private && format('trivy-{0}.sarif', matrix.app) || '' }}
       - uses: github/codeql-action/upload-sarif@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
-        if: always()
+        if: ${{ always() && !github.event.repository.private }}
         with:
           sarif_file: trivy-${{ matrix.app }}.sarif
           category: trivy-${{ matrix.app }}
