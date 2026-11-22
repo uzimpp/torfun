@@ -24,4 +24,4 @@
 
 ---
 
-**If this PR targets `main`:** merging will automatically build, scan, and deploy both `api` and `web` to Cloud Run (see `.github/workflows/docker.yml`). Make sure `develop` has already been validated before opening this.
+**If this PR targets `main`:** merging runs no deploy. A release goes out only when `main` is promoted to the `deploy` branch (see `.github/workflows/docker.yml`).
