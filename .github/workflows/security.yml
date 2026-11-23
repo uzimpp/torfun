@@ -2,7 +2,7 @@ name: Security
 
 on:
   pull_request:
-    branches: [develop, main]
+    branches: [main]
     # `labeled` lets a reviewer add the `dast` label to any PR to run the image
     # scan and ZAP against it on demand (assignment criterion 15, issue #191).
     types: [opened, synchronize, reopened, labeled]
@@ -12,7 +12,7 @@ on:
   # jobs that upload SARIF (sast, container-scan) run on push; the others only
   # pass or fail, so they have no stale state to refresh.
   push:
-    branches: [develop, main]
+    branches: [main]
   # Runs every job, like the weekly schedule. Use it to re-scan a branch on demand.
   workflow_dispatch:
   schedule:
