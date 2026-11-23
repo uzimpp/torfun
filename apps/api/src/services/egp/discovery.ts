@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { convertDateToISO } from './dates';
 import { queuedRecord } from './feed-record';
+import { titleExclusion, type TitleFilterMode } from './title-filter';
 import { SiteClosedError, SiteLatchedError, type GateTier } from './site-gate';
 
 /**
@@ -40,6 +41,11 @@ export interface SweepContext {
   /** The days already read in full, per agency and announcement type; see `cursorKey`. */
   cursor: FeedCursor;
   tombstonedIds: TombstoneLookup;
+  /**
+   * What the title screen does: nothing (`off`, the default), find what it would
+   * drop and report it without dropping (`shadow`), or drop it (`on`).
+   */
+  titleFilter?: TitleFilterMode;
   /** Today as a Bangkok calendar day, `YYYY-MM-DD`. */
   today: string;
   /**
@@ -74,6 +80,18 @@ export interface DiscoveryResult {
   notEBidding: number;
   /** Items left out because they have a tombstone. Counted, not stored. */
   tombstoned: number;
+  /**
+   * Items the title screen ruled out, with the term that did. In `shadow` they
+   * were still admitted (`dropped` false); in `on` they were left out and are
+   * not stored, so this list and the Run log are all there is of them.
+   */
+  titleExcluded?: Array<{
+    projectId: string;
+    title: string;
+    deptName: string;
+    term: string;
+    dropped: boolean;
+  }>;
   /** Agency-days where the feed listed fewer announcements than it said were made. Each is also a failure. */
   truncated: number;
   /** Where the cursor now stands, for the units this sweep moved; already given to `save`. */
@@ -164,7 +182,8 @@ function toRecord(agency: Unit['agency'], item: FeedItem, day: string): Procurem
  * is still filling.
  *
  * Admission is the agency (the feed is asked per agency), the tender method and
- * the tombstone. The title is not consulted.
+ * the tombstone, then, unless the title filter is `off`, the title screen
+ * (title-filter.ts), which only ever rules out work that is plainly not software.
  */
 export async function discoverProjects(
   context: SweepContext,
@@ -179,6 +198,8 @@ export async function discoverProjects(
   const byProjectId = new Map<string, { record: Procurement; type: FeedAnnouncementType }>();
   const notEBidding = new Set<string>();
   const tombstoned = new Set<string>();
+  const titleExcluded: NonNullable<DiscoveryResult['titleExcluded']> = [];
+  const titleMode = context.titleFilter ?? 'off';
   let truncated = 0;
   let rateLimited = false;
   let unreachable = false;
@@ -285,7 +306,17 @@ export async function discoverProjects(
         deptName: unit.agency.deptName,
         purchaseMethodName: item.methodName,
       };
-      switch (admit(row, registry, ruledOut)) {
+      const term = titleMode === 'off' ? null : titleExclusion(item.title, unit.agency.deptName);
+      switch (admit(row, registry, ruledOut, titleMode === 'on' ? term : null)) {
+        case 'title_excluded':
+          titleExcluded.push({
+            projectId: item.projectId,
+            title: item.title,
+            deptName: unit.agency.deptName,
+            term: term!,
+            dropped: true,
+          });
+          break;
         case 'not_e_bidding':
           notEBidding.add(item.projectId);
           break;
@@ -293,6 +324,15 @@ export async function discoverProjects(
           tombstoned.add(item.projectId);
           break;
         case 'admit': {
+          if (term) {
+            titleExcluded.push({
+              projectId: item.projectId,
+              title: item.title,
+              deptName: unit.agency.deptName,
+              term,
+              dropped: false,
+            });
+          }
           const seen = byProjectId.get(item.projectId);
           const record = toRecord(unit.agency, item, day);
           // Seen as both a draft and an invitation, the invitation dates it; seen
@@ -369,6 +409,7 @@ export async function discoverProjects(
     drafts: admitted.filter((each) => each.type === 'B0').map((each) => each.record.projectId),
     notEBidding: notEBidding.size,
     tombstoned: tombstoned.size,
+    titleExcluded,
     truncated,
     cursor: Object.fromEntries([...moved].map((key) => [key, ranges[key]!])),
     failures,

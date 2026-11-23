@@ -92,6 +92,10 @@ export const EnvSchema = z.object({
   // Run. Vertex's quota and the bill count calls, so size this to the quota.
   // It also bounds the Archives held in memory waiting to be read.
   ANALYSIS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(8),
+  // Title screen on feed items (services/egp/title-filter.ts). `shadow` logs
+  // what it would leave out and changes nothing; `on` leaves those projects out
+  // of the queue; `off` never reads a title.
+  TITLE_FILTER: z.enum(['off', 'shadow', 'on']).default('shadow'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

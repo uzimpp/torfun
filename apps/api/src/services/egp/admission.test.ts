@@ -72,6 +72,22 @@ describe('admit', () => {
   });
 });
 
+describe('admit: the title screen', () => {
+  test('a title exclusion keeps an otherwise admitted project out', () => {
+    expect(admit(row, expectedNames, new Set(), 'ลิฟต์')).toBe('title_excluded');
+  });
+
+  test('no exclusion admits as before', () => {
+    expect(admit(row, expectedNames, new Set(), null)).toBe('admit');
+  });
+
+  test('an earlier reason is still the one named', () => {
+    const other = { ...row, deptName: 'หน่วยงานอื่น' };
+    expect(admit(other, expectedNames, new Set(), 'ลิฟต์')).toBe('not_registry');
+    expect(admit(row, expectedNames, new Set(['111']), 'ลิฟต์')).toBe('tombstoned');
+  });
+});
+
 describe('goodsInScope', () => {
   test.each([
     ['4010', true],

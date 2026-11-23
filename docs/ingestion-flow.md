@@ -30,7 +30,19 @@ Points the diagram cannot show:
 - The PDF is never stored. Only the archive manifest (`zipId` and the role of each document) survives. When an officer opens the source TOR, the API downloads it again by `zipId` (ADR-0002).
 - A dropped record keeps almost nothing: a tombstone with the quoted evidence and a feed snapshot, so an administrator can restore it.
 - The invitation is read even for a held record, so an administrator still sees the bid deadline. Only a dropped record skips it.
-- Whether the work is software comes from the document, never from the title (ADR-0014). The goods category only limits scope.
+- Whether the work is software comes from the document (ADR-0014). The goods category only limits scope. The one use of the title is the title screen below.
+
+### Title screen
+
+Discovery runs each feed item's title through `services/egp/title-filter.ts` before the item becomes a record, so a project that is plainly not software costs no detail request, no archive download and no model call. `TITLE_FILTER` sets what it does:
+
+| Mode               | Effect                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `off`              | Reads no title                                                                                                      |
+| `shadow` (default) | Admits everything and logs `title screen would leave a project out` with the title and the term                     |
+| `on`               | Leaves the project out and logs `title screen left a project out`. Nothing is stored, so the log is the only record |
+
+Three layers keep it from dropping real software work: the buyer's name (การไฟฟ้า, การประปา, the agency itself) is masked first; a software word anywhere in the title (สารสนเทศ, ซอฟต์แวร์, โปรแกรม, เครือข่าย …) vetoes it; and only terms that name the work decide (ลิฟต์, จราจร, ปรับอากาศ, ก่อสร้าง, ผ้า …), never a bare ไฟฟ้า or ประปา. On the 54 projects that reached the model when it was calibrated, it caught 31 of the 40 the model rejected and none of the 13 it kept.
 
 ## 3. The gate and the queue
 
@@ -38,12 +50,12 @@ The gate serves one section at a time and pauses 4 to 6 seconds after each,
 unless nothing else can ask e-GP. When it frees, the best waiting tier goes
 next, first come first served within a tier:
 
-| Tier | Work |
-| ---- | ---- |
-| `new_day` | Discovery reads days since the last Run |
-| `detail` | Discovery reads a new project's detail |
-| `fresh` | Retrieval of a never-read project |
-| `refresh` | Retrieval re-reads a timeline |
+| Tier      | Work                                                                |
+| --------- | ------------------------------------------------------------------- |
+| `fresh`   | Retrieval of a never-read project: its archive goes to Analysis     |
+| `detail`  | Discovery reads a new project's detail                              |
+| `new_day` | Discovery reads days since the last Run                             |
+| `refresh` | Retrieval re-reads a timeline                                       |
 | `history` | Discovery backfills the past year, at most 60 feed requests per Run |
 
 A worse tier can wait but not forever, because a Run does not end until its work
@@ -91,15 +103,15 @@ or unreadable.
 `decideOutcome` (`services/egp/decision.ts`) lets only the most certain answers
 act on their own:
 
-| Model says | Confidence | Whole PDF read | Result | Visible to officers |
-| ---------- | ---------- | -------------- | ------ | ------------------- |
-| software | high | yes | `tor_analysed` | yes |
-| software | low | any | `needs_review` (`ai_low_confidence`) | no |
-| not software | high | yes | dropped, tombstone `ai_not_software` | no |
-| not software | low | any | `needs_review` (`ai_not_software_low`) | no |
-| any | any | no | `needs_review` (`partial_read`) | no |
-| no main TOR found | | | `no_tor_in_archive` | no |
-| TOR candidates, none readable | | | `analysis_failed` | no |
+| Model says                    | Confidence | Whole PDF read | Result                                 | Visible to officers |
+| ----------------------------- | ---------- | -------------- | -------------------------------------- | ------------------- |
+| software                      | high       | yes            | `tor_analysed`                         | yes                 |
+| software                      | low        | any            | `needs_review` (`ai_low_confidence`)   | no                  |
+| not software                  | high       | yes            | dropped, tombstone `ai_not_software`   | no                  |
+| not software                  | low        | any            | `needs_review` (`ai_not_software_low`) | no                  |
+| any                           | any        | no             | `needs_review` (`partial_read`)        | no                  |
+| no main TOR found             |            |                | `no_tor_in_archive`                    | no                  |
+| TOR candidates, none readable |            |                | `analysis_failed`                      | no                  |
 
 The prompt forces low confidence for mixed software and hardware work, a pure
 licence or SaaS renewal, unclear scope, and any document that contains
@@ -118,17 +130,17 @@ What a failed turn does to the record depends on why it failed:
 - e-GP refused with 429 or 403. The gate latches for the rest of the Run, the failure is logged, and a fresh record goes back to `queued` without an attempt spent.
 - Anything else, including the 5-minute record deadline, is a transport failure. It is logged with its stage. A refresh keeps its outcome. A fresh record spends an attempt and becomes `error`, then `abandoned` on the third.
 
-| Where it failed | Failure log stage | Effect on the record |
-| --------------- | ----------------- | -------------------- |
-| A feed request for an agency-day | `discovery` | The day is not added to the Feed Cursor and is asked again next Run |
-| Detail answered `data: null` | `discovery` | Left as it was, `detailReadAt` stays null, asked again |
-| Timeline answered `data: null` | `timeline` | Keeps what it had, Procurement Status unchanged |
-| An unrecognised announcement code | `timeline` | Logged, status not changed by it |
-| No `zipId` | `info`, kind `no_tor` | `no_tor_package` (Failed), a legitimate upstream answer |
-| Lookup or download error | `info` or `download` | An attempt is spent: `error`, then `abandoned` on the third |
-| A path-traversal archive member | `extract` | Surfaced in the log and skipped |
-| An archive with no TOR | `extract`, kind `no_tor` | `no_tor_in_archive` |
-| The model could not read any candidate | `analysis` | `analysis_failed`, not retried because archives are not stored |
+| Where it failed                        | Failure log stage        | Effect on the record                                                |
+| -------------------------------------- | ------------------------ | ------------------------------------------------------------------- |
+| A feed request for an agency-day       | `discovery`              | The day is not added to the Feed Cursor and is asked again next Run |
+| Detail answered `data: null`           | `discovery`              | Left as it was, `detailReadAt` stays null, asked again              |
+| Timeline answered `data: null`         | `timeline`               | Keeps what it had, Procurement Status unchanged                     |
+| An unrecognised announcement code      | `timeline`               | Logged, status not changed by it                                    |
+| No `zipId`                             | `info`, kind `no_tor`    | `no_tor_package` (Failed), a legitimate upstream answer             |
+| Lookup or download error               | `info` or `download`     | An attempt is spent: `error`, then `abandoned` on the third         |
+| A path-traversal archive member        | `extract`                | Surfaced in the log and skipped                                     |
+| An archive with no TOR                 | `extract`, kind `no_tor` | `no_tor_in_archive`                                                 |
+| The model could not read any candidate | `analysis`               | `analysis_failed`, not retried because archives are not stored      |
 
 A Run ends when its work is done or the gate closes: a refusal, three unanswered requests in a row, a web page served in place of data, an administrator's stop, or a lost lease. After that nothing new goes to e-GP, Analysis finishes the archives it holds, and queued projects keep their state.
 
@@ -142,30 +154,30 @@ Every request an ingestion Run makes goes through the gate, and the Run sends no
 created inside each Run, so concurrent source downloads can overlap each other and a Run, and a
 Run's latched gate does not stop them.
 
-| Request | Made by | Tier | When | Notes |
-| ------- | ------- | ---- | ---- | ----- |
-| Announcement RSS feed (agency, type, day) | Discovery | `new_day`, `history` | Every sweep | One agency, one type, one day. No token or captcha. 20 s timeout, no retries |
-| `getProcurementDetail` | Detail turn | `detail` | Until `detailReadAt` is set | Goods category decides scope |
-| `getProjectDetail` | Detail turn | `detail` | While `budgetYear` is null | Never guessed |
-| Draft list (comment deadline) | Detail or refresh | `detail`, `refresh` | Only while `drafting` | |
-| Timeline (greenBook) | Retrieval | `fresh`, `refresh` | Every turn | Source of Procurement Status |
-| `infoProcureDocAnnounZip?projectId=` | Retrieval | `fresh`, `refresh` | A new project, or a moved invitation | `data.zipId`; absent means no TOR package |
-| `downloadFileTest?fileId=<zipId>` | Retrieval | `fresh`, `refresh` | Same | ZIP up to about 30 MB, 120 s timeout |
+| Request                                   | Made by           | Tier                 | When                                 | Notes                                                                        |
+| ----------------------------------------- | ----------------- | -------------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
+| Announcement RSS feed (agency, type, day) | Discovery         | `new_day`, `history` | Every sweep                          | One agency, one type, one day. No token or captcha. 20 s timeout, no retries |
+| `getProcurementDetail`                    | Detail turn       | `detail`             | Until `detailReadAt` is set          | Goods category decides scope                                                 |
+| `getProjectDetail`                        | Detail turn       | `detail`             | While `budgetYear` is null           | Never guessed                                                                |
+| Draft list (comment deadline)             | Detail or refresh | `detail`, `refresh`  | Only while `drafting`                |                                                                              |
+| Timeline (greenBook)                      | Retrieval         | `fresh`, `refresh`   | Every turn                           | Source of Procurement Status                                                 |
+| `infoProcureDocAnnounZip?projectId=`      | Retrieval         | `fresh`, `refresh`   | A new project, or a moved invitation | `data.zipId`; absent means no TOR package                                    |
+| `downloadFileTest?fileId=<zipId>`         | Retrieval         | `fresh`, `refresh`   | Same                                 | ZIP up to about 30 MB, 120 s timeout                                         |
 
 The `process5` project search is never called, and the code must not gain a
 captcha solver, a copied browser token or a headless browser to reach it.
 
 ## 8. What is kept
 
-| Data | Kept | Where |
-| ---- | ---- | ----- |
-| Feed fields (name, agency, announce date, method) | yes | `procurements` |
-| Detail fields (goods category, budget year, amounts) | yes | `procurements` |
-| Timeline, Procurement Status, deadlines | yes | `procurements.timeline` |
-| Archive manifest (`zipId`, member names, roles, read mode) | yes | `procurements.archive` |
-| AI analysis and its `promptVersion` | yes | `procurements.analysis` |
-| TOR PDF bytes | no | Memory only, re-downloaded on request |
-| A record judged non-software with high confidence | deleted | A tombstone remains: reason, quoted evidence, prompt version, feed snapshot |
-| Failures | yes | `ingestion_failures` |
-| Status history | last 50 entries | `procurements.statusHistory` |
-| Run summaries | yes | `ingestion_runs` |
+| Data                                                       | Kept            | Where                                                                       |
+| ---------------------------------------------------------- | --------------- | --------------------------------------------------------------------------- |
+| Feed fields (name, agency, announce date, method)          | yes             | `procurements`                                                              |
+| Detail fields (goods category, budget year, amounts)       | yes             | `procurements`                                                              |
+| Timeline, Procurement Status, deadlines                    | yes             | `procurements.timeline`                                                     |
+| Archive manifest (`zipId`, member names, roles, read mode) | yes             | `procurements.archive`                                                      |
+| AI analysis and its `promptVersion`                        | yes             | `procurements.analysis`                                                     |
+| TOR PDF bytes                                              | no              | Memory only, re-downloaded on request                                       |
+| A record judged non-software with high confidence          | deleted         | A tombstone remains: reason, quoted evidence, prompt version, feed snapshot |
+| Failures                                                   | yes             | `ingestion_failures`                                                        |
+| Status history                                             | last 50 entries | `procurements.statusHistory`                                                |
+| Run summaries                                              | yes             | `ingestion_runs`                                                            |
