@@ -16,6 +16,7 @@ import { contractSyncYears } from './egp/dates';
 import type { EGPContractSubmitRecord } from './egp/contract-client';
 import {
   ContractsService,
+  contractSyncHook,
   parseSubmitPrice,
   type ContractSyncClient,
 } from './contracts.service';
@@ -697,5 +698,32 @@ describe('ContractsService contract records: project-level figures', () => {
       projectMoney: null,
       priceBuild: null,
     });
+  });
+});
+
+describe('contractSyncHook: a full Run syncs contracts only when switched on', () => {
+  const service = () => {
+    const calls: number[] = [];
+    return {
+      calls,
+      syncAnnual: async () => {
+        calls.push(1);
+      },
+    };
+  };
+
+  test('gives the Run nothing to call by default', () => {
+    const fake = service();
+    expect(contractSyncHook(testEnv(), fake)).toBeUndefined();
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test('gives the Run the sync once it is switched on', async () => {
+    const fake = service();
+    const hook = contractSyncHook(testEnv({ CONTRACT_SYNC_ENABLED: 'true' }), fake);
+
+    expect(hook).toBeDefined();
+    await hook!(() => true);
+    expect(fake.calls).toHaveLength(1);
   });
 });

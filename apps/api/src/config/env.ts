@@ -92,6 +92,15 @@ export const EnvSchema = z.object({
   // Run. Vertex's quota and the bill count calls, so size this to the quota.
   // It also bounds the Archives held in memory waiting to be read (ADR-0020).
   ANALYSIS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(8),
+
+  // After a full Run, pull signed contracts and their bidders from the open-data
+  // API (bid strategy). Off unless set to 'true': it spends the open-data key's
+  // daily allowance, which the whole team shares, and writes the contract
+  // collections into the shared database.
+  CONTRACT_SYNC_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

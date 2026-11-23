@@ -63,7 +63,7 @@ import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
 import { createIngestionDeps } from './services/egp/pipeline';
-import { ContractsService } from './services/contracts.service';
+import { ContractsService, contractSyncHook } from './services/contracts.service';
 import { SimilarAwardsService, type SimilarAwardsClient } from './services/similar-awards.service';
 import { ProcurementAdminService } from './services/procurement-admin.service';
 import { ScheduleService } from './services/schedule.service';
@@ -318,10 +318,7 @@ export async function buildApp(
       runs: ingestionRuns,
       stats: ingestionStats,
     },
-    (onUsage) =>
-      createIngestionDeps(env, onUsage, (shouldContinue) =>
-        contractsService.syncAnnual(shouldContinue),
-      ),
+    (onUsage) => createIngestionDeps(env, onUsage, contractSyncHook(env, contractsService)),
   );
   app.decorate('ingestionService', ingestionService);
   app.decorate(

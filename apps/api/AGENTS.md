@@ -178,6 +178,9 @@ published and never recomputed. The detail page shows it (`TorAwardSection`, fro
 `project_id` matched e-GP's in five samples, but re-announced projects and cross-year
 contracts are untested. Which announcement round a contract belongs to is not decided,
 and contract dates (unparsed Thai text) must not be used to pick one.
+The contract sync after a full Run is off unless `CONTRACT_SYNC_ENABLED=true`: it spends
+the open-data key's daily allowance, which the team shares, and writes the contract
+collections into the shared database.
 
 A TOR's planned budget against similar earlier procurements (#61,
 `TorService.budgetComparison`, `compareBudget` in `packages/types`) uses only stored

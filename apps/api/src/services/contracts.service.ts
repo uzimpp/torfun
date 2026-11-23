@@ -159,6 +159,19 @@ function isBlank(value: unknown): boolean {
   return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
 }
 
+/**
+ * What a full Run calls after it, or nothing. The sync pulls whole years of contracts
+ * from the open-data API and writes them to the shared database, so it runs only
+ * where `CONTRACT_SYNC_ENABLED` says so; by default it does not.
+ */
+export function contractSyncHook(
+  env: Pick<Env, 'CONTRACT_SYNC_ENABLED'>,
+  service: Pick<ContractsService, 'syncAnnual'>,
+): ((shouldContinue: () => boolean) => Promise<void>) | undefined {
+  if (!env.CONTRACT_SYNC_ENABLED) return undefined;
+  return (shouldContinue) => service.syncAnnual(shouldContinue);
+}
+
 export class ContractsService {
   constructor(
     private readonly contracts: ContractStore,
