@@ -238,19 +238,31 @@ describe('the site gate', () => {
       expect(starts(log)).toEqual(['a', 'b', 'c']);
     });
 
-    test('a procurement detail waiter goes before a fresh waiter that arrived first', async () => {
+    test('a fresh waiter goes before a new day waiter that arrived first', async () => {
       const { gate, use, section, log } = harness();
       const hold = await gate.acquire('history');
 
+      const newDay = use(section('new_day'), undefined, 'new_day');
       const fresh = use(section('fresh'), undefined, 'fresh');
-      const detail = use(section('detail'), undefined, 'detail');
       await hold.release();
-      await Promise.all([fresh, detail]);
+      await Promise.all([newDay, fresh]);
 
-      expect(starts(log)).toEqual(['detail', 'fresh']);
+      expect(starts(log)).toEqual(['fresh', 'new_day']);
     });
 
-    test('new days, then procurement details, then fresh, then refresh, then history', async () => {
+    test('a fresh waiter goes before a procurement detail waiter that arrived first', async () => {
+      const { gate, use, section, log } = harness();
+      const hold = await gate.acquire('history');
+
+      const detail = use(section('detail'), undefined, 'detail');
+      const fresh = use(section('fresh'), undefined, 'fresh');
+      await hold.release();
+      await Promise.all([detail, fresh]);
+
+      expect(starts(log)).toEqual(['fresh', 'detail']);
+    });
+
+    test('fresh, then procurement details, then new days, then refresh, then history', async () => {
       const { gate, use, section, log } = harness();
       const hold = await gate.acquire('history');
 
@@ -259,7 +271,7 @@ describe('the site gate', () => {
       await hold.release();
       await Promise.all(waiters);
 
-      expect(starts(log)).toEqual(['new_day', 'detail', 'fresh', 'refresh', 'history']);
+      expect(starts(log)).toEqual(['fresh', 'detail', 'new_day', 'refresh', 'history']);
     });
 
     test('a free gate is taken at once, whatever the tier', async () => {
