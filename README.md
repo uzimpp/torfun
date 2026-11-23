@@ -124,10 +124,12 @@ and Playwright e2e, alongside a security pass: dependency audit, secret scan,
 CodeQL, and for `main`, a Trivy image scan and a ZAP baseline against the running
 stack.
 
-Pushes to `main` and `v*` tags build both Docker images, Trivy-scan them, and push
-to Artifact Registry; `main` also deploys both to Cloud Run. The repository
-variables and Secret Manager secrets it requires are listed at the top of
-`.github/workflows/docker.yml`.
+Merging into `main` deploys nothing. Releases go out from the `deploy` branch:
+promote with a fast-forward push (`git push origin main:deploy`, never a force
+push). A push to `deploy` (or a `v*` tag) builds both Docker images, Trivy-scans
+them, and pushes to Artifact Registry; `deploy` also deploys both to Cloud Run.
+The repository variables and Secret Manager secrets it requires are listed at the
+top of `.github/workflows/docker.yml`.
 
 ## License
 

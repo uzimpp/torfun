@@ -6,6 +6,15 @@ on:
     # `labeled` lets a reviewer add the `dast` label to any PR to run the image
     # scan and ZAP against it on demand (assignment criterion 15, issue #191).
     types: [opened, synchronize, reopened, labeled]
+  # Code-scanning alerts belong to a ref. A PR scan reports on refs/pull/N/merge,
+  # so it can never close an alert on `main`: without a scan of the branch itself,
+  # an alert opened by one weekly run stays open after the fix merges. Only the
+  # jobs that upload SARIF (sast, container-scan) run on push; the others only
+  # pass or fail, so they have no stale state to refresh.
+  push:
+    branches: [develop, main]
+  # Runs every job, like the weekly schedule. Use it to re-scan a branch on demand.
+  workflow_dispatch:
   schedule:
     # Catch newly-disclosed CVEs in unchanged dependencies.
     - cron: '0 6 * * 1'
@@ -15,6 +24,7 @@ permissions:
 
 jobs:
   dependency-audit:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -45,7 +55,15 @@ jobs:
           bun .github/scripts/new-advisories.ts "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" high critical
 
   secret-scan:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    # gitleaks-action lists the PR's commits through the API. On a private
+    # repository that needs pull-requests read, which the workflow-level
+    # `contents: read` does not grant, so the job died with a 403 before it
+    # scanned anything. Granted to this job only.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -61,12 +79,27 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      # CodeQL reads its own workflow run; a private repository refuses that
+      # without actions: read ("Resource not accessible by integration").
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: github/codeql-action/init@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
         with:
           languages: javascript-typescript
+      # Uploading to the Security tab needs code scanning, which a private
+      # repository only has with GitHub Advanced Security. Without it the
+      # analysis still runs; the SARIF is kept as a workflow artifact instead.
       - uses: github/codeql-action/analyze@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
+        with:
+          upload: ${{ github.event.repository.private && 'never' || 'always' }}
+          output: codeql-results
+      - name: Keep the CodeQL results as an artifact
+        if: ${{ github.event.repository.private }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codeql-sarif
+          path: codeql-results
 
   container-scan:
     if: >-
@@ -92,10 +125,12 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: true
-          format: sarif
-          output: trivy-${{ matrix.app }}.sarif
+          # A private repository without Advanced Security cannot take SARIF,
+          # so print the table to the log; the exit code still gates the job.
+          format: ${{ github.event.repository.private && 'table' || 'sarif' }}
+          output: ${{ !github.event.repository.private && format('trivy-{0}.sarif', matrix.app) || '' }}
       - uses: github/codeql-action/upload-sarif@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3
-        if: always()
+        if: ${{ always() && !github.event.repository.private }}
         with:
           sarif_file: trivy-${{ matrix.app }}.sarif
           category: trivy-${{ matrix.app }}
@@ -104,7 +139,7 @@ jobs:
     # Runs after the image scan but not only when it passes: a Trivy finding
     # must not also hide the ZAP results, which test different things.
     if: >-
-      !cancelled() && (
+      !cancelled() && github.event_name != 'push' && (
       github.event_name != 'pull_request' ||
       github.event.pull_request.base.ref == 'main' ||
       contains(github.event.pull_request.labels.*.name, 'dast'))
