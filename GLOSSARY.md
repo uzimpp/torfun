@@ -29,7 +29,7 @@ _Avoid_: contractor, vendor, awardee
 ### Pipeline
 
 **Discovery**:
-The stage that reads e-GP's announcement feed and admits new e-bidding projects. It never looks at a project's title.
+The stage that reads e-GP's announcement feed and admits new e-bidding projects. It looks at a project's title only through the title screen, which can leave out work that is plainly not software (`TITLE_FILTER`).
 _Avoid_: crawl, scrape, scan
 
 **Retrieval**:

@@ -517,3 +517,59 @@ describe('the calendar the feed is read by', () => {
     expect(result.records).toEqual([]);
   });
 });
+
+describe('discoverProjects: the title screen', () => {
+  const customs = FEED_REGISTRY.find((agency) => agency.deptId === CUSTOMS)!;
+  const day = () =>
+    fakeFeed({
+      [`${CUSTOMS}:B0:${TODAY}`]: listing([
+        item('1', { title: 'ประกวดราคาจ้างพัฒนาระบบสารสนเทศ' }),
+        item('2', { title: 'ประกวดราคาจ้างเหมาซ่อมบำรุงรักษาลิฟต์ อาคารสำนักงาน' }),
+      ]),
+    });
+  const run = (titleFilter?: 'off' | 'shadow' | 'on') => {
+    const { feed } = day();
+    return discoverProjects(
+      {
+        site: (_tier, call) => call(),
+        cursor: caughtUp(),
+        tombstonedIds: async () => new Set(),
+        today: TODAY,
+        agencies: [customs],
+        save: async () => {},
+        ...(titleFilter ? { titleFilter } : {}),
+      },
+      feed,
+    );
+  };
+
+  test('off, the default, reads no title', async () => {
+    for (const result of [await run(), await run('off')]) {
+      expect(result.records.map((record) => record.projectId).sort()).toEqual(['1', '2']);
+      expect(result.titleExcluded).toEqual([]);
+    }
+  });
+
+  test('shadow admits everything and reports what it would have left out', async () => {
+    const result = await run('shadow');
+
+    expect(result.records.map((record) => record.projectId).sort()).toEqual(['1', '2']);
+    expect(result.titleExcluded).toEqual([
+      expect.objectContaining({ projectId: '2', term: 'ลิฟต์', dropped: false }),
+    ]);
+  });
+
+  test('on leaves the project out and reports it', async () => {
+    const result = await run('on');
+
+    expect(result.records.map((record) => record.projectId)).toEqual(['1']);
+    expect(result.titleExcluded).toEqual([
+      expect.objectContaining({
+        projectId: '2',
+        deptName: customs.deptName,
+        term: 'ลิฟต์',
+        dropped: true,
+      }),
+    ]);
+  });
+});

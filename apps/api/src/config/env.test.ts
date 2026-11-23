@@ -21,3 +21,15 @@ describe('MONGODB_DB', () => {
     expect(testEnv().MONGODB_DB).toBeUndefined();
   });
 });
+
+describe('TITLE_FILTER', () => {
+  test('defaults to shadow, which changes nothing but the log', () => {
+    expect(testEnv().TITLE_FILTER).toBe('shadow');
+  });
+
+  test('accepts off, shadow and on, and nothing else', () => {
+    for (const mode of ['off', 'shadow', 'on'] as const)
+      expect(testEnv({ TITLE_FILTER: mode }).TITLE_FILTER).toBe(mode);
+    expect(() => testEnv({ TITLE_FILTER: 'yes' as never })).toThrow();
+  });
+});

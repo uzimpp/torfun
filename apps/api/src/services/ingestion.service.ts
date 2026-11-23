@@ -340,6 +340,7 @@ export class IngestionService {
       this.repository,
       {
         analysisConcurrency: this.env.ANALYSIS_CONCURRENCY,
+        titleFilter: this.env.TITLE_FILTER,
         logger: this.logger,
         shouldContinue: () => runMayContinue(held, this.now().getTime(), leaseTtlMs),
         stopRequested: () => held.stopRequested,

@@ -28,6 +28,7 @@ import { createRetrievalWorker } from './retrieval-worker';
 import { createRunControl, runEnding, type RunControl } from './run-control';
 import { createRunLedger } from './run-ledger';
 import { createSiteGate, type SiteGate } from './site-gate';
+import type { TitleFilterMode } from './title-filter';
 import {
   downloadArchive,
   extractInvitationPdfs,
@@ -126,6 +127,8 @@ export interface RunOptions {
    * under, Analysis.
    */
   analysisConcurrency?: number;
+  /** What Discovery does with the title screen; see `SweepContext.titleFilter`. Default `off`. */
+  titleFilter?: TitleFilterMode;
   /** The Source Registry for this Run: the agencies Discovery reads. Absent: the shipped list. */
   agencies?: SourceAgency[];
   /**
@@ -269,6 +272,7 @@ async function runDiscovery(run: {
   gate: SiteGate;
   control: RunControl;
   live: LiveView;
+  titleFilter: TitleFilterMode;
   route: (candidate: DetailCandidate) => void;
   failures: IngestionFailure[];
   agencies?: SourceAgency[];
@@ -331,6 +335,7 @@ async function runDiscovery(run: {
     // A project that has a tombstone is not admitted, whatever the feed says
     // about it: the tombstone is the decision, until an administrator lifts it.
     tombstonedIds: (ids) => repository.tombstonedIds(ids),
+    titleFilter: run.titleFilter,
     today: bangkokToday(),
     ...(run.agencies ? { agencies: run.agencies } : {}),
     save,
@@ -352,9 +357,20 @@ async function runDiscovery(run: {
     await repository.markRun(result.ranAt);
   }
 
+  // Every title the screen ruled out, so an administrator can check what it did.
+  // In `on` mode these are stored nowhere else.
+  for (const each of result.titleExcluded ?? []) {
+    logger.info(
+      { ...each, mode: run.titleFilter },
+      each.dropped
+        ? 'egp: title screen left a project out'
+        : 'egp: title screen would leave a project out (shadow)',
+    );
+  }
   logger.info(
     {
       discovered: result.records.length,
+      titleExcluded: result.titleExcluded?.length ?? 0,
       newRecords: sync.created,
       changed: sync.changed,
       unchanged: sync.unchanged,
@@ -523,6 +539,7 @@ export async function runIngestion(
         gate,
         control,
         live,
+        titleFilter: options.titleFilter ?? 'off',
         route,
         failures: ledger.failures,
         ...(options.agencies ? { agencies: options.agencies } : {}),

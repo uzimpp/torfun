@@ -37,7 +37,7 @@ Self-registration always creates a Business Development Officer. The admin role 
 
 Each Run has three stages working side by side. [`docs/ingestion-flow.md`](docs/ingestion-flow.md) has the full detail.
 
-- Discovery reads e-GP's announcement feed, one agency and one day at a time, and admits the e-bidding draft TORs and invitations that have no tombstone. It never looks at the title. It asks about the days since the last Run first, then about a share of the past year. A new project is stored as Queued from the feed alone and handed to Retrieval at once.
+- Discovery reads e-GP's announcement feed, one agency and one day at a time, and admits the e-bidding draft TORs and invitations that have no tombstone. A short title screen (`title-filter.ts`) may leave out work that is plainly not software, such as lifts, laundry or road marking; it is `shadow` by default and only logs. It asks about the days since the last Run first, then about a share of the past year. A new project is stored as Queued from the feed alone and handed to Retrieval at once.
 - Retrieval makes one turn at the site per project. It reads the project detail until it has been read once, which gives the real budget year (empty until then, never guessed). It reads the announcement timeline (greenBook) for status and bid deadline. Then it fetches the announcement archive and extracts the TOR PDFs. Never-read projects go first, newest announcement first. Projects already read get their timeline read again, oldest check first, and are retrieved again only if the invitation moved. The open-data API is not read, because it holds only signed contracts.
 - Analysis is Gemini reading the archive's TOR PDFs. It never touches e-GP, so it is the only stage that overlaps another stage's requests.
 
@@ -73,7 +73,7 @@ Gemini reads the TOR to save a person time. The original PDF stays reachable so 
 
 ### A title is not a verdict
 
-Whether work is software is decided from the TOR document, never from the project name. Discovery has no title check, so nothing is kept out of the queue because of what it happens to be called.
+Whether work is software is decided from the TOR document, not from the project name. The one exception is the title screen (`TITLE_FILTER`, `services/egp/title-filter.ts`), which exists to spare e-GP and Vertex calls on work that is plainly not software. It is built to miss rather than over-reach: the buyer's name is masked (การไฟฟ้า and การประปา buy software too), any software word in the title vetoes it, and only terms naming the work decide (a bare ไฟฟ้า never does). It defaults to `shadow`, which logs what it would leave out and changes nothing. In `on`, what it leaves out is not stored, so its Run-log lines are the only record. Widen its terms from real titles, never from guesses.
 
 ### Scope changes are product decisions
 
