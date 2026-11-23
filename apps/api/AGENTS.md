@@ -89,7 +89,11 @@ header) are load-bearing:
 
 Discovery (`services/egp/discovery.ts`) reads the announcement feed
 (`announcement-feed.ts`, the RSS on `https://process.gprocurement.go.th`) for
-each `FEED_REGISTRY` agency × {B0, D0}, one day per request. The Feed Cursor (a
+each Source Registry agency × {B0, D0}. The registry is administrator-managed
+(`services/source-registry.service.ts`, `/api/ingestion/sources`); until first
+changed it is `FEED_REGISTRY`, and a Run takes the list once, when it starts. A
+removed agency is simply not asked about: its Feed Cursor and stored records stay.
+No agency list is fetched from the site, one day per request. The Feed Cursor (a
 contiguous range of fully-read days per agency and type, in the ingestion meta
 collection) decides what to ask: first
 the days after each range up to today (today is re-read and never recorded), then
