@@ -125,9 +125,9 @@ which only an approval or creating a Company sets.
 | Method | Path | Acc. | Does | Responses |
 | ------ | ---- | ---- | ---- | --------- |
 | GET | `/companies/search?q=` | U | Typeahead over Thai company names. Returns `id`, `name_th` and `tin` only | `200 { companies }` |
-| POST | `/companies` | U | Create a Company, join it and become its manager | `201` with `is_manager: true`; `409` if the caller is the last manager of a Company that still has other members |
+| POST | `/companies` | U | Create a Company, join it and become its manager. Body needs `name_th` and a 13-digit `tin` | `201` with `is_manager: true`; `409` if the TIN is already registered; `503` while duplicate TINs from before the rule block the unique index; `409` also if the caller is the last manager of a Company that still has other members |
 | GET | `/companies/me` | U | The caller's Company, with `is_manager` and `auto_approve_domain` | `200`; `404` if none |
-| PATCH | `/companies/me` | M | Correct the name or TIN | `200`; `403` not a manager; `404` |
+| PATCH | `/companies/me` | M | Correct the name or TIN. A TIN can be changed, not cleared | `200`; `403` not a manager; `404`; `409` TIN held by another Company |
 | POST | `/companies/:id/join` | U | Ask to join. Joins at once only if the caller's verified email is at the Company's auto-approve domain | `200 { outcome: "joined", company }`; `202 { outcome: "pending", company }`; `404`; `409` last manager leaving |
 | GET | `/companies/join-request` | U | The caller's own pending request | `200 { company, requested_at }`; `404` if none |
 | DELETE | `/companies/join-request` | U | Withdraw it | `204` |

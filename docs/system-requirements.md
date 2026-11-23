@@ -113,7 +113,7 @@ Priority: M must, S should, C could. Status: I implemented, P partial, PL planne
 | ID | Requirement | Pri | Status |
 | -- | ----------- | --- | ------ |
 | FR-VEN-01 | An officer shall be able to search existing Companies by Thai name (typeahead) and request to join one, or create a new one. Search shall return only the id, Thai name and TIN. | M | I |
-| FR-VEN-02 | A Company name shall be Thai-only (contain Thai script, no Latin letters); a TIN, if given, shall be exactly 13 digits. | M | I |
+| FR-VEN-02 | A Company name shall be Thai-only (contain Thai script, no Latin letters); a TIN shall be given when creating one, shall be exactly 13 digits, and shall be unique: a second Company with the same TIN is refused (`409`) and the officer is pointed to join the existing one. | M | I |
 | FR-VEN-03 | A Company Manager shall be able to correct their own Company's name and TIN; other members shall read them. | S | I |
 | FR-VEN-04 | An officer shall be able to record, edit and delete Clients (government or private) of their Company; deletion shall be refused while Experience is recorded against the Client. | M | I |
 | FR-VEN-05 | Client name suggestions shall be offered from agency names already seen. | C | I |

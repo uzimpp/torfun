@@ -88,12 +88,14 @@ function toJoinRequest(user: User) {
 
 const CreateBody = z.object({
   name_th: ThaiCompanyName,
-  tin: Tin.optional(),
+  /** Required: it is how two people tell "the same company" from "another company". */
+  tin: Tin,
 });
 
 const PatchBody = z.object({
   name_th: ThaiCompanyName.optional(),
-  tin: Tin.nullable().optional(),
+  /** A TIN can be corrected but not removed: a Company without one cannot be told apart. */
+  tin: Tin.optional(),
 });
 
 const UserParams = z.object({ userId: z.string() });
@@ -122,13 +124,13 @@ export const companyRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         body: CreateBody,
-        response: { 201: MyCompany },
+        response: { 201: MyCompany, 409: Message },
       },
     },
     async (request, reply) => {
       const company = await app.companyService.createAndJoin(request.user.user_id, {
         nameTh: request.body.name_th,
-        tin: request.body.tin ?? null,
+        tin: request.body.tin,
       });
       audit(request.log, 'company.created', {
         ip: request.ip,
@@ -157,7 +159,7 @@ export const companyRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         body: PatchBody,
-        response: { 200: MyCompany, 403: Message, 404: Message },
+        response: { 200: MyCompany, 403: Message, 404: Message, 409: Message },
       },
     },
     async (request) => {

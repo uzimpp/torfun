@@ -30,7 +30,7 @@ Related: [architecture.md](architecture.md), [ingestion-flow.md](ingestion-flow.
 | `ingestion_meta` | Singleton documents: the Feed Cursor (`_id: 'feed_cursor'`, a contiguous range of fully read days per agency and type), the run lease (who may run, the live view, work in flight) and the schedule (the automatic-run setting and the last run start) | fixed `_id` |
 | `users` | Accounts: `role`, `password_hash` (only through `findCredentials`), `google_id`, `email` (Google sign-in only), `company_id`, and `join_request { company_id, requested_at }` while a request waits for a Company Manager | `company_id` and `join_request.company_id` to `companies` |
 | `refresh_tokens` | Hashed refresh tokens with family, expiry and revocation | `user_id`, `family_id`, `token_hash` |
-| `companies` | The vendor: Thai name, optional TIN, `manager_ids` (Company Managers' user ids) and `auto_approve_domain` (null when off). Index on `name_th` | `manager_ids` to `users` |
+| `companies` | The vendor: Thai name, TIN (required to create one, unique: partial index `tin_unique`; null only on older records), `manager_ids` (Company Managers' user ids) and `auto_approve_domain` (null when off). Indexes on `name_th` and `tin` | `manager_ids` to `users` |
 | `clients` | Organisations a Company delivered for (`government` or `private`) | `company_id` |
 | `experiences` | Work a Company delivered | `company_id`, `client_id` |
 | `favorites` | A user's shortlisted procurements | `user_id`, `project_id` |

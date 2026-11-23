@@ -369,7 +369,8 @@ export interface ExperienceResponse {
 
 export interface CompanyInput {
   name_th: string;
-  tin?: string | null;
+  /** Required when creating; a correction may change it but not clear it. */
+  tin: string;
 }
 
 export interface ClientInput {

@@ -82,7 +82,10 @@ export const CompanySchema = z.object({
   id: z.string(),
   /** The registered Thai name. The only name this system holds. */
   nameTh: ThaiCompanyName,
-  /** Optional, and carries no uniqueness constraint. */
+  /**
+   * The company's identity: one Company per TIN, required when creating one.
+   * Null only on Companies created before that rule; a manager is asked to fill it in.
+   */
   tin: Tin.nullable(),
   /**
    * Company Managers' user ids (see `company-membership.ts`). Stored ids, not a

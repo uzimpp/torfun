@@ -10,6 +10,13 @@ import { InMemoryExperienceStore } from '../testing/experience-store';
 import { InMemoryRefreshTokenStore } from '../testing/refresh-token-store';
 import { InMemoryUserStore } from '../testing/user-store';
 
+/** A distinct, well-formed TIN per call: one Company per TIN. */
+let tinCounter = 0;
+function nextTin(): string {
+  tinCounter += 1;
+  return String(tinCounter).padStart(13, '0');
+}
+
 /**
  * ASVS V8.2.2, V8.2.3 / threat T-05; pentest finding P-1 (issue #200).
  *
@@ -73,7 +80,8 @@ describe('joining a company needs a manager', () => {
 
     // Alice creates the company and records confidential evidence, as in B6.
     alice = users.seed({ username: 'alice', email: 'alice@acme.co.th' });
-    companyId = (await call(alice, 'POST', '/companies', { name_th: ACME })).json().id;
+    companyId = (await call(alice, 'POST', '/companies', { name_th: ACME, tin: nextTin() })).json()
+      .id;
     const evidence = await call(alice, 'POST', '/companies/me/qualifications', {
       company_id: companyId,
       revision: null,
@@ -195,7 +203,7 @@ describe('joining a company needs a manager', () => {
 
   test("another company's manager cannot approve a request filed with this one", async () => {
     const mallory = users.seed({ username: 'mallory' });
-    await call(mallory, 'POST', '/companies', { name_th: 'บริษัท มัลลอรี จำกัด' });
+    await call(mallory, 'POST', '/companies', { name_th: 'บริษัท มัลลอรี จำกัด', tin: nextTin() });
     const eve = users.seed({ username: 'eve' });
     await call(eve, 'POST', `/companies/${companyId}/join`);
 
@@ -276,7 +284,10 @@ describe('joining a company needs a manager', () => {
         return found;
       };
 
-      const res = await call(bob, 'POST', '/companies', { name_th: 'บริษัท บี จำกัด' });
+      const res = await call(bob, 'POST', '/companies', {
+        name_th: 'บริษัท บี จำกัด',
+        tin: nextTin(),
+      });
       expect(res.statusCode).toBe(403);
       expect(await companyOf(bob)).toBeNull();
     });
@@ -389,7 +400,8 @@ describe('joining a company needs a manager', () => {
       const other = await companies.create({ nameTh: 'บริษัท อื่น จำกัด', tin: null });
       expect((await call(alice, 'POST', `/companies/${other.id}/join`)).statusCode).toBe(409);
       expect(
-        (await call(alice, 'POST', '/companies', { name_th: 'บริษัท ใหม่ จำกัด' })).statusCode,
+        (await call(alice, 'POST', '/companies', { name_th: 'บริษัท ใหม่ จำกัด', tin: nextTin() }))
+          .statusCode,
       ).toBe(409);
       expect(await companyOf(alice)).toBe(companyId);
     });
@@ -401,7 +413,8 @@ describe('joining a company needs a manager', () => {
           .statusCode,
       ).toBe(204);
       expect(
-        (await call(alice, 'POST', '/companies', { name_th: 'บริษัท ใหม่ จำกัด' })).statusCode,
+        (await call(alice, 'POST', '/companies', { name_th: 'บริษัท ใหม่ จำกัด', tin: nextTin() }))
+          .statusCode,
       ).toBe(201);
       // Leaving took Alice off the managers too, so rejoining gives her nothing.
       expect((await companies.findById(companyId))?.managerIds).toEqual([bob.id]);
@@ -414,7 +427,7 @@ describe('joining a company needs a manager', () => {
       const bob = await withMember();
       await call(alice, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: true });
       const own = (
-        await call(alice, 'POST', '/companies', { name_th: 'บริษัท ใหม่ จำกัด' })
+        await call(alice, 'POST', '/companies', { name_th: 'บริษัท ใหม่ จำกัด', tin: nextTin() })
       ).json();
 
       expect((await call(alice, 'POST', `/companies/${companyId}/join`)).statusCode).toBe(202);
@@ -434,7 +447,7 @@ describe('joining a company needs a manager', () => {
       await call(alice, 'PUT', `/companies/me/members/${bob.id}/manager`, { is_manager: true });
       const carol = users.seed({ username: 'carol', email: 'carol@beta.co.th' });
       const beta = (
-        await call(carol, 'POST', '/companies', { name_th: 'บริษัท เบต้า จำกัด' })
+        await call(carol, 'POST', '/companies', { name_th: 'บริษัท เบต้า จำกัด', tin: nextTin() })
       ).json();
       await call(carol, 'PUT', '/companies/me/auto-approve', { domain: 'beta.co.th' });
       users.seed({ ...(await users.findById(alice.id))!, email: 'alice@beta.co.th' });
@@ -510,8 +523,8 @@ describe('joining a company needs a manager', () => {
       const release = holdCompanyReads(2);
       const statuses = (
         await Promise.all([
-          call(alice, 'POST', '/companies', { name_th: 'บริษัท เอ จำกัด' }),
-          call(bob, 'POST', '/companies', { name_th: 'บริษัท บี จำกัด' }),
+          call(alice, 'POST', '/companies', { name_th: 'บริษัท เอ จำกัด', tin: nextTin() }),
+          call(bob, 'POST', '/companies', { name_th: 'บริษัท บี จำกัด', tin: nextTin() }),
         ])
       ).map((res) => res.statusCode);
       release();
