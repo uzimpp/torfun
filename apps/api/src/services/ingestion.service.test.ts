@@ -5,6 +5,7 @@ import {
   type IngestionStats,
   type LeaseLive,
 } from '@torfun/types';
+import type { SourceAgency } from '@torfun/types';
 import { ConflictError } from '../core/errors';
 import { InMemoryIngestionLease } from '../testing/ingestion-lease';
 import { testEnv } from '../testing/env';
@@ -526,5 +527,51 @@ describe('IngestionService.list', () => {
   test('every other list keeps the newest announcement first', async () => {
     expect((await asked({}, 'admin'))?.order).toBeUndefined();
     expect((await asked({ outcome: 'needs_review' }, 'officer'))?.order).toBeUndefined();
+  });
+});
+
+describe('IngestionService.startRun and the Source Registry', () => {
+  test('Discovery is given the registry as it stood when the Run began, and a failing read starts no Run', async () => {
+    const lease = new InMemoryIngestionLease();
+    const { deps, open } = gatedDeps();
+    const seen: Array<readonly SourceAgency[] | undefined> = [];
+    let agencies = [{ deptId: '0305', deptName: 'กรมศุลกากร' }];
+    let failRead = false;
+    const service = new IngestionService(
+      new InMemoryProcurementStore(),
+      testEnv(),
+      silentLogger,
+      {
+        lease,
+        runLog: new InMemoryScheduleStore(),
+        runs: new InMemoryIngestionRunStore(),
+        stats: noStats,
+        agencies: async () => {
+          if (failRead) throw new Error('registry unreadable');
+          return agencies;
+        },
+      },
+      (): IngestionDeps => ({
+        ...deps,
+        discoverProjects: async (context) => {
+          seen.push(context.agencies);
+          return deps.discoverProjects(context);
+        },
+      }),
+    );
+
+    await service.startRun({});
+    agencies = []; // changed mid-Run: this Run keeps its own list
+    open();
+    await settle();
+    expect(seen).toEqual([[{ deptId: '0305', deptName: 'กรมศุลกากร' }]]);
+
+    failRead = true;
+    await expect(service.startRun({})).rejects.toThrow('registry unreadable');
+    // The lease was given back, so the next start is not refused.
+    failRead = false;
+    await service.startRun({});
+    open();
+    await settle();
   });
 });

@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { IngestionFailure, Procurement, RunProgress } from '@torfun/types';
+import type { IngestionFailure, Procurement, RunProgress, SourceAgency } from '@torfun/types';
 import type { Env } from '../../config/env';
 import type { ProcurementStore } from '../../repositories/procurement.repository';
 import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
@@ -126,6 +126,8 @@ export interface RunOptions {
    * under, Analysis (ADR-0020).
    */
   analysisConcurrency?: number;
+  /** The Source Registry for this Run: the agencies Discovery reads. Absent: the shipped list. */
+  agencies?: SourceAgency[];
   /**
    * Asked like `shouldContinue`, but for an administrator's request to stop.
    * Graceful: a record already in its turn finishes it, an Archive already
@@ -269,6 +271,7 @@ async function runDiscovery(run: {
   live: LiveView;
   route: (candidate: DetailCandidate) => void;
   failures: IngestionFailure[];
+  agencies?: SourceAgency[];
 }): Promise<Sweep> {
   const { repository, logger, gate, control, failures } = run;
   logger.info('egp: starting discovery sweep');
@@ -329,6 +332,7 @@ async function runDiscovery(run: {
     // about it: the tombstone is the decision, until an administrator lifts it.
     tombstonedIds: (ids) => repository.tombstonedIds(ids),
     today: bangkokToday(),
+    ...(run.agencies ? { agencies: run.agencies } : {}),
     save,
     reading,
   });
@@ -523,6 +527,7 @@ export async function runIngestion(
         live,
         route,
         failures: ledger.failures,
+        ...(options.agencies ? { agencies: options.agencies } : {}),
       }),
       selectQueued(repository, false).then((records) => {
         for (const record of records) details.enqueue({ record, draft: false });

@@ -1,4 +1,4 @@
-import type { IngestionFailure, Procurement } from '@torfun/types';
+import type { IngestionFailure, Procurement, SourceAgency } from '@torfun/types';
 import type { FeedCursor } from '../../repositories/procurement.repository';
 import { admit } from './admission';
 import { createAnnouncementFeed, type AnnouncementFeed, type FeedItem } from './announcement-feed';
@@ -42,6 +42,12 @@ export interface SweepContext {
   tombstonedIds: TombstoneLookup;
   /** Today as a Bangkok calendar day, `YYYY-MM-DD`. */
   today: string;
+  /**
+   * The agencies to read: the Source Registry as the Run began. Absent, the
+   * shipped list. An agency left out is not asked about, and its Feed Cursor and
+   * already-stored records are left exactly as they were.
+   */
+  agencies?: readonly SourceAgency[];
   /**
    * Store what one agency-day added, as soon as it is read, so the queue fills
    * while the sweep goes on and a Run that stops early keeps what it found.
@@ -99,7 +105,7 @@ export interface DiscoveryResult {
 /** One cell of the sweep's grid: an agency's announcements of one type. */
 interface Unit {
   key: string;
-  agency: (typeof FEED_REGISTRY)[number];
+  agency: SourceAgency;
   type: FeedAnnouncementType;
 }
 
@@ -189,7 +195,7 @@ export async function discoverProjects(
     return context.site(pass === 'newDays' ? 'new_day' : 'history', call);
   };
 
-  const units: Unit[] = FEED_REGISTRY.flatMap((agency) =>
+  const units: Unit[] = (context.agencies ?? FEED_REGISTRY).flatMap((agency) =>
     FEED_ANNOUNCEMENT_TYPES.map((type) => ({ key: cursorKey(agency.deptId, type), agency, type })),
   );
 

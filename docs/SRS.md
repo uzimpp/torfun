@@ -12,7 +12,7 @@ requirement IDs. Version 0.3 adds three things:
 - Section 6, which records every deviation as applied or open.
 
 Changed text is pending team confirmation. Items tagged `[Open D-nn]` were left
-as written because they are product decisions (D-05, D-07, D-08).
+as written because they are product decisions (D-05, D-07).
 
 ## Table of contents
 
@@ -302,7 +302,7 @@ Status reflects whether the story can be completed end to end in the built syste
 
 | ID | Requirement | Status | Note |
 | -- | ----------- | ------ | ---- |
-| FR-40 | Site Administrators SHALL be able to add, edit, and remove Source Registry entries. | Differs | [Open D-08] The registry is a fixed list in code; membership is treated as a product decision, not configuration. |
+| FR-40 | Site Administrators SHALL be able to add, edit, and remove Source Registry entries. | Done | [D-08] `/ingestion/sources` and the console's agency dialog. Until first changed the registry is the five agencies of Appendix A (`FEED_REGISTRY`); a Run reads the list as it stood when it began. Removing an agency deletes no ingested record. |
 | FR-41 | Site Administrators SHALL be able to configure the ingestion schedule. | Done | Interval or weekly; Asia/Bangkok; minimum 6 hours. |
 | FR-42 | Site Administrators SHALL be able to remove a published TOR found invalid or outdated. | Done | Remove from publication (from a report), or delete, with or without a tombstone. |
 | FR-43 | Site Administrators SHALL be able to review and act on user-submitted TOR reports. | Done | Dismiss, or remove the TOR from publication; decision history kept. |
@@ -381,7 +381,7 @@ needed. The original wording column keeps what the SRS said before.
 | D-13 | Joining a company needs a Company Manager's approval | Applied: FR-04 reworded, FR-04a added, §2.2 note, Appendix B (18 November 2026) | "…a mechanism to add themselves to any company…" | The penetration test (finding P-1, issue #200) showed that self-service joining let any registered user read another company's capital, certificates, past contracts and clients. Supersedes ADR-0008 ("membership is claimed, not granted"). |
 | D-05 | One shared Company Profile, admin-edited, vs. a Company per vendor made of Clients and Experience, edited by officers | Open: FR-21, FR-22, section 1.3 and "Per-user profiles" unchanged | n/a | The code follows ADR-0007 and -0009. It conflicts with the "single shared profile" scope and with the out-of-scope item. If several vendors share one deployment, rewrite FR-21/22 and drop the exclusion. If not, the code has to change. Also decides how FR-23 (matching) is keyed. |
 | D-07 | Admins create, suspend and remove accounts | Open: FR-06 unchanged | n/a | Built: list, activate/deactivate and grant/revoke admin; users self-register. Decide whether admin-created and removable accounts are wanted. |
-| D-08 | Admins manage the Source Registry | Open: FR-40 unchanged | n/a | Built: a fixed list in code ("membership is a product decision, not configuration"). Either build an admin UI or reword FR-40 to "changed by a reviewed code change". |
+| D-08 | Admins manage the Source Registry | Applied: FR-40 now Done | n/a | Built: an admin-managed registry stored in `ingestion_meta` (`source_registry`); absent means the shipped five. |
 
 ### 6.3 Remaining gaps (not deviations)
 
@@ -423,7 +423,7 @@ specified in [system-requirements.md](system-requirements.md).
 | TOR review | FR-30–32 | web `components/tor-review/*`, `GET /tors/:id/source` |
 | My TOR | FR-33–35 | `routes/favorites.ts`, `routes/tor-reports.ts` |
 | Notifications | FR-36–39 | none on `develop` |
-| Administration | FR-40–44 | `routes/{schedule,procurement-admin,tor-reports}.ts` |
+| Administration | FR-40–44 | `routes/{schedule,source-registry,procurement-admin,tor-reports}.ts` |
 
 ## Appendix A: Target government agencies
 

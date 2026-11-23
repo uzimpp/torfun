@@ -161,6 +161,10 @@ which only an approval or creating a Company sets.
 | POST | `/ingestion/run/stop` | Graceful stop; the requester comes from the session | `202 { stopping }`; `409` none running |
 | GET | `/ingestion/schedule` | The schedule plus `lastRunAt`, `nextRunAt`, `upcomingRunAts` | `200` |
 | PUT | `/ingestion/schedule` | `{ enabled, mode, timeOfDay, weekdays, everyHours }`; `everyHours` is 6 to 168 | `200`; `400` |
+| GET | `/ingestion/sources` | The Source Registry: `items`, `available` (known agencies not in it), `isDefault`, `updatedAt`, `updatedBy` | `200` |
+| POST | `/ingestion/sources` | `{ deptId, deptName }`; `deptId` is 4 to 7 digits | `201`; `400`; `409` duplicate or over 50 |
+| PUT | `/ingestion/sources/:deptId` | `{ deptName }` | `200`; `400`; `404` |
+| DELETE | `/ingestion/sources/:deptId` | Stops reading the agency from the next Run; deletes no record | `200`; `400`; `404` |
 
 ### Moderation (admin)
 

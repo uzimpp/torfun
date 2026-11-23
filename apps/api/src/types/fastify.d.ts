@@ -13,6 +13,7 @@ import type { DiagnosticsService } from '../services/diagnostics.service';
 import type { IngestionService } from '../services/ingestion.service';
 import type { ProcurementAdminService } from '../services/procurement-admin.service';
 import type { ScheduleService } from '../services/schedule.service';
+import type { SourceRegistryService } from '../services/source-registry.service';
 import type { SchedulerService } from '../services/scheduler.service';
 import type { TorService } from '../services/tor.service';
 import type { FavoriteService } from '../services/favorite.service';
@@ -54,6 +55,7 @@ declare module 'fastify' {
     ingestionService: IngestionService;
     procurementAdminService: ProcurementAdminService;
     scheduleService: ScheduleService;
+    sourceRegistryService: SourceRegistryService;
     schedulerService: SchedulerService;
     torService: TorService;
     favoriteService: FavoriteService;

@@ -9,6 +9,7 @@ import type {
   RunCounts,
   RunProgress,
   RunTrigger,
+  SourceAgency,
   TokenUsage,
 } from '@torfun/types';
 import type { Env } from '../config/env';
@@ -49,6 +50,12 @@ export interface RunCoordination {
   runs: IngestionRunStore;
   /** Stored history the operations view reads. */
   stats: IngestionStatsSource;
+  /**
+   * The agencies this Run's Discovery reads (the Source Registry), asked once the
+   * lease is held so a Run uses the list as it stood when it began. Absent: the
+   * shipped list.
+   */
+  agencies?: () => Promise<SourceAgency[]>;
   /** How often a live Run renews its lease. */
   heartbeatMs?: number;
   /** How long a lease outlives its last heartbeat — how long a crashed holder blocks everyone. */
@@ -277,7 +284,9 @@ export class IngestionService {
     // Both only once the lease is ours, so a refused start changes and records
     // nothing. If either fails the Run does not begin: an unrecorded start would
     // leave a schedule to fire again the moment this one finished.
+    let agencies: SourceAgency[] | undefined;
     try {
+      agencies = await this.coordination.agencies?.();
       await input.beforeRun?.();
       await this.coordination.runLog.markRunStarted(startedAt.toISOString());
     } catch (error) {
@@ -337,6 +346,7 @@ export class IngestionService {
         onProgress: (progress) => {
           held.progress = progress;
         },
+        ...(agencies ? { agencies } : {}),
         ...(input.onlyProject ? { onlyProject: input.onlyProject } : {}),
       },
       this.deps,

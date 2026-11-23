@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import type { SourceAgency } from '@torfun/types';
 import type { FeedCursor } from '../../repositories/procurement.repository';
 import type { AnnouncementFeed, FeedDay, FeedItem } from './announcement-feed';
 import { RateLimitedError, UpstreamError } from './client';
@@ -70,7 +71,12 @@ const saved: SweepBatch[] = [];
 /** Requests the last `sweep` made to the site, whatever they were for. */
 let siteCalls = 0;
 
-function sweep(feed: AnnouncementFeed, cursor: FeedCursor = {}, tombstoned: string[] = []) {
+function sweep(
+  feed: AnnouncementFeed,
+  cursor: FeedCursor = {},
+  tombstoned: string[] = [],
+  agencies?: SourceAgency[],
+) {
   saved.length = 0;
   siteCalls = 0;
   return discoverProjects(
@@ -82,6 +88,7 @@ function sweep(feed: AnnouncementFeed, cursor: FeedCursor = {}, tombstoned: stri
       cursor,
       tombstonedIds: async (ids) => new Set(ids.filter((id) => tombstoned.includes(id))),
       today: TODAY,
+      ...(agencies ? { agencies } : {}),
       save: async (batch) => {
         saved.push(batch);
       },
@@ -474,5 +481,39 @@ describe('the calendar the feed is read by', () => {
   test('today is the Bangkok date, seven hours ahead of UTC', () => {
     expect(bangkokToday(Date.parse('2026-10-06T16:59:59Z'))).toBe('2026-10-06');
     expect(bangkokToday(Date.parse('2026-10-06T17:00:00Z'))).toBe('2026-10-07');
+  });
+  test('only the agencies in the registry are asked about; a removed one is left alone', async () => {
+    const { feed, asked } = fakeFeed();
+    const customs = FEED_REGISTRY.filter((agency) => agency.deptId === CUSTOMS);
+
+    const result = await sweep(feed, {}, [], customs);
+
+    expect(new Set(asked.map((ask) => ask.deptId))).toEqual(new Set([CUSTOMS]));
+    // Nothing is recorded for the agencies that were not read.
+    expect(Object.keys(result.cursor).every((key) => key.startsWith(`${CUSTOMS}:`))).toBe(true);
+  });
+
+  test('an agency added to the registry is read, and its records carry its name', async () => {
+    const added: SourceAgency = { deptId: '0999', deptName: 'หน่วยงานทดสอบ' };
+    const { feed, asked } = fakeFeed({
+      [`0999:D0:${TODAY}`]: listing([item('69999990001')]),
+    });
+
+    const result = await sweep(feed, {}, [], [added]);
+
+    expect(asked.some((ask) => ask.deptId === '0999')).toBe(true);
+    expect(result.records.map((record) => [record.projectId, record.deptName])).toEqual([
+      ['69999990001', 'หน่วยงานทดสอบ'],
+    ]);
+  });
+
+  test('an empty registry asks the site nothing', async () => {
+    const { feed, asked } = fakeFeed();
+
+    const result = await sweep(feed, {}, [], []);
+
+    expect(asked).toEqual([]);
+    expect(siteCalls).toBe(0);
+    expect(result.records).toEqual([]);
   });
 });

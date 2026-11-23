@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Settings } from 'lucide-react';
+import { Landmark, Settings } from 'lucide-react';
 import { STATUS_STYLE } from '@/components/admin/status-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +15,7 @@ import type { IngestionSummaryResponse } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RunToggle } from './run-toggle';
 import { ScheduleSettings } from './schedule-card';
+import { SourceRegistrySettings } from './source-registry-card';
 import { runStatus } from './status-tracking';
 
 /**
@@ -35,6 +36,7 @@ export function RunStatusBar({
   onStop: () => Promise<void>;
 }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const status = runStatus(summary, now);
 
   return (
@@ -69,6 +71,15 @@ export function RunStatusBar({
           variant="ghost"
           size="icon-lg"
           className="rounded-full"
+          aria-label="จัดการหน่วยงานที่ดึงข้อมูล"
+          onClick={() => setSourcesOpen(true)}
+        >
+          <Landmark className="size-4" aria-hidden="true" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-lg"
+          className="rounded-full"
           aria-label="ตั้งค่าตารางเวลา"
           onClick={() => setScheduleOpen(true)}
         >
@@ -85,6 +96,18 @@ export function RunStatusBar({
             </DialogDescription>
           </DialogHeader>
           <ScheduleSettings />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={sourcesOpen} onOpenChange={setSourcesOpen}>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-medium">หน่วยงานที่ดึงข้อมูล</DialogTitle>
+            <DialogDescription>
+              เลือกว่ารอบดึงข้อมูลจะอ่านประกาศจากหน่วยงานใดบ้างในฟีดของ e-GP
+            </DialogDescription>
+          </DialogHeader>
+          <SourceRegistrySettings />
         </DialogContent>
       </Dialog>
     </section>
