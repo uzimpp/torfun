@@ -158,7 +158,7 @@ export class InMemoryUserStore implements UserStore {
 
   /** Newest first, the way the Mongo-backed repository sorts by `created_at`. */
   async list(): Promise<User[]> {
-    return [...this.users.values()].reverse();
+    return [...this.users.values()].filter((user) => !user.deletedAt).reverse();
   }
 
   async countActiveAdmins(): Promise<number> {
@@ -173,5 +173,16 @@ export class InMemoryUserStore implements UserStore {
   async setActive(id: string, isActive: boolean): Promise<void> {
     const user = this.users.get(id);
     if (user) this.users.set(id, { ...user, isActive, updatedAt: new Date() });
+  }
+
+  async markDeleted(id: string): Promise<void> {
+    const user = this.users.get(id);
+    if (user)
+      this.users.set(id, {
+        ...user,
+        isActive: false,
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      });
   }
 }

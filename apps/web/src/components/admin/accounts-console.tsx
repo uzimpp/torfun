@@ -1,6 +1,7 @@
 'use client';
 
-import { ShieldCheck, ShieldOff, UserCheck, UserRound, UserX } from 'lucide-react';
+import { useState } from 'react';
+import { ShieldCheck, ShieldOff, Trash2, UserCheck, UserRound, UserX } from 'lucide-react';
 import type { AdminUserResponse } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,9 @@ function RoleBadge({ role }: { role: AdminUserResponse['role'] }) {
 }
 
 export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
-  const { accounts, loading, error, pendingId, actionError, updateAccount } = useAccountsData();
+  const { accounts, loading, error, pendingId, actionError, updateAccount, deleteAccount } =
+    useAccountsData();
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const activeAdmins = accounts.filter(
     (account) => account.role === 'admin' && account.is_active,
@@ -204,6 +207,45 @@ export function AccountsConsole({ currentUserId }: { currentUserId: string }) {
                             )}
                             {account.is_active ? 'ระงับบัญชี' : 'เปิดใช้งาน'}
                           </Button>
+                          {confirmingId === account.id ? (
+                            <>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() => {
+                                  setConfirmingId(null);
+                                  void deleteAccount(account.id);
+                                }}
+                              >
+                                ยืนยันการลบ
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setConfirmingId(null)}
+                              >
+                                ยกเลิก
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={busy || lockActive}
+                              title={
+                                isSelf
+                                  ? 'ไม่สามารถลบบัญชีของตัวเองได้'
+                                  : isLastAdmin
+                                    ? 'ผู้ดูแลระบบคนสุดท้ายที่ยังใช้งานอยู่'
+                                    : undefined
+                              }
+                              onClick={() => setConfirmingId(account.id)}
+                            >
+                              <Trash2 className="size-4" aria-hidden="true" />
+                              ลบบัญชี
+                            </Button>
+                          )}
                         </span>
                       </TableCell>
                     </TableRow>

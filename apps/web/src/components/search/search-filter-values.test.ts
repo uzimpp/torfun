@@ -27,7 +27,7 @@ describe('province filter values', () => {
   });
 
   test('clearing the province chip keeps every other filter', () => {
-    const values = { ...EMPTY_SEARCH_FILTERS, province: 'ภูเก็ต' as const, industry: 'โรงเรียน' };
+    const values = { ...EMPTY_SEARCH_FILTERS, province: 'ภูเก็ต' as const };
     expect(withoutSearchFilter(values, 'province')).toEqual({ ...values, province: '' });
   });
 });

@@ -104,8 +104,7 @@ export type Company = z.infer<typeof CompanySchema>;
 /**
  * Whether a Client is a government body or a private customer.
  *
- * Answered once per Client rather than once per Experience, and it is the only
- * signal this feature captures that a future `industryScore` could read.
+ * Answered once per Client rather than once per Experience.
  */
 export const ClientKind = z.enum(['government', 'private']);
 export type ClientKind = z.infer<typeof ClientKind>;

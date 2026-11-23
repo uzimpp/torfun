@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
+  deleteAdminUser,
   fetchAdminUsers,
   updateAdminUser,
   type AdminUserPatch,
@@ -29,6 +30,8 @@ export interface AccountsData {
   /** A write failure — the table still stands; this names what was refused. */
   actionError: string | null;
   updateAccount: (id: string, patch: AdminUserPatch) => Promise<void>;
+  /** Soft-deletes an account and drops it from the list. */
+  deleteAccount: (id: string) => Promise<void>;
 }
 
 export function useAccountsData(): AccountsData {
@@ -75,5 +78,21 @@ export function useAccountsData(): AccountsData {
     }
   }, []);
 
-  return { accounts, loading, error, pendingId, actionError, updateAccount };
+  const deleteAccount = useCallback(async (id: string) => {
+    setPendingId(id);
+    setActionError(null);
+    try {
+      await deleteAdminUser(id);
+      setAccounts((current) => current.filter((account) => account.id !== id));
+    } catch (caught) {
+      setActionError(
+        caught instanceof ApiError ? caught.message : 'ลบบัญชีไม่สำเร็จ กรุณาลองอีกครั้ง',
+      );
+      setRefreshKey((key) => key + 1);
+    } finally {
+      setPendingId(null);
+    }
+  }, []);
+
+  return { accounts, loading, error, pendingId, actionError, updateAccount, deleteAccount };
 }

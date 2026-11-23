@@ -851,28 +851,6 @@ describeMongo('ProcurementRepository', () => {
     expect(platforms.items.map((record) => record.projectId).sort()).toEqual(['mobile', 'web']);
   });
 
-  test('filters keyword-derived industry without regex injection', async () => {
-    await seed([
-      procurement({
-        projectId: 'hospital',
-        projectName: 'ระบบผู้ป่วย (ระยะ 2)',
-        deptName: 'โรงพยาบาลกลาง',
-      }),
-      procurement({
-        projectId: 'school',
-        deptName: 'โรงเรียนตัวอย่าง',
-      }),
-    ]);
-
-    const result = await repository.find({
-      limit: 20,
-      offset: 0,
-      industry: 'โรงพยาบาล',
-      query: '(ระยะ 2)',
-    });
-    expect(result.items.map((record) => record.projectId)).toEqual(['hospital']);
-  });
-
   test('combines filters, reports zero matches, and paginates the filtered total', async () => {
     await seed([
       procurement({
@@ -904,7 +882,6 @@ describeMongo('ProcurementRepository', () => {
       deadlineTo: '2026-10-15',
       techStack: ['React', 'PostgreSQL'],
       targetPlatforms: ['web_app'],
-      industry: 'จ้างพัฒนา',
     });
     expect(page.total).toBe(2);
     expect(page.items).toHaveLength(1);

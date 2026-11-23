@@ -336,8 +336,6 @@ export interface FindOptions {
   techStack?: string[];
   /** At least one selected platform must occur in analysis.targetPlatforms. */
   targetPlatforms?: TargetPlatform[];
-  /** Keyword over existing names only; this is not an authoritative classification. */
-  industry?: string;
   /** A province, matched by `provinceTerms` over agency and project names. */
   province?: ThaiProvince;
   /**
@@ -1085,9 +1083,6 @@ export class ProcurementRepository
     }
     if (options.query?.trim()) {
       clauses.push(regexAny(['project_name', '_id', 'dept_name', 'dept_sub_name'], options.query));
-    }
-    if (options.industry?.trim()) {
-      clauses.push(regexAny(['project_name', 'dept_name', 'dept_sub_name'], options.industry));
     }
     if (options.province) {
       const pattern = {

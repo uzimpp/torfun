@@ -31,6 +31,8 @@ interface UserDocument {
   join_request?: { company_id: string; requested_at: Date } | null;
   role: UserRole;
   is_active?: boolean;
+  /** Soft delete: set when an administrator removes the account. The document is kept. */
+  deleted_at?: Date | null;
   google_id?: string;
   email?: string;
   created_at: Date;
@@ -77,6 +79,7 @@ function toDomain(document: UserDocument): User {
     role: document.role,
     email: document.email,
     isActive: document.is_active ?? true,
+    deletedAt: document.deleted_at ?? null,
     createdAt: document.created_at,
     updatedAt: document.updated_at,
   };
@@ -134,6 +137,11 @@ export interface UserStore {
   countActiveAdmins(): Promise<number>;
   setRole(id: string, role: UserRole): Promise<void>;
   setActive(id: string, isActive: boolean): Promise<void>;
+  /**
+   * Soft-deletes an account: stamps `deleted_at` and deactivates it, so the
+   * existing active checks refuse its sign-in. Nothing is removed from the store.
+   */
+  markDeleted(id: string): Promise<void>;
 }
 
 export class UserRepository implements UserStore {
@@ -306,7 +314,12 @@ export class UserRepository implements UserStore {
   }
 
   async list(): Promise<User[]> {
-    const documents = await (await this.collection()).find().sort({ created_at: -1 }).toArray();
+    const documents = await (
+      await this.collection()
+    )
+      .find({ deleted_at: null })
+      .sort({ created_at: -1 })
+      .toArray();
     return documents.map(toDomain);
   }
 
@@ -336,6 +349,17 @@ export class UserRepository implements UserStore {
     ).updateOne(
       { _id: new ObjectId(id) },
       { $set: { is_active: isActive, updated_at: new Date() } },
+    );
+  }
+
+  async markDeleted(id: string): Promise<void> {
+    if (!ObjectId.isValid(id)) return;
+    const now = new Date();
+    await (
+      await this.collection()
+    ).updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { deleted_at: now, is_active: false, updated_at: now } },
     );
   }
 }

@@ -24,7 +24,6 @@ export interface SearchFilterValues {
   deadlineTo: string;
   techStack: string;
   targetPlatforms: TargetPlatform[];
-  industry: string;
   province: '' | ThaiProvince;
 }
 
@@ -44,7 +43,6 @@ export const EMPTY_SEARCH_FILTERS: SearchFilterValues = {
   deadlineTo: '',
   techStack: '',
   targetPlatforms: [],
-  industry: '',
   province: '',
 };
 
@@ -89,7 +87,6 @@ export function parseSearchFilters(params: RawSearchParams): SearchFilterValues 
     deadlineTo: first(params.deadlineTo),
     techStack: first(params.techStack),
     targetPlatforms: [...new Set(platforms)],
-    industry: first(params.industry),
     province: (THAI_PROVINCES as readonly string[]).includes(first(params.province))
       ? (first(params.province) as ThaiProvince)
       : '',
@@ -112,7 +109,6 @@ export function activeFilterCount(values: SearchFilterValues): number {
     values.minDaysLeft || values.deadlineFrom || values.deadlineTo,
     values.techStack,
     values.targetPlatforms.length > 0,
-    values.industry,
     values.province,
   ].filter(Boolean).length;
 }
@@ -152,7 +148,6 @@ export function toProjectFilters(
     ...(values.minDaysLeft === '' && values.deadlineTo ? { deadlineTo: values.deadlineTo } : {}),
     ...(terms.length > 0 ? { techStack: terms } : {}),
     ...(values.targetPlatforms.length > 0 ? { targetPlatforms: values.targetPlatforms } : {}),
-    ...(values.industry ? { industry: values.industry } : {}),
     ...(values.province ? { province: values.province } : {}),
   };
 }
@@ -177,7 +172,6 @@ export function searchHref(values: SearchFilterValues, page = 1): string {
   if (values.targetPlatforms.length > 0) {
     params.set('targetPlatforms', values.targetPlatforms.join(','));
   }
-  if (values.industry) params.set('industry', values.industry);
   if (values.province) params.set('province', values.province);
   if (page > 1) params.set('page', String(page));
   const query = params.toString();
@@ -194,7 +188,6 @@ export type SearchFilterCriterion =
   | 'deadline'
   | 'techStack'
   | 'targetPlatforms'
-  | 'industry'
   | 'province';
 
 /** Clears one visible criterion while preserving the search words and every other filter. */
@@ -210,7 +203,6 @@ export function withoutSearchFilter(
     case 'deptName':
     case 'outcome':
     case 'techStack':
-    case 'industry':
     case 'province':
       return { ...values, [criterion]: '' };
     case 'budget':

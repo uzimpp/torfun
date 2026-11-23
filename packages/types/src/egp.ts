@@ -584,8 +584,6 @@ export const ProcurementListQuerySchema = z
     minDaysLeft: z.coerce.number().int().min(0).max(365).optional(),
     techStack: QueryList(z.string().trim().min(1).max(100)).optional(),
     targetPlatforms: QueryList(TargetPlatform).optional(),
-    /** Keyword matched against existing project and agency names, not a classification. */
-    industry: z.string().trim().min(1).max(100).optional(),
     /** A province matched against agency and project names (no location field upstream). */
     province: ThaiProvince.optional(),
     order: ProcurementOrderSchema.optional(),

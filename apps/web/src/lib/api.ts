@@ -608,6 +608,10 @@ export function updateAdminUser(id: string, patch: AdminUserPatch): Promise<Admi
   });
 }
 
+export function deleteAdminUser(id: string): Promise<void> {
+  return request(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 // Notification contracts are shared with Fastify; the wire format stays snake_case.
 export function fetchNotifications(filter: 'all' | 'unread' = 'all', offset = 0) {
   return request<import('@torfun/types').NotificationListResponse>(

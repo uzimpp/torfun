@@ -8,12 +8,11 @@ import { QualificationCheckSchema } from './qualification';
  * Scores belong to a company, never to a procurement alone.
  * The qualification score (`qualification-match.ts`) is the share of clauses
  * met, and 0 when any clause is not met: every bidder qualification is mandatory.
- * Legal qualifications, industry and delivery capacity remain unverified.
+ * Legal qualifications and delivery capacity remain unverified.
  */
 export const MatchScoreBreakdownSchema = z.object({
   techStackScore: z.number().min(0).max(1),
   deadlineScore: z.number().min(0).max(1),
-  industryScore: z.number().min(0).max(1),
   targetPlatformScore: z.number().min(0).max(1),
   decisionRulesScore: z.number().min(0).max(1),
 });

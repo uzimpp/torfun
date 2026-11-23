@@ -54,7 +54,6 @@ describe('ProcurementFilters', () => {
     expect(screen.getByLabelText('กำหนดส่งถึง')).toHaveAttribute('type', 'date');
     expect(screen.getByLabelText('ประกาศตั้งแต่')).toHaveAttribute('type', 'date');
     expect(screen.getByLabelText('เว็บแอปพลิเคชัน')).toHaveAttribute('name', 'targetPlatforms');
-    expect(screen.getByLabelText('คำค้นในชื่อโครงการ')).toHaveAttribute('name', 'industry');
     expect(screen.queryByLabelText('สถานที่ดำเนินงาน')).not.toBeInTheDocument();
   });
 
@@ -100,11 +99,11 @@ describe('ProcurementFilters', () => {
     render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} onApply={onApply} />);
 
     await user.click(screen.getByRole('button', { name: /^ตัวกรอง/ }));
-    await user.type(screen.getByLabelText('คำค้นในชื่อโครงการ'), 'โรงพยาบาล');
+    await user.type(screen.getByLabelText('ชื่อหน่วยงาน (ตรงทั้งชื่อ)'), 'กรมศุลกากร');
 
     await waitFor(() =>
       expect(onApply).toHaveBeenLastCalledWith(
-        expect.objectContaining({ industry: 'โรงพยาบาล' }),
+        expect.objectContaining({ deptName: 'กรมศุลกากร' }),
       ),
     );
   });

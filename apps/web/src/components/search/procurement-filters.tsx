@@ -88,9 +88,6 @@ function activeFilters(values: SearchFilterValues): ActiveFilter[] {
       label: `แพลตฟอร์ม: ${values.targetPlatforms.map((item) => PLATFORM_LABELS[item]).join(', ')}`,
     });
   }
-  if (values.industry) {
-    filters.push({ criterion: 'industry', label: `ชื่อโครงการ/หน่วยงาน: ${values.industry}` });
-  }
   if (values.province) {
     filters.push({ criterion: 'province', label: `จังหวัด: ${values.province}` });
   }
@@ -394,7 +391,7 @@ export function ProcurementFilters({
       return;
     if (target.name === 'status' || target.name === 'minDaysLeft') return;
     if (textChangeTimer.current) clearTimeout(textChangeTimer.current);
-    if (target.name === 'deptName' || target.name === 'industry') {
+    if (target.name === 'deptName') {
       textChangeTimer.current = setTimeout(() => {
         textChangeTimer.current = null;
         if (formRef.current) applyForm(formRef.current);
@@ -814,16 +811,6 @@ export function ProcurementFilters({
               value={formValues.deptName}
               placeholder="หน่วยงานเจ้าของประกาศ"
             />
-            <div className="space-y-1.5">
-              <Field
-                id="industry"
-                name="industry"
-                label="คำค้นในชื่อโครงการ"
-                value={formValues.industry}
-                placeholder="เช่น โรงพยาบาล, โรงเรียน"
-                hint="คำค้นไม่ใช่หมวดอุตสาหกรรมที่ยืนยันแล้ว"
-              />
-            </div>
             <div className="space-y-1.5">
               <Label htmlFor="province">จังหวัด</Label>
               <div className="relative">

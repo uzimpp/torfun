@@ -1,7 +1,7 @@
 # Software Requirements Specification for Torfun
 
 - Version: 0.3. Team SRS of 30 August 2026, with implementation status and reconciliation changes.
-- Status: draft for review. Implementation status is judged against `develop` @ `5e622a3`.
+- Status: draft for review. Implementation status is judged against `main` @ `28e7e52`.
 - Related: [system-requirements.md](system-requirements.md), [architecture.md](architecture.md), [data-model.md](data-model.md), [`GLOSSARY.md`](../GLOSSARY.md).
 
 Sections 1 to 5 and Appendices A and B are the team's SRS, with the same
@@ -81,9 +81,9 @@ data service".]
 **In scope**
 
 - **Announcement Ingestion**: a scheduled retrieval process that reads the e-GP announcement feed (draft TOR and invitation announcements for e-bidding), filters records to the agencies in the Source Registry (Appendix A), and uses each project identifier to retrieve announcement details and attached TOR files from e-GP. Records are deduplicated by project identifier; retrieval failures are logged for administrator review. [Changed D-01: was "queries the Thailand Government Spending open data API".]
-- **Document Extraction**: a pipeline in which Vertex AI reads each TOR file directly, including scanned Thai documents, and derives structured attributes: budget, submission deadline, technology stack, target platform and industry sector. [Changed D-04: was "extracts text … applies OCR".]
-- **Company Profile and Matching**: a single organisation-wide profile (past project industries, technology expertise, project size range, target platforms, years of experience). Each announcement is assigned a matching score against it; scores are recomputed when the profile changes.
-- **Search, Filtering and Dashboard**: a ranked view of recommended announcements, filterable by budget range, publication date, submission deadline, technology stack, industry sector and target platform.
+- **Document Extraction**: a pipeline in which Vertex AI reads each TOR file directly, including scanned Thai documents, and derives structured attributes: budget, submission deadline, technology stack and target platform. [Changed D-04: was "extracts text … applies OCR".]
+- **Company Profile and Matching**: a single organisation-wide profile (technology expertise, project size range, target platforms, years of experience). Each announcement is assigned a matching score against it; scores are recomputed when the profile changes.
+- **Search, Filtering and Dashboard**: a ranked view of recommended announcements, filterable by budget range, publication date, submission deadline, technology stack and target platform.
 - **TOR Review**: in-browser display of the AI summary alongside access to the original source document, both for reading in the platform and for download.
 - **Email Notification**: automated email and in-application alerts when a newly ingested announcement exceeds the configured matching-score threshold or a saved TOR's status changes.
 - **Identity and Access Management**: role-based access control with two roles, Business Development Officer and Site Administrator. Authentication is by username and password, or Google OAuth (FR-03). [Changed D-12: was "TBD".]
@@ -97,7 +97,7 @@ data service".]
 - **Third-party TOR publication**: all content originates from government sources.
 - **Mobile application development**: optimised for desktop browsers; no native iOS/Android apps.
 - **AI model training**: pre-trained Vertex AI only; nothing is trained, fine-tuned or hosted.
-- **Alternative notification channels**: no SMS or any channel other than email, in-application and LINE. [Open D-14]: LINE was added after this SRS was written.
+- **Alternative notification channels**: no SMS or any channel other than email, in-application and LINE. [Changed D-14: LINE was added after this SRS was written and is kept.]
 - **Per-user profiles**: one shared company profile; no individual profiles or multi-tenant operation. [Open D-05]: the built system has one Company per vendor, so this exclusion does not describe it.
 - **Payment processing**: internal tool; no payment gateway or subscription management.
 
@@ -195,7 +195,7 @@ Status reflects whether the story can be completed end to end in the built syste
 | -- | ---------- | ------ |
 | US-01 | As a BD Officer, I want the system to automatically collect procurement announcements, so that I don't need to visit every website manually and can reduce screening time. | Done |
 | US-02 | As a BD Officer, I want the system to provide me only software TOR, so that I don't waste time reading unrelated TORs. | Done |
-| US-03 | As a BD Officer, I want to filter out unrelated projects by budget, published date, deadline, tech stack, industry (e.g. hospital, school), decision rules (e.g. price), target platform (macOS, Windows, mobile, web-app) and location, so that I can narrow down opportunities. | Done: province filter and the company's price range (FR-29); industry stays a keyword match on names |
+| US-03 | As a BD Officer, I want to filter out unrelated projects by budget, published date, deadline, tech stack, decision rules (e.g. price), target platform (macOS, Windows, mobile, web-app) and location, so that I can narrow down opportunities. [Changed D-15: industry sector removed.] | Done: province filter and the company's price range (FR-29) |
 | US-04 | As a BD Officer, I want to search for TORs using keywords, so that I can quickly find projects related to my business. | Done |
 | US-05 | As a BD Officer, I want to see full details and the AI summary of the selected procurement, so that I can quickly understand the important details before reading the full document. | Done |
 | US-06 | As a BD Officer, I want to download the original TOR document, so that I can verify the project details and validate whether it is worthwhile. | Done |
@@ -208,14 +208,14 @@ Status reflects whether the story can be completed end to end in the built syste
 | US-13 | As a BD Officer, I want to select which events notify me, in the system and by email, so that I don't receive junk notifications. | Done (FR-38) |
 | US-14 | As a BD Officer, I want to report a TOR I find unreasonable, so that the Site Administrator can decide whether it should remain published. | Done |
 | US-15 | As a Site Administrator, I want to manage the crawling schedule, so that TOR information stays up to date. | Done |
-| US-16 | As a Site Administrator, I want alerts when the system detects an unusual or potentially invalid TOR, so that I can approve or reject it. | Partial: held records appear in an approval queue; there is no push alert |
+| US-16 | As a Site Administrator, I want alerts when the system detects an unusual or potentially invalid TOR, so that I can approve or reject it. | Done: Held records appear in the admin approval queue. In-system only [D-19]. |
 | US-17 | As a Site Administrator, I want to monitor the status of TOR data collection, so that I can identify failed or incomplete collection. | Done |
 | US-18 | As a Site Administrator, I want to view the processing status of each collected TOR, so that I can track whether it is processed correctly and find errors. | Done |
-| US-19 | As a Site Administrator, I want to manage authenticated user accounts, so that only authorised users can access the system. | Partial: list, activate and deactivate only |
+| US-19 | As a Site Administrator, I want to manage authenticated user accounts, so that only authorised users can access the system. | Done: List, activate and deactivate, admin role, and soft delete [D-16]. |
 | US-20 | As a Site Administrator, I want to remove published TORs found invalid or outdated, so that the platform stays accurate. | Done |
 | US-21 | As a Site Administrator, I want to monitor user reports such as outdated TOR status, so that the platform stays accurate. | Done |
-| US-22 | As a Site Administrator, I want to edit my admin profile and password, so that the platform stays accurate. | Unverified: no endpoint found |
-| US-23 | As a Site Administrator, I want to manage system settings, so that I can control and maintain the system's operation. | Partial: ingestion schedule only |
+| US-22 | As a Site Administrator, I want to edit my admin profile and password, so that the platform stays accurate. | Done: `PATCH /auth/me` and `PATCH /auth/me/password` |
+| US-23 | As a Site Administrator, I want to manage system settings, so that I can control and maintain the system's operation. | Done: ingestion schedule and Source Registry (D-18) |
 ## 4. System Features and Functional Requirements
 
 ### 4.1 Identity and Access Management
@@ -228,8 +228,8 @@ Status reflects whether the story can be completed end to end in the built syste
 | FR-04 | The system SHALL let an Authenticated User find an existing company and request to join it, or create one if it does not exist. [Changed D-13: was "…add themselves to any company…"] | Done | Company typeahead, join request and create (`/companies`). |
 | FR-04a | Joining a company SHALL require approval by one of that company's Company Managers. The creator of a company SHALL be its first Company Manager, and a company with members SHALL always keep at least one. A Company Manager MAY enable automatic approval for one email domain, which SHALL admit only users whose verified email is at exactly that domain; the domain SHALL be the manager's own and SHALL NOT be a public mail provider. A pending request SHALL grant no access to company data. [Added D-13] | Done | `company-membership.service.ts`, `/companies/me/join-requests`, `/companies/me/auto-approve`; members panel on `/company`. Tests: `src/security/company-join-approval.test.ts`. |
 | FR-05 | The system SHALL provide a Sign Out function that invalidates the current session. | Done | Clears cookies and revokes the refresh-token family. |
-| FR-06 | Site Administrators SHALL be able to create, suspend, and remove Authenticated User accounts. | Partial | [Open D-07] List, activate/deactivate (suspend) and grant/revoke the admin role exist (not on their own account; the last active admin is protected). Create-by-admin and remove do not. |
-| FR-07 | Site Administrators SHALL be able to edit their own profile and credentials. | Unverified | No profile or password-change route found on `develop`. A `feature/account-settings` branch exists. |
+| FR-06 | Site Administrators SHALL be able to suspend and soft-delete Authenticated User accounts. Accounts are created by self-registration or Google sign-in only. [Changed D-16: was "create, suspend, and remove".] | Done | Suspend (`PATCH /api/admin/users/:id`), grant and revoke admin, and soft delete (`DELETE /api/admin/users/:id` sets `deleted_at`; the account is deactivated, its sessions end and it leaves the list). Accounts are not created by an administrator. [D-16] |
+| FR-07 | Site Administrators SHALL be able to edit their own profile and credentials. | Done | `PATCH /auth/me` and `PATCH /auth/me/password`; Account settings on `/settings`. |
 
 ### 4.2 Announcement Ingestion
 
@@ -246,11 +246,11 @@ Status reflects whether the story can be completed end to end in the built syste
 
 | ID | Requirement | Status | Note |
 | -- | ----------- | ------ | ---- |
-| FR-14 | The system SHALL alert the Site Administrator when an announcement is flagged as unusual or potentially invalid. | Partial | Flagged records are held (`needs_review`) with a reason and surface in the admin approval queue and dashboard. No push or email alert. |
+| FR-14 | The system SHALL alert the Site Administrator when an announcement is flagged as unusual or potentially invalid. | Done | Flagged records are held (`needs_review`) with a reason and shown in the admin approval queue and dashboard. In-system only: no email or push alert, by decision [D-19]. |
 | FR-15 | The system SHALL read the content of ingested TOR files. [Changed D-04: was "extract text from ingested TOR files".] | Done | The PDF is given to Gemini directly; oversize files fall back to text or first pages (and are then held for review). |
 | FR-16 | The system SHALL be able to read scanned Thai-language TOR documents that lack extractable text, and SHALL mark a document it cannot read as unreadable. [Changed D-04: was "apply OCR…".] | Done | The model reads the PDF natively; no separate OCR stage. |
 | FR-17 | The system SHALL use Vertex AI to classify whether an announcement is software-related; non-software announcements SHALL be excluded from user-facing results. | Done | `isSoftware` + confidence; only high-confidence software is shown. Low confidence is held for an administrator. Not-software with high confidence is dropped and tombstoned. |
-| FR-18 | The system SHALL use Vertex AI to derive structured attributes: budget, submission deadline, technology stack, target platform, industry sector. | Partial | Budget, deadline, duration, tech stack, target platforms, scope and qualifications are extracted. **Industry sector is not extracted**; the `industry` filter is a keyword match on project and agency names. |
+| FR-18 | The system SHALL use Vertex AI to derive structured attributes: budget, submission deadline, technology stack and target platform. [Changed D-15: was "…and industry sector".] | Done | Budget, deadline, duration, tech stack, target platforms, scope and qualifications are extracted. |
 | FR-19 | The system SHALL generate an AI summary for each TOR. | Done | |
 | FR-20 | AI-generated classifications and summaries SHALL be visually labeled as recommendations, not authoritative source data. | Done | The review page states the content is read by AI from the TOR and should be checked against the original. |
 
@@ -258,11 +258,11 @@ Status reflects whether the story can be completed end to end in the built syste
 
 | ID | Requirement | Status | Note |
 | -- | ----------- | ------ | ---- |
-| FR-21 | The system SHALL maintain a single, organization-wide Company Profile (industries, technology expertise, project size range, target platforms, years of experience). | Differs | [Open D-05] Built as a **Company** per vendor, made of **Clients** and **Experience** records (tech stack, target platforms, duration). Not one shared profile; no "industries", "size range" or "years" fields (D-05). |
+| FR-21 | The system SHALL maintain a single, organization-wide Company Profile (technology expertise, project size range, target platforms, years of experience). [Changed D-15: industries removed.] | Differs | [Open D-05] Built as a **Company** per vendor, made of **Clients** and **Experience** records (tech stack, target platforms, duration). Not one shared profile; no "size range" or "years" fields (D-05). |
 | FR-22 | Only Site Administrators SHALL be permitted to create or modify the Company Profile. | Differs | [Open D-05] The reverse: BD Officers create and edit their own Company, Clients and Experience; administrators hold no Company (D-05). |
 | FR-23 | The system SHALL compute a matching score for each announcement against the current Company Profile. | Done | `services/qualification-match.ts`. The score is the share of the TOR's bidder qualifications the company meets (certificates, personnel, registered capital, past work). It is **0 when any qualification is not met**, and 0 when the TOR's announced budget is outside the company's bid range (FR-29). Clauses that cannot be checked earn nothing, and a TOR with nothing checkable has no score. It is keyed by Company (D-05). |
 | FR-24 | The system SHALL recompute matching scores for all announcements when the Company Profile is modified. | Done | Scores are not stored: search, the TOR page and notifications compute them from the current profile on every read. |
-| FR-25 | The system SHALL display a comparison of a TOR's budget against budgets of similar previously ingested projects. | Planned | |
+| FR-25 | The system SHALL display a comparison of a TOR's budget against budgets of similar previously ingested projects. | Planned | Under review in PR #215 (open, `feature/bid-strategy`), which adds the budget comparison (#61). |
 
 ### 4.5 Search, Filtering, and Dashboard
 
@@ -270,7 +270,7 @@ Status reflects whether the story can be completed end to end in the built syste
 | -- | ----------- | ------ | ---- |
 | FR-26 | The system SHALL display a ranked list of announcements ordered by matching score for Authenticated Users. | Done | `/api/tors` ranks officers' results by the score (`order=match`, the default); days left breaks ties. |
 | FR-27 | The system SHALL allow keyword search across announcements. | Done | `q`. |
-| FR-28 | The system SHALL allow filtering by budget range, publication date, submission deadline, technology stack, industry sector, and target platform. | Done | Also agency, budget year, Procurement Status and days left. Industry is a keyword match (see FR-18). Unchanged. |
+| FR-28 | The system SHALL allow filtering by budget range, publication date, submission deadline, technology stack and target platform. [Changed D-15: industry sector removed.] | Done | Also agency, budget year, Procurement Status and days left. The industry filter was removed [D-15]. |
 | FR-29 | In addition to FR-28, the system SHALL allow filtering by geographic location, and SHALL apply a configurable price-based decision rule during matching. [Changed D-10: was a repeat of the FR-28 list plus these two items.] | Done | Location: a province filter on `/search` (`province`), matched in agency and project names because e-GP publishes no location field. Price rule: a company sets the range of announced budgets it bids for, and a TOR outside it scores 0. |
 
 ### 4.6 TOR Review
@@ -279,7 +279,7 @@ Status reflects whether the story can be completed end to end in the built syste
 | -- | ----------- | ------ | ---- |
 | FR-30 | The system SHALL display the AI summary alongside the original TOR document, viewable in-browser. | Done | `tor-review-page` with an in-browser PDF viewer. |
 | FR-31 | Authenticated Users SHALL be able to download the original TOR document. | Done | `GET /api/tors/:projectId/source`. Re-fetched from e-GP on demand (constraint C-02). |
-| FR-32 | The system SHALL link to the original procurement source for manual verification. | Unverified | The original TOR PDF is reachable; a link to the e-GP page was not found in the review UI. |
+| FR-32 | Withdrawn: merged into FR-31. The download serves manual verification; no link to the e-GP page is required. [Changed D-17: was "The system SHALL link to the original procurement source for manual verification".] | Done (via FR-31) | |
 
 ### 4.7 My TOR
 
@@ -296,7 +296,7 @@ Status reflects whether the story can be completed end to end in the built syste
 | FR-36 | The system SHALL generate a notification when a newly ingested announcement's matching score exceeds a configurable threshold, or when a saved TOR's status changes. | Done | `services/notifications/`: a match is announced when the score passes the officer's threshold (`minQualificationScore`) and filters; a saved TOR's status or deadline change is announced too. |
 | FR-37 | The system SHALL support two notification delivery channels: email and in-application. | Done | In-app inbox and email, plus LINE as a third channel. |
 | FR-38 | Authenticated Users SHALL be able to configure, per event type, which channel(s) deliver the notification. | Done | Per event (match found, status changed, new open) and per channel, in notification settings. |
-| FR-39 | Notification delivery SHALL be limited to email and in-application channels; LINE, SMS, and any other channel SHALL NOT be implemented. | Differs | [Open D-14] LINE was added as a third channel (#129), so the limit no longer holds. SMS and every other channel are still not implemented. |
+| FR-39 | Notification delivery SHALL be limited to email, in-application and LINE; SMS and any other channel SHALL NOT be implemented. [Changed D-14: was "limited to email and in-application".] | Done | LINE is built as a third channel (#129). |
 
 ### 4.9 Administration
 
@@ -306,7 +306,7 @@ Status reflects whether the story can be completed end to end in the built syste
 | FR-41 | Site Administrators SHALL be able to configure the ingestion schedule. | Done | Interval or weekly; Asia/Bangkok; minimum 6 hours. |
 | FR-42 | Site Administrators SHALL be able to remove a published TOR found invalid or outdated. | Done | Remove from publication (from a report), or delete, with or without a tombstone. |
 | FR-43 | Site Administrators SHALL be able to review and act on user-submitted TOR reports. | Done | Dismiss, or remove the TOR from publication; decision history kept. |
-| FR-44 | Site Administrators SHALL be able to manage system-wide configuration settings. | Partial | The ingestion schedule is the only runtime setting; everything else is environment configuration. |
+| FR-44 | Site Administrators SHALL be able to manage system settings: the ingestion schedule (FR-41) and the Source Registry (FR-40). [Changed D-18: was "manage system-wide configuration settings".] | Done | `/ingestion/schedule` and `/ingestion/sources`. Other settings stay in environment configuration. |
 
 ## 5. Nonfunctional Requirements
 
@@ -314,7 +314,7 @@ Status reflects whether the story can be completed end to end in the built syste
 
 | ID | Requirement | Status | Note |
 | -- | ----------- | ------ | ---- |
-| NFR-01 | The system SHALL preserve a user's active search/filter state if a session is interrupted by a network error. | Unverified | Not verified. |
+| NFR-01 | The system SHALL preserve a user's active search/filter state if a session is interrupted by a network error. | Partial | Filters live in the URL, so a reload or back navigation keeps them. Behaviour on a network error mid-session is not verified. |
 | NFR-02 | The system SHALL visually distinguish AI-generated content (summaries, classifications, scores) from verified official TOR data, so users don't mistake a recommendation for fact. | Partial | The summary is labelled as AI-generated. The score is labelled an estimate and the source TOR stays one click away. |
 
 ### 5.2 Security Requirements
@@ -336,8 +336,8 @@ allowlist, rate limits, credential throttling, CI security scans).
 | -- | --------- | ----------- | ------ | ---- |
 | NFR-07 | Availability | The system SHALL degrade gracefully (e.g., mark classification "pending") if Vertex AI is unavailable, rather than blocking ingestion. | Partial | A model failure is recorded (`analysis_failed`) and the Run continues. A failed analysis is not retried automatically, because archives are not stored. |
 | NFR-08 | Reliability | The system SHALL retry failed retrieval/classification requests up to 3 times with exponential backoff before marking "Failed." | Partial | Three attempts, then `abandoned`. Within a request, two retries with fixed back-off of 5 s and 15 s, not exponential. A refusal (429/403) is never retried. |
-| NFR-09 | Usability | The system SHALL give visual feedback (loading state, toast) for actions like saving a TOR or submitting a report. | Unverified | Loading states exist; toasts not verified. |
-| NFR-10 | Portability | The system SHALL be fully functional on the latest stable Chrome, Firefox, Safari, and Edge. | Unverified | E2E runs on Chromium only. |
+| NFR-09 | Usability | The system SHALL give visual feedback (loading state, toast) for actions like saving a TOR or submitting a report. | Partial | Loading states on most actions. A toast only on TOR report submission. Feedback when saving to My TOR is not verified. |
+| NFR-10 | Portability | The system SHALL be fully functional on the latest stable Chrome, Firefox, Safari, and Edge. | Unverified | E2E runs on Chromium only (`apps/web/playwright.config.ts`). |
 | NFR-11 | Maintainability | The system SHALL document the ingestion/classification pipeline given its dependency on external services (e-GP and Vertex AI; the Gov Spending API only for a future winner lookup). [Changed D-01: was "three external services (Gov Spending API, e-GP, Vertex AI)".] | Done | `AGENTS.md`, [ingestion-flow.md](ingestion-flow.md). |
 
 ## 6. Implementation Status and Deviations
@@ -346,17 +346,18 @@ allowlist, rate limits, credential throttling, CI security scans).
 
 | Status | Functional requirements | Count |
 | ------ | ----------------------- | ----- |
-| Done | FR-01–05, 08–13, 15–17, 19–20, 23–24, 26–31, 33–38, 40–43 | 34 |
-| Partial | FR-06, 14, 18, 44 | 4 |
-| Differs (open) | FR-21, 22, 39 | 3 |
+| Done | FR-01–20, 23–24, 26–44 | 41 |
+| Partial | none | 0 |
+| Differs (open) | FR-21, 22 | 2 |
 | Planned | FR-25 | 1 |
-| Unverified | FR-07, 32 | 2 |
+| Unverified | none | 0 |
 | Total | | 44 |
 
 | Set | Done | Partial | Planned | Unverified | Total |
 | --- | -- | -- | -- | -- | ----- |
-| User stories (US-01–23) | 18 | 3 | 1 | 1 | 23 |
-| Non-functional (NFR-01–11) | 5 | 3 | 0 | 3 | 11 |
+| User stories (US-01–23) | 22 | 0 | 1 | 0 | 23 |
+| Non-functional (NFR-01–11) | 5 | 5 | 0 | 1 | 11 |
+
 
 FR-08, FR-15 and FR-16 count as Done because their text was changed to match
 the code (D-01 to D-04).
@@ -379,21 +380,23 @@ needed. The original wording column keeps what the SRS said before.
 | D-11 | Appendix B had terms from another project | Applied: Appendix B | Quota ("songs"), Standard Audio Controls, UUID ("shared songs") | Copy-paste from a template. Added TOR, e-GP, Procurement, Archive, Run/Gate. |
 | D-12 | Authentication is decided | Applied: §1.3 | "The authentication mechanism is TBD" | FR-03 already fixes username/password and Google OAuth. |
 | D-13 | Joining a company needs a Company Manager's approval | Applied: FR-04 reworded, FR-04a added, §2.2 note, Appendix B (18 November 2026) | "…a mechanism to add themselves to any company…" | The penetration test (finding P-1, issue #200) showed that self-service joining let any registered user read another company's capital, certificates, past contracts and clients. Supersedes ADR-0008 ("membership is claimed, not granted"). |
-| D-14 | LINE is built as a third notification channel | Open: FR-37 records LINE; FR-39 marked Differs; "Alternative notification channels" scope line reworded | "limited to email and in-application channels" | LINE delivery shipped in #129 (styled email and LINE messages). Decide whether to keep it and reword FR-39, or remove it to match the SRS. SMS and other channels remain out of scope. |
+| D-14 | LINE is built as a third notification channel | Applied: LINE kept. FR-37 and FR-39 reworded; scope line reworded | "limited to email and in-application channels" | LINE delivery shipped in #129 (styled email and LINE messages). The team chose to keep it. SMS and other channels remain out of scope. |
 | D-05 | One shared Company Profile, admin-edited, vs. a Company per vendor made of Clients and Experience, edited by officers | Open: FR-21, FR-22, section 1.3 and "Per-user profiles" unchanged | n/a | The code follows ADR-0007 and -0009. It conflicts with the "single shared profile" scope and with the out-of-scope item. If several vendors share one deployment, rewrite FR-21/22 and drop the exclusion. If not, the code has to change. Also decides how FR-23 (matching) is keyed. |
-| D-07 | Admins create, suspend and remove accounts | Open: FR-06 unchanged | n/a | Built: list, activate/deactivate and grant/revoke admin; users self-register. Decide whether admin-created and removable accounts are wanted. |
-| D-08 | Admins manage the Source Registry | Applied: FR-40 now Done | n/a | Built: an admin-managed registry stored in `ingestion_meta` (`source_registry`); absent means the shipped five. |
+| D-07 | Admins create, suspend and remove accounts | Superseded by D-16 | n/a | Team decision: no admin-created accounts; removal is a soft delete. |
+| D-08 | Admins manage the Source Registry | Applied: FR-40 Done | n/a | Built: an admin-managed registry stored in `ingestion_meta` (`source_registry`); absent means the shipped five. |
+| D-15 | Industry sector is dropped | Applied: FR-18, FR-21, FR-28, US-03, scope. Code: industry filter and `industryScore` removed | "…industry sector…" | Team decision. Not extracted from TORs, and the keyword filter matched names only. |
+| D-16 | Admins do not create accounts; removal is a soft delete | Applied and built: FR-06, US-19. `DELETE /api/admin/users/:id` sets `deleted_at` and deactivates the account | "create, suspend, and remove" | Team decision. Suspend already exists. Soft delete keeps the record for audit. |
+| D-17 | The download satisfies manual verification | Applied: FR-32 withdrawn into FR-31 | "link to the original procurement source" | Team decision. FR-31 downloads the original TOR. |
+| D-18 | System settings are the ingestion schedule and the Source Registry | Applied: FR-44, US-23 | "manage system-wide configuration settings" | Team decision. Other settings stay in environment configuration. |
+| D-19 | The admin alert for a flagged TOR is in-system only | Applied: FR-14, US-16 Done. No email or push | "alert the Site Administrator" | The approval queue and dashboard already notify the administrator. Email is not wanted. |
 
 ### 6.3 Remaining gaps (not deviations)
 
 | Area | Requirements | State |
 | ---- | ------------ | ----- |
-| Budget comparison | FR-25, US-09 | Planned: a TOR's budget against similar earlier projects. Under review in PR #215 (bid strategy). |
-| Admin profile and password | FR-07, US-22 | Not found; `feature/account-settings` branch exists |
-| Link to the e-GP page | FR-32 | Not found in the review UI |
-| Admin alert on flagged TOR | FR-14, US-16 | Held records queue; no push or email |
-| Industry sector extraction | FR-18 | Not extracted; the filter is a keyword match |
-| Browser matrix, toasts, preserved filters | NFR-01, 09, 10 | Not verified |
+| Budget comparison | FR-25, US-09 | Planned. Under review in PR #215 (open, `feature/bid-strategy`). |
+| Preserved state, feedback, browsers | NFR-01, 07, 08, 09, 10 | Partial or unverified, as stated in each row. |
+
 
 ### 6.4 Built but not in this SRS
 
@@ -421,7 +424,7 @@ specified in [system-requirements.md](system-requirements.md).
 | Search and dashboard | FR-26–29 | `routes/tors.ts`, `tor.service.ts`, web `components/search/*` |
 | TOR review | FR-30–32 | web `components/tor-review/*`, `GET /tors/:id/source` |
 | My TOR | FR-33–35 | `routes/favorites.ts`, `routes/tor-reports.ts` |
-| Notifications | FR-36–39 | none on `develop` |
+| Notifications | FR-36–39 | `services/notifications/*`, `routes/notifications.ts`, web `app/(chrome)/notifications/*` |
 | Administration | FR-40–44 | `routes/{schedule,source-registry,procurement-admin,tor-reports}.ts` |
 
 ## Appendix A: Target government agencies

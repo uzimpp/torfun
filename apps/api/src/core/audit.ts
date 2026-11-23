@@ -22,6 +22,7 @@ export type AuditEvent =
   | 'auth.google.success'
   | 'auth.google.failure'
   | 'admin.user.updated'
+  | 'admin.user.deleted'
   | 'admin.company.manager.assigned'
   | 'company.created'
   | 'company.join.requested'

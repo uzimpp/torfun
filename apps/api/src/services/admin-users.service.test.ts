@@ -32,6 +32,31 @@ describe('AdminUsersService', () => {
     expect(listed.map((user) => user.id)).toEqual([second.id, first.id]);
   });
 
+  test('a soft-deleted account leaves the list, keeps its record, and cannot be edited', async () => {
+    const admin = users.seed({ username: 'root', role: 'admin' });
+    const officer = users.seed({ username: 'somchai' });
+
+    await service.remove(admin.id, officer.id);
+
+    expect((await service.list()).map((user) => user.id)).toEqual([admin.id]);
+    const kept = await users.findById(officer.id);
+    expect(kept?.deletedAt).toBeInstanceOf(Date);
+    expect(kept?.isActive).toBe(false);
+    expect(status(await service.remove(admin.id, officer.id).catch((e) => e))).toBe(404);
+    expect(
+      status(await service.update(admin.id, officer.id, { isActive: true }).catch((e) => e)),
+    ).toBe(404);
+  });
+
+  test('an administrator cannot delete their own account or the last active administrator', async () => {
+    const admin = users.seed({ username: 'root', role: 'admin' });
+    expect(status(await service.remove(admin.id, admin.id).catch((e) => e))).toBe(403);
+
+    // The only active administrator, deleted by someone else: refused.
+    expect(status(await service.remove('another-admin', admin.id).catch((e) => e))).toBe(409);
+    expect((await users.findById(admin.id))?.deletedAt ?? null).toBeNull();
+  });
+
   test('an unknown target is a 404', async () => {
     const admin = users.seed({ username: 'root', role: 'admin' });
 

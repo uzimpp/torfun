@@ -102,6 +102,34 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   /**
+   * Soft-deletes an account (FR-06). The record is kept; the account can no
+   * longer sign in.
+   */
+  app.delete(
+    '/admin/users/:id',
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        response: {
+          204: z.null(),
+          403: z.object({ message: z.string() }),
+          404: z.object({ message: z.string() }),
+          409: z.object({ message: z.string() }),
+        },
+      },
+    },
+    async (request, reply) => {
+      await app.adminUsersService.remove(request.user.user_id, request.params.id);
+      audit(request.log, 'admin.user.deleted', {
+        ip: request.ip,
+        userId: request.user.user_id,
+        targetUserId: request.params.id,
+      });
+      return reply.code(204).send(null);
+    },
+  );
+
+  /**
    * Makes a member a Company Manager, for a Company whose managers have all
    * gone. Only someone already in the Company qualifies: an administrator can
    * repair a Company, not put a stranger into it.

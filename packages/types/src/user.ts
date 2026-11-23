@@ -31,6 +31,8 @@ export const UserSchema = z.object({
   /** Absent on password-only accounts; Google sign-in always supplies one. */
   email: z.string().email().optional(),
   isActive: z.boolean().default(true),
+  /** Set when an administrator soft-deletes the account. The record is kept; the account can no longer sign in. */
+  deletedAt: z.coerce.date().nullable().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });

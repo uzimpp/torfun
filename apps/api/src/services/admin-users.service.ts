@@ -5,7 +5,8 @@ import type { UserStore } from '../repositories/user.repository';
 
 /**
  * What a Site Administrator may do to the other accounts (USR-10): read them
- * all, activate or deactivate one, and grant or revoke the `admin` role.
+ * all, activate or deactivate one, grant or revoke the `admin` role, and
+ * soft-delete one (FR-06). Accounts are never created by an administrator.
  *
  * Two rules are load-bearing and both exist so the screen cannot lock every
  * human out of `admin` — recoverable only by editing Mongo:
@@ -44,7 +45,7 @@ export class AdminUsersService {
 
   async update(actingUserId: string, targetId: string, patch: AdminUserPatch): Promise<User> {
     const target = await this.users.findById(targetId);
-    if (!target) throw new NotFoundError('No such account');
+    if (!target || target.deletedAt) throw new NotFoundError('No such account');
 
     if (actingUserId === targetId) {
       throw new ForbiddenError('You cannot change your own role or account status');
@@ -84,5 +85,26 @@ export class AdminUsersService {
     const updated = await this.users.findById(targetId);
     if (!updated) throw new NotFoundError('No such account');
     return updated;
+  }
+
+  /**
+   * Soft-deletes an account (FR-06). The account drops out of the list, cannot
+   * sign in, and loses its sessions and any pending join request. The record is
+   * kept with `deletedAt` set. The same two guards as `update` apply.
+   */
+  async remove(actingUserId: string, targetId: string): Promise<void> {
+    const target = await this.users.findById(targetId);
+    if (!target || target.deletedAt) throw new NotFoundError('No such account');
+
+    if (actingUserId === targetId) {
+      throw new ForbiddenError('You cannot delete your own account');
+    }
+    if (target.role === 'admin' && target.isActive && (await this.users.countActiveAdmins()) <= 1) {
+      throw new ConflictError('The last active administrator cannot be deleted');
+    }
+
+    await this.users.markDeleted(targetId);
+    await this.users.setJoinRequest(targetId, null);
+    await this.sessions?.revokeAllSessions(targetId);
   }
 }

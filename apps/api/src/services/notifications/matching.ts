@@ -40,7 +40,6 @@ export function computeMatch(
       techStackScore: tech,
       targetPlatformScore: platform,
       deadlineScore: 0,
-      industryScore: 0,
       decisionRulesScore: 0,
     },
     reasons: [
