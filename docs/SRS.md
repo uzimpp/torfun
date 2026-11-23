@@ -346,9 +346,9 @@ allowlist, rate limits, credential throttling, CI security scans).
 
 | Status | Functional requirements | Count |
 | ------ | ----------------------- | ----- |
-| Done | FR-01–05, 08–13, 15–17, 19–20, 23–24, 26–31, 33–38, 41–43 | 33 |
+| Done | FR-01–05, 08–13, 15–17, 19–20, 23–24, 26–31, 33–38, 40–43 | 34 |
 | Partial | FR-06, 14, 18, 44 | 4 |
-| Differs (open) | FR-21, 22, 39, 40 | 4 |
+| Differs (open) | FR-21, 22, 39 | 3 |
 | Planned | FR-25 | 1 |
 | Unverified | FR-07, 32 | 2 |
 | Total | | 44 |
