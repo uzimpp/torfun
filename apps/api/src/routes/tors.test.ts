@@ -5,6 +5,8 @@ import {
   toCompanyQualificationsPayload,
   fromCompanyQualificationsPayload,
   type CompanyQualificationsRecord,
+  type Contract,
+  type ContractSubmission,
   type Procurement,
   type TorAnalysis,
   type User,
@@ -15,6 +17,73 @@ import { InMemoryCompanyStore } from '../testing/company-store';
 import { InMemoryExperienceStore } from '../testing/experience-store';
 import { InMemoryUserStore } from '../testing/user-store';
 import { InMemoryProcurementStore } from '../testing/procurement-store';
+import type { ContractStore } from '../repositories/contract.repository';
+import type { ContractSubmissionStore } from '../repositories/contract-submission.repository';
+
+const contractRows: Contract[] = [
+  {
+    projectId: 'project-1',
+    contractYear: 2568,
+    contractNo: 'CN-2568',
+    winnerName: 'Winner 2568',
+    winnerTin: null,
+    priceAgree: 100_000,
+    contractDate: null,
+    contractFinishDate: null,
+    status: null,
+  },
+  {
+    projectId: 'project-1',
+    contractYear: 2569,
+    contractNo: 'CN-2569',
+    winnerName: 'Winner 2569',
+    winnerTin: null,
+    priceAgree: 200_000,
+    contractDate: null,
+    contractFinishDate: null,
+    status: null,
+  },
+];
+
+const submissionRows: ContractSubmission[] = [
+  {
+    projectId: 'project-1',
+    contractYear: 2568,
+    merchantName: 'Bidder 2568',
+    seqNo: 1,
+    seqNoDesc: null,
+    submitPrice: 90_000,
+  },
+  {
+    projectId: 'project-1',
+    contractYear: 2569,
+    merchantName: 'Bidder 2569',
+    seqNo: 1,
+    seqNoDesc: null,
+    submitPrice: 180_000,
+  },
+];
+
+const contractStore: ContractStore = {
+  listByProject: async (projectId, year) =>
+    contractRows.filter(
+      (row) => row.projectId === projectId && (year === undefined || row.contractYear === year),
+    ),
+  listByYear: async (year) => contractRows.filter((row) => row.contractYear === year),
+  replaceProjectSnapshot: async () => {},
+  stageYearSnapshot: async () => {},
+  discardStagedYearSnapshot: async () => {},
+};
+
+const submissionStore: ContractSubmissionStore = {
+  listByProject: async (projectId, year) =>
+    submissionRows.filter(
+      (row) => row.projectId === projectId && (year === undefined || row.contractYear === year),
+    ),
+  replaceProjectSnapshot: async () => {},
+  stageProjectSnapshot: async () => {},
+  discardStagedProjectSnapshot: async () => {},
+};
 
 function procurement(overrides: Partial<Procurement> = {}): Procurement {
   return {
@@ -62,6 +131,8 @@ describe('TOR detail routes', () => {
       users,
       companies,
       experiences: new InMemoryExperienceStore(),
+      contracts: contractStore,
+      contractSubmissions: submissionStore,
     });
   });
 
@@ -304,6 +375,152 @@ describe('TOR detail routes', () => {
     expect(response.statusCode).toBe(401);
   });
 
+  test('returns project contracts, optionally filtered by fiscal year', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors/project-1/contracts?contract_year=2569',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: Contract[] }>()).toEqual({ items: contractRows.slice(1) });
+  });
+
+  test('returns project submissions, optionally filtered by fiscal year', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors/project-1/contract-submissions?contract_year=2568',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ items: ContractSubmission[] }>()).toEqual({
+      items: submissionRows.slice(0, 1),
+    });
+  });
+
+  test('does not expose contract data for a procurement hidden from the caller', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tors/not-visible/contracts',
+      cookies: session(),
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  describe('budget comparison', () => {
+    const iso = (day: string) => `${day}T00:00:00.000Z`;
+
+    async function seedBudgets(count: number) {
+      await procurements.upsert(
+        procurement({
+          projectId: 'cmp-tor',
+          announceDate: iso('2026-06-01'),
+          projectMoney: 1_000_000,
+        }),
+      );
+      for (let index = 1; index <= count; index += 1) {
+        await procurements.upsert(
+          procurement({
+            projectId: `cmp-${index}`,
+            announceDate: iso('2026-01-01'),
+            projectMoney: 100_000 * index,
+          }),
+        );
+      }
+    }
+
+    test('rejects an anonymous caller', async () => {
+      const response = await app.inject({ url: '/api/tors/cmp-tor/budget-comparison' });
+      expect(response.statusCode).toBe(401);
+    });
+
+    test('returns the groups with the full count and at most ten listed projects', async () => {
+      await seedBudgets(12);
+
+      const response = await app.inject({
+        url: '/api/tors/cmp-tor/budget-comparison',
+        cookies: session(),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('private, no-store');
+      const body = response.json<{
+        minSample: number;
+        budget: number;
+        groups: {
+          basis: string;
+          count: number;
+          projects: unknown[];
+          summary: { rank: number } | null;
+        }[];
+      }>();
+      expect(body).toMatchObject({ minSample: 5, budget: 1_000_000 });
+      const agency = body.groups.find((group) => group.basis === 'agency')!;
+      // project-1 (the fixture every test starts with) is dated in Thai text, so it is not comparable.
+      expect(agency.count).toBe(12);
+      expect(agency.projects).toHaveLength(10);
+      expect(agency.summary).not.toBeNull();
+    });
+
+    test('is the same for an administrator and an officer', async () => {
+      await seedBudgets(6);
+      await procurements.upsert(
+        procurement({
+          projectId: 'cmp-held',
+          announceDate: iso('2026-01-01'),
+          outcome: 'needs_review',
+          holdReason: 'partial_read',
+        }),
+      );
+
+      const get = async (role: User['role']) =>
+        (
+          await app.inject({
+            url: '/api/tors/cmp-tor/budget-comparison',
+            cookies: session(role),
+          })
+        ).json();
+
+      expect(await get('admin')).toEqual(await get('business_development_officer'));
+    });
+
+    test('is 404 for a procurement the caller may not open, and for an unknown one', async () => {
+      await procurements.upsert(
+        procurement({ projectId: 'cmp-held', outcome: 'needs_review', holdReason: 'partial_read' }),
+      );
+
+      for (const projectId of ['cmp-held', 'missing']) {
+        const response = await app.inject({
+          url: `/api/tors/${projectId}/budget-comparison`,
+          cookies: session(),
+        });
+        expect(response.statusCode).toBe(404);
+      }
+      const admin = await app.inject({
+        url: '/api/tors/cmp-held/budget-comparison',
+        cookies: session('admin'),
+      });
+      expect(admin.statusCode).toBe(200);
+    });
+
+    test('says a TOR with no planned budget cannot be compared', async () => {
+      await procurements.upsert(procurement({ projectId: 'cmp-none', projectMoney: null }));
+
+      const response = await app.inject({
+        url: '/api/tors/cmp-none/budget-comparison',
+        cookies: session(),
+      });
+
+      expect(response.json<Record<string, unknown>>()).toEqual({
+        minSample: 5,
+        budget: null,
+        groups: [],
+      });
+    });
+  });
+
   test('returns only fiscal years present in the procurement index', async () => {
     await procurements.upsert(procurement({ projectId: 'future', budgetYear: 2570 }));
     await procurements.upsert(procurement({ projectId: 'past', budgetYear: 2560 }));
@@ -411,6 +628,7 @@ describe('TOR detail routes', () => {
     '/api/tors?publishedFrom=2026-02-30',
     '/api/tors?deadlineFrom=2026-10-02&deadlineTo=2026-10-01',
     '/api/tors?targetPlatforms=television',
+    '/api/tors?evaluationMethod=cheapest',
     '/api/tors?status=invalid',
     '/api/tors?minDaysLeft=-1',
     '/api/tors?minDaysLeft=3.5',
@@ -421,6 +639,18 @@ describe('TOR detail routes', () => {
     const response = await app.inject({ method: 'GET', url, cookies: session() });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  test('accepts the evaluation method filter, repeated or comma-separated', async () => {
+    for (const url of [
+      '/api/tors?evaluationMethod=lowest_price',
+      '/api/tors?evaluationMethod=lowest_price,price_performance',
+      '/api/tors?evaluationMethod=other&evaluationMethod=price_performance',
+    ]) {
+      const response = await app.inject({ method: 'GET', url, cookies: session() });
+
+      expect(response.statusCode).toBe(200);
+    }
   });
 
   test('returns an existing procurement to an administrator', async () => {

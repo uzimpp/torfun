@@ -36,6 +36,23 @@ import { CompanyRepository, type CompanyStore } from './repositories/company.rep
 import { ClientRepository, type ClientStore } from './repositories/client.repository';
 import { ExperienceRepository, type ExperienceStore } from './repositories/experience.repository';
 import { FavoriteRepository, type FavoriteStore } from './repositories/favorite.repository';
+import { ContractRepository, type ContractStore } from './repositories/contract.repository';
+import {
+  ContractSubmissionRepository,
+  type ContractSubmissionStore,
+} from './repositories/contract-submission.repository';
+import {
+  ContractSyncRepository,
+  type ContractSyncStore,
+} from './repositories/contract-sync.repository';
+import {
+  ContractEnrichmentRepository,
+  type ContractEnrichmentStore,
+} from './repositories/contract-enrichment.repository';
+import {
+  GovSpendingCooldownRepository,
+  type GovSpendingCooldownStore,
+} from './repositories/govspending-cooldown.repository';
 import { AuthService } from './services/auth.service';
 import { noBreachCheck, PwnedPasswordsChecker } from './services/breached-passwords';
 import { AdminUsersService } from './services/admin-users.service';
@@ -45,6 +62,9 @@ import { CompanyMembershipService } from './services/company-membership.service'
 import { ClientService } from './services/client.service';
 import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
+import { createIngestionDeps } from './services/egp/pipeline';
+import { ContractsService, contractSyncHook } from './services/contracts.service';
+import { SimilarAwardsService, type SimilarAwardsClient } from './services/similar-awards.service';
 import { ProcurementAdminService } from './services/procurement-admin.service';
 import { ScheduleService } from './services/schedule.service';
 import {
@@ -107,6 +127,13 @@ export interface RepositoryOverrides {
   sourceRegistry?: SourceRegistryStore;
   favorites?: FavoriteStore;
   torReports?: TorReportStore;
+  contracts?: ContractStore;
+  contractSubmissions?: ContractSubmissionStore;
+  contractSync?: ContractSyncStore;
+  contractEnrichment?: ContractEnrichmentStore;
+  govSpendingCooldown?: GovSpendingCooldownStore;
+  /** The two open-data calls similar awards makes; a test passes a fake so none reaches the network. */
+  similarAwardsClient?: SimilarAwardsClient;
   /** Only the distinct agency names are read, for the client typeahead. */
   agencyNames?: AgencyNameSource;
   notifications?: NotificationStore;
@@ -186,6 +213,15 @@ export async function buildApp(
   const ingestionRuns = repositories.ingestionRuns ?? new IngestionRunRepository(app.mongo.getDb);
   const ingestionStats = repositories.ingestionStats ?? mongoProcurements;
   const favoriteRepository = repositories.favorites ?? new FavoriteRepository(app.mongo.getDb);
+  const contractRepository = repositories.contracts ?? new ContractRepository(app.mongo.getDb);
+  const contractSubmissionRepository =
+    repositories.contractSubmissions ?? new ContractSubmissionRepository(app.mongo.getDb);
+  const contractSyncRepository =
+    repositories.contractSync ?? new ContractSyncRepository(app.mongo.getDb);
+  const contractEnrichmentRepository =
+    repositories.contractEnrichment ?? new ContractEnrichmentRepository(app.mongo.getDb);
+  const govSpendingCooldown =
+    repositories.govSpendingCooldown ?? new GovSpendingCooldownRepository(app.mongo.getDb);
   const agencyNames = repositories.agencyNames ?? procurementRepository;
   const notifications = repositories.notifications ?? new NotificationRepository(app.mongo.getDb);
   const contacts =
@@ -272,13 +308,29 @@ export async function buildApp(
     'experienceService',
     new ExperienceService(experienceRepository, clientRepository, userRepository),
   );
-  const ingestionService = new IngestionService(procurementRepository, env, app.log, {
-    lease: ingestionLease,
-    runLog: scheduleStore,
-    runs: ingestionRuns,
-    stats: ingestionStats,
-    agencies: () => sourceRegistryService.agencies(),
-  });
+  const contractsService = new ContractsService(
+    contractRepository,
+    contractSubmissionRepository,
+    contractSyncRepository,
+    contractEnrichmentRepository,
+    env,
+    app.log,
+    govSpendingCooldown,
+  );
+  app.decorate('contractsService', contractsService);
+  const ingestionService = new IngestionService(
+    procurementRepository,
+    env,
+    app.log,
+    {
+      lease: ingestionLease,
+      runLog: scheduleStore,
+      runs: ingestionRuns,
+      stats: ingestionStats,
+      agencies: () => sourceRegistryService.agencies(),
+    },
+    (onUsage) => createIngestionDeps(env, onUsage, contractSyncHook(env, contractsService)),
+  );
   app.decorate('ingestionService', ingestionService);
   app.decorate(
     'procurementAdminService',
@@ -308,6 +360,16 @@ export async function buildApp(
     companyQualificationsService,
   );
   app.decorate('torService', torService);
+  app.decorate(
+    'similarAwardsService',
+    new SimilarAwardsService(
+      torService,
+      env,
+      govSpendingCooldown,
+      app.log,
+      repositories.similarAwardsClient ? { client: repositories.similarAwardsClient } : {},
+    ),
+  );
   app.decorate(
     'torReportService',
     new TorReportService(

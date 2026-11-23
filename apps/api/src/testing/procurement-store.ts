@@ -1,6 +1,7 @@
 import {
   appendStatusChange,
   OUTCOME_STATE,
+  type BudgetCandidate,
   type IngestionFailure,
   type IngestionOutcome,
   type IngestionSummary,
@@ -9,6 +10,7 @@ import {
 } from '@torfun/types';
 import {
   holdReasonFor,
+  type ComparableQuery,
   type FeedCursor,
   type FindOptions,
   type FindResult,
@@ -157,6 +159,42 @@ export class InMemoryProcurementStore implements ProcurementDataSource {
       items: items.slice(options.offset, options.offset + options.limit),
       total: items.length,
     };
+  }
+
+  async listComparables(query: ComparableQuery): Promise<BudgetCandidate[]> {
+    if (
+      query.goodsId === undefined &&
+      query.typeId === undefined &&
+      query.deptName === undefined &&
+      query.techStack === undefined
+    ) {
+      throw new Error('listComparables needs at least one criterion');
+    }
+    const terms = query.techStack?.map((term) => term.trim().toLowerCase()).filter(Boolean);
+    return [...this.records.values()].flatMap((record) =>
+      record.outcome === query.visibleOutcome &&
+      !record.publicationRemoval &&
+      record.projectMoney !== null &&
+      record.projectId !== query.excludeProjectId &&
+      (query.goodsId === undefined || record.goodsId === query.goodsId) &&
+      (query.typeId === undefined || record.typeId === query.typeId) &&
+      (query.deptName === undefined || record.deptName === query.deptName) &&
+      (terms === undefined ||
+        (record.analysis?.techStack ?? []).some((entry) =>
+          terms.includes(entry.trim().toLowerCase()),
+        ))
+        ? [
+            {
+              projectId: record.projectId,
+              projectName: record.projectName,
+              deptName: record.deptName,
+              budget: record.projectMoney,
+              budgetYear: record.budgetYear,
+              announceDate: record.announceDate,
+            },
+          ]
+        : [],
+    );
   }
 
   async amend(

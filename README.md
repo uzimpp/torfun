@@ -9,7 +9,7 @@ It is a Bun and Turborepo monorepo: a Fastify API over MongoDB Atlas and Vertex 
 - Bun 1.3.11, pinned by `packageManager`.
 - Docker, for the local MongoDB Atlas container.
 - A Google Cloud project with Vertex AI enabled, and `gcloud` for local credentials.
-- An e-GP open-data API key from <https://opend.data.go.th/register_api/>. Discovery no longer reads open data, but the API config and the dependency health check still require the key, and a future winner lookup will use it.
+- An e-GP open-data API key from <https://opend.data.go.th/register_api/>. Discovery does not read open data. The key is used to read signed contracts and bid submissions (1000 calls/day) and by the dependency health check; the key is still required by the API config.
 - A Google OAuth 2.0 web client, for user sign-in.
 
 ## Running it locally

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { convertDateToISO, convertTimelineDate } from './dates';
+import { contractSyncYears, convertDateToISO, convertTimelineDate, currentFiscalYear } from './dates';
 
 describe('convertDateToISO', () => {
   test('reads the upstream Thai display date with a two-digit Buddhist-era year', () => {
@@ -90,5 +90,32 @@ describe('convertTimelineDate', () => {
     expect(convertTimelineDate(null)).toBeNull();
     expect(convertTimelineDate('')).toBeNull();
     expect(convertTimelineDate('yesterday')).toBeNull();
+  });
+});
+
+describe('currentFiscalYear', () => {
+  test.each([
+    ['2026-11-20T03:00:00Z', 2570],
+    ['2026-01-01T00:00:00Z', 2569],
+    ['2027-09-30T10:00:00Z', 2570],
+    ['2027-10-01T00:00:00Z', 2571],
+  ])('%s is FY%d', (instant, year) => {
+    expect(currentFiscalYear(new Date(instant))).toBe(year);
+  });
+
+  test('the year turns at midnight Bangkok time on 1 October, not at midnight UTC', () => {
+    // 16:59:59 UTC is 23:59:59 on 30 September in Bangkok; one second later it is 1 October there.
+    expect(currentFiscalYear(new Date('2026-09-30T16:59:59Z'))).toBe(2569);
+    expect(currentFiscalYear(new Date('2026-09-30T17:00:00Z'))).toBe(2570);
+  });
+});
+
+describe('contractSyncYears', () => {
+  test('is the current fiscal year and the four before it, oldest first', () => {
+    expect(contractSyncYears(new Date('2026-11-20T03:00:00Z'))).toEqual([2566, 2567, 2568, 2569, 2570]);
+  });
+
+  test('moves on when the fiscal year changes', () => {
+    expect(contractSyncYears(new Date('2027-10-01T00:00:00Z'))).toEqual([2567, 2568, 2569, 2570, 2571]);
   });
 });

@@ -41,7 +41,7 @@ Each Run has three stages working side by side. [`docs/ingestion-flow.md`](docs/
 - Retrieval makes one turn at the site per project. It reads the project detail until it has been read once, which gives the real budget year (empty until then, never guessed). It reads the announcement timeline (greenBook) for status and bid deadline. Then it fetches the announcement archive and extracts the TOR PDFs. Never-read projects go first, newest announcement first. Projects already read get their timeline read again, oldest check first, and are retrieved again only if the invitation moved. The open-data API is not read, because it holds only signed contracts.
 - Analysis is Gemini reading the archive's TOR PDFs. It never touches e-GP, so it is the only stage that overlaps another stage's requests.
 
-Discovery and Retrieval reach `gprocurement.go.th` through one gate, one request at a time.
+Discovery and Retrieval reach `gprocurement.go.th` through one gate, one request at a time. The open-data API (GovSpending) is not read for discovery or the queue; it is read separately, for past awards, bidders and prices, never through that gate.
 
 A record carries a coarse `state` (Queued, Processing, then Completed or Failed) and a finer `outcome`. "No TOR was ever published" is a legitimate upstream answer, not a failure, and an admin needs to tell the two apart.
 

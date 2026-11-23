@@ -21,3 +21,16 @@ describe('MONGODB_DB', () => {
     expect(testEnv().MONGODB_DB).toBeUndefined();
   });
 });
+
+describe('CONTRACT_SYNC_ENABLED', () => {
+  test('is off unless set to true: the sync spends the shared open-data allowance', () => {
+    expect(testEnv().CONTRACT_SYNC_ENABLED).toBe(false);
+    expect(testEnv({ CONTRACT_SYNC_ENABLED: 'false' }).CONTRACT_SYNC_ENABLED).toBe(false);
+    expect(testEnv({ CONTRACT_SYNC_ENABLED: 'true' }).CONTRACT_SYNC_ENABLED).toBe(true);
+  });
+
+  test('takes only true or false, so a typo cannot turn it on', () => {
+    expect(() => testEnv({ CONTRACT_SYNC_ENABLED: 'yes' as never })).toThrow();
+    expect(() => testEnv({ CONTRACT_SYNC_ENABLED: '1' as never })).toThrow();
+  });
+});

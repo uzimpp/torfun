@@ -23,7 +23,7 @@ The fixed list of Thai agencies the system collects from. Adding or removing an 
 _Avoid_: agency list, whitelist
 
 **Winner**:
-The supplier awarded a Procurement, with the contract and the price the work sold for. A Procurement with no Winner is still open to bids.
+The supplier awarded a Procurement, with the contract and the agreed contract price. That price is not the winner's submitted bid (they differ: the agreed price is often lower), and a joint venture lists the consortium and its members as separate contract lines. Read from signed contracts only, so absence means no signed contract was found, not that the Procurement is open.
 _Avoid_: contractor, vendor, awardee
 
 ### Pipeline

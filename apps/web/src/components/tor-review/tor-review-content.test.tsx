@@ -14,6 +14,9 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchTor: vi.fn(),
   fetchTorMatch: vi.fn(),
+  fetchTorContracts: vi.fn(),
+  fetchTorContractSubmissions: vi.fn(),
+  fetchTorBudgetComparison: vi.fn(),
 }));
 
 const api = await import('@/lib/api');
@@ -52,6 +55,9 @@ const officialDeadline = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocked.fetchTorMatch.mockResolvedValue({ match: null });
+  mocked.fetchTorContracts.mockResolvedValue({ items: [] });
+  mocked.fetchTorContractSubmissions.mockResolvedValue({ items: [] });
+  mocked.fetchTorBudgetComparison.mockResolvedValue({ minSample: 5, budget: null, groups: [] });
 });
 
 describe('TorReviewContent', () => {
@@ -124,6 +130,113 @@ describe('TorReviewContent', () => {
     expect(await screen.findByText('คะแนนเทียบคุณสมบัติจาก TOR')).toBeInTheDocument();
     expect(screen.getByText('0%')).toBeInTheDocument();
     expect(screen.getByText('ไม่ตรงเงื่อนไข: ต้องมี ISO 9001')).toBeInTheDocument();
+  });
+
+  test('shows how the winner is chosen, with its pointer and the verify note', async () => {
+    mocked.fetchTor.mockResolvedValue({
+      ...tor,
+      analysis: {
+        ...tor.analysis!,
+        evaluation: {
+          method: 'price_performance',
+          quote: null,
+          source: 'ข้อ 8',
+          document: 'invitation',
+          criteria: [{ name: 'ราคา', weight: 30, unit: 'percent' }],
+          promptVersion: 'test',
+        },
+      },
+    });
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('วิธีพิจารณาผู้ชนะและเกณฑ์น้ำหนัก')).toBeInTheDocument();
+    expect(screen.getByText('เกณฑ์ราคาประกอบเกณฑ์อื่น')).toBeInTheDocument();
+    expect(screen.getByText('อ้างอิง ประกาศเชิญชวน · ข้อ 8')).toBeInTheDocument();
+    expect(screen.getByText('30%')).toBeInTheDocument();
+    expect(screen.getByText(/AI อ่านวิธีพิจารณาผู้ชนะจากประกาศเชิญชวน/)).toBeInTheDocument();
+  });
+
+  test('says the evaluation was never read when the analysis has none', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('วิธีพิจารณาผู้ชนะและเกณฑ์น้ำหนัก')).toBeInTheDocument();
+    expect(screen.getByText('ยังไม่มีข้อมูลวิธีพิจารณาผู้ชนะ')).toBeInTheDocument();
+  });
+
+  test('shows the award section with the winner of exactly this project id', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    mocked.fetchTorContracts.mockResolvedValue({
+      items: [
+        {
+          projectId: tor.projectId,
+          contractYear: 2569,
+          contractNo: 'CN-1',
+          winnerName: 'บริษัท ตัวอย่าง จำกัด',
+          winnerTin: null,
+          priceAgree: 4_400_000,
+          contractDate: null,
+          contractFinishDate: null,
+          status: null,
+        },
+      ],
+    });
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('ผู้ชนะและราคา')).toBeInTheDocument();
+    expect(await screen.findByText('บริษัท ตัวอย่าง จำกัด')).toBeInTheDocument();
+    expect(mocked.fetchTorContracts).toHaveBeenCalledWith(tor.projectId);
+  });
+
+  test('shows an empty award state, not another project\u2019s winner, when nothing matches', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    mocked.fetchTorContracts.mockResolvedValue({
+      items: [
+        {
+          projectId: '99999999999',
+          contractYear: 2569,
+          contractNo: null,
+          winnerName: 'บริษัท อื่น จำกัด',
+          winnerTin: null,
+          priceAgree: 1,
+          contractDate: null,
+          contractFinishDate: null,
+          status: null,
+        },
+      ],
+    });
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('ยังไม่มีข้อมูลผู้ชนะและราคา')).toBeInTheDocument();
+    expect(screen.queryByText('บริษัท อื่น จำกัด')).not.toBeInTheDocument();
+  });
+
+  test('a failed award load leaves the rest of the page intact', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    mocked.fetchTorContracts.mockRejectedValue(new Error('boom'));
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('โหลดข้อมูลผู้ชนะและราคาไม่สำเร็จ')).toBeInTheDocument();
+    expect(screen.getByText('จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน')).toBeInTheDocument();
+  });
+
+  test('shows the budget comparison section for this project id', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    mocked.fetchTorBudgetComparison.mockResolvedValue({ minSample: 5, budget: null, groups: [] });
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('เทียบงบประมาณกับโครงการคล้ายกัน')).toBeInTheDocument();
+    expect(await screen.findByText('เทียบงบประมาณไม่ได้')).toBeInTheDocument();
+    expect(mocked.fetchTorBudgetComparison).toHaveBeenCalledWith(tor.projectId);
+  });
+
+  test('a failed budget comparison leaves the rest of the page intact', async () => {
+    mocked.fetchTor.mockResolvedValue(tor);
+    mocked.fetchTorBudgetComparison.mockRejectedValue(new Error('boom'));
+    render(<TorReviewContent projectId={tor.projectId} />);
+
+    expect(await screen.findByText('โหลดการเทียบงบประมาณไม่สำเร็จ')).toBeInTheDocument();
+    expect(screen.getByText('จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน')).toBeInTheDocument();
   });
 
   test('shows an official bid deadline with no note that the model read it', async () => {

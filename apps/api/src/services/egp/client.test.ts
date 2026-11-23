@@ -2,8 +2,11 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import {
   egpGet,
   OpenDataForbiddenError,
+  OpenDataQuotaBudget,
+  OpenDataQuotaExhaustedError,
   openDataGet,
   RateLimitedError,
+  redactSecret,
   SiteUnavailableError,
   UnreachableError,
   UpstreamError,
@@ -89,6 +92,66 @@ describe('what an error says about the request that caused it', () => {
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect((error as Error).message).not.toContain(SECRET);
+  });
+
+  test('the API\'s own failure message cannot carry the key out, and the error keeps its class', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ success: false, message: `invalid key ${SECRET} for project` }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof fetch;
+
+    const error = await openDataGet(
+      'https://opend.data.go.th/govspending/service/egp-dept',
+      {},
+      SECRET,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(UpstreamError);
+    expect((error as Error).message).toContain('invalid key');
+    expect((error as Error).message).not.toContain(SECRET);
+    expect((error as Error).stack ?? '').not.toContain(SECRET);
+  });
+
+  test('a transport error that repeats the key, in a URL or not, is redacted', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error(
+        `connect failed https://opend.data.go.th/govspending/service/egp-dept?api-key=${SECRET} {"api-key":"${SECRET}"}`,
+      );
+    }) as unknown as typeof fetch;
+
+    const error = await openDataGet(
+      'https://opend.data.go.th/govspending/service/egp-dept',
+      {},
+      SECRET,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(UnreachableError);
+    expect((error as Error).message).toContain('connect failed');
+    expect((error as Error).message).not.toContain(SECRET);
+    expect((error as Error).stack ?? '').not.toContain(SECRET);
+  });
+
+  test('a response body that is not JSON never puts its text in the error', async () => {
+    globalThis.fetch = (async () =>
+      new Response(`<html>key ${SECRET}</html>`, { status: 200 })) as unknown as typeof fetch;
+
+    const error = await openDataGet(
+      'https://opend.data.go.th/govspending/service/egp-dept',
+      {},
+      SECRET,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(UpstreamError);
+    expect((error as Error).message).not.toContain(SECRET);
+  });
+});
+
+describe('redactSecret', () => {
+  test('removes the key everywhere, and tolerates an empty key', () => {
+    expect(redactSecret('a K b K', 'K')).toBe('a [redacted] b [redacted]');
+    expect(redactSecret('x?api-key=abc&y=1', 'zzz')).toBe('x?api-key=[redacted]&y=1');
+    expect(redactSecret('plain', '')).toBe('plain');
   });
 });
 
@@ -200,6 +263,65 @@ describe('the open-data API is asked once, because every request is part of a sm
 
     expect(error).toBeInstanceOf(UpstreamError);
     expect(calls.count).toBe(1);
+  });
+
+  test('a caller may opt into bounded retries for a transient failure', async () => {
+    const calls = { count: 0 };
+    globalThis.fetch = (async () => {
+      calls.count += 1;
+      return calls.count === 1
+        ? new Response('', { status: 503 })
+        : new Response(JSON.stringify({ success: true, total: 0, data: [] }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+    }) as unknown as typeof fetch;
+
+    const page = await openDataGet('https://opend.data.go.th/govspending/service/x', {}, 'k', {
+      maxRetries: 1,
+      retryBackoffMs: [0],
+    });
+
+    expect(page.rows).toEqual([]);
+    expect(calls.count).toBe(2);
+  });
+
+  test('does not retry a 5xx response that reports no remaining daily quota', async () => {
+    const calls = { count: 0 };
+    globalThis.fetch = (async () => {
+      calls.count += 1;
+      return new Response('', {
+        status: 503,
+        headers: { 'x-ratelimit-remaining-day': '0' },
+      });
+    }) as unknown as typeof fetch;
+
+    const error = await openDataGet('https://opend.data.go.th/govspending/service/x', {}, 'k', {
+      maxRetries: 2,
+      retryBackoffMs: [0, 0],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(OpenDataQuotaExhaustedError);
+    expect(calls.count).toBe(1);
+  });
+
+  test('reserves quota for each retry even when the response omits quota headers', async () => {
+    const calls = { count: 0 };
+    const quotaBudget = new OpenDataQuotaBudget(1);
+    globalThis.fetch = (async () => {
+      calls.count += 1;
+      return new Response('', { status: 503 });
+    }) as unknown as typeof fetch;
+
+    const error = await openDataGet('https://opend.data.go.th/govspending/service/x', {}, 'k', {
+      maxRetries: 2,
+      retryBackoffMs: [0, 0],
+      quotaBudget,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(OpenDataQuotaExhaustedError);
+    expect(calls.count).toBe(1);
+    expect(quotaBudget.remainingDay).toBe(0);
   });
 
   test('no answer at all is UnreachableError; a 5xx answered, so it is not', async () => {

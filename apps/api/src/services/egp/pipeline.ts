@@ -3,10 +3,11 @@ import type { IngestionFailure, Procurement, RunProgress, SourceAgency } from '@
 import type { Env } from '../../config/env';
 import type { ProcurementStore } from '../../repositories/procurement.repository';
 import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
+import { readEvaluationPdf } from '../vertex/evaluation-reader';
 import { readInvitationPdf } from '../vertex/invitation-reader';
 import { createOversizeReaders } from '../vertex/oversize-readers';
 import { createModelCall, type ModelUsage } from '../vertex/vertex-ai';
-import { createAnalysisTasks } from './analysis-task';
+import { createAnalysisTasks, type AnalysisDeps } from './analysis-task';
 import type { AnnouncementClient } from './announcement-client';
 import { createAnnouncementClient } from './announcement-client';
 import { politeTorDelayMs, RateLimitedError, sleep } from './client';
@@ -20,6 +21,7 @@ import {
   type SweepContext,
 } from './discovery';
 import { createDetailWorker, type DetailCandidate } from './detail-turn';
+import { readEvaluationDocuments } from './evaluation';
 import { readInvitationDocuments, type InvitationResult } from './invitation';
 import { createLiveView, DISCOVERY_SLOT, type LiveView } from './live-view';
 import { createRetrievalQueue } from './retrieval-queue';
@@ -70,8 +72,14 @@ export interface IngestionDeps {
   classifyDocument: (pdf: Buffer) => Promise<DocumentClassification>;
   /** Reads the bid date off the archive's invitation announcement, if it carries one. */
   readInvitation: (archive: Uint8Array, projectId: string) => Promise<InvitationResult>;
+  /** How the winner is chosen (#143): a best-effort reading after the verdict. Optional. */
+  readEvaluation?: AnalysisDeps['readEvaluation'];
+  /** Time the evaluation reading may take in all; the default where unset (tests shorten it). */
+  evaluationBudgetMs?: number;
   /** The project's procurement detail, read by Discovery, and its timeline, read by Retrieval. */
   announcements: AnnouncementClient;
+  /** Sync completed contracts and their project-level submissions after a full run. */
+  syncAnnualContracts?: (shouldContinue: () => boolean) => Promise<void>;
   sleep: (ms: number) => Promise<void>;
   /**
    * Longest one record's turn at the site may take before it is treated as a
@@ -83,6 +91,7 @@ export interface IngestionDeps {
 export function createIngestionDeps(
   env: Env,
   onUsage?: (usage: ModelUsage) => void,
+  syncAnnualContracts?: IngestionDeps['syncAnnualContracts'],
 ): IngestionDeps {
   const callModel = createModelCall(env, onUsage);
   const oversizeReaders = createOversizeReaders();
@@ -98,7 +107,18 @@ export function createIngestionDeps(
         archive,
         projectId,
       ),
+    readEvaluation: (archive, projectId, mainTor) =>
+      readEvaluationDocuments(
+        {
+          extract: extractInvitationPdfs,
+          read: (pdf, document) => readEvaluationPdf(callModel, pdf, document),
+        },
+        archive,
+        projectId,
+        mainTor,
+      ),
     announcements: createAnnouncementClient(),
+    ...(syncAnnualContracts ? { syncAnnualContracts } : {}),
     sleep,
     recordDeadlineMs: RECORD_DEADLINE_MS,
   };
@@ -451,6 +471,17 @@ export async function runIngestion(
         modelCalls.run(() => modelTimer.time(() => deps.classifyDocument(pdf))),
       readInvitation: (archive, projectId) =>
         modelCalls.run(() => modelTimer.time(() => deps.readInvitation(archive, projectId))),
+      ...(deps.evaluationBudgetMs !== undefined
+        ? { evaluationBudgetMs: deps.evaluationBudgetMs }
+        : {}),
+      ...(deps.readEvaluation
+        ? {
+            readEvaluation: (archive, projectId, mainTor) =>
+              modelCalls.run(() =>
+                modelTimer.time(() => deps.readEvaluation!(archive, projectId, mainTor)),
+              ),
+          }
+        : {}),
     },
     queue,
   };
@@ -564,6 +595,26 @@ export async function runIngestion(
   // Archives already fetched are analysed and stored, whatever stopped the Run.
   await analyses.settled();
   live.report();
+
+  if (!options.onlyProject && thrown.length === 0 && control.mayGoOn()) {
+    try {
+      await deps.syncAnnualContracts?.(() => control.mayGoOn());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      logger.warn(
+        { err: error, message },
+        'annual contract sync failed; core ingestion complete, contract data may be stale',
+      );
+      ledger.note(
+        { projectId: 'contract-sync', projectName: 'contract-sync' },
+        'analysis',
+        message,
+        'fault',
+      );
+    }
+  }
+
   if (thrown.length > 0) throw thrown[0];
 
   const ending = runEnding(control.status, swept?.result ?? null);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EvaluationMethod, EvaluationSchema } from './evaluation';
 import { TorQualificationSchema } from './qualification';
 import { QualificationMatchResultSchema } from './matching';
 import { ThaiProvince } from './province';
@@ -387,6 +388,11 @@ export const TorAnalysisSchema = z.object({
   /** Absent on older analyses or when the full PDF could not be read. */
   qualifications: z.array(TorQualificationSchema).optional(),
   /**
+   * How the winner is chosen, read separately from the verdict (#143). Absent on
+   * older analyses and when no readable document was available.
+   */
+  evaluation: EvaluationSchema.optional(),
+  /**
    * The model's one-line reason for its software judgement, with the passage it
    * quoted, so an administrator reading a held record sees what decided it.
    * Absent on analyses from before it was kept.
@@ -584,6 +590,8 @@ export const ProcurementListQuerySchema = z
     minDaysLeft: z.coerce.number().int().min(0).max(365).optional(),
     techStack: QueryList(z.string().trim().min(1).max(100)).optional(),
     targetPlatforms: QueryList(TargetPlatform).optional(),
+    /** Evaluation methods read from the documents; ANY semantics. Projects without a reading never match. */
+    evaluationMethod: QueryList(EvaluationMethod).optional(),
     /** Keyword matched against existing project and agency names, not a classification. */
     industry: z.string().trim().min(1).max(100).optional(),
     /** A province matched against agency and project names (no location field upstream). */

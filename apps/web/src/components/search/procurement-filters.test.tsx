@@ -252,3 +252,76 @@ describe('search-filter-values', () => {
     expect(toProjectFilters(EMPTY_SEARCH_FILTERS, 20, 0)).toMatchObject({ order: 'announced' });
   });
 });
+
+describe('evaluation method filter (#143)', () => {
+  test('is a group of checkboxes named evaluationMethod, applied as soon as one is ticked', async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(<ProcurementFilters values={EMPTY_SEARCH_FILTERS} onApply={onApply} />);
+
+    expect(screen.getByRole('group', { name: /วิธีพิจารณาผู้ชนะ/ })).toBeInTheDocument();
+    expect(screen.getByText('ใช้ได้เฉพาะโครงการที่ระบบอ่านวิธีพิจารณาแล้ว')).toBeInTheDocument();
+    for (const name of ['เกณฑ์ราคา', 'เกณฑ์ราคาประกอบเกณฑ์อื่น', 'วิธีอื่น']) {
+      expect(screen.getByRole('checkbox', { name })).toHaveAttribute('name', 'evaluationMethod');
+    }
+
+    await user.click(screen.getByRole('checkbox', { name: 'เกณฑ์ราคาประกอบเกณฑ์อื่น' }));
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ evaluationMethod: ['price_performance'] }),
+    );
+
+    await user.click(screen.getByRole('checkbox', { name: 'เกณฑ์ราคา' }));
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({ evaluationMethod: ['lowest_price', 'price_performance'] }),
+    );
+  });
+
+  test('shows the selected methods ticked, and as a removable filter chip', () => {
+    render(
+      <ProcurementFilters
+        values={{ ...EMPTY_SEARCH_FILTERS, evaluationMethod: ['lowest_price'] }}
+        onApply={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('checkbox', { name: 'เกณฑ์ราคา' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'วิธีอื่น' })).not.toBeChecked();
+    expect(screen.getByText('วิธีพิจารณาผู้ชนะ: เกณฑ์ราคา')).toBeInTheDocument();
+  });
+});
+
+describe('search-filter-values: evaluation method (#143)', () => {
+  test('splits comma-joined and repeated values, and drops values it does not know', () => {
+    expect(
+      parseSearchFilters({ evaluationMethod: ['lowest_price,other', 'bogus'] }).evaluationMethod,
+    ).toEqual(['lowest_price', 'other']);
+    expect(parseSearchFilters({ evaluationMethod: 'price_performance' }).evaluationMethod).toEqual([
+      'price_performance',
+    ]);
+    expect(parseSearchFilters({ evaluationMethod: 'cheapest' }).evaluationMethod).toEqual([]);
+    expect(parseSearchFilters({}).evaluationMethod).toEqual([]);
+  });
+
+  test('round-trips through the URL, is sent to the API, counts and clears', () => {
+    const values = parseSearchFilters({ q: 'ระบบ', evaluationMethod: 'lowest_price,other' });
+
+    expect(searchHref(values)).toContain('evaluationMethod=lowest_price%2Cother');
+    expect(
+      parseSearchFilters(Object.fromEntries(new URLSearchParams(searchHref(values).split('?')[1]))),
+    ).toEqual(values);
+    expect(toProjectFilters(values, 20, 0)).toMatchObject({
+      evaluationMethod: ['lowest_price', 'other'],
+    });
+    expect(activeFilterCount(values)).toBe(1);
+    expect(withoutSearchFilter(values, 'evaluationMethod')).toEqual({
+      ...values,
+      evaluationMethod: [],
+    });
+  });
+
+  test('sends nothing when no method is chosen', () => {
+    expect(toProjectFilters(EMPTY_SEARCH_FILTERS, 20, 0)).not.toHaveProperty('evaluationMethod');
+    expect(searchHref(EMPTY_SEARCH_FILTERS)).not.toContain('evaluationMethod');
+    expect(activeFilterCount(EMPTY_SEARCH_FILTERS)).toBe(0);
+  });
+});

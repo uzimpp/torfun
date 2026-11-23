@@ -30,6 +30,11 @@ export interface RecordGuard {
   readonly controller: AbortController;
   /** One of this record's requests went unanswered once the site was known to be down. */
   siteDown: boolean;
+  /**
+   * When the record's deadline falls (epoch ms), set by `withDeadline`. A step
+   * that is not the record's own (the evaluation reading) uses it to stay clear of it.
+   */
+  deadlineAt?: number;
 }
 
 /** What a Run's records came to, as counted in its result. */
@@ -101,6 +106,7 @@ export async function withDeadline(
   guard: RecordGuard,
 ): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  guard.deadlineAt = Date.now() + ms;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       guard.expired = true;

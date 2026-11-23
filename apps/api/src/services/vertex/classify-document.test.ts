@@ -63,6 +63,20 @@ describe('classifyTorDocument', () => {
     expect(result.unreadable).toBeUndefined();
   });
 
+  test('an evaluation key in the verdict answer is ignored, not a reason to lose the verdict (#143)', async () => {
+    const result = await classifyTorDocument(
+      answering({
+        ...validAnswer,
+        analysis: { ...validAnswer.analysis, evaluation: { method: 'anything', criteria: 7 } },
+      }),
+      pdf(),
+    );
+
+    expect(result.unreadable).toBeUndefined();
+    expect(result.analysis?.budgetThb).toBe(4_500_000);
+    expect(result.analysis).not.toHaveProperty('evaluation');
+  });
+
   test('stores the deadline as an ISO timestamp whatever format the model wrote it in', async () => {
     const withDeadline = (deadlineAt: string | null) =>
       classifyTorDocument(

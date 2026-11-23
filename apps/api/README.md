@@ -78,6 +78,26 @@ the decision, and competing reviewers cannot overwrite each other. Index setup
 is idempotent and runs lazily. Legacy pending reports need no backfill. Missing
 publication metadata means published.
 
+## Contract snapshots
+
+Each ingestion run syncs GovSpending contract snapshots for the current fiscal
+year and the four before it (2566–2570 as of November 2026), then fetches bid
+submissions for projects with awarded contracts. Each stored bid keeps its
+line item, and its price is parsed from the API's numeric string (an unreadable
+one is stored empty and counted in a warning).
+Pagination and retries share one per-run quota budget. A 24-hour cooldown is
+stored in MongoDB after a refusal or exhausted quota, so later runs and restarted
+API instances do not call either GovSpending endpoint until it expires.
+
+## Similar awards
+
+`POST /api/tors/:projectId/similar-awards` looks for past awards whose project name
+resembles the TOR's, in the contract data, and returns their winners, agreed prices
+and bidders. It is a POST so that only a click spends the daily open-data allowance:
+at most 3 searches and 10 bidder lookups per request, no retries, the same 24-hour
+cooldown after a refusal, and results kept in memory for 24 hours. Matches are by name
+only and are not confirmed to be the same kind of work.
+
 ## Health checks
 
 `/health` is the container probe. `/health/dependencies` makes real, billed calls
