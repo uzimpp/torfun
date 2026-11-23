@@ -119,7 +119,7 @@ Scope any of them to one workspace with `--filter`, for example
 
 ## CI and deployment
 
-Pull requests into `develop` or `main` run lint, typecheck, unit tests, a build
+Pull requests into `main` run lint, typecheck, unit tests, a build
 and Playwright e2e, alongside a security pass: dependency audit, secret scan,
 CodeQL, and for `main`, a Trivy image scan and a ZAP baseline against the running
 stack.
