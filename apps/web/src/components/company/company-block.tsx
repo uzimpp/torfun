@@ -59,16 +59,19 @@ export function CompanyBlock({
     setNameError(name.success ? null : (name.error.issues[0]?.message ?? 'ชื่อบริษัทไม่ถูกต้อง'));
 
     const trimmedTin = tin.trim();
-    const parsedTin = trimmedTin === '' ? null : Tin.safeParse(trimmedTin);
+    // Required: the TIN is what makes this company one record rather than a copy of someone's.
+    const parsedTin = Tin.safeParse(trimmedTin);
     setTinError(
-      parsedTin === null || parsedTin.success
+      parsedTin.success
         ? null
-        : (parsedTin.error.issues[0]?.message ?? 'TIN ไม่ถูกต้อง'),
+        : trimmedTin === ''
+          ? 'กรุณากรอกเลขประจำตัวผู้เสียภาษี 13 หลัก'
+          : (parsedTin.error.issues[0]?.message ?? 'TIN ไม่ถูกต้อง'),
     );
 
-    if (!name.success || (parsedTin !== null && !parsedTin.success)) return;
+    if (!name.success || !parsedTin.success) return;
 
-    const input: CompanyInput = { name_th: name.data, tin: trimmedTin === '' ? null : trimmedTin };
+    const input: CompanyInput = { name_th: name.data, tin: parsedTin.data };
     const saved = company ? await onEdit(input) : await onCreate(input);
     if (saved) setSwitching(false);
   }
@@ -159,7 +162,7 @@ export function CompanyBlock({
           </div>
 
           <div className={FLOW_FIELD_GROUP}>
-            <Label htmlFor={tinId}>เลขประจำตัวผู้เสียภาษี (ไม่บังคับ)</Label>
+            <Label htmlFor={tinId}>เลขประจำตัวผู้เสียภาษี</Label>
             <Input
               id={tinId}
               className={FLOW_FIELD}

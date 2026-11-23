@@ -1,5 +1,5 @@
 import type { Company } from '@torfun/types';
-import { ForbiddenError, NotFoundError } from '../core/errors';
+import { ConflictError, ForbiddenError, NotFoundError } from '../core/errors';
 import type { CompanyStore } from '../repositories/company.repository';
 import type { UserStore } from '../repositories/user.repository';
 import {
@@ -22,13 +22,17 @@ import {
 
 export interface CompanyInput {
   nameTh: string;
-  tin: string | null;
+  tin: string;
 }
 
 export interface CompanyPatchInput {
   nameTh?: string;
-  tin?: string | null;
+  tin?: string;
 }
+
+/** Said when a TIN is already registered; the way forward is to join that Company. */
+export const TIN_TAKEN =
+  'A company with this TIN already exists. Search for it and ask to join instead.';
 
 /** How many suggestions a typeahead keystroke is worth. */
 const SEARCH_LIMIT = 10;
@@ -56,10 +60,13 @@ export class CompanyService {
   /** Creates a Company, joins the caller to it and makes them its manager. */
   async createAndJoin(userId: string, input: CompanyInput): Promise<Company> {
     const user = await this.refuseAdmin(userId);
+    await this.refuseTakenTin(input.tin);
     // A manager may not walk away from colleagues who still need one, and
     // keeps no say over the Company they leave.
     const restore = await this.membership.stepDownToLeave(user);
     try {
+      // The unique index settles a race the check above cannot; the store throws
+      // `ConflictError` for it, so the caller sees the same answer either way.
       const company = await this.companies.create({ ...input, managerIds: [userId] });
       // Refused if the caller was made a Site Administrator since the check
       // above. The new Company is left with no members; its manager id counts
@@ -90,9 +97,16 @@ export class CompanyService {
   async updateMine(userId: string, patch: CompanyPatchInput): Promise<Company> {
     const { company, isManager } = await this.mine(userId);
     if (!isManager) throw new ForbiddenError('Only a manager of this company can do that');
+    if (patch.tin !== undefined) await this.refuseTakenTin(patch.tin, company.id);
     const updated = await this.companies.update(company.id, patch);
     if (!updated) throw new NotFoundError('No company for this account');
     return updated;
+  }
+
+  /** Refuses a TIN another Company already holds. `ownId` is the Company being edited. */
+  private async refuseTakenTin(tin: string, ownId?: string): Promise<void> {
+    const holder = await this.companies.findByTin(tin);
+    if (holder && holder.id !== ownId) throw new ConflictError(TIN_TAKEN);
   }
 
   /**

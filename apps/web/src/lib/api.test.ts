@@ -48,13 +48,13 @@ describe('a request that sends no body', () => {
 });
 
 test('a request that does send a body still declares JSON', async () => {
-  await createCompany({ name_th: 'บริษัท ทรู คอร์ปอเรชั่น จำกัด (มหาชน)' });
+  await createCompany({ name_th: 'บริษัท ทรู คอร์ปอเรชั่น จำกัด (มหาชน)', tin: '0107536000021' });
   const call0 = fetchMock.mock.calls[0]!;
   expect(headersOf(call0).get('Content-Type')).toBe('application/json');
 });
 
 test('an explicit content-type from the caller is still honoured', async () => {
-  await createCompany({ name_th: 'x' });
+  await createCompany({ name_th: 'x', tin: '0107536000021' });
   expect(fetchMock).toHaveBeenCalledWith(
     expect.stringContaining('/api/companies'),
     expect.objectContaining({ credentials: 'include', method: 'POST' }),

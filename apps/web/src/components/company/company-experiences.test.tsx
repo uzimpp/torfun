@@ -93,6 +93,7 @@ function whenCompanyCreated(company: CompanyResponse) {
 
 const addButton = () => screen.getByRole('button', { name: 'เพิ่มผลงาน' });
 const nameField = () => screen.getByLabelText('ชื่อบริษัท (ภาษาไทย)');
+const tinField = () => screen.getByLabelText('เลขประจำตัวผู้เสียภาษี');
 const saveCompany = () => screen.getByRole('button', { name: 'บันทึกบริษัท' });
 
 /** Waits for the initial three fetches to land. */
@@ -117,6 +118,7 @@ describe('the add-work button', () => {
 
     // Typing a name is not saving one, so the button must still refuse.
     await user.type(nameField(), TRUE_CORP);
+    await user.type(tinField(), '0107536000021');
 
     const button = addButton();
     expect(button).toHaveAttribute('aria-disabled', 'true');
@@ -143,6 +145,8 @@ describe('the add-work button', () => {
     await settled();
 
     await user.type(nameField(), TRUE_CORP);
+
+    await user.type(tinField(), '0107536000021');
     await user.click(saveCompany());
 
     await waitFor(() => expect(addButton()).toHaveAttribute('aria-disabled', 'false'));
@@ -180,6 +184,8 @@ describe('the step this page sits at', () => {
     expect(screen.queryByRole('link', { name: /ไปที่แดชบอร์ด/ })).not.toBeInTheDocument();
 
     await user.type(nameField(), TRUE_CORP);
+
+    await user.type(tinField(), '0107536000021');
     await user.click(saveCompany());
 
     await waitFor(() => expect(currentStep()).toHaveTextContent('ผลงาน'));
@@ -209,12 +215,31 @@ describe('the company name', () => {
     await settled();
 
     await user.type(nameField(), TRUE_CORP);
+
+    await user.type(tinField(), '0107536000021');
     await user.click(saveCompany());
 
     await waitFor(() =>
-      expect(mocked.createCompany).toHaveBeenCalledWith({ name_th: TRUE_CORP, tin: null }),
+      expect(mocked.createCompany).toHaveBeenCalledWith({
+        name_th: TRUE_CORP,
+        tin: '0107536000021',
+      }),
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('refuses to save a company without a TIN', async () => {
+    const user = userEvent.setup();
+    givenPage({ company: null });
+
+    render(<CompanyExperiences />);
+    await settled();
+
+    await user.type(nameField(), TRUE_CORP);
+    await user.click(saveCompany());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('กรุณากรอกเลขประจำตัวผู้เสียภาษี');
+    expect(mocked.createCompany).not.toHaveBeenCalled();
   });
 
   test('rejects an English name typed into the Thai field', async () => {
@@ -225,6 +250,8 @@ describe('the company name', () => {
     await settled();
 
     await user.type(nameField(), 'True Corporation');
+
+    await user.type(tinField(), '0107536000021');
     await user.click(saveCompany());
 
     expect(await screen.findByRole('alert')).toHaveTextContent('ชื่อบริษัทต้องเป็นภาษาไทย');
@@ -241,6 +268,8 @@ describe('the company name', () => {
 
     await user.type(nameField(), 'ทรู คอร์ปอเรชั่น');
 
+    await user.type(tinField(), '0107536000021');
+
     expect(await screen.findByRole('status')).toHaveTextContent('ไม่พบคำระบุรูปแบบนิติบุคคล');
     // A hint is never a rejection.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -250,7 +279,7 @@ describe('the company name', () => {
     await waitFor(() =>
       expect(mocked.createCompany).toHaveBeenCalledWith({
         name_th: 'ทรู คอร์ปอเรชั่น',
-        tin: null,
+        tin: '0107536000021',
       }),
     );
   });
@@ -263,6 +292,8 @@ describe('the company name', () => {
     await settled();
 
     await user.type(nameField(), TRUE_CORP);
+
+    await user.type(tinField(), '0107536000021');
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });

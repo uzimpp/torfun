@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { randomUUID } from 'node:crypto';
 import type { Company, CompanyQualifications, CompanyQualificationsRecord } from '@torfun/types';
+import { ConflictError } from '../core/errors';
 import type { CompanyPatch, CompanyStore, NewCompany } from '../repositories/company.repository';
 
 /**
@@ -51,6 +52,10 @@ export class InMemoryCompanyStore implements CompanyStore {
     return this.companies.get(id) ?? null;
   }
 
+  async findByTin(tin: string): Promise<Company | null> {
+    return [...this.companies.values()].find((company) => company.tin === tin) ?? null;
+  }
+
   async search(query: string, limit: number): Promise<Company[]> {
     return [...this.companies.values()]
       .filter((company) => company.nameTh.toLowerCase().includes(query.toLowerCase()))
@@ -59,6 +64,8 @@ export class InMemoryCompanyStore implements CompanyStore {
   }
 
   async create(input: NewCompany): Promise<Company> {
+    if (input.tin !== null && (await this.findByTin(input.tin)))
+      throw new ConflictError('TIN taken');
     const now = new Date();
     const company: Company = {
       id: new ObjectId().toString(),
@@ -76,6 +83,10 @@ export class InMemoryCompanyStore implements CompanyStore {
   async update(id: string, patch: CompanyPatch): Promise<Company | null> {
     const existing = this.companies.get(id);
     if (!existing) return null;
+    if (patch.tin !== undefined) {
+      const holder = await this.findByTin(patch.tin);
+      if (holder && holder.id !== id) throw new ConflictError('TIN taken');
+    }
 
     const updated: Company = {
       ...existing,

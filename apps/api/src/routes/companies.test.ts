@@ -84,11 +84,78 @@ describe('company routes', () => {
       method: 'POST',
       url: '/api/companies',
       cookies: session(officer),
-      payload: { name_th: PARTNERSHIP },
+      payload: { name_th: PARTNERSHIP, tin: '0107536000021' },
     });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json().tin).toBeNull();
+    expect(response.json().tin).toBe('0107536000021');
+  });
+
+  test('a company cannot be created without a TIN', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/companies',
+      cookies: session(officer),
+      payload: { name_th: TRUE_CORP },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  test('a second company with the same TIN is refused', async () => {
+    const first = await companies.create({ nameTh: TRUE_CORP, tin: '0107536000021' });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/companies',
+      cookies: session(officer),
+      payload: { name_th: PARTNERSHIP, tin: '0107536000021' },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().message).toMatch(/already exists/);
+    // The refusal leaves the caller where they were: no company, nothing new stored.
+    expect(await companies.search(PARTNERSHIP, 10)).toEqual([]);
+    expect((await companies.findByTin('0107536000021'))?.id).toBe(first.id);
+  });
+
+  test("a correction cannot take another company's TIN, but may keep its own", async () => {
+    await companies.create({ nameTh: PARTNERSHIP, tin: '1234567890123' });
+    await app.inject({
+      method: 'POST',
+      url: '/api/companies',
+      cookies: session(officer),
+      payload: { name_th: TRUE_CORP, tin: '0107536000021' },
+    });
+
+    const taken = await app.inject({
+      method: 'PATCH',
+      url: '/api/companies/me',
+      cookies: session(officer),
+      payload: { tin: '1234567890123' },
+    });
+    expect(taken.statusCode).toBe(409);
+
+    const own = await app.inject({
+      method: 'PATCH',
+      url: '/api/companies/me',
+      cookies: session(officer),
+      payload: { tin: '0107536000021' },
+    });
+    expect(own.statusCode).toBe(200);
+  });
+
+  test('a TIN cannot be removed once a company has one', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/companies',
+      cookies: session(officer),
+      payload: { name_th: TRUE_CORP, tin: '0107536000021' },
+    });
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/companies/me',
+      cookies: session(officer),
+      payload: { tin: null },
+    });
+    expect(response.statusCode).toBe(400);
   });
 
   test('a Latin-only name is rejected', async () => {
@@ -107,7 +174,7 @@ describe('company routes', () => {
       method: 'POST',
       url: '/api/companies',
       cookies: session(officer),
-      payload: { name_th: TRUE_CORP },
+      payload: { name_th: TRUE_CORP, tin: '0107536000021' },
     });
 
     const mine = await app.inject({
@@ -137,7 +204,7 @@ describe('company routes', () => {
       method: 'POST',
       url: '/api/companies',
       cookies: session(officer),
-      payload: { name_th: TRUE_CORP },
+      payload: { name_th: TRUE_CORP, tin: '0107536000021' },
     });
     const companyId = created.json().id;
 
@@ -149,7 +216,11 @@ describe('company routes', () => {
     });
     expect(search.json().companies).toHaveLength(1);
     // Search says which company it is and nothing about who runs it.
-    expect(search.json().companies[0]).toEqual({ id: companyId, name_th: TRUE_CORP, tin: null });
+    expect(search.json().companies[0]).toEqual({
+      id: companyId,
+      name_th: TRUE_CORP,
+      tin: '0107536000021',
+    });
 
     const asked = await app.inject({
       method: 'POST',
@@ -160,7 +231,7 @@ describe('company routes', () => {
     expect(asked.statusCode).toBe(202);
     expect(asked.json<Record<string, unknown>>()).toEqual({
       outcome: 'pending',
-      company: { id: companyId, name_th: TRUE_CORP, tin: null },
+      company: { id: companyId, name_th: TRUE_CORP, tin: '0107536000021' },
     });
     expect((await users.findById(colleague.id))?.companyId).toBeNull();
 
@@ -220,7 +291,7 @@ describe('company routes', () => {
       method: 'POST',
       url: '/api/companies',
       cookies: session(admin),
-      payload: { name_th: TRUE_CORP },
+      payload: { name_th: TRUE_CORP, tin: '0107536000021' },
     });
 
     expect(response.statusCode).toBe(403);
@@ -266,7 +337,7 @@ describe('company routes', () => {
       method: 'POST',
       url: '/api/companies',
       cookies: session(officer),
-      payload: { name_th: PARTNERSHIP },
+      payload: { name_th: PARTNERSHIP, tin: '0107536000021' },
     });
 
     const patched = await app.inject({

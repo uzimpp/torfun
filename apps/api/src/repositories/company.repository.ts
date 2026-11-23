@@ -1,5 +1,6 @@
 import { ObjectId, type Collection, type Db } from 'mongodb';
 import { randomUUID } from 'node:crypto';
+import { ConflictError } from '../core/errors';
 import type { Company, CompanyQualifications, CompanyQualificationsRecord } from '@torfun/types';
 import { escapeRegex } from '../core/regex';
 
@@ -37,7 +38,7 @@ interface CompanyDocument {
   qualifications?: QualificationsDocument;
   _id: ObjectId;
   name_th: string;
-  /** Optional and carries no uniqueness constraint — see ADR-0008. */
+  /** Unique among Companies that have one (partial index); null on pre-rule documents. */
   tin: string | null;
   /** Absent on Companies created before managers existed; see the 2026-11 migration. */
   manager_ids?: string[];
@@ -48,6 +49,7 @@ interface CompanyDocument {
 
 export interface NewCompany {
   nameTh: string;
+  /** The API requires one; null stays storable for fixtures and pre-rule data. */
   tin: string | null;
   /** The creator, so a new Company is never without someone to approve joins. */
   managerIds?: string[];
@@ -55,7 +57,7 @@ export interface NewCompany {
 
 export interface CompanyPatch {
   nameTh?: string;
-  tin?: string | null;
+  tin?: string;
   autoApproveDomain?: string | null;
 }
 
@@ -69,6 +71,15 @@ function toDomain(document: CompanyDocument): Company {
     createdAt: document.created_at,
     updatedAt: document.updated_at,
   };
+}
+
+/** A duplicate-key error from the TIN index, as the answer the service gives. */
+function asTinConflict(error: unknown): unknown {
+  return (error as { code?: number }).code === 11000
+    ? new ConflictError(
+        'A company with this TIN already exists. Search for it and ask to join instead.',
+      )
+    : error;
 }
 
 function qualificationsOf(
@@ -108,6 +119,8 @@ export interface CompanyStore {
     input: CompanyQualifications,
   ): Promise<CompanyQualificationsRecord | null>;
   findById(id: string): Promise<Company | null>;
+  /** The Company registered under this TIN, if any. */
+  findByTin(tin: string): Promise<Company | null>;
   /** Case-insensitive substring over the Thai name, for the join typeahead. */
   search(query: string, limit: number): Promise<Company[]>;
   create(input: NewCompany): Promise<Company>;
@@ -131,7 +144,19 @@ export class CompanyRepository implements CompanyStore {
 
   /** Idempotent; the typeahead's sort and lookup both read this index. */
   async ensureIndexes(): Promise<void> {
-    await (await this.collection()).createIndexes([{ key: { name_th: 1 } }]);
+    const collection = await this.collection();
+    await collection.createIndexes([{ key: { name_th: 1 } }]);
+    try {
+      await collection.createIndex(
+        { tin: 1 },
+        { unique: true, partialFilterExpression: { tin: { $type: 'string' } }, name: 'tin_unique' },
+      );
+    } catch (error) {
+      // Duplicates created before the rule make the build fail (E11000). Do not
+      // stop the API for it: the service still refuses new duplicates, and
+      // docs/migrations/2026-11-company-unique-tin.js lists the ones to merge.
+      if ((error as { code?: number }).code !== 11000) throw error;
+    }
   }
 
   async findById(id: string): Promise<Company | null> {
@@ -139,6 +164,11 @@ export class CompanyRepository implements CompanyStore {
     // document that a migration or a hand edit could have left mangled.
     if (!ObjectId.isValid(id)) return null;
     const document = await (await this.collection()).findOne({ _id: new ObjectId(id) });
+    return document ? toDomain(document) : null;
+  }
+
+  async findByTin(tin: string): Promise<Company | null> {
+    const document = await (await this.collection()).findOne({ tin });
     return document ? toDomain(document) : null;
   }
 
@@ -202,8 +232,12 @@ export class CompanyRepository implements CompanyStore {
       updated_at: now,
     };
 
-    const result = await (await this.collection()).insertOne(document as CompanyDocument);
-    return toDomain({ ...document, _id: result.insertedId } as CompanyDocument);
+    try {
+      const result = await (await this.collection()).insertOne(document as CompanyDocument);
+      return toDomain({ ...document, _id: result.insertedId } as CompanyDocument);
+    } catch (error) {
+      throw asTinConflict(error);
+    }
   }
 
   async update(id: string, patch: CompanyPatch): Promise<Company | null> {
@@ -214,10 +248,14 @@ export class CompanyRepository implements CompanyStore {
     if (patch.tin !== undefined) fields.tin = patch.tin;
     if (patch.autoApproveDomain !== undefined) fields.auto_approve_domain = patch.autoApproveDomain;
 
-    const document = await (
-      await this.collection()
-    ).findOneAndUpdate({ _id: new ObjectId(id) }, { $set: fields }, { returnDocument: 'after' });
-    return document ? toDomain(document) : null;
+    try {
+      const document = await (
+        await this.collection()
+      ).findOneAndUpdate({ _id: new ObjectId(id) }, { $set: fields }, { returnDocument: 'after' });
+      return document ? toDomain(document) : null;
+    } catch (error) {
+      throw asTinConflict(error);
+    }
   }
 
   async setManager(id: string, userId: string, isManager: boolean): Promise<Company | null> {
