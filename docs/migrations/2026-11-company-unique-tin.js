@@ -12,8 +12,9 @@
 //   1. prints every TIN held by more than one Company, with the ids, names and member counts,
 //   2. prints how many Companies have no TIN (they keep working; a manager can add one via
 //      PATCH /api/companies/me),
-//   3. creates the unique index only when step 1 found nothing. Until then the API still
-//      refuses new duplicates, because the service checks before it writes.
+//   3. creates the unique index only when step 1 found nothing. Until then the API refuses to
+//      create a company or change a TIN (503): without the index two requests at once could both
+//      pass the duplicate check, so those writes stay off until the duplicates are merged.
 //
 // Merge the duplicates it lists (point `users.company_id`, `clients.company_id` and
 // `experiences.company_id` at the surviving Company, then delete the other), and run it again.

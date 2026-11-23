@@ -69,6 +69,44 @@ describeMongo('company-scoped repositories', () => {
     expect(typeof read?.id).toBe('string');
   });
 
+  test('two concurrent creates with one TIN store exactly one company', async () => {
+    const results = await Promise.allSettled(
+      Array.from({ length: 8 }, (_, i) =>
+        new CompanyRepository(getDb).create({
+          nameTh: `บริษัท ทดสอบ ${i} จำกัด`,
+          tin: '1112223334445',
+        }),
+      ),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(
+      results.filter((r) => r.status === 'rejected').every((r) => r.reason.statusCode === 409),
+    ).toBe(true);
+    expect(
+      await (await getDb()).collection('companies').countDocuments({ tin: '1112223334445' }),
+    ).toBe(1);
+  });
+
+  test('without the index (legacy duplicates), a write carrying a TIN is refused, not accepted', async () => {
+    const collection = (await getDb()).collection('companies');
+    await collection.dropIndex('tin_unique').catch(() => undefined);
+    await collection.insertMany([
+      { name_th: 'บริษัท ก จำกัด', tin: '9998887776665' },
+      { name_th: 'บริษัท ก จำกัด', tin: '9998887776665' },
+    ]);
+    const fresh = new CompanyRepository(getDb);
+    await expect(
+      fresh.create({ nameTh: 'บริษัท ข จำกัด', tin: '5554443332221' }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+    });
+    expect(await collection.countDocuments({ tin: '5554443332221' })).toBe(0);
+    // A write with no TIN is unaffected.
+    await expect(fresh.create({ nameTh: 'บริษัท ค จำกัด', tin: null })).resolves.toBeDefined();
+    await collection.deleteMany({ tin: '9998887776665' });
+    await fresh.ensureIndexes();
+  });
+
   test('replaces qualification evidence atomically for the expected revision', async () => {
     const company = await companies.create({ nameTh: 'บริษัท สยามซอฟต์ จำกัด', tin: null });
     const other = await companies.create({ nameTh: 'บริษัท คู่แข่ง จำกัด', tin: null });

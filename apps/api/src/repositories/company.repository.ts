@@ -1,6 +1,6 @@
 import { ObjectId, type Collection, type Db } from 'mongodb';
 import { randomUUID } from 'node:crypto';
-import { ConflictError } from '../core/errors';
+import { ConflictError, ServiceUnavailableError } from '../core/errors';
 import type { Company, CompanyQualifications, CompanyQualificationsRecord } from '@torfun/types';
 import { escapeRegex } from '../core/regex';
 
@@ -147,16 +147,44 @@ export class CompanyRepository implements CompanyStore {
     const collection = await this.collection();
     await collection.createIndexes([{ key: { name_th: 1 } }]);
     try {
+      await this.requireTinIndex();
+    } catch (error) {
+      // Legacy duplicates stop the build. Startup carries on; writes that
+      // carry a TIN stay refused until they are merged (see `requireTinIndex`).
+      if (!(error instanceof ServiceUnavailableError)) throw error;
+    }
+  }
+
+  private tinIndex: Promise<void> | null = null;
+
+  /**
+   * The unique TIN index, built before any write that carries a TIN.
+   *
+   * The service's pre-check cannot close a race between two requests; the index
+   * can, so no such write may go ahead without it. Idempotent, and remembered
+   * once it exists. If duplicates from before the rule prevent the build, the
+   * write is refused (503) until they are merged with
+   * docs/migrations/2026-11-company-unique-tin.js, rather than risking another
+   * duplicate. Nothing else depends on a caller remembering to run
+   * `ensureIndexes` at startup.
+   */
+  private requireTinIndex(): Promise<void> {
+    this.tinIndex ??= (async () => {
+      const collection = await this.collection();
       await collection.createIndex(
         { tin: 1 },
         { unique: true, partialFilterExpression: { tin: { $type: 'string' } }, name: 'tin_unique' },
       );
-    } catch (error) {
-      // Duplicates created before the rule make the build fail (E11000). Do not
-      // stop the API for it: the service still refuses new duplicates, and
-      // docs/migrations/2026-11-company-unique-tin.js lists the ones to merge.
-      if ((error as { code?: number }).code !== 11000) throw error;
-    }
+    })().catch((error: unknown) => {
+      this.tinIndex = null;
+      if ((error as { code?: number }).code === 11000) {
+        throw new ServiceUnavailableError(
+          'Company registration is paused: duplicate TINs must be merged first.',
+        );
+      }
+      throw error;
+    });
+    return this.tinIndex;
   }
 
   async findById(id: string): Promise<Company | null> {
@@ -222,6 +250,7 @@ export class CompanyRepository implements CompanyStore {
   }
 
   async create(input: NewCompany): Promise<Company> {
+    if (input.tin !== null) await this.requireTinIndex();
     const now = new Date();
     const document = {
       name_th: input.nameTh,
@@ -242,6 +271,7 @@ export class CompanyRepository implements CompanyStore {
 
   async update(id: string, patch: CompanyPatch): Promise<Company | null> {
     if (!ObjectId.isValid(id)) return null;
+    if (patch.tin !== undefined) await this.requireTinIndex();
 
     const fields: Partial<CompanyDocument> = { updated_at: new Date() };
     if (patch.nameTh !== undefined) fields.name_th = patch.nameTh;
