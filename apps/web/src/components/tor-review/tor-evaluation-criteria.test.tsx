@@ -44,7 +44,7 @@ describe('TorEvaluationCriteria', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('30%')).toBeInTheDocument();
     expect(screen.getByText('70%')).toBeInTheDocument();
-    expect(screen.getByText('แผนการดำเนินงาน')).toBeInTheDocument();
+    expect(screen.getByText(/แผนการดำเนินงาน/)).toBeInTheDocument();
     expect(screen.getByText('45%')).toBeInTheDocument();
     expect(screen.getByText(/AI อ่านวิธีพิจารณาผู้ชนะจากประกาศเชิญชวน/)).toBeInTheDocument();
     expect(screen.getByText(/โปรดตรวจเงื่อนไขในเอกสารต้นฉบับ/)).toBeInTheDocument();
@@ -107,18 +107,19 @@ describe('TorEvaluationCriteria', () => {
     ).toBeInTheDocument();
   });
 
-  test('an unknown weight is said to be unknown, and no total is worked out', () => {
+  test('an unknown weight shows nothing, and no total is worked out', () => {
     render(
       <TorEvaluationCriteria
         evaluation={reading({ criteria: [{ name: 'ราคา', weight: null, unit: null }] })}
       />,
     );
 
-    expect(screen.getByText('ไม่ระบุน้ำหนัก')).toBeInTheDocument();
+    expect(screen.getByText('1. ราคา')).toBeInTheDocument();
+    expect(screen.queryByText(/ไม่ระบุน้ำหนัก/)).not.toBeInTheDocument();
     expect(screen.queryByText(/น้ำหนักรวม/)).not.toBeInTheDocument();
   });
 
-  test('a method with no weighted criteria says so', () => {
+  test('price only is listed as "1. ราคาต่ำสุด" with no weight and no AI-did-not-find line', () => {
     render(
       <TorEvaluationCriteria
         evaluation={reading({ method: 'lowest_price', quote: null, criteria: [] })}
@@ -126,9 +127,51 @@ describe('TorEvaluationCriteria', () => {
     );
 
     expect(screen.getByText('เกณฑ์ราคา')).toBeInTheDocument();
+    expect(screen.getByText('1. ราคาต่ำสุด')).toBeInTheDocument();
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ไม่พบเกณฑ์พร้อมน้ำหนัก/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/น้ำหนักรวม/)).not.toBeInTheDocument();
+    expect(screen.getByText(/อ้างอิง ประกาศเชิญชวน/)).toBeInTheDocument();
+  });
+
+  test('criteria are numbered, with the weight in brackets after the name, in the unit written', () => {
+    render(
+      <TorEvaluationCriteria
+        evaluation={reading({
+          criteria: [
+            { name: 'ราคา', weight: 30, unit: 'percent' },
+            { name: 'เทคนิค', weight: 60, unit: 'points' },
+            { name: 'ประสบการณ์', weight: 10, unit: null },
+          ],
+        })}
+      />,
+    );
+
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('1. ราคา (30%)');
+    expect(items[1]).toHaveTextContent('2. เทคนิค (60 คะแนน)');
+    expect(items[2]).toHaveTextContent('3. ประสบการณ์ (10 (ไม่ระบุหน่วย))');
+  });
+
+  test('parts are numbered under their criterion', () => {
+    render(<TorEvaluationCriteria evaluation={reading()} />);
+
+    const items = screen.getAllByRole('listitem');
+    expect(items.some((item) => item.textContent === '2.1 แผนการดำเนินงาน (45%)')).toBe(true);
+    expect(items.some((item) => item.textContent === '2.2 ประสบการณ์ (25%)')).toBe(true);
+  });
+
+  test('a method other than price with no criteria keeps the "AI did not find" line', () => {
+    render(
+      <TorEvaluationCriteria
+        evaluation={reading({ method: 'price_performance', quote: null, criteria: [] })}
+      />,
+    );
+
     expect(
       screen.getByText('เอกสารระบุวิธีพิจารณา แต่ AI ไม่พบเกณฑ์พร้อมน้ำหนัก'),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/ราคาต่ำสุด/)).not.toBeInTheDocument();
   });
 
   test('a document that was read and said nothing is not the same as one never read', () => {

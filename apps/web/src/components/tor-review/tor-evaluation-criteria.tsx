@@ -1,4 +1,9 @@
-import type { Evaluation, EvaluationSubCriterion, EvaluationWeightUnit } from '@torfun/types';
+import type {
+  Evaluation,
+  EvaluationCriterion,
+  EvaluationSubCriterion,
+  EvaluationWeightUnit,
+} from '@torfun/types';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -21,11 +26,34 @@ import {
  * to is flagged, never corrected.
  */
 
-function formatWeight(weight: number | null, unit: EvaluationWeightUnit | null): string {
-  if (weight === null) return 'ไม่ระบุน้ำหนัก';
+/**
+ * A weight as the document wrote it, in its own unit; null where none was given, so
+ * nothing is shown for it (never "0" and never a guessed unit).
+ */
+function formatWeight(weight: number | null, unit: EvaluationWeightUnit | null): string | null {
+  if (weight === null) return null;
   if (unit === 'percent') return `${weight}%`;
   if (unit === 'points') return `${weight} คะแนน`;
   return `${weight} (ไม่ระบุหน่วย)`;
+}
+
+/** `name (weight)`; the weight is left out where the document gave none. */
+function Weighted({ name, weight, unit }: EvaluationSubCriterion) {
+  const text = formatWeight(weight, unit);
+  return (
+    <>
+      {name}
+      {text !== null && (
+        <>
+          {' ('}
+          <span data-numeric className="font-normal">
+            {text}
+          </span>
+          {')'}
+        </>
+      )}
+    </>
+  );
 }
 
 /** The sum of a set of weights, only where every one is known and they share a unit. */
@@ -62,6 +90,12 @@ export function TorEvaluationCriteria({ evaluation }: { evaluation?: Evaluation 
   const document = EVALUATION_DOCUMENT_LABELS[evaluation.document];
   // "จากTOR" reads badly: a Latin label is set off with a space, a Thai one is not.
   const from = /^[A-Za-z]/.test(document) ? ` ${document}` : document;
+  // Price only: the method itself says price is the one criterion, so it is listed as
+  // one line for display. Nothing is stored and no weight is invented.
+  const criteria: EvaluationCriterion[] =
+    evaluation.criteria.length === 0 && evaluation.method === 'lowest_price'
+      ? [{ name: 'ราคาต่ำสุด', weight: null, unit: null }]
+      : evaluation.criteria;
   const sum = total(evaluation.criteria);
   const percentOff = sum?.unit === 'percent' && differs(sum.value, 100);
 
@@ -95,15 +129,15 @@ export function TorEvaluationCriteria({ evaluation }: { evaluation?: Evaluation 
           </p>
         )}
 
-        {evaluation.criteria.length === 0 ? (
+        {criteria.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             {evaluation.method
               ? 'เอกสารระบุวิธีพิจารณา แต่ AI ไม่พบเกณฑ์พร้อมน้ำหนัก'
               : 'AI ไม่พบวิธีพิจารณาผู้ชนะในเอกสารนี้'}
           </p>
         ) : (
-          <ul className="divide-border divide-y">
-            {evaluation.criteria.map((criterion, index) => {
+          <ol className="divide-border divide-y">
+            {criteria.map((criterion, index) => {
               const parts = criterion.children ?? [];
               const partsSum = total(parts);
               const partsOff =
@@ -116,24 +150,17 @@ export function TorEvaluationCriteria({ evaluation }: { evaluation?: Evaluation 
                   key={`${criterion.name}-${index}`}
                   className="grid gap-2 py-3 first:pt-0 last:pb-0"
                 >
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium">{criterion.name}</span>
-                    <span className="text-sm" data-numeric>
-                      {formatWeight(criterion.weight, criterion.unit)}
-                    </span>
-                  </div>
+                  <p className="text-sm font-medium">
+                    {index + 1}. <Weighted {...criterion} />
+                  </p>
                   {parts.length > 0 && (
-                    <ul className="text-muted-foreground space-y-1 ps-5 text-sm">
+                    <ol className="text-muted-foreground space-y-1 ps-5 text-sm">
                       {parts.map((part, partIndex) => (
-                        <li
-                          key={`${part.name}-${partIndex}`}
-                          className="flex flex-wrap items-baseline justify-between gap-2"
-                        >
-                          <span>{part.name}</span>
-                          <span data-numeric>{formatWeight(part.weight, part.unit)}</span>
+                        <li key={`${part.name}-${partIndex}`}>
+                          {index + 1}.{partIndex + 1} <Weighted {...part} />
                         </li>
                       ))}
-                    </ul>
+                    </ol>
                   )}
                   {partsOff && partsSum && (
                     <p className="text-destructive text-xs">
@@ -144,7 +171,7 @@ export function TorEvaluationCriteria({ evaluation }: { evaluation?: Evaluation 
                 </li>
               );
             })}
-          </ul>
+          </ol>
         )}
 
         {sum && (
