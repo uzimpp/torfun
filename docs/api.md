@@ -81,6 +81,7 @@ Access: P public, U signed-in user, A admin.
 | Method | Path | Acc. | Does | Responses |
 | ------ | ---- | ---- | ---- | --------- |
 | GET | `/tors` | U | Search and filter procurements, with officer visibility | `200 { items, total, limit, offset }` |
+| GET | `/tors/years` | U | The budget years present on stored procurements | `200` |
 | GET | `/tors/:projectId` | U | One procurement, with officer visibility | `200`; `404` |
 | GET | `/tors/:projectId/source` | U | The original main-TOR PDF as an attachment, downloaded from e-GP by `zipId` | `200 application/pdf`; `404` |
 | POST | `/tors/:projectId/reports` | U | Report a TOR with `{ reason, details? }`; `details` is required for `other` | `201` |
@@ -180,8 +181,8 @@ which only an approval or creating a Company sets.
 
 ### Placeholders
 
-`GET /dashboard` (user) and `GET /admin/test` (admin) only return a greeting and
-are not part of the product surface (system-requirements OI-07).
+`GET /dashboard` (user) only returns a greeting and is not part of the product
+surface (system-requirements OI-07).
 
 ## 4. Change rules
 

@@ -21,7 +21,7 @@ import { optionalCompanyId, requireCompanyId } from './company-scope';
  * This is where a duration becomes canonical: the person picks months or
  * years, and `toDurationMonths` — the only place the twelve lives — reduces it
  * to whole months with the chosen unit stored beside it, so two years reads
- * back as two years rather than as twenty four months (ADR-0009).
+ * back as two years rather than as twenty four months.
  */
 
 /** A length as a person entered it, before it is reduced to months. */

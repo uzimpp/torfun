@@ -58,9 +58,9 @@ export const RunCountsSchema = z.object({
   newRecords: z.number().int(),
   changedRecords: z.number().int(),
   unchangedRecords: z.number().int(),
-  /** Projects whose Goods Category Discovery found out of scope, so nothing more is read (ADR-0021). */
+  /** Projects whose Goods Category Discovery found out of scope, so nothing more is read. */
   outOfScope: z.number().int(),
-  /** Only on Runs logged before every Run swept (ADR-0020). */
+  /** Only on Runs logged before every Run swept. */
   discoverySkipped: z.boolean().optional(),
   discoveryStopped: z.enum(['rate_limited', 'unreachable', 'unavailable']).nullable(),
   attempted: z.number().int(),
@@ -82,7 +82,7 @@ export const IngestionRunSchema = z.object({
   endedAt: z.string(),
   durationMs: z.number().int().nonnegative(),
   trigger: RunTrigger,
-  /** Only on Runs logged when records were worked by several runners (before ADR-0020). */
+  /** Only on Runs logged when records were worked by several runners (before every Run swept). */
   runners: z.number().int().positive().optional(),
   /** Null where the pass threw before it could count anything; `error` says why. */
   counts: RunCountsSchema.nullable(),

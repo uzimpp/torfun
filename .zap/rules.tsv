@@ -3,5 +3,5 @@
 10094	IGNORE	(Base64 Disclosure - well-known high false-positive rule; fires on any base64-looking substring in minified JS/CSS or data URIs, not an actual leak.)
 10109	IGNORE	(Modern Web Application - informational classification only, always fires for SPA/React/Next.js apps, not a vulnerability.)
 10049	IGNORE	(Non-Storable Content - expected for dynamically-rendered pages and 404 responses; not a security issue.)
-# 10031 User Controllable HTML Element Attribute: out of scope on /search only (#204 R-15). Triaged 2026-11-17: /search reflects filter params only into <input value> and <input max>, which React escapes; no href/src/style sink. See docs/security/evidence/zap/TRIAGE.md. Anywhere else it still reports (default WARN). zap-baseline matches this regex with re.match against the alert URL.
+# 10031 User Controllable HTML Element Attribute: out of scope on /search only (#204 R-15). Triaged 2026-11-17: /search reflects filter params only into <input value> and <input max>, which React escapes; no href/src/style sink. See docs/zap-triage.md. Anywhere else it still reports (default WARN). zap-baseline matches this regex with re.match against the alert URL.
 10031	OUTOFSCOPE	http://localhost:3000/search([?#].*)?$

@@ -8,11 +8,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-# apps/web — agent guide
+# apps/web agent guide
 
 Next.js App Router, React 19, Tailwind v4, shadcn/ui. Read the root `AGENTS.md`
-first for what the product does and who uses it. The block above is not optional —
-consult `node_modules/next/dist/docs/` before writing components.
+first for what the product does and who uses it. The block above is not optional.
+Consult `node_modules/next/dist/docs/` before writing components.
 
 Commands, configuration and the page list are in `README.md` beside this file.
 Note that `bun run typecheck` runs `next typegen` first, and a single unit test is
@@ -24,7 +24,7 @@ Note that `bun run typecheck` runs `next typegen` first, and a single unit test 
 src/
   app/            routes; page.tsx is the route, colocated by URL
   components/
-    ui/           shadcn primitives — generated, don't hand-edit
+    ui/           shadcn primitives, generated, so don't hand-edit
     layout/       header, footer, and the one nav-config they share
     landing/      the landing page's sections, plus its GSAP scroll layer
     search/       the search field and the results page's states
@@ -36,7 +36,7 @@ src/
 **Navigation has one source of truth.** `components/layout/nav-config.ts` holds
 the destinations; the header and the mobile sheet both read it. They each kept
 their own copy once and drifted, so a phone offered a smaller product than a
-laptop. There is no sidebar — every destination is in the header.
+laptop. There is no sidebar. Every destination is in the header.
 
 **Pages fill the window.** Every `<main>` carries `page-fill`, which is
 `100dvh` minus `--header-h` (set by the chrome layout, zero elsewhere). The
@@ -53,7 +53,7 @@ no-preference`.
 
 **Server components read the session.** `requireUser()` / `requireAdmin()` in
 `lib/auth.ts` return the user or redirect. Use them on every protected page rather
-than calling `getCurrentUser()` and branching — a page that forgets the branch
+than calling `getCurrentUser()` and branching, because a page that forgets the branch
 renders for anyone. The session cookie is `httpOnly`, so this only works
 server-side.
 
@@ -69,7 +69,7 @@ sibling components. Don't grow a single client component past both jobs.
 ## Conventions
 
 - Import shared shapes from `@torfun/types`; never redeclare them.
-- API responses are snake_case (`company_name`, `full_name`) — that's the wire
+- API responses are snake_case (`company_name`, `full_name`). That's the wire
   format. Renaming client-side means changing the API too.
 - `NEXT_PUBLIC_*` is inlined at build time, so a runtime container env only reaches
   server components. Changing the API URL for a deployment needs a build arg.

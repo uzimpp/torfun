@@ -8,7 +8,7 @@ import {
 
 /**
  * e-GP's announcement feed: what one agency announced on one day, of one type,
- * by e-bidding. It is how Discovery learns a project exists (ADR-0018).
+ * by e-bidding. It is how Discovery learns a project exists.
  *
  * Reaching the site, this is called only from inside a SiteGate hold, like every
  * other request to it.

@@ -85,7 +85,7 @@ bun audit                                 # dependency advisories
 | `src/security/company-join-approval.test.ts` | pentest B6 replay: a stranger's join request reads nothing; only this Company's manager approves; domain auto-approve is exact and needs the manager's own domain; a Company keeps one manager (pentest P-1)           |
 | `src/services/breached-passwords.test.ts`    | only a 5-character hash prefix leaves the server; fails open when the service is down                                                                                                                                  |
 
-Penetration test: `docs/security/pentest/REPORT.md` (40 black-box attacks against the running API, script and
+Penetration test: `docs/pentest/REPORT.md` (40 black-box attacks against the running API, script and
 results alongside; latest run 39 resisted, 1 accepted, 0 open).
 
 CI (`.github/workflows/security.yml`): `bun audit` (PRs fail on new high advisories), gitleaks over history,

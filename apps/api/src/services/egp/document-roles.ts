@@ -5,7 +5,7 @@ import type { ArchiveDocument, DocumentRole } from '@torfun/types';
  * Procurement, and names which one is the TOR to read.
  *
  * Kept separate from the Vertex adapter because this is policy, not I/O: each
- * document is classified alone (ADR-0003, a consequence of not storing the
+ * document is classified alone (a consequence of not storing the
  * bytes), so nothing in a single classification can know another candidate
  * exists. Choosing between them happens here, once, over all of them.
  */

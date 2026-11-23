@@ -6,11 +6,10 @@ import type { UserStore } from '../repositories/user.repository';
 /**
  * Who belongs to a Company, and who decides that.
  *
- * Replaces ADR-0008's "membership is claimed, not granted". The black-box
- * pentest (docs/security/pentest, finding P-1, issue #200) showed what claiming
- * cost: anyone who signed up could find a Company by name, join it in one call
- * and read its registered capital, certificates, past contracts and clients.
- * Now joining is a request, and a Company Manager answers it.
+ * Joining is a request that a Company Manager answers. The black-box pentest
+ * (docs/pentest, finding P-1, issue #200) showed what open joining cost:
+ * anyone who signed up could find a Company by name, join it in one call, and
+ * read its registered capital, certificates, past contracts and clients.
  *
  * - The officer who creates a Company manages it. Managers can promote other
  *   members, so the role is not tied to one person.
@@ -177,7 +176,7 @@ export class CompanyMembershipService {
     return { company: updated, member };
   }
 
-  /** Takes someone out of the Company. Their recorded work stays with it (ADR-0007). */
+  /** Takes someone out of the Company. Their recorded work stays with it. */
   async removeMember(
     managerId: string,
     memberId: string,
@@ -261,7 +260,7 @@ export class CompanyMembershipService {
     }
   }
 
-  /** An officer's own account. Site Administrators hold no Company (ADR-0011). */
+  /** An officer's own account. Site Administrators hold no Company. */
   private async officer(userId: string): Promise<User> {
     const user = await this.users.findById(userId);
     if (!user) throw new NotFoundError('No such account');

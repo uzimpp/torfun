@@ -6,7 +6,7 @@ import { escapeRegex } from '../core/regex';
  * Data access for the organisations a Company has delivered work for.
  *
  * Every method takes the caller's `companyId` and puts it in the filter, on
- * reads and on writes alike. That is the isolation rule from ADR-0008 made
+ * reads and on writes alike. That is the isolation rule made
  * structural: there is no method here that can reach a Client without naming
  * the Company it belongs to, so a service cannot forget the scope and a
  * caller can never address another vendor's customer list.

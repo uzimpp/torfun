@@ -13,7 +13,7 @@ import { InMemoryUserStore } from '../testing/user-store';
 /**
  * ASVS V8.2.2, V8.2.3 / threat T-05; pentest finding P-1 (issue #200).
  *
- * The black-box run (docs/security/pentest, attack B6) registered a stranger,
+ * The black-box run (docs/pentest, attack B6) registered a stranger,
  * found a Company by name, joined it in one call and read its registered
  * capital, certificates and past contracts. Joining is now a request that a
  * Company Manager answers, with automatic approval only for the manager's own

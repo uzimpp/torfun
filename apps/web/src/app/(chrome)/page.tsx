@@ -11,12 +11,10 @@ export const metadata: Metadata = { title: 'Torfun | ค้นหาโอกา
 
 export default async function Home() {
   // Deliberately not gated. This is the public page describing the product, and
-  // a signed-in officer has every reason to come back to it — from the logo in
-  // the navbar, from a bookmark, from a link a colleague sent. It used to
-  // redirect them to the dashboard, which for an officer without a Company
-  // bounced on again to the sign-up flow, so following a link to the marketing
-  // page landed you in a form. What changes when signed in is the call to
-  // action, not whether the page is allowed to render.
+  // a signed-in officer comes back to it from the logo, a bookmark, or a shared
+  // link. Redirecting them to the dashboard would send an officer without a
+  // Company on to the sign-up flow. When signed in, only the call to action
+  // changes.
   const signedIn = (await getCurrentUser()) !== null;
   // The sections stay server components; `LandingMotion` only wraps them so its
   // GSAP triggers have one scope to query within.

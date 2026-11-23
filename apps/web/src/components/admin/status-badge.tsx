@@ -8,15 +8,10 @@ import {
   XCircle,
   type LucideIcon,
 } from 'lucide-react';
-import {
-  OUTCOME_LABELS,
-  STATE_LABELS,
-  type IngestionOutcome,
-  type IngestionState,
-} from '@torfun/types';
+import { STATE_LABELS, type IngestionState } from '@torfun/types';
 import { Badge } from '@/components/ui/badge';
 import { formatCount } from '@/lib/format-number';
-import { BUCKET_LABELS, bucketOfOutcome, type BucketKey } from '@/lib/outcome-buckets';
+import { BUCKET_LABELS, type BucketKey } from '@/lib/outcome-buckets';
 import { cn } from '@/lib/utils';
 
 /**
@@ -158,9 +153,4 @@ export function StatusBadge({
 
 export function StateBadge({ state }: { state: IngestionState }) {
   return <StatusBadge bucket={bucketOfState(state)} label={STATE_LABELS[state]} />;
-}
-
-/** The finer outcome, coloured by the bucket it counts in. */
-export function OutcomeBadge({ outcome }: { outcome: IngestionOutcome }) {
-  return <StatusBadge bucket={bucketOfOutcome(outcome)} label={OUTCOME_LABELS[outcome]} />;
 }

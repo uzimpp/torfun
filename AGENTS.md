@@ -1,33 +1,23 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository. Claude Code reads it
-through the one-line `CLAUDE.md` import beside it.
+Guidance for AI coding agents working in this repository. Claude Code reads it through the one-line `CLAUDE.md` import beside it. [`GLOSSARY.md`](GLOSSARY.md) defines the domain terms used below.
 
 ## What torfun is for
 
-A software house wins work by finding government procurement announcements it can
-credibly bid on. Doing that by hand means visiting dozens of agency sites,
-opening Thai-language PDFs, and judging one at a time whether a project is
-software at all, whether it matches what the company has built before, and
-whether the deadline is reachable. Most of that effort is spent discarding
-things.
+A software house wins work by finding government procurement announcements it can credibly bid on. Doing that by hand means visiting dozens of agency sites, opening Thai-language PDFs, and judging one project at a time whether it is software at all, whether it matches what the company has built before, and whether the deadline is reachable. Most of that effort goes into discarding projects.
 
-torfun automates the discarding. It pulls procurement announcements, keeps the
-software-related ones, extracts what a Terms of Reference (TOR) document actually
-asks for, and scores each against the company's own past experience — so a person
-reads the ten that matter instead of the four hundred that don't.
+torfun automates the discarding. It pulls procurement announcements, keeps the software-related ones, extracts what each Terms of Reference (TOR) document asks for, and scores each against the company's past experience. A person reads the ten that matter instead of the four hundred that don't.
 
-Scope is deliberately narrow: **software procurement, e-bidding tenders**.
-Widening any of those is a product decision, not a refactor.
+Scope is narrow on purpose: software procurement, e-bidding tenders. Widening either is a product decision, not a refactor.
 
 ## Who uses it
 
-| Role                         | Value in code                  | Does                                                                                                                                     |
-| ---------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Business Development Officer | `business_development_officer` | Searches and filters TORs, reads AI summaries, checks match scores, follows a TOR back to its source document before committing to a bid |
-| Site Administrator           | `admin`                        | Runs and monitors ingestion, reviews the failure log, manages accounts                                                                   |
+| Role                         | Value in code                  | Does                                                                                                                                         |
+| ---------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Business Development Officer | `business_development_officer` | Searches and filters TORs, reads AI summaries, checks match scores, and follows a TOR back to its source document before committing to a bid |
+| Site Administrator           | `admin`                        | Runs and monitors ingestion, reviews the failure log, and manages accounts                                                                   |
 
-Self-registration always creates a BD officer. Admin is granted, never claimed.
+Self-registration always creates a Business Development Officer. The admin role is granted, never claimed.
 
 ## How the pieces fit
 
@@ -45,101 +35,76 @@ Self-registration always creates a BD officer. Admin is granted, never claimed.
                    apps/web (Next.js)
 ```
 
-Three stages run side by side in each Run (ADR-0020). **Discovery** reads
-e-GP's announcement feed, one Source Registry agency and one day at a time, for
-e-bidding draft TORs and invitations, and admits those not tombstoned; the title
-is never consulted. It asks about the days since the last Run first, then a share
-of the past year (ADR-0018). A new project is stored as Queued from the feed
-alone and handed to Retrieval at once. **Retrieval** is one turn at the site per
-project: its e-GP project detail until read once, for its real budget year
-(empty until then, never guessed), its announcement timeline (greenBook), for
-status and bid deadline, then the announcement archive, from which TOR PDFs are
-extracted. Never-read projects go first, newest announcement first; projects
-already read have the timeline read again, oldest check first, and are retrieved
-again only if the invitation moved. The open-data API is not read: it holds only
-signed contracts (ADR-0004). **Analysis** is Gemini reading the archive's TOR
-PDFs; it never touches e-GP, so it is the only stage that overlaps another's
-requests. Discovery and Retrieval reach `gprocurement.go.th` through one gate,
-one request at a time. A record
-carries both a coarse `state` (Queued → Processing → Completed/Failed) and a finer `outcome`, because "no TOR was ever published" is a
-legitimate upstream answer rather than a failure, and an admin needs to tell them
-apart.
+Each Run has three stages working side by side. [`docs/ingestion-flow.md`](docs/ingestion-flow.md) has the full detail.
 
-`packages/types` holds the domain vocabulary — `Procurement`, `User`,
-`MatchResult`, the ingestion records — as zod schemas, and both apps import it.
-It is the contract between them: change a schema and both sides fail to compile,
-which is the point.
+- Discovery reads e-GP's announcement feed, one agency and one day at a time, and admits the e-bidding draft TORs and invitations that have no tombstone. It never looks at the title. It asks about the days since the last Run first, then about a share of the past year. A new project is stored as Queued from the feed alone and handed to Retrieval at once.
+- Retrieval makes one turn at the site per project. It reads the project detail until it has been read once, which gives the real budget year (empty until then, never guessed). It reads the announcement timeline (greenBook) for status and bid deadline. Then it fetches the announcement archive and extracts the TOR PDFs. Never-read projects go first, newest announcement first. Projects already read get their timeline read again, oldest check first, and are retrieved again only if the invitation moved. The open-data API is not read, because it holds only signed contracts.
+- Analysis is Gemini reading the archive's TOR PDFs. It never touches e-GP, so it is the only stage that overlaps another stage's requests.
+
+Discovery and Retrieval reach `gprocurement.go.th` through one gate, one request at a time.
+
+A record carries a coarse `state` (Queued, Processing, then Completed or Failed) and a finer `outcome`. "No TOR was ever published" is a legitimate upstream answer, not a failure, and an admin needs to tell the two apart.
+
+`packages/types` holds the domain vocabulary (`Procurement`, `User`, `MatchResult`, the ingestion records) as zod schemas, and both apps import it. It is the contract between them. When you change a schema, both sides fail to compile until they handle it.
 
 ## Guardrails
 
-**Upstream access is conditional.** `gprocurement.go.th` publishes
-`robots.txt: Disallow: /`; this project operates under a research authorisation
-whose own limits are not recorded in this repository. What the code does to stay
-within the spirit of it: requests are single-file through one gate, the politeness
-delay follows each, a rate-limit or forbidden response closes the gate for the rest of the Run,
-and only one Run goes at a time. Every request to the site is one of these: the
-announcement feed Discovery reads (one agency, one type, one day), and for each
-project its project detail (until it has been read once), its announcement
-timeline (greenBook), the archive lookup and the download, all inside one gate
-hold. The process5 project search sits behind Cloudflare
-Turnstile and is never called; do not add a captcha solver, a copied browser token
-or a headless browser to reach it. They are not performance tuning. Do not parallelise
-around them or retry past a refusal. **No volume cap is applied** — a Run works
-through the whole queue — by the owner's decision (ADR-0015); if the site's owner
-ever states a limit, it belongs back in code, not in this paragraph. The one
-exception is Discovery's history: reading the past year takes a fixed share of
-each Run (`FEED_BACKFILL_REQUESTS_PER_RUN`, ADR-0018), so the new days and the
-queue are not starved behind it. New days are always read in full.
+### Upstream access is conditional
 
-**Ingested data is evidence, not decoration.** A BD officer decides whether to
-spend days on a bid. Never seed, mock, or backfill records outside a real
-ingestion run — an admin must be able to trust that what the queue shows is what
-the pipeline actually retrieved. Extraction failures get logged and surfaced, not
-swallowed.
+`gprocurement.go.th` publishes `robots.txt: Disallow: /`. This project operates under a research authorisation whose limits are not recorded in this repository. To stay within the spirit of it, the code does the following:
 
-**AI output is a summary, never an authority.** Gemini reads the TOR to save a
-person time; the original PDF stays reachable so a human can verify before
-bidding. Don't build flows that discard the source or present extracted fields as
-confirmed fact.
+- Requests go one at a time through one gate, with a politeness delay after each.
+- A rate-limit or forbidden response closes the gate for the rest of the Run.
+- Only one Run goes at a time.
 
-**A title is not a verdict.** Whether work is software is decided from the TOR
-document, never from the project name; discovery has no title check, so nothing is
-quietly kept out of the queue by what it happens to be called.
+Every request to the site is one of these, and all happen inside one gate hold: the announcement feed that Discovery reads (one agency, one type, one day), and, for each project, its project detail (until read once), its announcement timeline (greenBook), the archive lookup, and the download.
 
-**Scope changes are product decisions.** Software-only and e-bidding-only are
-encoded in the schemas and in what discovery admits. Widening them needs a person's call.
+The process5 project search sits behind Cloudflare Turnstile and is never called. Do not add a captcha solver, a copied browser token, or a headless browser to reach it. The delays and the gate are not performance tuning. Do not parallelise around them, and do not retry past a refusal.
+
+No volume cap applies, so a Run works through the whole queue. That is the owner's decision. If the site's owner ever states a limit, put it in code, not in this file. The one exception is Discovery's history: reading the past year takes a fixed share of each Run (`FEED_BACKFILL_REQUESTS_PER_RUN`), so the new days and the queue are not starved behind it. New days are always read in full.
+
+### Ingested data is evidence
+
+A Business Development Officer decides whether to spend days on a bid. Never seed, mock, or backfill records outside a real ingestion Run. An admin must be able to trust that the queue shows what the pipeline retrieved. Log and surface extraction failures. Never swallow them.
+
+### AI output is a summary, never an authority
+
+Gemini reads the TOR to save a person time. The original PDF stays reachable so a human can verify it before bidding. Do not build flows that discard the source or present extracted fields as confirmed fact.
+
+### A title is not a verdict
+
+Whether work is software is decided from the TOR document, never from the project name. Discovery has no title check, so nothing is kept out of the queue because of what it happens to be called.
+
+### Scope changes are product decisions
+
+The schemas and the Discovery admission rules encode software-only and e-bidding-only. Widening either needs a person's call.
 
 ## Commands
 
-`README.md` at the repo root has them, along with setup and CI. Two matter here:
-`bun run typecheck` before claiming work is done, and `bun run lint`, which
-enforces the API's layer boundaries.
+`README.md` at the repo root lists them, with setup and CI. Two matter here: run `bun run typecheck` before you say work is done, and run `bun run lint`, which enforces the API's layer boundaries.
 
 ## Working in this repo
 
-New env vars go in three places or they silently break something:
-`apps/api/src/config/env.ts` (zod), `apps/api/.env.example`, and the `env` array in
-`turbo.json` (undeclared vars poison Turbo's cache). Add it to `docker-compose.yml`
-too if the container needs it. A var with no schema default needs a fourth:
-`apps/api/src/testing/env.ts`, or every test that builds an app fails.
+A new environment variable goes in three places, or it breaks something without an error:
 
-Runtime dependencies belong to the workspace that imports them. The root
-`package.json` holds only repo-wide devDependencies.
+1. `apps/api/src/config/env.ts` (the zod schema)
+2. `apps/api/.env.example`
+3. The `env` array in `turbo.json`, because Turbo's cache goes stale on undeclared variables
 
-Stage your work and stop — committing and pushing are the developer's call.
+Add it to `docker-compose.yml` too if the container needs it. A variable with no schema default also needs `apps/api/src/testing/env.ts`, or every test that builds an app fails.
 
-## Per-app architecture
+Runtime dependencies belong to the workspace that imports them. The root `package.json` holds only repo-wide devDependencies.
 
-Read the one for the app you're touching before writing code:
+Stage your work and stop unless the user asks you to commit or push. Those are the developer's call.
 
-- **`apps/api/AGENTS.md`** — layer boundaries (enforced by ESLint), composition
-  root, error handling, ingestion pipeline internals.
-- **`apps/web/AGENTS.md`** — App Router structure, data flow, client auth, and the
-  Next.js version caveat.
+## Per-app guides
 
-Each directory's `CLAUDE.md` is a one-line `@AGENTS.md` import, so Claude Code and
-every agent that reads `AGENTS.md` get the same text from one source. Edit the
-`AGENTS.md`; never duplicate content into a `CLAUDE.md`.
+Read the one for the app you are changing before you write code.
+
+- [`apps/api/AGENTS.md`](apps/api/AGENTS.md) covers layer boundaries (enforced by ESLint), the composition root, error handling, and the ingestion pipeline internals.
+- [`apps/web/AGENTS.md`](apps/web/AGENTS.md) covers the App Router structure, data flow, client auth, and the Next.js version caveat.
+
+Each directory's `CLAUDE.md` is a one-line `@AGENTS.md` import, so every agent gets the same text from one source. Edit the `AGENTS.md`. Never copy its content into a `CLAUDE.md`.
 
 <!-- BEGIN:turborepo-agent-rules -->
 

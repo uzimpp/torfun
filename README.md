@@ -1,23 +1,16 @@
 # torfun
 
-Finds Thai government software procurement a software house can credibly bid
-on. It reads the e-GP announcement feed for e-bidding tenders, has Gemini read
-each TOR (Terms of Reference) PDF to keep the software ones, and scores each against the
-company's own past work — so a person reads the ten that matter instead of the
-four hundred that don't.
+torfun finds Thai government software procurement that a software house can credibly bid on. It reads the e-GP announcement feed for e-bidding tenders, has Gemini read each TOR (Terms of Reference) PDF to keep the software ones, and scores each against the company's past work. A person reads the ten that matter instead of the four hundred that don't.
 
-A Bun + Turborepo monorepo: a Fastify API over MongoDB Atlas and Vertex AI, and a
-Next.js web app, sharing one package of zod schemas.
+It is a Bun and Turborepo monorepo: a Fastify API over MongoDB Atlas and Vertex AI, a Next.js web app, and one package of zod schemas that both apps import.
 
 ## Requirements
 
-- **Bun 1.3.11** — pinned by `packageManager`
-- **Docker** — for the local MongoDB Atlas container
-- **A Google Cloud project** with Vertex AI enabled, plus `gcloud` for local credentials
-- **An e-GP open-data API key** — register at <https://opend.data.go.th/register_api/>.
-  Discovery no longer reads open data; the key is still required by the config and
-  the dependency health check, and is kept for a future winner lookup.
-- **A Google OAuth 2.0 web client** — for user sign-in
+- Bun 1.3.11, pinned by `packageManager`.
+- Docker, for the local MongoDB Atlas container.
+- A Google Cloud project with Vertex AI enabled, and `gcloud` for local credentials.
+- An e-GP open-data API key from <https://opend.data.go.th/register_api/>. Discovery no longer reads open data, but the API config and the dependency health check still require the key, and a future winner lookup will use it.
+- A Google OAuth 2.0 web client, for user sign-in.
 
 ## Running it locally
 
@@ -31,37 +24,28 @@ gcloud auth application-default login \
 bun run dev
 ```
 
-The `gcloud` line is how the API reaches Vertex AI; it needs a one-time grant
-first — see [Vertex AI access](#vertex-ai-access).
+The `gcloud` line is how the API reaches Vertex AI. It needs a one-time grant first, described in [Vertex AI access](#vertex-ai-access).
 
 Web on <http://localhost:3000>, API on <http://localhost:8080>.
 
-`bun run dev` watches files, and saving any of them restarts the API and kills an
-ingestion run in flight. To let a run finish, start the API without the watcher
-(`bun run dev:stable` inside `apps/api`) and edit freely.
+`bun run dev` watches files, and saving one restarts the API and kills any ingestion Run in flight. To let a Run finish, start the API without the watcher (`bun run dev:stable` inside `apps/api`).
 
-Registering through the web app creates a Business Development Officer. The
-ingestion console at `/admin/ingestion` needs the admin role, which is granted in
-the database and never self-claimed:
+Registering through the web app creates a Business Development Officer. The ingestion console at `/admin/ingestion` needs the admin role. Grant it in the database, because nobody can claim it themselves:
 
 ```bash
 docker compose exec mongodb mongosh mongodb://localhost:27017/torfun \
   --eval 'db.users.updateOne({ username: "you" }, { $set: { role: "admin" } })'
 ```
 
-Mongo runs in the `mongodb` container either way (`bun run dev` or `docker:up`), so this reaches
-it without needing `mongosh` installed on the host.
+MongoDB runs in the `mongodb` container under both `bun run dev` and `docker:up`, so this command works without `mongosh` on the host.
 
-To run the whole stack in containers instead, fill both `.env` files and use
-`bun run docker:up`.
+To run the whole stack in containers instead, fill in both `.env` files and run `bun run docker:up`.
 
 ## Vertex AI access
 
-In development the API calls Vertex AI by impersonating the `torfun-api-runtime`
-service account: short-lived tokens, nothing to leak, and one IAM change revokes
-it. (The org blocks service-account keys, so there is no key file to hand out.)
+In development the API calls Vertex AI by impersonating the `torfun-api-runtime` service account. The tokens are short-lived, there is no key file to leak (the organisation blocks service-account keys), and one IAM change revokes access.
 
-An owner grants each developer access once, on that service account only:
+A project owner grants each developer access once, on that service account only:
 
 ```bash
 gcloud iam service-accounts add-iam-policy-binding \
@@ -69,10 +53,9 @@ gcloud iam service-accounts add-iam-policy-binding \
   --member="user:<your-email>" --role="roles/iam.serviceAccountTokenCreator"
 ```
 
-Then log in as shown above and restart `bun run dev`. IAM changes take a minute or
-two. Records that failed analysis are not retried: archives are never stored
-(ADR-0002), so reading one again would mean downloading it again. Later Runs
-re-read their timeline, and the invitation alone if its date moved.
+Then log in as shown above and restart `bun run dev`. IAM changes take a minute or two.
+
+If a Procurement failed analysis, the failure log shows one of these errors:
 
 | Error in the failure log                    | Fix                                                                          |
 | ------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -83,7 +66,7 @@ re-read their timeline, and the invitation alone if its date moved.
 
 ## Commands
 
-Run from the repo root; Turbo fans out to every workspace.
+Run these from the repo root. Turbo runs each one in every workspace.
 
 | Command             | Does                                               |
 | ------------------- | -------------------------------------------------- |
@@ -96,8 +79,7 @@ Run from the repo root; Turbo fans out to every workspace.
 | `bun run format`    | Prettier over the repo                             |
 | `bun run docker:up` | Build and start mongodb, api and web in containers |
 
-Scope any of them to one workspace with `--filter`, for example
-`bun run test --filter=@torfun/api`.
+To run one in a single workspace, add `--filter`, for example `bun run test --filter=@torfun/api`.
 
 ## Layout
 
@@ -105,17 +87,16 @@ Scope any of them to one workspace with `--filter`, for example
 | ----------------- | ----------------------------------------------------------- |
 | `apps/api`        | Fastify service: auth, ingestion pipeline, AI analysis      |
 | `apps/web`        | Next.js App Router front end                                |
-| `packages/types`  | zod schemas both apps import — the contract between them    |
+| `packages/types`  | zod schemas both apps import, the contract between them     |
 | `packages/config` | Shared TypeScript and ESLint bases                          |
-| `docs/adr`        | Decisions that are expensive to reverse, and why            |
+| `docs`            | Requirements, architecture, data model, API, and security   |
 | `docs/migrations` | Idempotent `mongosh` scripts for stored-data schema changes |
 
 ## Where to read next
 
-- **`CONTEXT.md`** — the domain vocabulary. Read it before naming anything.
-- **`AGENTS.md`** — what the product is for, who uses it, and the guardrails
-  around upstream access and AI output. Each app has its own beside it.
-- **`docs/adr/`** — why the shape is the way it is.
+- [`GLOSSARY.md`](GLOSSARY.md) defines the domain vocabulary. Read it before naming anything.
+- [`AGENTS.md`](AGENTS.md) covers what the product is for, who uses it, and the guardrails around upstream access and AI output. Each app has its own `AGENTS.md` beside it.
+- [`docs/`](docs/README.md) holds the requirements, architecture, data model, API reference, and security evidence.
 
 ## CI and deployment
 
@@ -133,4 +114,4 @@ top of `.github/workflows/docker.yml`.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT. See `LICENSE`.

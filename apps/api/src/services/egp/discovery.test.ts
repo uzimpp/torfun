@@ -352,7 +352,7 @@ describe('discoverProjects: what it admits', () => {
       projectId: '69109044981',
       deptName: 'กรมศุลกากร',
       deptCode: CUSTOMS,
-      // Not guessed from the announcement date (ADR-0020).
+      // Not guessed from the announcement date.
       budgetYear: null,
       typeId: null,
       goodsId: null,

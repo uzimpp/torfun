@@ -47,5 +47,3 @@ export function runHistoryRows(runs: IngestionRun[]) {
     result: runResult(run),
   }));
 }
-
-export type RunHistoryRow = ReturnType<typeof runHistoryRows>[number];

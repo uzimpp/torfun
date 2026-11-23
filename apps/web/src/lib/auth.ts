@@ -23,7 +23,7 @@ export type CurrentUser = {
   company_id: string | null;
   /**
    * Resolved from the Company rather than stored on the user — the Company owns
-   * its name (ADR-0007). Null whenever `company_id` is.
+   * its name. Null whenever `company_id` is.
    */
   company_name: string | null;
   role: 'admin' | 'business_development_officer';

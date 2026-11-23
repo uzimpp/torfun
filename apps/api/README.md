@@ -18,7 +18,7 @@ bun test src/routes/ingestion.test.ts    # one file
 bun run build && bun run start           # production build
 ```
 
-Configuration comes from `.env` in this directory — copy `.env.example` and read
+Configuration comes from `.env` in this directory. Copy `.env.example` and read
 its comments, which cover how to authenticate to Google in each environment.
 A local MongoDB (`docker compose up -d mongodb` from the repo root) is needed for
 `bun run dev` and for the repository tests, which run against real Mongo. They
@@ -27,72 +27,9 @@ skip unless `MONGODB_TEST_URI` (or `MONGODB_URI`) is set; for the local image us
 
 ## Endpoints
 
-Everything is under `/api`. Sessions travel as a JWT in an httpOnly cookie.
+Everything is under `/api`, and sessions travel as a JWT in an httpOnly cookie. [`docs/api.md`](../../docs/api.md) lists every endpoint, who may call it, and how a request travels. Request and response shapes are zod schemas on each route, and most are imported from `@torfun/types`.
 
-| Method | Path                                                | Access | Does                                                   |
-| ------ | --------------------------------------------------- | ------ | ------------------------------------------------------ |
-| GET    | `/health`                                           | public | Liveness; touches nothing external                     |
-| GET    | `/health/dependencies`                              | admin  | Live calls to Atlas, Vertex and the open data          |
-| POST   | `/auth/register`                                    | public | Creates a Business Development Officer                 |
-| POST   | `/auth/login`                                       | public | Signs in; both credential routes are throttled         |
-| POST   | `/auth/refresh`                                     | cookie | Exchanges the refresh cookie                           |
-| POST   | `/auth/logout`                                      | public | Clears both cookies                                    |
-| GET    | `/auth/me`                                          | user   | The current account                                    |
-| GET    | `/auth/google`                                      | public | Starts the Google sign-in redirect                     |
-| GET    | `/auth/google/callback`                             | public | Finishes it, then redirects into the web app           |
-| GET    | `/dashboard`                                        | user   | Placeholder greeting                                   |
-| GET    | `/admin/users`                                      | admin  | Lists accounts                                         |
-| PATCH  | `/admin/users/:id`                                  | admin  | Updates an account's role or active status             |
-| GET    | `/ingestion/summary`                                | admin  | Counts by state and outcome, plus agencies             |
-| GET    | `/ingestion/projects`                               | admin  | Filter and paginate procurements                       |
-| GET    | `/ingestion/projects/:projectId`                    | admin  | One procurement by its 11-digit id                     |
-| GET    | `/ingestion/failures`                               | admin  | The failure log                                        |
-| GET    | `/ingestion/ops`                                    | admin  | Current ingestion operation status                     |
-| POST   | `/ingestion/run`                                    | admin  | Starts a run; `202`, or `409` if one is live           |
-| POST   | `/ingestion/run/stop`                               | admin  | Requests the active run to stop                        |
-| GET    | `/ingestion/recent?limit=`                          | admin  | The most recently ingested procurements                |
-| GET    | `/ingestion/schedule`                               | admin  | Reads the automatic run schedule                       |
-| PUT    | `/ingestion/schedule`                               | admin  | Updates the automatic run schedule                     |
-| POST   | `/ingestion/procurements/:projectId/approve`        | admin  | Approves a held procurement                            |
-| POST   | `/ingestion/procurements/:projectId/non-software`   | admin  | Marks a procurement as non-software                    |
-| POST   | `/ingestion/procurements/:projectId/read-anyway`    | admin  | Queues a held procurement for retrieval                |
-| DELETE | `/ingestion/procurements/:projectId?allowReimport=` | admin  | Deletes a procurement; controls whether it can return  |
-| GET    | `/ingestion/tombstones`                             | admin  | Lists deleted-project tombstones                       |
-| DELETE | `/ingestion/tombstones/:projectId`                  | admin  | Removes a tombstone                                    |
-| POST   | `/ingestion/tombstones/:projectId/restore`          | admin  | Restores a tombstone and queues retrieval              |
-| GET    | `/tors/years`                                       | user   | Available budget years                                 |
-| GET    | `/tors`                                             | user   | Search, filter and paginate procurements               |
-| GET    | `/tors/:projectId`                                  | user   | One procurement by its project id                      |
-| GET    | `/tors/:projectId/source`                           | user   | Download the original TOR PDF                          |
-| POST   | `/tors/:projectId/reports`                          | user   | Report a TOR for admin review                          |
-| GET    | `/admin/tor-reports`                                | admin  | Shared report queue, newest first                      |
-| PATCH  | `/admin/tor-reports/:reportId`                      | admin  | Dismiss a report or remove its TOR from publication    |
-| GET    | `/companies/search?q=`                              | user   | Typeahead over Thai company names                      |
-| POST   | `/companies`                                        | user   | Creates a Company and joins the caller to it           |
-| GET    | `/companies/me`                                     | user   | The caller's Company; `404` when they have none        |
-| PATCH  | `/companies/me`                                     | user   | Corrects the caller's own Company                      |
-| POST   | `/companies/:id/join`                               | user   | Repoints the caller at an existing Company             |
-| GET    | `/clients`                                          | user   | The caller's own Clients                               |
-| GET    | `/clients/suggestions?kind=&q=`                     | user   | `{ suggestions }`, government names from agencies      |
-| POST   | `/clients`                                          | user   | Records a Client; `409` before a Company exists        |
-| PATCH  | `/clients/:id`                                      | user   | Corrects one                                           |
-| DELETE | `/clients/:id`                                      | user   | Removes one; `409` if work is recorded on it           |
-| GET    | `/experiences`                                      | user   | The caller's own recorded work                         |
-| POST   | `/experiences`                                      | user   | Records work; only client and name are required        |
-| PATCH  | `/experiences/:id`                                  | user   | Corrects one                                           |
-| DELETE | `/experiences/:id`                                  | user   | Removes one                                            |
-| GET    | `/favorites`                                        | user   | The caller's favorited TORs, with each procurement     |
-| GET    | `/favorites/:projectId`                             | user   | `{ favorited }` for one project                        |
-| POST   | `/favorites`                                        | user   | Favorites a project; `404` if the caller cannot see it |
-| DELETE | `/favorites/:projectId`                             | user   | Unfavorites one; `404` if it was not favorited         |
-
-Request and response shapes are zod schemas on each route, most of them imported
-from `@torfun/types`.
-
-No route under `/companies`, `/clients` or `/experiences` accepts a company id
-from its caller — the Company is read from the session user, so an id belonging
-to another vendor is a `404` rather than a leak. `/companies/:id/join` is the one
-exception, and naming another Company is the whole point of it.
+No route under `/companies`, `/clients`, or `/experiences` accepts a company id from its caller. The API reads the Company from the session user, so an id that belongs to another vendor returns `404` instead of leaking data. `/companies/:id/join` is the one exception, because naming another Company is its whole purpose.
 
 ## Procurement deadline filters
 

@@ -16,9 +16,8 @@ import { MobileMenu } from './mobile-menu';
  * One header for the whole site, and — with the sidebar gone — the only
  * navigation there is.
  *
- * The brand always points home. It used to send a signed-in officer to their
- * dashboard, which quietly took away the way back to the page describing the
- * product; the dashboard is reachable from the account menu instead.
+ * The brand always points home, so a signed-in officer can still reach the page
+ * that describes the product. The dashboard is in the account menu.
  *
  * The search field is centered in the space between the brand and account
  * controls; the theme switch remains beside the account menu.

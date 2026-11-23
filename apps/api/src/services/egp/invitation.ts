@@ -4,8 +4,8 @@ import type { ExtractedPdf, InvitationPdfs } from './tor-package';
 
 /**
  * Finds the project's invitation announcement in an archive and reads its bid
- * date. The invitation is found by filename (ADR-0003 is amended for these two
- * roles); only if it is missing or unreadable is the bidding document read in
+ * date. The invitation is found by filename (an exception to reading every role
+ * from content); only if it is missing or unreadable is the bidding document read in
  * its place, and never both.
  */
 

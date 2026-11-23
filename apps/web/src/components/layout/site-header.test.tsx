@@ -85,7 +85,7 @@ test('the administrator menu reaches every admin page', async () => {
     'href',
     '/admin/accounts',
   );
-  // An administrator holds no Company (ADR-0011), so the row is not offered.
+  // An administrator holds no Company, so the row is not offered.
   expect(screen.queryByRole('menuitem', { name: 'บริษัทและผลงาน' })).not.toBeInTheDocument();
   // Admins never bid, so they have nothing to favorite.
   expect(screen.queryByRole('menuitem', { name: /TOR ที่บันทึกไว้/ })).not.toBeInTheDocument();

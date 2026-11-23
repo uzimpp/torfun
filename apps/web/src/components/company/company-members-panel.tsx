@@ -15,10 +15,10 @@ import { useCompanyMembers } from './use-company-members';
  * Who belongs to the Company, and — for a Company Manager (ผู้ดูแลบริษัท) —
  * who is asking to.
  *
- * Joining used to need nothing but a click, which let anyone read a company's
- * capital, certificates and past contracts (pentest P-1). Now a manager answers
- * each request, or lets one email domain in automatically. Everyone sees the
- * member list; only a manager sees requests and the controls.
+ * A manager answers each join request, or lets one email domain in
+ * automatically. Without that gate, anyone could read a company's capital,
+ * certificates and past contracts (pentest P-1). Everyone sees the member list;
+ * only a manager sees requests and the controls.
  */
 export function CompanyMembersPanel({
   company,

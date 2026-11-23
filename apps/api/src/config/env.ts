@@ -90,7 +90,7 @@ export const EnvSchema = z.object({
   EGP_API_KEY: z.string().min(1, 'EGP_API_KEY is required'),
   // Calls to the model (Gemini) in flight at once, across every project of a
   // Run. Vertex's quota and the bill count calls, so size this to the quota.
-  // It also bounds the Archives held in memory waiting to be read (ADR-0020).
+  // It also bounds the Archives held in memory waiting to be read.
   ANALYSIS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(8),
 });
 

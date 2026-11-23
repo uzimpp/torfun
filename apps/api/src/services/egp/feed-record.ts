@@ -13,7 +13,7 @@ export function queuedRecord(projectId: string, feed: FeedSnapshot, now: Date): 
     ...feed,
     discoveredAt: timestamp,
     // From the project detail, which Retrieval reads first in the record's
-    // turn (ADR-0020). Until then they are null, the year too.
+    // turn. Until then they are null, the year too.
     budgetYear: null,
     deptSubName: null,
     typeId: null,
@@ -21,7 +21,7 @@ export function queuedRecord(projectId: string, feed: FeedSnapshot, now: Date): 
     projectMoney: null,
     priceBuild: null,
     detailReadAt: null,
-    // Set from the timeline, the first thing Retrieval reads (ADR-0017).
+    // Set from the timeline, the first thing Retrieval reads.
     timeline: EMPTY_TIMELINE,
 
     state: 'Queued',

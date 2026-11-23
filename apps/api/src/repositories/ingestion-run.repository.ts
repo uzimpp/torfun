@@ -16,9 +16,9 @@ interface CountsDocument {
   new_records: number;
   changed_records: number;
   unchanged_records: number;
-  /** Absent on Runs before ADR-0021, which found none. */
+  /** Absent on Runs logged before Discovery tracked out-of-scope projects, which found none. */
   out_of_scope?: number;
-  /** Written by Runs before ADR-0020 only. */
+  /** Written only by Runs logged before every Run swept. */
   discovery_skipped?: boolean;
   discovery_stopped: RunCounts['discoveryStopped'];
   attempted: number;
@@ -39,7 +39,7 @@ interface RunDocument {
   ended_at: Date;
   duration_ms: number;
   trigger: IngestionRun['trigger'];
-  /** Written by Runs before ADR-0020 only. */
+  /** Written only by Runs logged before every Run swept. */
   runners?: number;
   counts: CountsDocument | null;
   error: string | null;

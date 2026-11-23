@@ -239,7 +239,7 @@ export function textFromResponse(response: ModelResponse): string {
 /**
  * Builds the model call the classification step uses.
  *
- * The PDF travels as base64 `inlineData` because nothing is stored (ADR-0002),
+ * The PDF travels as base64 `inlineData` because nothing is stored,
  * which is also why one document goes per call. `responseSchema` makes the API
  * enforce the answer's shape instead of the prompt merely requesting it, and
  * `temperature: 0` because this is a classification, not a composition.

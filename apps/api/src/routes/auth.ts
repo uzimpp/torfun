@@ -45,7 +45,7 @@ const loginSchema = z.object({
 /**
  * snake_case on the wire: the shape `apps/web` already consumes.
  *
- * `company_name` is not on the account. The Company owns its name (ADR-0007),
+ * `company_name` is not on the account. The Company owns its name,
  * so it is resolved through `companyService` in `withCompany` below and is
  * `null` for anyone who has not joined one — which is what the web gate reads.
  */

@@ -10,8 +10,8 @@ const EDGE_THRESHOLD_PX = 400;
 const LAST_ITEM_THRESHOLD_PX = 100;
 /** How far a button travels sliding fully in/out, in pixels. */
 const SLIDE_PX = 24;
-/** Button diameter (`size-11`) plus the old flex `gap-3` — how far the up
- * button sits above its resting spot while the down button is also showing. */
+/** Button diameter (`size-11`) plus the flex `gap-3`: how far the up button
+ * sits above its resting spot while the down button is also showing. */
 const STACK_OFFSET_PX = 44 + 12;
 
 function queryLastItem(selector: string | undefined): Element | null {

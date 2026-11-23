@@ -1,6 +1,6 @@
 # SAST and dependency scan results
 
-Captured 2026-11-17 from GitHub code scanning and `bun audit`. Assignment criterion 14; issues #190, #165.
+Captured 2026-11-17 from GitHub code scanning and `bun audit`. Issues #190, #165.
 
 ## CodeQL (javascript-typescript, 87 rules)
 
