@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   currentDeadline,
   type CurrentDeadline,
+  type Evaluation,
   type TorDetail,
   type TorQualification,
   type QualificationMatchResult,
@@ -31,6 +32,8 @@ export type TorReviewData = {
   durationDays: number | null;
   platforms: string[];
   qualifications?: TorQualification[];
+  /** How the winner is chosen; absent where it was never read. */
+  evaluation?: Evaluation;
   matchResult?: QualificationMatchResult | null;
 };
 
@@ -64,6 +67,7 @@ function toReviewData(procurement: TorDetail): TorReviewData {
     durationDays: analysis?.durationDays ?? null,
     platforms: analysis?.targetPlatforms ?? [],
     qualifications: analysis?.qualifications,
+    evaluation: analysis?.evaluation,
     matchResult: procurement.matchResult,
   };
 }

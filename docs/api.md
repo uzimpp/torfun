@@ -83,6 +83,10 @@ Access: P public, U signed-in user, A admin.
 | GET | `/tors` | U | Search and filter procurements, with officer visibility | `200 { items, total, limit, offset }` |
 | GET | `/tors/years` | U | The budget years present on stored procurements | `200` |
 | GET | `/tors/:projectId` | U | One procurement, with officer visibility | `200`; `404` |
+| GET | `/tors/:projectId/contracts` | U | Awarded contracts for the project; optional `contract_year` | `200` |
+| GET | `/tors/:projectId/contract-submissions` | U | Bid submissions for the project; optional `contract_year` | `200` |
+| GET | `/tors/:projectId/budget-comparison` | U | The planned budget against similar earlier procurements | `200`; `404` |
+| POST | `/tors/:projectId/similar-awards` | U | Past awards found in open data by a similar name; spends the open-data allowance | `200`; `404` |
 | GET | `/tors/:projectId/source` | U | The original main-TOR PDF as an attachment, downloaded from e-GP by `zipId` | `200 application/pdf`; `404` |
 | POST | `/tors/:projectId/reports` | U | Report a TOR with `{ reason, details? }`; `details` is required for `other` | `201` |
 

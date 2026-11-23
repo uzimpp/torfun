@@ -1,10 +1,15 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
+  BudgetComparisonSchema,
+  ContractYearQuerySchema,
+  ProjectContractsResponseSchema,
+  ProjectContractSubmissionsResponseSchema,
   TorListQuerySchema,
   ProcurementListResponseSchema,
   TorDetailSchema,
   ProcurementYearsResponseSchema,
+  SimilarAwardsSchema,
 } from '@torfun/types';
 import { requireAuth } from '../hooks/require-auth';
 import { audienceOf } from '../services/audience';
@@ -63,6 +68,79 @@ export const torRoutes: FastifyPluginAsyncZod = async (app) => {
         audienceOf(request.user.role),
         request.user.user_id,
       );
+    },
+  );
+
+  app.get(
+    '/tors/:projectId/budget-comparison',
+    {
+      schema: {
+        params: z.object({ projectId: z.string().min(1) }),
+        response: { 200: BudgetComparisonSchema, 404: z.object({ message: z.string() }) },
+      },
+    },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'private, no-store');
+      return app.torService.budgetComparison(
+        request.params.projectId,
+        audienceOf(request.user.role),
+      );
+    },
+  );
+
+  // POST, not GET: it spends the open-data API's daily allowance, so a link prefetch,
+  // a crawler or a reload must never trigger it. The page calls it from a button.
+  app.post(
+    '/tors/:projectId/similar-awards',
+    {
+      schema: {
+        params: z.object({ projectId: z.string().min(1) }),
+        response: { 200: SimilarAwardsSchema, 404: z.object({ message: z.string() }) },
+      },
+    },
+    async (request, reply) => {
+      reply.header('Cache-Control', 'private, no-store');
+      return app.similarAwardsService.find(request.params.projectId, audienceOf(request.user.role));
+    },
+  );
+
+  app.get(
+    '/tors/:projectId/contracts',
+    {
+      schema: {
+        params: z.object({ projectId: z.string().min(1) }),
+        querystring: ContractYearQuerySchema,
+        response: { 200: ProjectContractsResponseSchema },
+      },
+    },
+    async (request) => {
+      await app.torService.get(request.params.projectId, audienceOf(request.user.role));
+      return {
+        items: await app.contractsService.listContracts(
+          request.params.projectId,
+          request.query.contract_year,
+        ),
+      };
+    },
+  );
+
+  app.get(
+    '/tors/:projectId/contract-submissions',
+    {
+      schema: {
+        params: z.object({ projectId: z.string().min(1) }),
+        querystring: ContractYearQuerySchema,
+        response: { 200: ProjectContractSubmissionsResponseSchema },
+      },
+    },
+    async (request) => {
+      await app.torService.get(request.params.projectId, audienceOf(request.user.role));
+      return {
+        items: await app.contractsService.listSubmissions(
+          request.params.projectId,
+          request.query.contract_year,
+        ),
+      };
     },
   );
 

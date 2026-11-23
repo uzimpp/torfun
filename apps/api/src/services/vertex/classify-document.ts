@@ -31,7 +31,7 @@ export type ModelCall = (parts: {
   text?: string;
   prompt: string;
   /** Which answer shape the model is held to; the TOR's unless said otherwise. */
-  answer?: 'tor' | 'invitation';
+  answer?: 'tor' | 'invitation' | 'evaluation';
 }) => Promise<string>;
 
 /**
@@ -67,7 +67,12 @@ export type ReadMode = 'pdf' | 'text' | 'first_pages';
  * analysis keeps only the reason: the flags travel beside it as
  * `judgement`, to be turned into an Outcome and not kept.
  */
-const AnswerAnalysis = TorAnalysisSchema.omit({ reason: true, promptVersion: true }).extend({
+const AnswerAnalysis = TorAnalysisSchema.omit({
+  reason: true,
+  promptVersion: true,
+  // Read by its own call (#143), never part of the verdict's answer.
+  evaluation: true,
+}).extend({
   ...SoftwareJudgementSchema.shape,
   qualifications: z.array(TorQualificationSchema),
   // The length is asked for in the prompt and enforced below by cutting, not by

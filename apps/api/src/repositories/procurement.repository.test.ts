@@ -17,6 +17,7 @@ import type {
   TorAnalysis,
   Tombstone,
 } from '@torfun/types';
+import { isVisibleTo, OFFICER_VISIBLE_OUTCOME } from '../services/audience';
 import { TorService } from '../services/tor.service';
 import { ProcurementRepository, type FindOptions } from './procurement.repository';
 
@@ -851,6 +852,43 @@ describeMongo('ProcurementRepository', () => {
     expect(platforms.items.map((record) => record.projectId).sort()).toEqual(['mobile', 'web']);
   });
 
+  test('filters by the evaluation method read from the documents, never matching an unread project', async () => {
+    const evaluation = (method: 'lowest_price' | 'price_performance' | 'other' | null) => ({
+      method,
+      quote: null,
+      source: null,
+      document: 'invitation' as const,
+      criteria: [],
+      promptVersion: 'test',
+    });
+    await seed([
+      procurement({
+        projectId: 'price',
+        analysis: analysis({ evaluation: evaluation('lowest_price') }),
+      }),
+      procurement({
+        projectId: 'perf',
+        analysis: analysis({ evaluation: evaluation('price_performance') }),
+      }),
+      procurement({ projectId: 'silent', analysis: analysis({ evaluation: evaluation(null) }) }),
+      procurement({ projectId: 'unread', analysis: analysis() }),
+      procurement({ projectId: 'no-analysis', analysis: null }),
+    ]);
+
+    const one = await repository.find({ limit: 20, offset: 0, evaluationMethod: ['lowest_price'] });
+    expect(one.items.map((record) => record.projectId)).toEqual(['price']);
+
+    const any = await repository.find({
+      limit: 20,
+      offset: 0,
+      evaluationMethod: ['lowest_price', 'price_performance'],
+    });
+    expect(any.items.map((record) => record.projectId).sort()).toEqual(['perf', 'price']);
+
+    const unfiltered = await repository.find({ limit: 20, offset: 0 });
+    expect(unfiltered.total).toBe(5);
+  });
+
   test('filters keyword-derived industry without regex injection', async () => {
     await seed([
       procurement({
@@ -1503,6 +1541,142 @@ describeMongo('ProcurementRepository', () => {
         { date: '2026-09-06', discovered: 1 },
         { date: '2026-10-01', discovered: 1 },
         { date: '2026-10-02', discovered: 2 },
+      ]);
+    });
+  });
+
+  describe('listComparables, for the budget comparison', () => {
+    const visible = OFFICER_VISIBLE_OUTCOME;
+    const query = { visibleOutcome: visible, excludeProjectId: 'self' } as const;
+    const ids = (rows: { projectId: string }[]) => rows.map((row) => row.projectId).sort();
+    const base = (projectId: string, overrides: Partial<Procurement> = {}) =>
+      procurement({
+        projectId,
+        state: 'Completed',
+        outcome: 'tor_analysed',
+        goodsId: '4010',
+        typeId: '03',
+        analysis: analysis({ techStack: ['React'] }),
+        ...overrides,
+      });
+    const remove = async (projectId: string) =>
+      (await getDb())
+        .collection('procurements')
+        .updateOne(
+          { _id: projectId as never },
+          { $set: { publication_removed_at: '2026-10-01T00:00:00.000Z' } },
+        );
+
+    test('needs at least one criterion, or it would match everything', async () => {
+      await expect(repository.listComparables(query)).rejects.toThrow('at least one criterion');
+    });
+
+    test('matches each criterion on its own, and never the procurement itself', async () => {
+      await seed([
+        base('self'),
+        base('a'),
+        base('other-agency', { deptName: 'หน่วยงานอื่น' }),
+        base('other-goods', { goodsId: '4016' }),
+        base('other-type', { typeId: '01' }),
+        base('null-goods', { goodsId: null, typeId: null }),
+        base('other-tech', { analysis: analysis({ techStack: ['Java'] }) }),
+        base('no-analysis', { analysis: null }),
+      ]);
+
+      expect(
+        ids(await repository.listComparables({ ...query, goodsId: '4010', typeId: '03' })),
+      ).toEqual(['a', 'no-analysis', 'other-agency', 'other-tech']);
+      expect(ids(await repository.listComparables({ ...query, deptName: 'กรมตัวอย่าง' }))).toEqual(
+        [],
+      );
+      const dept = (await repository.get('a'))!.deptName;
+      expect(ids(await repository.listComparables({ ...query, deptName: dept }))).toEqual([
+        'a',
+        'no-analysis',
+        'null-goods',
+        'other-goods',
+        'other-tech',
+        'other-type',
+      ]);
+      expect(ids(await repository.listComparables({ ...query, techStack: ['react'] }))).toEqual([
+        'a',
+        'null-goods',
+        'other-agency',
+        'other-goods',
+        'other-type',
+      ]);
+    });
+
+    test('technology terms are matched whole, case-insensitively, without regex injection', async () => {
+      await seed([
+        base('self'),
+        base('spaced', { analysis: analysis({ techStack: ['  REACT '] }) }),
+        base('prefix', { analysis: analysis({ techStack: ['Reactive'] }) }),
+        base('dots', { analysis: analysis({ techStack: ['Node.js'] }) }),
+        base('wild', { analysis: analysis({ techStack: ['Nodexjs'] }) }),
+      ]);
+
+      expect(ids(await repository.listComparables({ ...query, techStack: ['React'] }))).toEqual([
+        'spaced',
+      ]);
+      expect(ids(await repository.listComparables({ ...query, techStack: ['Node.js'] }))).toEqual([
+        'dots',
+      ]);
+      expect(ids(await repository.listComparables({ ...query, techStack: ['.*'] }))).toEqual([]);
+      expect(ids(await repository.listComparables({ ...query, techStack: ['  ', ''] }))).toEqual(
+        [],
+      );
+    });
+
+    test('returns only what isVisibleTo(officer) allows, and only with a planned budget', async () => {
+      const removed = base('removed');
+      const records: Procurement[] = [
+        base('self'),
+        base('v1'),
+        base('v2', { approved: { by: 'admin', at: '2026-10-01T00:00:00.000Z' } }),
+        base('held', { state: 'Failed', outcome: 'needs_review', holdReason: 'partial_read' }),
+        base('queued', { state: 'Queued', outcome: 'queued' }),
+        base('failed', { state: 'Failed', outcome: 'analysis_failed' }),
+        base('no-tor', { state: 'Completed', outcome: 'no_tor_package' }),
+        base('no-budget', { projectMoney: null }),
+        removed,
+      ];
+      await seed(records);
+      await remove('removed');
+
+      const stored = await Promise.all(records.map((r) => repository.get(r.projectId)));
+      const expected = stored
+        .filter((r): r is Procurement => r !== undefined)
+        .filter(
+          (r) => r.projectId !== 'self' && r.projectMoney !== null && isVisibleTo('officer', r),
+        )
+        .map((r) => r.projectId)
+        .sort();
+
+      expect(expected).toEqual(['v1', 'v2']);
+      expect(
+        ids(await repository.listComparables({ ...query, goodsId: '4010', typeId: '03' })),
+      ).toEqual(expected);
+    });
+
+    test('returns every match, not a page, and only the projection the comparison needs', async () => {
+      await seed([
+        base('self'),
+        ...Array.from({ length: 25 }, (_, i) =>
+          base(`m${String(i).padStart(2, '0')}`, { projectMoney: 1000 + i }),
+        ),
+      ]);
+
+      const rows = await repository.listComparables({ ...query, goodsId: '4010', typeId: '03' });
+
+      expect(rows).toHaveLength(25);
+      expect(Object.keys(rows[0]!).sort()).toEqual([
+        'announceDate',
+        'budget',
+        'budgetYear',
+        'deptName',
+        'projectId',
+        'projectName',
       ]);
     });
   });

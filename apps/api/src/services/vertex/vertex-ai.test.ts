@@ -3,6 +3,7 @@ import { Type } from '@google/genai';
 import {
   ANSWER_SCHEMA,
   contentParts,
+  EVALUATION_SCHEMA,
   INVITATION_SCHEMA,
   textFromResponse,
   usageFromResponse,
@@ -20,6 +21,39 @@ describe('INVITATION_SCHEMA', () => {
         nullable: true,
       });
     }
+  });
+});
+
+describe('EVALUATION_SCHEMA', () => {
+  test('is its own answer shape, and every field is required so nothing is silently dropped', () => {
+    const fields = ['method', 'quote', 'source', 'criteria'];
+
+    expect(Object.keys(EVALUATION_SCHEMA.properties ?? {})).toEqual(fields);
+    expect(EVALUATION_SCHEMA.required).toEqual(fields);
+  });
+
+  test('a method, quote and source the document does not give can be null', () => {
+    expect(EVALUATION_SCHEMA.properties?.method).toMatchObject({
+      type: Type.STRING,
+      enum: ['lowest_price', 'price_performance', 'other'],
+      nullable: true,
+    });
+    for (const field of ['quote', 'source']) {
+      expect(EVALUATION_SCHEMA.properties?.[field]).toMatchObject({
+        type: Type.STRING,
+        nullable: true,
+      });
+    }
+  });
+
+  test('a criterion states its weight and unit as nullable, with parts one level down only', () => {
+    const item = EVALUATION_SCHEMA.properties?.criteria?.items;
+    expect(item?.required).toEqual(['name', 'weight', 'unit', 'children']);
+    expect(item?.properties?.weight).toMatchObject({ type: Type.NUMBER, nullable: true });
+    expect(item?.properties?.unit?.enum).toEqual(['percent', 'points']);
+    const part = item?.properties?.children?.items;
+    expect(part?.required).toEqual(['name', 'weight', 'unit']);
+    expect(part?.properties).not.toHaveProperty('children');
   });
 });
 

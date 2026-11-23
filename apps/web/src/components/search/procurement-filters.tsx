@@ -24,7 +24,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { fetchFiscalYears } from '@/lib/api';
-import { PLATFORM_LABELS, PLATFORM_ORDER } from '@/components/company/labels';
+import {
+  EVALUATION_METHOD_HINTS,
+  EVALUATION_METHOD_LABELS,
+  EVALUATION_METHOD_ORDER,
+  PLATFORM_LABELS,
+  PLATFORM_ORDER,
+} from '@/components/company/labels';
 import {
   activeFilterCount,
   EMPTY_SEARCH_FILTERS,
@@ -86,6 +92,12 @@ function activeFilters(values: SearchFilterValues): ActiveFilter[] {
     filters.push({
       criterion: 'targetPlatforms',
       label: `แพลตฟอร์ม: ${values.targetPlatforms.map((item) => PLATFORM_LABELS[item]).join(', ')}`,
+    });
+  }
+  if (values.evaluationMethod.length > 0) {
+    filters.push({
+      criterion: 'evaluationMethod',
+      label: `วิธีพิจารณาผู้ชนะ: ${values.evaluationMethod.map((item) => EVALUATION_METHOD_LABELS[item]).join(', ')}`,
     });
   }
   if (values.industry) {
@@ -868,6 +880,30 @@ export function ProcurementFilters({
                       className="accent-primary size-4 shrink-0"
                     />
                     {PLATFORM_LABELS[platform]}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend className="text-sm font-medium">วิธีพิจารณาผู้ชนะ (ตรงอย่างน้อยหนึ่ง)</legend>
+              <p className="text-muted-foreground mt-1 text-xs">
+                ใช้ได้เฉพาะโครงการที่ระบบอ่านวิธีพิจารณาแล้ว
+              </p>
+              <div className="mt-1 grid gap-x-3">
+                {EVALUATION_METHOD_ORDER.map((method) => (
+                  <label
+                    key={method}
+                    title={EVALUATION_METHOD_HINTS[method]}
+                    className="flex min-h-8 items-center gap-2 text-xs"
+                  >
+                    <input
+                      type="checkbox"
+                      name="evaluationMethod"
+                      value={method}
+                      defaultChecked={formValues.evaluationMethod.includes(method)}
+                      className="accent-primary size-4 shrink-0"
+                    />
+                    {EVALUATION_METHOD_LABELS[method]}
                   </label>
                 ))}
               </div>
