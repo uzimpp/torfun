@@ -184,11 +184,6 @@ export function searchHref(values: SearchFilterValues, page = 1): string {
   return `/search${query ? `?${query}` : ''}`;
 }
 
-export function preservedSearchEntries(values: SearchFilterValues): Array<[string, string]> {
-  const params = new URLSearchParams(searchHref({ ...values, query: '' }).split('?')[1] ?? '');
-  return [...params.entries()];
-}
-
 export type SearchFilterCriterion =
   | 'status'
   | 'deptName'

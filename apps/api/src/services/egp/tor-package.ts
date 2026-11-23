@@ -12,8 +12,7 @@ import { BROWSER_HEADERS, TOR_DOWNLOAD_URL, TOR_INFO_URL, TOR_MEMBER_PATTERNS } 
 
 /**
  * Stage 2 of the pipeline: resolve a project id to its announcement archive and
- * pull the TOR document out of it. Ported from the Python POC's
- * download_tor.py, since removed; see docs/poc_fullflow/README.md.
+ * pull the TOR document out of it.
  *
  * The two-call chain, verified end-to-end with plain curl and no browser:
  *
@@ -92,7 +91,7 @@ export function isSafeMember(name: string): boolean {
  * A candidate PDF pulled out of an archive, with its bytes.
  *
  * Internal to this stage rather than a shared domain type: the payload is
- * carried only as far as classification and never persisted (ADR-0002). What
+ * carried only as far as classification and never persisted. What
  * survives on a Procurement is the `ArchiveDocument` manifest entry built from
  * the classification result.
  */

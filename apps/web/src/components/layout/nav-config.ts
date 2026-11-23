@@ -94,7 +94,7 @@ export function workspaceNav(role: UserRole): NavItem[] {
  * The two roles get different menus because they own different things: a
  * Business Development Officer has a Company and saved TORs; a Site
  * Administrator has the admin pages, the failure log and the other accounts, and
- * no Company at all (ADR-0011).
+ * no Company at all.
  */
 export interface AccountNavItem {
   href: Route;

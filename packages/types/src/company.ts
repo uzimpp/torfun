@@ -7,7 +7,7 @@ import { MoneyThbSchema, WorkTypeSchema } from './qualification';
  *
  * `Procurement` describes what an agency wants built; `Company` and its
  * `Experience` records describe what a software house has already built. The two
- * are deliberately expressed in one vocabulary — see ADR-0009 — so a later
+ * are deliberately expressed in one vocabulary — so a later
  * matching feature compares like with like instead of reconciling two lists that
  * were never designed to agree.
  */

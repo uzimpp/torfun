@@ -4,7 +4,7 @@ import type { OversizeReaders } from './classify-document';
 
 /**
  * How a TOR over Gemini's inline limit can still be read, without storing the
- * file (ADR-0002) and without OCR.
+ * file and without OCR.
  *
  * Most large TORs are large because of the images in them, not because they are
  * scans: they were exported from a word processor and so still carry a text

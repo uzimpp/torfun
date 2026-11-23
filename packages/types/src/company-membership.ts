@@ -1,13 +1,12 @@
 import { z } from 'zod';
 
 /**
- * Who may join a Company, and how (supersedes ADR-0008's "claimed, not
- * granted"; pentest finding P-1, issue #200).
+ * Who may join a Company, and how (pentest finding P-1, issue #200).
  *
  * Every Company has at least one **Company Manager**: the officer who created
  * it, and anyone a manager promotes. A manager is a role *inside one Company*,
  * not a `UserRole` — a Site Administrator is still the only system-wide role
- * above an officer, and holds no Company at all (ADR-0011).
+ * above an officer, and holds no Company at all.
  *
  * Joining is a request a manager approves. A manager may switch on automatic
  * approval for one email domain, and only for a domain their own verified

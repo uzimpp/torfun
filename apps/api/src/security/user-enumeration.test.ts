@@ -7,7 +7,7 @@ import { InMemoryRefreshTokenStore } from '../testing/refresh-token-store';
 import { InMemoryUserStore } from '../testing/user-store';
 
 /**
- * ASVS V6.3.8 / threat T-01. Found by the black-box run (docs/security/pentest,
+ * ASVS V6.3.8 / threat T-01. Found by the black-box run (docs/pentest,
  * attack A3b): the body was already identical for an unknown username and a
  * wrong password, but the unknown one came back in ~1 ms and the real one in
  * ~250 ms, because only the real one reached bcrypt. Timing was the oracle.

@@ -47,6 +47,11 @@ import { ExperienceService } from './services/experience.service';
 import { IngestionService } from './services/ingestion.service';
 import { ProcurementAdminService } from './services/procurement-admin.service';
 import { ScheduleService } from './services/schedule.service';
+import {
+  SourceRegistryRepository,
+  type SourceRegistryStore,
+} from './repositories/source-registry.repository';
+import { SourceRegistryService } from './services/source-registry.service';
 import { SchedulerService } from './services/scheduler.service';
 import { TorService } from './services/tor.service';
 import { FavoriteService } from './services/favorite.service';
@@ -98,6 +103,8 @@ export interface RepositoryOverrides {
   ingestionStats?: IngestionStatsSource;
   /** The setting for when Runs start on their own, and when the last one began. */
   schedule?: ScheduleStore;
+  /** Which agencies Discovery reads. */
+  sourceRegistry?: SourceRegistryStore;
   favorites?: FavoriteStore;
   torReports?: TorReportStore;
   /** Only the distinct agency names are read, for the client typeahead. */
@@ -173,6 +180,9 @@ export async function buildApp(
   const ingestionLease =
     repositories.ingestionLease ?? new IngestionLeaseRepository(app.mongo.getDb);
   const scheduleStore = repositories.schedule ?? new ScheduleRepository(app.mongo.getDb);
+  const sourceRegistryStore =
+    repositories.sourceRegistry ?? new SourceRegistryRepository(app.mongo.getDb);
+  const sourceRegistryService = new SourceRegistryService(sourceRegistryStore);
   const ingestionRuns = repositories.ingestionRuns ?? new IngestionRunRepository(app.mongo.getDb);
   const ingestionStats = repositories.ingestionStats ?? mongoProcurements;
   const favoriteRepository = repositories.favorites ?? new FavoriteRepository(app.mongo.getDb);
@@ -267,6 +277,7 @@ export async function buildApp(
     runLog: scheduleStore,
     runs: ingestionRuns,
     stats: ingestionStats,
+    agencies: () => sourceRegistryService.agencies(),
   });
   app.decorate('ingestionService', ingestionService);
   app.decorate(
@@ -278,6 +289,7 @@ export async function buildApp(
     ),
   );
   app.decorate('scheduleService', new ScheduleService(scheduleStore));
+  app.decorate('sourceRegistryService', sourceRegistryService);
 
   // Built here, started by `server.ts`: a timer running behind every
   // `buildApp()` would leak into each test that builds an app. Stopping on close

@@ -10,7 +10,7 @@ import type { DurationUnit, Experience, TargetPlatform } from '@torfun/types';
  *
  * A duration arrives here already reduced to whole months, with the unit the
  * person chose stored beside it. Storage does no arithmetic — `toDurationMonths`
- * in `@torfun/types` is the only place the twelve lives (ADR-0009).
+ * in `@torfun/types` is the only place the twelve lives.
  */
 
 /**

@@ -33,7 +33,7 @@ export function admit(
 /**
  * Whether a project's Goods Category is one software work is filed under. An
  * unknown category is admitted. The category limits scope; only the TOR decides
- * whether the work is software (ADR-0021).
+ * whether the work is software.
  */
 export function goodsInScope(goodsId: string | null): boolean {
   return goodsId === null || IN_SCOPE_GOODS_IDS.has(goodsId);

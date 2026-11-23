@@ -43,7 +43,7 @@ interface AnalysedArchive {
 /**
  * Classify every candidate PDF, then decide between them.
  *
- * One call per document (ADR-0003): with nothing stored, the bytes travel as
+ * One call per document: with nothing stored, the bytes travel as
  * base64 and several in one request would breach the size limit. Only members
  * that matched a TOR filename pattern are sent — reading the rest of an archive
  * would cost tokens to be told what we already knew.
@@ -135,7 +135,7 @@ export function readRetrievedArchive(
     if (guard.expired) return;
 
     // Note what is NOT here: extraction.torFiles carries the PDF payloads,
-    // and they stop at this line. Only the manifest is persisted (ADR-0002).
+    // and they stop at this line. Only the manifest is persisted.
     const archiveRead: Archive = {
       zipId,
       documents: analysed.documents,

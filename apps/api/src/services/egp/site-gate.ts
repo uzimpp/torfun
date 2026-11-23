@@ -6,8 +6,8 @@ import { RateLimitedError } from './client';
  *
  * `gprocurement.go.th` is reached under a research authorisation, and the code
  * keeps to its spirit: single-file requests, a politeness delay between them,
- * and a hard stop on a rate-limit response (there is no volume cap; ADR-0015).
- * Discovery and Retrieval run side by side in a Run (ADR-0020), and each could
+ * and a hard stop on a rate-limit response (there is no volume cap).
+ * Discovery and Retrieval run side by side in a Run, and each could
  * honour those on its own and still, together, break them. So the terms live in
  * one place that every request of the Run goes through:
  *
@@ -15,7 +15,7 @@ import { RateLimitedError } from './client';
  *  - a pause after each, taken before the next may begin;
  *  - when it frees, the best tier waiting goes next (`GATE_TIERS`), first come
  *    first served within a tier. A worse tier can wait, but not for ever: a Run
- *    does not end until its work is done (ADR-0020);
+ *    does not end until its work is done;
  *  - released even when the section throws, and never before it has settled;
  *  - a refusal latches it, and every caller — waiting or arriving later — is
  *    refused in turn without touching the site.
@@ -25,8 +25,8 @@ import { RateLimitedError } from './client';
 
 /**
  * What a turn at the gate is for, best first: Discovery's new days, Discovery's
- * read of a new project's procurement detail (ADR-0021), retrieval of projects
- * never read, timeline refreshes, then Discovery's history (ADR-0020).
+ * read of a new project's procurement detail, retrieval of projects
+ * never read, timeline refreshes, then Discovery's history.
  */
 export const GATE_TIERS = ['new_day', 'detail', 'fresh', 'refresh', 'history'] as const;
 export type GateTier = (typeof GATE_TIERS)[number];

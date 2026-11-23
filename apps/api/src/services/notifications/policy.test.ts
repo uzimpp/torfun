@@ -120,6 +120,95 @@ describe('notification qualification and event policy', () => {
     expect(renderNotificationEmail(message)).not.toContain('null%');
     expect(JSON.stringify(renderNotificationLine(message))).not.toContain('null%');
   });
+  test('an enabled new-open alert survives an overlapping disabled status alert', () => {
+    const first = input({ followed: true, status: 'drafting', open: false });
+    first.contact.preferences.statusChanged = { inApp: false, email: false, line: false };
+    first.contact.preferences.newOpen.inApp = true;
+    const baseline = planNotification(first, null)!;
+    const opened = { ...first, status: 'open' as const, open: true };
+    const plan = planNotification(opened, baseline.observation)!;
+    expect(plan.notification).toMatchObject({ event: 'new_open', inApp: true });
+    expect(planNotification(opened, plan.observation)?.notification).toBeNull();
+  });
+  test('one new-open alert covers the first opening even when status alerts are enabled', () => {
+    const first = input({ followed: true, status: 'drafting', open: false });
+    first.contact.preferences.newOpen.inApp = true;
+    const baseline = planNotification(first, null)!;
+    const opened = { ...first, status: 'open' as const, open: true };
+    const plan = planNotification(opened, baseline.observation)!;
+    expect(plan.notification?.event).toBe('new_open');
+    expect(planNotification(opened, plan.observation)?.notification).toBeNull();
+    expect(
+      planNotification({ ...opened, status: 'cancelled', open: false }, plan.observation)
+        ?.notification?.event,
+    ).toBe('status_changed');
+  });
+  test('enabling match alerts catches a still-eligible match without losing status tracking', () => {
+    const first = input({ qualifies: true, open: true });
+    first.contact.preferences.matchFound = { inApp: false, email: false, line: false };
+    const baseline = planNotification(first, null)!;
+    expect(baseline.notification).toBeNull();
+    expect(baseline.observation.matchedAt).toBe(now.toISOString());
+    expect(baseline.observation.matchNotifiedAt).toBeNull();
+    expect(baseline.observation.openedAt).toBeNull();
+    expect(
+      planNotification(
+        { ...first, qualifies: false, open: false, status: 'cancelled' },
+        baseline.observation,
+      )?.notification?.event,
+    ).toBe('status_changed');
+    first.contact.preferences.matchFound.inApp = true;
+    const enabled = planNotification(first, baseline.observation)!;
+    expect(enabled.notification?.event).toBe('match_found');
+    expect(enabled.observation.matchNotifiedAt).toBe(now.toISOString());
+    expect(planNotification(first, enabled.observation)?.notification).toBeNull();
+  });
+  test('unverified email and unfollowed LINE do not consume a first alert', () => {
+    for (const channel of ['email', 'line'] as const) {
+      const first = input({ qualifies: true, open: true });
+      first.contact.preferences.matchFound = { inApp: false, email: false, line: false };
+      first.contact.preferences.matchFound[channel] = true;
+      const baseline = planNotification(first, null)!;
+      expect(baseline.notification).toBeNull();
+      expect(baseline.observation.matchNotifiedAt).toBeNull();
+      const configured = {
+        ...first,
+        contact: {
+          ...first.contact,
+          email: 'officer@example.test',
+          emailVerifiedAt: now.toISOString(),
+          lineUserId: `U${'1'.repeat(32)}`,
+          lineFollowing: true,
+        },
+      };
+      const plan = planNotification(configured, baseline.observation)!;
+      expect(plan.notification?.event).toBe('match_found');
+      expect(plan.deliveries).toEqual([
+        {
+          channel,
+          recipient: channel === 'email' ? configured.contact.email : configured.contact.lineUserId,
+        },
+      ]);
+    }
+  });
+  test('first matches take precedence over new-open alerts without a later duplicate', () => {
+    const first = input({ qualifies: true, open: true });
+    first.contact.preferences.newOpen.inApp = true;
+    const plan = planNotification(first, null)!;
+    expect(plan.notification?.event).toBe('match_found');
+    expect(planNotification(first, plan.observation)?.notification).toBeNull();
+  });
+  test('disabled status alerts update the baseline without creating hidden notifications', () => {
+    const first = input({ followed: true });
+    first.contact.preferences.statusChanged = { inApp: false, email: false, line: false };
+    const baseline = planNotification(first, null)!;
+    const changed = { ...first, status: 'cancelled' as const };
+    const disabled = planNotification(changed, baseline.observation)!;
+    expect(disabled.notification).toBeNull();
+    expect(disabled.observation.status).toBe('cancelled');
+    first.contact.preferences.statusChanged.inApp = true;
+    expect(planNotification(changed, disabled.observation)?.notification).toBeNull();
+  });
   test('filters use evidence, include bounds, and reject unknown values', () => {
     const tor = notificationTor();
     const filters = contact().preferences.filters;

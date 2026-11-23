@@ -9,7 +9,7 @@ import type { RunLedger } from './run-ledger';
 import { SiteClosedError, SiteLatchedError, type SiteGate } from './site-gate';
 
 /**
- * Discovery's last word on a project (ADR-0021): its procurement detail, read
+ * Discovery's last word on a project: its procurement detail, read
  * in one gate turn at the `detail` tier before Retrieval may take it.
  *
  * The Goods Category decides whether there is any Retrieval at all. Out of
@@ -60,7 +60,7 @@ export async function admitByProcurementDetail(
       projectId,
       'out_of_scope',
       { ...fields, detailReadAt: new Date().toISOString() },
-      `Goods Category ${detail.goodsId} is not one software work is filed under (ADR-0021).`,
+      `Goods Category ${detail.goodsId} is not one software work is filed under.`,
     );
     work.count('outOfScope');
     return { kind: 'out_of_scope' };

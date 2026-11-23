@@ -2,7 +2,7 @@
 
 Baseline: `develop` @ `5e622a3`. Source: `apps/api/src/services/egp/*`,
 `services/vertex/*` and `services/ingestion.service.ts`. Terms (Run, Gate,
-Archive, Waiting room, State, Outcome) are defined in [`CONTEXT.md`](../CONTEXT.md).
+Archive, Waiting room, State, Outcome) are defined in [`GLOSSARY.md`](../GLOSSARY.md).
 
 Related: [architecture.md](architecture.md), [SRS 4.2 and 4.3](SRS.md#42-announcement-ingestion),
 [data-model.md](data-model.md). Diagram sources are in [`diagrams/`](diagrams/README.md).

@@ -333,7 +333,7 @@ describe('the software judgement', () => {
       reason: 'จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน',
     });
     expect(analysis?.reason).toBe('จ้างพัฒนาระบบสารสนเทศสำหรับงานทะเบียน');
-    // ADR-0016: the flags are read once and never stored on the analysis.
+    // The flags are read once and never stored on the analysis.
     expect(analysis).not.toHaveProperty('isSoftware');
     expect(analysis).not.toHaveProperty('confidence');
   });

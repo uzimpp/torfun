@@ -9,11 +9,8 @@ import { FLOW_ACTION } from './controls';
 /**
  * The one Google control, on both the sign-in and the sign-up page.
  *
- * It was previously only on sign-in, and said "sign in" there — but the first
- * use of it creates the account (see `loginWithGoogle` on the API). So the
- * button was quietly the sign-up path while the page that was actually called
- * "sign up" never mentioned it. Both pages now offer it, and each says which of
- * the two is about to happen.
+ * The first use of it creates the account (see `loginWithGoogle` on the API), so
+ * both pages offer it, and each says which of the two is about to happen.
  */
 export function GoogleButton({ intent }: { intent: 'signin' | 'signup' }) {
   return (

@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { IngestionFailure, Procurement, RunProgress } from '@torfun/types';
+import type { IngestionFailure, Procurement, RunProgress, SourceAgency } from '@torfun/types';
 import type { Env } from '../../config/env';
 import type { ProcurementStore } from '../../repositories/procurement.repository';
 import { classifyTorDocument, type DocumentClassification } from '../vertex/classify-document';
@@ -114,7 +114,7 @@ export interface RunOptions {
    */
   shouldContinue?: () => boolean;
   /**
-   * Retrieve this project and no other, with no discovery sweep (ADR-0020): the
+   * Retrieve this project and no other, with no discovery sweep: the
    * site is asked about one project, its procurement detail first if that was
    * never read. A project that is not Queued with attempts left is reported as
    * a failure rather than skipped.
@@ -123,9 +123,11 @@ export interface RunOptions {
   /**
    * Calls to the model in flight at once across the whole Run, default eight.
    * Also the number of Archives that may be held in memory waiting for, or
-   * under, Analysis (ADR-0020).
+   * under, Analysis.
    */
   analysisConcurrency?: number;
+  /** The Source Registry for this Run: the agencies Discovery reads. Absent: the shipped list. */
+  agencies?: SourceAgency[];
   /**
    * Asked like `shouldContinue`, but for an administrator's request to stop.
    * Graceful: a record already in its turn finishes it, an Archive already
@@ -143,7 +145,7 @@ export interface RunResult {
   changedRecords: number;
   /** Seen again with nothing the agency owns moved. */
   unchangedRecords: number;
-  /** Projects whose Goods Category was out of scope, so nothing more was read (ADR-0021). */
+  /** Projects whose Goods Category was out of scope, so nothing more was read. */
   outOfScope: number;
   /**
    * Why a sweep that began did not finish: the site refused it, or stopped
@@ -191,7 +193,7 @@ async function collectPages(
 /**
  * The Queued records with attempts left, newest announcement first: those whose
  * procurement detail was never read, for Discovery's detail turn, or those
- * whose detail was read, for Retrieval (ADR-0021). That one field decides which.
+ * whose detail was read, for Retrieval. That one field decides which.
  *
  * There is no cap: a Run works through the whole queue, so what is selected is
  * all of it, in the order `find` gives, which means a Run that is stopped early
@@ -269,6 +271,7 @@ async function runDiscovery(run: {
   live: LiveView;
   route: (candidate: DetailCandidate) => void;
   failures: IngestionFailure[];
+  agencies?: SourceAgency[];
 }): Promise<Sweep> {
   const { repository, logger, gate, control, failures } = run;
   logger.info('egp: starting discovery sweep');
@@ -329,6 +332,7 @@ async function runDiscovery(run: {
     // about it: the tombstone is the decision, until an administrator lifts it.
     tombstonedIds: (ids) => repository.tombstonedIds(ids),
     today: bangkokToday(),
+    ...(run.agencies ? { agencies: run.agencies } : {}),
     save,
     reading,
   });
@@ -365,14 +369,12 @@ async function runDiscovery(run: {
 }
 
 /**
- * Run one full ingestion pass: Discovery, Retrieval and Analysis side by side
- * (ADR-0020).
+ * Run one full ingestion pass: Discovery, Retrieval and Analysis side by side.
  *
  *  - Discovery sweeps the feed and, as each agency-day is saved, reads each
  *    new project's procurement detail in a gate turn of its own, as it does
  *    for a Queued project whose detail an earlier Run left unread. A project
- *    in scope is handed to Retrieval; one out of scope goes no further
- *    (ADR-0021).
+ *    in scope is handed to Retrieval; one out of scope goes no further.
  *  - Retrieval is one worker. Its queue starts with the projects never read,
  *    then those due a timeline refresh, and Discovery's new projects join the
  *    never-read ones, ahead of every refresh. Each project is one gate turn.
@@ -417,7 +419,7 @@ export async function runIngestion(
 
   // Retrieval's queue, which draws on the waiting room: Archives held in
   // memory, waiting for or under Analysis. A place is taken before the gate is
-  // asked for a download turn (ADR-0020).
+  // asked for a download turn.
   const queue = createRetrievalQueue({
     room: createLimiter(analysisConcurrency),
     onChange: () => live.report(),
@@ -496,7 +498,7 @@ export async function runIngestion(
   /**
    * Discovery first, so its first request is at the gate before Retrieval's: the
    * sweep, and beside it the projects an earlier Run left with their detail
-   * unread. A one-project Run makes no sweep (ADR-0020).
+   * unread. A one-project Run makes no sweep.
    */
   const sweep = async (): Promise<Sweep | null> => {
     if (options.onlyProject) {
@@ -523,6 +525,7 @@ export async function runIngestion(
         live,
         route,
         failures: ledger.failures,
+        ...(options.agencies ? { agencies: options.agencies } : {}),
       }),
       selectQueued(repository, false).then((records) => {
         for (const record of records) details.enqueue({ record, draft: false });

@@ -1,19 +1,17 @@
 /**
  * Fixed configuration for the e-GP ingestion pipeline.
  *
- * Every value here was established empirically by the Python POC; the reasons
- * are recorded so they don't get "simplified" away. See
- * docs/poc_fullflow/README.md for the full investigation.
+ * Every value here was established empirically against the live site. The
+ * reasons are recorded so the values don't get "simplified" away.
  */
 
 /**
- * Open-data API. Not a Discovery source any more (ADR-0018): it holds only
+ * Open-data API. Not a Discovery source: it holds only
  * projects that already have a signed contract. Kept for the winner lookup to
  * come and the diagnostics check. The `/service/<name>` form is the working one.
  */
 export const OPEN_DATA_BASE = 'https://opend.data.go.th/govspending/service';
 export const DEPT_URL = `${OPEN_DATA_BASE}/egp-dept`;
-export const CONTRACT_URL = `${OPEN_DATA_BASE}/egp-contract`;
 
 /**
  * e-GP procurement app, used purely as a keyed lookup by project id.
@@ -30,13 +28,13 @@ export const TOR_DOWNLOAD_URL =
   'https://process5.gprocurement.go.th/egp-upload-service/v1/downloadFileTest';
 export const GREEN_BOOK_URL =
   'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/greenBook';
-/** One project's detail on the same service as greenBook: its real budget year, codes and sub-agency (ADR-0019). */
+/** One project's detail on the same service as greenBook: its real budget year, codes and sub-agency. */
 export const PROJECT_DETAIL_URL =
   'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getProjectDetail';
-/** One project's Goods Category, Budget and Reference Price, on the same service (ADR-0021). It has no budget year. */
+/** One project's Goods Category, Budget and Reference Price, on the same service. It has no budget year. */
 export const PROCUREMENT_DETAIL_URL =
   'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getProcurementDetail';
-/** A draft's versions, each with the last day for comments on it (ADR-0021). */
+/** A draft's versions, each with the last day for comments on it. */
 export const TOR_ZIP_LIST_URL =
   'https://process5.gprocurement.go.th/egp-oann10-service/pb/a-egp-allt-project/announcement/getTorZipList';
 
@@ -53,7 +51,7 @@ export const SOURCE_REGISTRY = [
 ] as const;
 
 /**
- * e-GP's announcement feed, the Discovery source (ADR-0018). One call answers
+ * e-GP's announcement feed, the Discovery source. One call answers
  * for one agency, one announcement type and one day, and needs no token, cookie
  * or captcha. Unlike the open-data API it lists tenders before they are
  * awarded, which is the only stage anyone can bid in.
@@ -78,9 +76,6 @@ export const FEED_E_BIDDING_METHOD_ID = '16';
  */
 export const FEED_ANNOUNCEMENT_TYPES = ['B0', 'D0'] as const;
 export type FeedAnnouncementType = (typeof FEED_ANNOUNCEMENT_TYPES)[number];
-
-/** The most items the feed returns for one call; `countbyday` says how many there really were. */
-export const FEED_ITEM_CAP = 20;
 
 /**
  * How far back, ending today, Discovery accumulates: a year, so the queue holds
@@ -129,7 +124,7 @@ export const FEED_REGISTRY: ReadonlyArray<{
 
 /**
  * The Goods Categories (`goodsId`) software work is filed under, so Discovery
- * admits them (ADR-0021): 4010 information system development, 4016 other
+ * admits them: 4010 information system development, 4016 other
  * services (where system maintenance goes, as e-GP has no category for it) and
  * 99 unspecified. A project with no category is admitted too. 1008 (buying
  * computers or licences), 5005 and 6011 are left out on purpose. Changing the
@@ -177,7 +172,7 @@ export const POLITENESS = {
  */
 export const SITE_UNREACHABLE_AFTER = 3;
 
-/** Transport failures before a record is abandoned (ADR-0006); the number lives in `@torfun/types`. */
+/** Transport failures before a record is abandoned; the number lives in `@torfun/types`. */
 export { MAX_RETRIEVAL_ATTEMPTS as MAX_ATTEMPTS } from '@torfun/types';
 
 /** Longest one record may take before it is requeued; the number lives in `@torfun/types`. */

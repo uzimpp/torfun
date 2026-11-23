@@ -85,7 +85,7 @@ bun audit                                 # dependency advisories
 | `src/security/company-join-approval.test.ts` | pentest B6 replay: a stranger's join request reads nothing; only this Company's manager approves; domain auto-approve is exact and needs the manager's own domain; a Company keeps one manager (pentest P-1)           |
 | `src/services/breached-passwords.test.ts`    | only a 5-character hash prefix leaves the server; fails open when the service is down                                                                                                                                  |
 
-Penetration test: `docs/security/pentest/REPORT.md` (40 black-box attacks against the running API, script and
+Penetration test: `docs/pentest/REPORT.md` (40 black-box attacks against the running API, script and
 results alongside; latest run 39 resisted, 1 accepted, 0 open).
 
 CI (`.github/workflows/security.yml`): `bun audit` (PRs fail on new high advisories), gitleaks over history,
@@ -119,3 +119,110 @@ pending request grants none.
 Least privilege, defense in depth, fail securely, complete mediation, economy of mechanism, separation of duties,
 secure by default, open design, psychological acceptability. Where each lives in code is mapped in the
 "Security principles" table of the project document and the sheet's _Principles_ tab.
+
+## ASVS documentation requirements
+
+One short answer per ASVS 5.0 documentation requirement. Each states what the code does today and where the gap is.
+
+### Authentication pathways (V6.1.2, V6.1.3, V6.3.4, V6.8.4)
+
+- There are two ways in, and no others: username and password (`POST /api/auth/register`, `POST /api/auth/login`)
+  and Google sign-in (`GET /api/auth/google/callback`, authorization code flow with PKCE and `state`). Both end in the
+  same session (access token and rotating refresh token), so no pathway skips a control the other has.
+- Password context words that are refused: the username, the product name and a fixed list of product words, plus the
+  3,547-entry common-password list (`services/password-policy.ts`).
+- Google supplies a single factor. Torfun requires `email_verified` and links by Google `sub`; it does not claim a
+  second factor from Google. No multi-factor authentication exists, so no pathway can weaken one.
+- The password routes (`/register`, `/login`) carry the per-IP limit and the per-account throttle in the controls table
+  above. The Google callback has only the global per-IP limit: there is no account name to throttle before Google has
+  answered, and a failed Google sign-in gives an attacker no password to guess.
+
+### Sessions (V7.1.2, V7.1.3, V7.5.1)
+
+- Idle limit 7 days (refresh window), absolute limit 30 days, access token 15 minutes.
+- Concurrent sessions are not capped. Each sign-in starts its own session family, and every family can be revoked on
+  its own. Logout ends the family it came from. Password change and account disable end all of them.
+- Google is used only to sign in. Torfun owns the session, so there is no federated session to terminate elsewhere.
+- Changing the password requires the current password (`PATCH /api/auth/me/password`, `current_password`; per-IP limit plus a per-user throttle). Profile
+  edits (`PATCH /api/auth/me`, first and last name) do not touch credentials.
+
+### Access rules (V8.1.2)
+
+- Two roles: `business_development_officer` and `admin`. A route is either public, `requireAuth`, or `requireAdmin`;
+  `src/security/access-control.test.ts` reads the live routing table and fails if a new route is unprotected.
+- Field-level rules: the role is never accepted from a request body, `password_hash` leaves its repository only through
+  `findCredentials`, and a company's qualification data is returned only to members of that company.
+- An officer sees only records that finished analysis; held records (`needs_review`) and tombstones are admin-only.
+
+### Cryptography and keys (V11.1.1, V11.2.2, V11.6.1)
+
+- Passwords: bcrypt, 12 rounds. Refresh tokens: 256 random bits from the platform CSPRNG, stored as SHA-256.
+  Access tokens: HS256 JWT signed with `JWT_SECRET`. The HIBP lookup uses a SHA-1 prefix only because that protocol
+  requires it; no secret is protected with SHA-1.
+- Keys and secrets (`JWT_SECRET`, `MONGODB_URI`, Google client secret, Vertex credentials, notification tokens) come
+  from the environment in production and from Google Secret Manager on Cloud Run. They are validated at startup
+  (`config/env.ts`) and never committed (gitleaks on every pull request).
+- Algorithms are the platform's (`bcrypt`, `node:crypto`, `jsonwebtoken`), not custom code. Rotating `JWT_SECRET`
+  invalidates every access token (15 minutes at most), but it does **not** end sessions: refresh tokens are random
+  values stored as hashes, not signed with that secret, so `/api/auth/refresh` signs users straight back in. A forced
+  logout of everyone therefore also revokes the refresh families, for example
+  `db.refresh_tokens.updateMany({ revoked_at: { $exists: false } }, { $set: { revoked_at: new Date() } })`
+  in `mongosh`; a revoked token presented to `/api/auth/refresh` is refused. For one user, disabling the account or
+  changing the password revokes all of their families (`revokeAllForUser`). Rotate `JWT_SECRET` and revoke the
+  families together when a secret may have leaked.
+
+### Transport (V12.1.1, V12.1.2, V12.3.1)
+
+- Public traffic is terminated by Cloud Run, which serves Google-managed certificates and current TLS versions.
+  Torfun does not configure cipher suites itself. HSTS is sent by the API and the web app.
+- Outbound calls use HTTPS: e-GP (host allowlist, redirects re-checked), Vertex AI, Google OAuth, HIBP.
+- Not yet verified: headers, cookies and TLS were checked locally and on a production build, not on the deployed site.
+
+### Outbound communication inventory (V13.1.1, V13.2.4)
+
+| Peer                        | Purpose                           | Control                                                     |
+| --------------------------- | --------------------------------- | ----------------------------------------------------------- |
+| MongoDB Atlas               | all stored data                   | connection string from the environment                      |
+| e-GP (`gprocurement.go.th`) | announcement feed and TOR archive | fixed host allowlist, one request at a time, redirects held |
+| Vertex AI (Gemini)          | reads the TOR PDF                 | service credentials, schema-validated output                |
+| Google OAuth                | sign-in                           | PKCE, `state`, verified email required                      |
+| Have I Been Pwned range API | breached-password check           | 5-character hash prefix only, 2 s timeout, fails open       |
+| Email and LINE providers    | notifications                     | recipient fields validated, only needed fields sent         |
+
+### Input validation and business rules (V2.1.2, V2.1.3, V5.1.1)
+
+- Every route validates its body, query and params with zod schemas from `packages/types`; unknown keys are refused on
+  the routes that use `.strict()` (not yet every one). Cross-field rules live in the schema (for example a bid budget minimum cannot exceed its maximum).
+- Ingestion rules: one Run at a time, a record's state only moves forward, a rate-limit response stops the Run.
+- File intake accepts only the e-GP announcement archive (ZIP) and the PDFs inside it. Limits: 200 MB per download,
+  2,000 entries per archive, 300 MB inflate budget (`services/egp/archive-limits.ts`).
+
+### Sensitive data and retention (V14.1.1, V14.1.2)
+
+| Data                                   | Class                | Protection                                                      |
+| -------------------------------------- | -------------------- | --------------------------------------------------------------- |
+| Password hashes, refresh-token hashes  | secret               | never serialised; `findCredentials` only                        |
+| Account profile (name, email)          | personal             | own record and admins only; redacted from logs                  |
+| Company qualifications, match evidence | company-confidential | members of the company only; `Cache-Control: private, no-store` |
+| Procurement records and TOR text       | public source data   | officers see finished records; the source PDF stays available   |
+| Notifications and delivery log         | personal             | owner only                                                      |
+
+Ingestion run records expire after 90 days (TTL index). Account and company data are kept until an administrator
+removes them; there is no self-service deletion yet.
+
+### Dependencies (V15.1.1, V15.1.2)
+
+- Inventory: `bun.lock` is the dependency inventory; CI installs with a frozen lockfile and GitHub Actions are pinned
+  to commit SHAs.
+- Remediation time frames: a critical advisory fails the pull request and is fixed before merge; a new high advisory
+  fails the pull request; the weekly audit covers everything else. An accepted advisory (currently the high `zod`
+  one, no fixed 3.x release) is recorded with its reason in `docs/sast-and-dependencies.md`.
+- No SBOM file is generated yet.
+
+### Logging inventory (V16.1.1, V16.2.1)
+
+- API: pino JSON logs with a request id and timestamp, credentials redacted (`core/log-redaction.ts`).
+- Audit events (`audit: true`): sign-in and failure, lockout, password change, logout, admin account changes,
+  company membership decisions. Expected rejections log at debug so a scripted login cannot flood the logs.
+- Destination: standard output, collected by Cloud Run logging. Access to those logs is controlled by the Google
+  Cloud project, not by the application.

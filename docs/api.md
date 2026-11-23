@@ -81,6 +81,7 @@ Access: P public, U signed-in user, A admin.
 | Method | Path | Acc. | Does | Responses |
 | ------ | ---- | ---- | ---- | --------- |
 | GET | `/tors` | U | Search and filter procurements, with officer visibility | `200 { items, total, limit, offset }` |
+| GET | `/tors/years` | U | The budget years present on stored procurements | `200` |
 | GET | `/tors/:projectId` | U | One procurement, with officer visibility | `200`; `404` |
 | GET | `/tors/:projectId/source` | U | The original main-TOR PDF as an attachment, downloaded from e-GP by `zipId` | `200 application/pdf`; `404` |
 | POST | `/tors/:projectId/reports` | U | Report a TOR with `{ reason, details? }`; `details` is required for `other` | `201` |
@@ -161,6 +162,10 @@ which only an approval or creating a Company sets.
 | POST | `/ingestion/run/stop` | Graceful stop; the requester comes from the session | `202 { stopping }`; `409` none running |
 | GET | `/ingestion/schedule` | The schedule plus `lastRunAt`, `nextRunAt`, `upcomingRunAts` | `200` |
 | PUT | `/ingestion/schedule` | `{ enabled, mode, timeOfDay, weekdays, everyHours }`; `everyHours` is 6 to 168 | `200`; `400` |
+| GET | `/ingestion/sources` | The Source Registry: `items`, `available` (known agencies not in it), `isDefault`, `updatedAt`, `updatedBy` | `200` |
+| POST | `/ingestion/sources` | `{ deptId, deptName }`; `deptId` is 4 to 7 digits | `201`; `400`; `409` duplicate or over 50 |
+| PUT | `/ingestion/sources/:deptId` | `{ deptName }` | `200`; `400`; `404` |
+| DELETE | `/ingestion/sources/:deptId` | Stops reading the agency from the next Run; deletes no record | `200`; `400`; `404` |
 
 ### Moderation (admin)
 
@@ -176,8 +181,8 @@ which only an approval or creating a Company sets.
 
 ### Placeholders
 
-`GET /dashboard` (user) and `GET /admin/test` (admin) only return a greeting and
-are not part of the product surface (system-requirements OI-07).
+`GET /dashboard` (user) only returns a greeting and is not part of the product
+surface (system-requirements OI-07).
 
 ## 4. Change rules
 

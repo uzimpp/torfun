@@ -5,7 +5,7 @@ Baseline: `develop` @ `5e622a3`. Field-level truth is in `packages/types/src/*.t
 map, so when it disagrees with the code, the code wins.
 
 Related: [architecture.md](architecture.md), [ingestion-flow.md](ingestion-flow.md),
-[`CONTEXT.md`](../CONTEXT.md).
+[`GLOSSARY.md`](../GLOSSARY.md).
 
 ## 1. Conventions
 

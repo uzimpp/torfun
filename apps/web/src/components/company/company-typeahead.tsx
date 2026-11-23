@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 /**
  * Finds the Company a colleague already created.
  *
- * Membership is claimed rather than granted (ADR-0008): an officer searches the
+ * Membership is claimed rather than granted: an officer searches the
  * names that exist, joins one, and only creates a new Company when nothing
  * matches — so two people at the same software house maintain one list instead
  * of two.

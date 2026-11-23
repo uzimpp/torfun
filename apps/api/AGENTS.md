@@ -1,6 +1,6 @@
-# apps/api — agent guide
+# apps/api agent guide
 
-Fastify 5 on Bun, MongoDB Atlas, Vertex AI. Read the root `AGENTS.md` first — the
+Fastify 5 on Bun, MongoDB Atlas, Vertex AI. Read the root `AGENTS.md` first. The
 upstream-access guardrails there are why several rules below exist.
 
 Commands and configuration are in `README.md` beside this file. `bun run lint`
@@ -8,7 +8,7 @@ enforces the layer boundaries below; a violation fails the build.
 
 ## Layers
 
-Dependencies point one way, and **ESLint enforces it** — fix the design, not the rule.
+Dependencies point one way, and **ESLint enforces it**, so fix the design, not the rule.
 
 ```
 routes/  →  services/  →  repositories/  →  core/
@@ -27,7 +27,7 @@ augmentation).
 
 The "no Fastify types in services" rule is what makes services testable without a
 server. When a service needs something framework-shaped, take it as a plain
-function — `AuthService` receives a `signToken` callback, not `app.jwt`.
+function: `AuthService` receives a `signToken` callback, not `app.jwt`.
 
 ## Composition root
 
@@ -41,7 +41,7 @@ Adding a service: build it in `app.ts`, decorate it, declare it in
 
 **Configuration is a parameter, not a global.** `buildApp(env)` accepts an `Env`;
 only `server.ts` passes the real one, via the default. Nothing below `app.ts` may
-import `loadEnv` — routes read `app.env`, plugins and services take `env` as an
+import `loadEnv`, and routes read `app.env`, plugins and services take `env` as an
 argument. That is what lets a test build an instance with configuration of its
 own (`buildApp(testEnv({ CORS_ORIGINS: '...' }))`), which the module-level cache
 in `config/env.ts` would otherwise prevent. Tests never touch `process.env`, so
@@ -74,7 +74,7 @@ the `mongosh` invocation in a header comment.
 ## Ingestion
 
 `services/ingestion.service.ts` owns policy (one run at a time, run lifecycle);
-`services/egp/` is the upstream adapter. A run is started, not awaited — a pass
+`services/egp/` is the upstream adapter. A run is started, not awaited. A pass
 takes minutes, and progress is observed through the state the admin UI polls.
 
 Three behaviours of a Run (`pipeline.ts` and the modules it wires, listed in its
@@ -89,7 +89,11 @@ header) are load-bearing:
 
 Discovery (`services/egp/discovery.ts`) reads the announcement feed
 (`announcement-feed.ts`, the RSS on `https://process.gprocurement.go.th`) for
-each `FEED_REGISTRY` agency × {B0, D0}, one day per request. The Feed Cursor (a
+each Source Registry agency × {B0, D0}. The registry is administrator-managed
+(`services/source-registry.service.ts`, `/api/ingestion/sources`); until first
+changed it is `FEED_REGISTRY`, and a Run takes the list once, when it starts. A
+removed agency is simply not asked about: its Feed Cursor and stored records stay.
+No agency list is fetched from the site, one day per request. The Feed Cursor (a
 contiguous range of fully-read days per agency and type, in the ingestion meta
 collection) decides what to ask: first
 the days after each range up to today (today is re-read and never recorded), then
@@ -98,15 +102,14 @@ history newest-first, at most `FEED_BACKFILL_REQUESTS_PER_RUN` requests, back
 stored from the feed alone, with `budgetYear`, `typeId`, `goodsId` and
 `deptSubName` null: they come from its project detail
 (`AnnouncementClient.projectDetail`, the getProjectDetail endpoint), which
-Retrieval reads in the record's own gate turn (ADR-0020). Until then the year is
+Retrieval reads in the record's own gate turn. Until then the year is
 null, never guessed. Each agency-day is saved as soon as it is read, and its new
 projects join Retrieval's queue at once. Every Run reads the new days; the cursor
 covers exactly the days read in full, even when the sweep is cut short. The open-data
 client is kept for a future winner lookup and is not used for discovery. Never
-call the process5 search endpoints: they sit behind Cloudflare Turnstile
-(ADR-0018).
+call the process5 search endpoints: they sit behind Cloudflare Turnstile.
 
-A Run has three stages side by side (ADR-0020): Discovery, one Retrieval worker
+A Run has three stages side by side: Discovery, one Retrieval worker
 taking one project at a time, and Analysis, one task per downloaded Archive. The
 upstream site is reached through one gate (`services/egp/site-gate.ts`), shared
 by Discovery and Retrieval: one request in flight, a pause after each, and when
@@ -166,7 +169,7 @@ All `/api/ingestion/*` routes are admin-only, enforced once for the plugin scope
 
 - Files kebab-case, suffixed by layer: `auth.service.ts`, `user.repository.ts`.
 - Identifiers camelCase. Convert older snake_case code when you touch it.
-- **snake_case is a wire format, not a style** — JSON bodies, JWT claims, Mongo
+- **snake_case is a wire format, not a style**: JSON bodies, JWT claims, Mongo
   documents. It stops at the layer boundary: `company_name` in a response,
   `companyName` in a domain object. Changing a wire field breaks `apps/web`.
 - Shared domain types live in `packages/types`. Persistence shapes (`_id`,

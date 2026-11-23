@@ -32,7 +32,7 @@ const ROW = 'min-h-11 gap-3 rounded-lg px-3';
  * Business Development Officer gets their workspace, their Company record, and
  * their favorited TORs; a Site Administrator gets the ingestion console, its
  * failure log, and the other accounts — and neither Company nor favorites,
- * because an administrator holds no Company (ADR-0011) and never bids.
+ * because an administrator holds no Company and never bids.
  */
 export function UserMenu({ user }: { user: Pick<CurrentUser, 'username' | 'role'> }) {
   const isAdmin = user.role === 'admin';

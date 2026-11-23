@@ -110,7 +110,7 @@ export class CompanyService {
   }
 
   /**
-   * A Company belongs to Business Development Officers only (ADR-0011). A Site
+   * A Company belongs to Business Development Officers only. A Site
    * Administrator runs Retrieval and manages accounts and has nothing to score
    * against; `requireCompany` on the web already exempts them, so an admin that
    * held a `companyId` would be a state no screen was built to render. The
@@ -129,7 +129,7 @@ export class CompanyService {
   /**
    * The Company's own name, for `/api/auth/me`.
    *
-   * The Company is the source of truth for its name (ADR-0007); this is what
+   * The Company is the source of truth for its name; this is what
    * lets the web app keep reading a `company_name` off the current user
    * without a user document carrying a second, divergent copy of it.
    */
