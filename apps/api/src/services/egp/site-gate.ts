@@ -24,11 +24,14 @@ import { RateLimitedError } from './client';
  */
 
 /**
- * What a turn at the gate is for, best first: Discovery's new days, Discovery's
- * read of a new project's procurement detail, retrieval of projects
- * never read, timeline refreshes, then Discovery's history.
+ * What a turn at the gate is for, best first: retrieval of projects never read
+ * (their archives go to Analysis), Discovery's read of a new project's
+ * procurement detail, Discovery's new days, timeline refreshes, then
+ * Discovery's history. Work already in the queue is finished before the feed is
+ * asked for more, so the model is fed first and the queue is drained before it
+ * grows.
  */
-export const GATE_TIERS = ['new_day', 'detail', 'fresh', 'refresh', 'history'] as const;
+export const GATE_TIERS = ['fresh', 'detail', 'new_day', 'refresh', 'history'] as const;
 export type GateTier = (typeof GATE_TIERS)[number];
 
 /**
@@ -118,9 +121,9 @@ export function createSiteGate(deps: { pause: () => Promise<void>; now?: () => n
   };
   // One line per tier, in GATE_TIERS order.
   const waiting: Record<GateTier, Waiter[]> = {
-    new_day: [],
-    detail: [],
     fresh: [],
+    detail: [],
+    new_day: [],
     refresh: [],
     history: [],
   };
