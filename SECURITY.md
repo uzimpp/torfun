@@ -133,7 +133,9 @@ One short answer per ASVS 5.0 documentation requirement. Each states what the co
   3,547-entry common-password list (`services/password-policy.ts`).
 - Google supplies a single factor. Torfun requires `email_verified` and links by Google `sub`; it does not claim a
   second factor from Google. No multi-factor authentication exists, so no pathway can weaken one.
-- Both pathways share the per-IP and per-account throttles in the controls table above.
+- The password routes (`/register`, `/login`) carry the per-IP limit and the per-account throttle in the controls table
+  above. The Google callback has only the global per-IP limit: there is no account name to throttle before Google has
+  answered, and a failed Google sign-in gives an attacker no password to guess.
 
 ### Sessions (V7.1.2, V7.1.3, V7.5.1)
 
@@ -141,7 +143,7 @@ One short answer per ASVS 5.0 documentation requirement. Each states what the co
 - Concurrent sessions are not capped. Each sign-in starts its own session family, and every family can be revoked on
   its own. Logout ends the family it came from. Password change and account disable end all of them.
 - Google is used only to sign in. Torfun owns the session, so there is no federated session to terminate elsewhere.
-- Changing the password requires the current password (`PATCH /api/auth/password`, `current_password`). Profile
+- Changing the password requires the current password (`PATCH /api/auth/me/password`, `current_password`; per-IP limit plus a per-user throttle). Profile
   edits (`PATCH /api/auth/me`, first and last name) do not touch credentials.
 
 ### Access rules (V8.1.2)
@@ -161,7 +163,13 @@ One short answer per ASVS 5.0 documentation requirement. Each states what the co
   from the environment in production and from Google Secret Manager on Cloud Run. They are validated at startup
   (`config/env.ts`) and never committed (gitleaks on every pull request).
 - Algorithms are the platform's (`bcrypt`, `node:crypto`, `jsonwebtoken`), not custom code. Rotating `JWT_SECRET`
-  signs everyone out and is the whole key-rotation procedure.
+  invalidates every access token (15 minutes at most), but it does **not** end sessions: refresh tokens are random
+  values stored as hashes, not signed with that secret, so `/api/auth/refresh` signs users straight back in. A forced
+  logout of everyone therefore also revokes the refresh families, for example
+  `db.refresh_tokens.updateMany({ revoked_at: { $exists: false } }, { $set: { revoked_at: new Date() } })`
+  in `mongosh`; a revoked token presented to `/api/auth/refresh` is refused. For one user, disabling the account or
+  changing the password revokes all of their families (`revokeAllForUser`). Rotate `JWT_SECRET` and revoke the
+  families together when a secret may have leaked.
 
 ### Transport (V12.1.1, V12.1.2, V12.3.1)
 
