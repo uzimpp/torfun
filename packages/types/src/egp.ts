@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TorQualificationSchema } from './qualification';
+import { QualificationSummarySchema, TorQualificationSchema } from './qualification';
 import { QualificationMatchResultSchema } from './matching';
 import { ThaiProvince } from './province';
 
@@ -499,6 +499,8 @@ export type TorDetail = z.infer<typeof TorDetailSchema>;
 
 export const TorListItemSchema = ProcurementSchema.extend({
   matchScore: z.number().min(0).max(1).nullable().optional(),
+  /** Why the score is what it is; present whenever `matchScore` was computed from clauses. */
+  matchSummary: QualificationSummarySchema.nullable().optional(),
 });
 export type TorListItem = z.infer<typeof TorListItemSchema>;
 

@@ -117,12 +117,14 @@ describe('TorReviewContent', () => {
     });
     render(<TorReviewContent projectId={tor.projectId} />);
 
-    expect(await screen.findByText('คะแนนคุณสมบัติโดยประมาณ 0%')).toBeInTheDocument();
+    expect(await screen.findByTestId('match-score')).toHaveTextContent('0%');
+    expect(screen.getByText('คะแนนคุณสมบัติโดยประมาณ')).toBeInTheDocument();
     expect(screen.getByText('อ้างอิง TOR · ข้อ 4.1 หน้า 6')).toBeInTheDocument();
     expect(screen.getByText('ไม่ตรงเงื่อนไข')).toBeInTheDocument();
     expect(screen.getByText('ใบรับรองที่ตรงเงื่อนไขหมดอายุแล้ว')).toBeInTheDocument();
     expect(await screen.findByText('คะแนนเทียบคุณสมบัติจาก TOR')).toBeInTheDocument();
-    expect(screen.getByText('0%')).toBeInTheDocument();
+    // The review card's score and the notification evidence agree.
+    expect(screen.getAllByText('0%')).toHaveLength(2);
     expect(screen.getByText('ไม่ตรงเงื่อนไข: ต้องมี ISO 9001')).toBeInTheDocument();
   });
 

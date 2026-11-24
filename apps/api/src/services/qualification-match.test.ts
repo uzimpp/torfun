@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { CompanyQualificationsRecord, Experience, TorQualification } from '@torfun/types';
+import { summarizeQualificationChecks } from '@torfun/types';
 import { checkBudgetRule, evaluateQualifications } from './qualification-match';
 
 const profile: CompanyQualificationsRecord = {
@@ -189,5 +190,96 @@ describe('price-based decision rule (FR-29)', () => {
       evidence: expect.arrayContaining(['TOR ไม่ได้ประกาศงบประมาณ']),
     });
     expect(result.overallScore).toBe(1);
+  });
+});
+
+describe('why a clause is not met', () => {
+  const capital: TorQualification = {
+    kind: 'registered_capital',
+    manualReviewReason: null,
+    minValueThb: 5_000_000,
+    text: 'Capital of 5,000,000',
+    source: '4.3',
+  };
+  const reasons = (clauses: TorQualification[], record = profile, experiences: Experience[] = []) =>
+    evaluateQualifications(clauses, record, experiences, '2026-11-04').checks.map(
+      (item) => item.reason,
+    );
+
+  test('a clause the company has recorded nothing for asks for setup, not a verdict', () => {
+    expect(reasons([capital])).toEqual(['setup_capital']);
+    expect(reasons([work])).toEqual(['setup_experience']);
+    expect(reasons([certificate], { ...profile, certificates: [] })).toEqual([
+      'setup_certificates',
+    ]);
+  });
+
+  test('recorded but short of the clause is a failure of its own kind', () => {
+    expect(reasons([capital], { ...profile, registeredCapitalThb: 1_000_000 })).toEqual([
+      'capital_below',
+    ]);
+    expect(reasons([certificate], profile)).toEqual([undefined]);
+    expect(evaluateQualifications([certificate], profile, [], '2026-11-05').checks[0]?.reason).toBe(
+      'certificate_expired',
+    );
+    expect(reasons([work], profile, [experience])).toEqual(['setup_experience']);
+  });
+
+  test('a clause only a person can judge is for review', () => {
+    const manual: TorQualification = { ...work, kind: 'manual' } as TorQualification;
+    expect(reasons([manual])).toEqual(['manual_review']);
+  });
+
+  test('a met clause carries no reason', () => {
+    expect(reasons([certificate])).toEqual([undefined]);
+  });
+
+  test('the budget rule says whether it is outside the range or the TOR was silent', () => {
+    expect(
+      checkBudgetRule({ ...profile, bidBudgetMinThb: 10, bidBudgetMaxThb: 20 }, 5),
+    ).toMatchObject({
+      reason: 'budget_outside_range',
+    });
+    expect(
+      checkBudgetRule({ ...profile, bidBudgetMinThb: 10, bidBudgetMaxThb: 20 }, null),
+    ).toMatchObject({
+      reason: 'budget_not_announced',
+    });
+  });
+});
+
+describe('summarizeQualificationChecks', () => {
+  test('counts failures, setup and review apart, and lists what to set up once each', () => {
+    const { checks, budgetRule } = evaluateQualifications(
+      [certificate, certificate, { ...work, minValueThb: null, workType: null }],
+      { ...profile, certificates: [] },
+      [],
+      '2026-11-04',
+    );
+    expect(summarizeQualificationChecks(checks, budgetRule)).toEqual({
+      total: 3,
+      met: 0,
+      notMet: 0,
+      needsSetup: 3,
+      needsReview: 0,
+      budgetOutsideRange: false,
+      setupSections: ['experience', 'certificates'],
+    });
+  });
+
+  test('an out-of-range budget is reported on its own, whatever the clauses say', () => {
+    const ranged = { ...profile, bidBudgetMinThb: 1, bidBudgetMaxThb: 2 };
+    const { checks, budgetRule } = evaluateQualifications(
+      [certificate],
+      ranged,
+      [],
+      '2026-11-04',
+      9,
+    );
+    expect(summarizeQualificationChecks(checks, budgetRule)).toMatchObject({
+      met: 1,
+      notMet: 0,
+      budgetOutsideRange: true,
+    });
   });
 });
