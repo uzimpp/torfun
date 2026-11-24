@@ -5,10 +5,13 @@ import type { CurrentUser } from '@/lib/auth';
 
 /**
  * One route, two audiences. A Site Administrator lands on the operations
- * overview; a Business Development Officer keeps the welcome page they had. The
+ * overview; a Business Development Officer lands on their own panels. The
  * gate stays `requireCompany`, which already exempts administrators.
  */
 vi.mock('@/lib/auth', () => ({ requireCompany: vi.fn() }));
+vi.mock('@/components/dashboard/officer-dashboard', () => ({
+  OfficerDashboard: () => <div data-testid="officer-dashboard" />,
+}));
 vi.mock('@/components/admin-dashboard/admin-dashboard', () => ({
   AdminDashboard: () => <div data-testid="admin-dashboard" />,
 }));
@@ -38,7 +41,7 @@ describe('/dashboard', () => {
     expect(screen.getByTestId('admin-dashboard')).toBeInTheDocument();
   });
 
-  test('a Business Development Officer keeps the welcome page, with no administrator content', async () => {
+  test('a Business Development Officer gets the welcome and their own panels, with no administrator content', async () => {
     vi.mocked(requireCompany).mockResolvedValue(user({}));
 
     render(await DashboardPage());
@@ -47,6 +50,7 @@ describe('/dashboard', () => {
       'ยินดีต้อนรับ, ผู้ทดสอบ ระบบ',
     );
     expect(screen.getByText('บริษัท ตัวอย่าง จำกัด')).toBeInTheDocument();
+    expect(screen.getByTestId('officer-dashboard')).toBeInTheDocument();
     expect(screen.queryByTestId('admin-dashboard')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /ติดตามการดึงข้อมูล TOR/ })).not.toBeInTheDocument();
   });
