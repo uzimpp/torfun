@@ -1,5 +1,5 @@
-import { FileSearch } from 'lucide-react';
 import { AdminDashboard } from '@/components/admin-dashboard/admin-dashboard';
+import { OfficerDashboard } from '@/components/dashboard/officer-dashboard';
 import { requireCompany } from '@/lib/auth';
 
 export default async function DashboardPage() {
@@ -19,19 +19,7 @@ export default async function DashboardPage() {
       {user.company_name && (
         <p className="text-muted-foreground mt-3 break-words">{user.company_name}</p>
       )}
-      <section
-        aria-labelledby="workspace-heading"
-        className="bg-card mt-10 rounded-3xl border p-6 sm:p-10"
-      >
-        <FileSearch className="text-primary mb-6 size-10" aria-hidden="true" />
-        <h2 id="workspace-heading" className="text-2xl font-medium">
-          พื้นที่สำหรับโอกาสถัดไปของทีม
-        </h2>
-        <p className="text-muted-foreground mt-4 max-w-xl">
-          เริ่มต้นจากเมนูด้านข้างเพื่อใช้งานส่วนที่พร้อมให้บริการ การค้นหา TOR และ TOR
-          ของฉันกำลังอยู่ระหว่างการพัฒนา
-        </p>
-      </section>
+      <OfficerDashboard />
     </main>
   );
 }
