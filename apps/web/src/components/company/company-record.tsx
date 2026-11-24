@@ -91,6 +91,7 @@ export function CompanyRecord({
             <CompanyQualificationsPanel key={data.company.id} companyId={data.company.id} />
           )}
 
+          <div id="experience" className="scroll-mt-24" />
           <ExperienceList
             clients={data.clients}
             experiences={data.experiences}

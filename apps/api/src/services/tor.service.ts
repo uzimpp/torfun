@@ -1,4 +1,5 @@
 import {
+  summarizeQualificationChecks,
   thailandDay,
   type Procurement,
   type TorAnalysis,
@@ -52,11 +53,12 @@ export class TorService {
         ? await this.qualifications?.matchingInputs(userId)
         : null;
     const today = thailandDay(now);
-    const score = (clauses: TorAnalysis['qualifications'], projectMoney: number | null) =>
+    const evaluate = (clauses: TorAnalysis['qualifications'], projectMoney: number | null) =>
       clauses?.length && inputs
         ? evaluateQualifications(clauses, inputs.profile, inputs.experiences, today, projectMoney)
-            .overallScore
         : null;
+    const score = (clauses: TorAnalysis['qualifications'], projectMoney: number | null) =>
+      evaluate(clauses, projectMoney)?.overallScore ?? null;
     const canScore =
       inputs &&
       (inputs.experiences.length ||
@@ -70,12 +72,17 @@ export class TorService {
       ...(canScore && order === 'match' ? { scoreQualifications: score } : {}),
     });
     return {
-      items: items.map((item) => ({
-        ...presentTo(audience, item),
-        ...(canScore
-          ? { matchScore: score(item.analysis?.qualifications, item.projectMoney) }
-          : {}),
-      })),
+      items: items.map((item) => {
+        if (!canScore) return presentTo(audience, item);
+        const evaluation = evaluate(item.analysis?.qualifications, item.projectMoney);
+        return {
+          ...presentTo(audience, item),
+          matchScore: evaluation?.overallScore ?? null,
+          matchSummary: evaluation
+            ? summarizeQualificationChecks(evaluation.checks, evaluation.budgetRule)
+            : null,
+        };
+      }),
       total,
     };
   }

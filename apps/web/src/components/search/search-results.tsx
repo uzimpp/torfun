@@ -22,6 +22,7 @@ import { ProcurementStatusBadge } from './procurement-status-badge';
 import { hasSearchCriteria, searchHref, type SearchFilterValues } from './search-filter-values';
 import { ProcurementTiming } from './procurement-timing';
 import { RESULT_LIMIT, useTorSearch, type SearchBlock } from './use-tor-search';
+import { MatchReason } from './match-reason';
 
 const bahtFormat = new Intl.NumberFormat('th-TH', {
   style: 'currency',
@@ -251,6 +252,13 @@ function ResultRow({ item, detailHref }: { item: TorListItem; detailHref: string
               คะแนนคุณสมบัติโดยประมาณ {Math.round(item.matchScore * 100)}%
             </span>
           )}
+        </div>
+        <div className="mt-2 empty:hidden">
+          <MatchReason
+            score={item.matchScore}
+            summary={item.matchSummary}
+            detailHref={detailHref}
+          />
         </div>
 
         <div className="grid gap-5 md:grid-cols-[minmax(0,4fr)_minmax(9rem,1fr)] md:items-start md:gap-4">

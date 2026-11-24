@@ -4,6 +4,7 @@ import {
   type Experience,
   type PersonnelQualification,
   type QualificationCheck,
+  type QualificationReason,
   type QualificationMatchResult,
   type TorQualification,
 } from '@torfun/types';
@@ -17,8 +18,9 @@ const standardKey = (text: string) =>
     .replace(/\s+/g, '');
 const check = (
   status: QualificationCheck['status'],
+  reason: QualificationReason | undefined,
   ...evidence: string[]
-): QualificationCheck => ({ status, evidence });
+): QualificationCheck => ({ status, evidence, ...(reason ? { reason } : {}) });
 const recorded = (meets: boolean) => (meets ? 'met' : 'not_met');
 const noEvidence = 'ยังไม่มีข้อมูลบริษัทที่ใช้ตรวจเงื่อนไขนี้';
 const manualReview = 'ต้องตรวจเงื่อนไขข้อนี้ในเอกสารต้นฉบับ';
@@ -30,9 +32,9 @@ function pastWork(
   experiences: Experience[],
 ) {
   const { workType, minValueThb } = requirement;
-  if (!experiences.length) return check('unknown', noEvidence);
+  if (!experiences.length) return check('unknown', 'setup_experience', noEvidence);
   if (workType === null && minValueThb === null) {
-    return check('unknown', 'ต้องตรวจรายละเอียดผลงานตามข้อกำหนดใน TOR');
+    return check('unknown', 'manual_review', 'ต้องตรวจรายละเอียดผลงานตามข้อกำหนดใน TOR');
   }
   const eligible = experiences.filter(
     (item) =>
@@ -57,16 +59,18 @@ function pastWork(
       (workType === null || item.workType != null) &&
       (minValueThb === null || item.contractValueThb != null),
   );
-  if (proven) return check('met', evidence(proven));
+  if (proven) return check('met', undefined, evidence(proven));
   if (candidates.length) {
     return check(
       'unknown',
+      'setup_experience',
       'ประเภทหรือมูลค่าผลงานยังไม่ครบ',
       ...candidates.slice(0, 3).map(evidence),
     );
   }
   return check(
     'not_met',
+    'experience_missing',
     'ไม่มีผลงานที่บันทึกไว้ตรงตามประเภทและมูลค่าที่ระบุ',
     ...(eligible.length ? eligible : experiences).slice(0, 3).map(evidence),
   );
@@ -107,14 +111,18 @@ function compare(
   today: string,
 ): QualificationCheck {
   if (requirement.manualReviewReason) {
-    return check('unknown', manualReview, requirement.manualReviewReason);
+    return check('unknown', 'manual_review', manualReview, requirement.manualReviewReason);
   }
-  if (requirement.kind === 'manual') return check('unknown', manualReview);
+  if (requirement.kind === 'manual') return check('unknown', 'manual_review', manualReview);
   if (requirement.kind === 'personnel' && personnelProjectCount.test(requirement.text)) {
-    return check('unknown', 'ต้องตรวจจำนวนโครงการของบุคลากรจากเอกสารต้นฉบับ');
+    return check('unknown', 'manual_review', 'ต้องตรวจจำนวนโครงการของบุคลากรจากเอกสารต้นฉบับ');
   }
   if (requirement.manualReviewReason === undefined) {
-    return check('unknown', 'ยังไม่ทราบว่าข้อมูลที่สกัดครอบคลุมทุกเงื่อนไข โปรดตรวจเอกสารต้นฉบับ');
+    return check(
+      'unknown',
+      'manual_review',
+      'ยังไม่ทราบว่าข้อมูลที่สกัดครอบคลุมทุกเงื่อนไข โปรดตรวจเอกสารต้นฉบับ',
+    );
   }
 
   switch (requirement.kind) {
@@ -122,15 +130,16 @@ function compare(
       return pastWork(requirement, experiences);
     case 'registered_capital': {
       const capital = profile.registeredCapitalThb;
-      return capital === null
-        ? check('unknown', noEvidence)
-        : check(
-            recorded(capital >= requirement.minValueThb),
-            `ทุนจดทะเบียน ${thb.format(capital)}`,
-          );
+      if (capital === null) return check('unknown', 'setup_capital', noEvidence);
+      const enough = capital >= requirement.minValueThb;
+      return check(
+        recorded(enough),
+        enough ? undefined : 'capital_below',
+        `ทุนจดทะเบียน ${thb.format(capital)}`,
+      );
     }
     case 'company_certificate': {
-      if (!profile.certificates.length) return check('unknown', noEvidence);
+      if (!profile.certificates.length) return check('unknown', 'setup_certificates', noEvidence);
       const relevant = profile.certificates.filter(
         (certificate) =>
           standardKey(certificate.standard) === standardKey(requirement.standard) &&
@@ -140,17 +149,22 @@ function compare(
       const active = relevant.find((certificate) => !certificateExpired(certificate, today));
       const evidence = (certificate: (typeof relevant)[number]) =>
         `${certificate.name} · ${certificate.standard} · ${certificate.issuer} · ${certificate.validUntil}`;
-      if (active) return check('met', evidence(active));
+      if (active) return check('met', undefined, evidence(active));
       return relevant.length
         ? check(
             'not_met',
+            'certificate_expired',
             'ใบรับรองที่ตรงเงื่อนไขหมดอายุแล้ว',
             ...relevant.slice(0, 3).map(evidence),
           )
-        : check('not_met', 'ไม่มีใบรับรองบริษัทที่บันทึกไว้ตรงตามมาตรฐานและผู้ออกที่ระบุ');
+        : check(
+            'not_met',
+            'certificate_missing',
+            'ไม่มีใบรับรองบริษัทที่บันทึกไว้ตรงตามมาตรฐานและผู้ออกที่ระบุ',
+          );
     }
     case 'personnel': {
-      if (!profile.personnel.length) return check('unknown', noEvidence);
+      if (!profile.personnel.length) return check('unknown', 'setup_personnel', noEvidence);
       const candidates = profile.personnel.filter(
         (person) => normalized(person.role) === normalized(requirement.role),
       );
@@ -175,7 +189,17 @@ function compare(
         needed === null || (met < needed && met + unknown >= needed)
           ? 'unknown'
           : recorded(met >= needed);
-      return check(status, summary, ...evidence);
+      // Unanswered with no headcount to count against is the TOR's gap; unanswered
+      // because the roster lacks a degree, years or certificate is the company's.
+      const reason =
+        status === 'met'
+          ? undefined
+          : status === 'not_met'
+            ? 'personnel_short'
+            : needed === null
+              ? 'manual_review'
+              : 'setup_personnel';
+      return check(status, reason, summary, ...evidence);
     }
   }
 }
@@ -194,9 +218,15 @@ export function checkBudgetRule(
   const range = `ช่วงงบประมาณที่บริษัทยื่น ${min === null ? 'ไม่กำหนด' : thb.format(min)} – ${
     max === null ? 'ไม่กำหนด' : thb.format(max)
   }`;
-  if (budgetThb == null) return check('unknown', 'TOR ไม่ได้ประกาศงบประมาณ', range);
+  if (budgetThb == null)
+    return check('unknown', 'budget_not_announced', 'TOR ไม่ได้ประกาศงบประมาณ', range);
   const inside = (min === null || budgetThb >= min) && (max === null || budgetThb <= max);
-  return check(recorded(inside), `งบประมาณโครงการ ${thb.format(budgetThb)}`, range);
+  return check(
+    recorded(inside),
+    inside ? undefined : 'budget_outside_range',
+    `งบประมาณโครงการ ${thb.format(budgetThb)}`,
+    range,
+  );
 }
 
 export function evaluateQualifications(

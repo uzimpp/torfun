@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import { EMPTY_TIMELINE, type Procurement } from '@torfun/types';
 import { SearchResults } from './search-results';
@@ -140,5 +141,53 @@ describe('SearchResults cards', () => {
     expect(
       within(card as HTMLElement).getByText('งบประมาณ').parentElement?.parentElement,
     ).toHaveClass('md:self-start', 'md:justify-self-end');
+  });
+});
+
+describe('SearchResults match reason', () => {
+  const show = (overrides: Record<string, unknown>) => {
+    vi.mocked(useTorSearch).mockReturnValue({
+      items: [{ ...item, ...overrides }],
+      total: 1,
+      loading: false,
+      block: null,
+      detail: null,
+    });
+    render(
+      <SearchResults
+        filters={EMPTY_SEARCH_FILTERS}
+        page={1}
+        onPageChange={vi.fn()}
+        onOrderChange={vi.fn()}
+      />,
+    );
+  };
+
+  test('a row with no clause summary shows only what it did before', () => {
+    show({ matchScore: null });
+    expect(screen.queryByRole('button', { name: 'ดูเหตุผลของคะแนน' })).not.toBeInTheDocument();
+  });
+
+  test('a row says why the score is what it is, and [>] opens the breakdown and a way to fix it', async () => {
+    show({
+      matchScore: null,
+      matchSummary: {
+        total: 3,
+        met: 0,
+        notMet: 0,
+        needsSetup: 3,
+        needsReview: 0,
+        budgetOutsideRange: false,
+        setupSections: ['certificates'],
+      },
+    });
+
+    expect(screen.getByText('ยังให้คะแนนไม่ได้ ต้องบันทึก: ใบรับรองบริษัท')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'ดูเหตุผลของคะแนน' }));
+    expect(await screen.findByText('3 ข้อ')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /ตั้งค่าใบรับรองบริษัท/ })).toHaveAttribute(
+      'href',
+      '/company#certificates',
+    );
   });
 });

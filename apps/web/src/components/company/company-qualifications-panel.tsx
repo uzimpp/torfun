@@ -95,7 +95,7 @@ function QualificationsOverview({
   const today = thailandDay(new Date());
   return (
     <div className="grid gap-5 text-sm">
-      <p>
+      <p id="capital" className="scroll-mt-24">
         ทุนจดทะเบียน{' '}
         {profile.registeredCapitalThb === null
           ? 'ยังไม่ได้ระบุ'
@@ -107,7 +107,7 @@ function QualificationsOverview({
           ? 'ไม่กำหนด'
           : `${profile.bidBudgetMinThb === null ? 'ไม่กำหนดขั้นต่ำ' : `${profile.bidBudgetMinThb.toLocaleString('th-TH')} บาท`} – ${profile.bidBudgetMaxThb === null ? 'ไม่กำหนดสูงสุด' : `${profile.bidBudgetMaxThb.toLocaleString('th-TH')} บาท`}`}
       </p>
-      <div>
+      <div id="certificates" className="scroll-mt-24">
         <h3 className="font-medium">ใบรับรองบริษัท</h3>
         {profile.certificates.length ? (
           <ul className="mt-2 space-y-2">
@@ -124,7 +124,7 @@ function QualificationsOverview({
           <p className="text-muted-foreground mt-2">ยังไม่มีใบรับรองบริษัท</p>
         )}
       </div>
-      <div>
+      <div id="personnel" className="scroll-mt-24">
         <h3 className="font-medium">บุคลากร</h3>
         {profile.personnel.length ? (
           <ul className="mt-2 space-y-2">
